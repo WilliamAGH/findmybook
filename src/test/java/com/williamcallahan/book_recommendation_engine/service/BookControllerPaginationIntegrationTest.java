@@ -89,7 +89,7 @@ class BookControllerPaginationIntegrationTest {
     }
 
     @Test
-    @DisplayName("Page 1 honours Postgres-first ordering and exposes prefetch metadata")
+    @DisplayName("Page 1 honors Postgres-first ordering and exposes prefetch metadata")
     void firstPageMaintainsOrderingAndPrefetch() throws Exception {
         MvcResult result = performAsync(get("/api/books/search")
                 .param("query", "multi")

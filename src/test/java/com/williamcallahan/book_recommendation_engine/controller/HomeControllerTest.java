@@ -11,9 +11,10 @@ import com.williamcallahan.book_recommendation_engine.model.Book;
 import com.williamcallahan.book_recommendation_engine.repository.BookQueryRepository;
 import com.williamcallahan.book_recommendation_engine.service.BookDataOrchestrator;
 import com.williamcallahan.book_recommendation_engine.service.BookIdentifierResolver;
-import com.williamcallahan.book_recommendation_engine.service.BookSearchService;
+import com.williamcallahan.book_recommendation_engine.service.SearchPaginationService;
 import com.williamcallahan.book_recommendation_engine.service.RecentlyViewedService;
 import com.williamcallahan.book_recommendation_engine.util.ApplicationConstants;
+import com.williamcallahan.book_recommendation_engine.util.SearchQueryUtils;
 // Use fully-qualified names for image services to avoid import resolution issues in test slice
 import com.williamcallahan.book_recommendation_engine.model.image.CoverImages;
 import com.williamcallahan.book_recommendation_engine.model.image.CoverImageSource;
@@ -21,10 +22,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.http.HttpStatus;
@@ -35,7 +38,6 @@ import java.util.Collections;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.anyString; // For mocking getSimilarBooks
 import static org.mockito.ArgumentMatchers.anyInt; // For mocking getSimilarBooks
-import static org.mockito.ArgumentMatchers.any; // For mocking any objects
 import static org.mockito.ArgumentMatchers.eq; // For mocking specific values
 import reactor.core.publisher.Mono; // For mocking reactive service
 import com.williamcallahan.book_recommendation_engine.service.NewYorkTimesService;
@@ -56,9 +58,6 @@ class HomeControllerTest {
     private RecentlyViewedService recentlyViewedService;
     
     @org.springframework.beans.factory.annotation.Autowired
-    private com.williamcallahan.book_recommendation_engine.service.image.BookCoverManagementService bookCoverManagementService;
-
-    @org.springframework.beans.factory.annotation.Autowired
     private com.williamcallahan.book_recommendation_engine.service.image.LocalDiskCoverCacheService localDiskCoverCacheService;
     
     @org.springframework.beans.factory.annotation.Autowired
@@ -70,19 +69,20 @@ class HomeControllerTest {
     @org.springframework.beans.factory.annotation.Autowired
     private BookIdentifierResolver bookIdentifierResolver;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private SearchPaginationService searchPaginationService;
+
     @TestConfiguration
     static class MocksConfig {
         @Bean BookDataOrchestrator bookDataOrchestrator() { return Mockito.mock(BookDataOrchestrator.class); }
         @Bean RecentlyViewedService recentlyViewedService() { return Mockito.mock(RecentlyViewedService.class); }
-        @Bean com.williamcallahan.book_recommendation_engine.service.image.BookImageOrchestrationService bookImageOrchestrationService() { return Mockito.mock(com.williamcallahan.book_recommendation_engine.service.image.BookImageOrchestrationService.class); }
-        @Bean com.williamcallahan.book_recommendation_engine.service.image.BookCoverManagementService bookCoverManagementService() { return Mockito.mock(com.williamcallahan.book_recommendation_engine.service.image.BookCoverManagementService.class); }
         @Bean com.williamcallahan.book_recommendation_engine.service.image.LocalDiskCoverCacheService localDiskCoverCacheService() { return Mockito.mock(com.williamcallahan.book_recommendation_engine.service.image.LocalDiskCoverCacheService.class); }
         @Bean com.williamcallahan.book_recommendation_engine.service.EnvironmentService environmentService() { return Mockito.mock(com.williamcallahan.book_recommendation_engine.service.EnvironmentService.class); }
         @Bean com.williamcallahan.book_recommendation_engine.service.DuplicateBookService duplicateBookService() { return Mockito.mock(com.williamcallahan.book_recommendation_engine.service.DuplicateBookService.class); }
         @Bean com.williamcallahan.book_recommendation_engine.service.AffiliateLinkService affiliateLinkService() { return Mockito.mock(com.williamcallahan.book_recommendation_engine.service.AffiliateLinkService.class); }
         @Bean NewYorkTimesService newYorkTimesService() { return Mockito.mock(NewYorkTimesService.class); }
         @Bean BookQueryRepository bookQueryRepository() { return Mockito.mock(BookQueryRepository.class); }
-        @Bean BookSearchService bookSearchService() { return Mockito.mock(BookSearchService.class); }
+        @Bean SearchPaginationService searchPaginationService() { return Mockito.mock(SearchPaginationService.class); }
         @Bean BookIdentifierResolver bookIdentifierResolver() { return Mockito.mock(BookIdentifierResolver.class); }
     }
     
@@ -102,22 +102,6 @@ class HomeControllerTest {
         when(bookQueryRepository.fetchBookDetail(org.mockito.ArgumentMatchers.any(UUID.class))).thenReturn(Optional.empty());
 
         when(bookIdentifierResolver.resolveToUuid(anyString())).thenReturn(Optional.empty());
-
-        // Configure BookCoverManagementService with mock cover generation
-        when(bookCoverManagementService.getInitialCoverUrlAndTriggerBackgroundUpdate(any(Book.class)))
-            .thenAnswer(invocation -> {
-                Book book = invocation.getArgument(0);
-                String mockCoverUrl = "http://example.com/mockcover/" + book.getId() + ".jpg";
-                CoverImages coverImages = new CoverImages(
-                    mockCoverUrl,
-                    mockCoverUrl,
-                    CoverImageSource.UNDEFINED
-                );
-                book.setCoverImages(coverImages);
-                book.setExternalImageUrl(mockCoverUrl);
-                return Mono.just(coverImages);
-            });
-
         when(localDiskCoverCacheService.getLocalPlaceholderPath()).thenReturn(ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH);
     
         // Configure RecentlyViewedService to return empty BookCard IDs by default
@@ -125,6 +109,55 @@ class HomeControllerTest {
             .thenReturn(java.util.Collections.emptyList());
 
         when(bookDataOrchestrator.fetchCanonicalBookReactive(anyString())).thenReturn(Mono.empty());
+
+        when(searchPaginationService.search(org.mockito.ArgumentMatchers.any()))
+            .thenReturn(Mono.just(new SearchPaginationService.SearchPage(
+                "",
+                0,
+                ApplicationConstants.Paging.DEFAULT_SEARCH_LIMIT,
+                0,
+                0,
+                List.of(),
+                List.of(),
+                false,
+                0,
+                0,
+                "newest"
+            )));
+    }
+
+    @Test
+    void searchPageDelegatesToPaginationService() {
+        Book resultBook = createTestBook("11111111-1111-4111-8111-222222222222", "Delegated Result", "Author Sample");
+
+        SearchPaginationService.SearchPage page = new SearchPaginationService.SearchPage(
+            "java",
+            0,
+            ApplicationConstants.Paging.DEFAULT_SEARCH_LIMIT,
+            ApplicationConstants.Paging.DEFAULT_SEARCH_LIMIT,
+            1,
+            List.of(resultBook),
+            List.of(resultBook),
+            false,
+            ApplicationConstants.Paging.DEFAULT_SEARCH_LIMIT,
+            0,
+            "newest"
+        );
+
+        when(searchPaginationService.search(org.mockito.ArgumentMatchers.any()))
+            .thenReturn(Mono.just(page));
+
+        webTestClient.get().uri("/search?query=java")
+            .exchange()
+            .expectStatus().isOk();
+
+        ArgumentCaptor<SearchPaginationService.SearchRequest> captor = ArgumentCaptor.forClass(SearchPaginationService.SearchRequest.class);
+        Mockito.verify(searchPaginationService).search(captor.capture());
+
+        SearchPaginationService.SearchRequest captured = captor.getValue();
+        assertEquals(SearchQueryUtils.normalize("java"), captured.query());
+        assertEquals(0, captured.startIndex());
+        assertEquals(ApplicationConstants.Paging.DEFAULT_SEARCH_LIMIT, captured.maxResults());
     }
 
     @Test
@@ -270,7 +303,7 @@ class HomeControllerTest {
                     assertTrue(body.contains("NYT Bestsellers"), "Response body did not contain 'NYT Bestsellers' header.\nBody:\n" + body);
                     assertFalse(body.contains("No current bestsellers to display."), "Bestsellers section unexpectedly empty.\nBody:\n" + body);
                     assertFalse(body.contains("No recent books to display."), "Recent section unexpectedly empty.\nBody:\n" + body);
-                    assertTrue(body.contains("class=\"card h-100\""), "Expected at least one rendered book card.\nBody:\n" + body);
+                    assertTrue(body.contains("class=\"group h-full"), "Expected at least one rendered book card.\nBody:\n" + body);
                 } catch (AssertionError e) {
                     System.out.println("\n\n==== DEBUG: Response Body ====");
                     System.out.println(body);

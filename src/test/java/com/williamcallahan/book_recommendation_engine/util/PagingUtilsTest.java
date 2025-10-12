@@ -23,7 +23,7 @@ class PagingUtilsTest {
     }
 
     @Test
-    @DisplayName("safeLimit honours defaults and clamps to bounds")
+    @DisplayName("safeLimit honors defaults and clamps to bounds")
     void safeLimitClampsWithDefault() {
         assertThat(PagingUtils.safeLimit(0, 10, 1, 50)).isEqualTo(10);
         assertThat(PagingUtils.safeLimit(-5, 10, 1, 50)).isEqualTo(10);

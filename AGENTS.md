@@ -27,6 +27,7 @@
 - ❌ **NEVER** create inline styles in templates
 - ❌ **NEVER** exceed 500 lines per file (split immediately at ~400 lines)
 - ❌ **NEVER** create new files without explicit user permission
+- ❌ **NEVER** use British English in code or comments; exclusively use American English
 
 ### Migration & Database Rules
 
@@ -41,8 +42,8 @@
 
 ## 2. Actors & Responsibility
 
-- **User**: Defines requirements, prioritises work, approves changes, and ultimately owns all outcomes.
-- **AI Agent**: Executes only the work the User authorises and keeps all artefacts aligned with this manual.
+- **User**: Defines requirements, prioritizes work, approves changes, and ultimately owns all outcomes.
+- **AI Agent**: Executes only the work the User authorizes and keeps all artifacts aligned with this manual.
 
 ## 3. Core Operating Principles
 
@@ -72,7 +73,7 @@
 
 ## 6. Testing Strategy
 
-- Apply risk-based testing and follow the test pyramid: unit at the base, integration for cross-component behaviour, E2E for critical flows.
+- Apply risk-based testing and follow the test pyramid: unit at the base, integration for cross-component behavior, E2E for critical flows.
 - Provide a lightweight test plan in your response when implementing code. Scale detail with risk.
 - Prefer automated tests; document any manual verification you perform or that remains outstanding.
 
