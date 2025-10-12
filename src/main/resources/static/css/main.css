@@ -524,10 +524,11 @@ section {
 }
 
 /* Footer uses dedicated footer background variable, not card-bg */
-[data-theme="dark"] footer {
+/* REMOVED: Tailwind classes handle footer styling in layout.html */
+/* [data-theme="dark"] footer {
     background-color: var(--footer-background-color);
     color: var(--footer-text-color);
-}
+} */
 
 [data-theme="dark"] .text-decoration-none.text-dark,
 [data-theme="dark"] .card-title a {
