@@ -29,11 +29,6 @@ import lombok.Setter;
 @EqualsAndHashCode(onlyExplicitlyIncluded = true)
 public class Book {
 
-    private static final String S3_AMAZON_HOST_FRAGMENT = "s3.amazonaws.com";
-    private static final String S3_COMPATIBLE_HOST_SUFFIX = ".digitaloceanspaces.com";
-    private static final String HTTP_PREFIX = "http://";
-    private static final String HTTPS_PREFIX = "https://";
-
     @EqualsAndHashCode.Include
     private String id;
     private String slug;
@@ -141,56 +136,6 @@ public class Book {
         this.collections.add(assignment);
     }
 
-    /**
-     * @deprecated Use {@link #getS3ImagePath()} or {@link #getExternalImageUrl()} instead.
-     */
-    @Deprecated // Use getS3ImagePath() or getExternalImageUrl()
-    public String getCoverImageUrl() {
-        return (s3ImagePath != null && !s3ImagePath.isEmpty()) ? s3ImagePath : externalImageUrl;
-    }
-
-    /**
-     * @deprecated Use {@link #setS3ImagePath(String)} or {@link #setExternalImageUrl(String)} instead.
-     */
-    @Deprecated // Use setS3ImagePath() or setExternalImageUrl()
-    public void setCoverImageUrl(String coverImageUrl) {
-        // Don't overwrite existing values with null
-        if (coverImageUrl == null) {
-            return;
-        }
-
-        String candidate = coverImageUrl.trim();
-        if (candidate.isEmpty()) {
-            return;
-        }
-
-        // Check if it's an S3 URL (amazonaws.com or other S3-compatible services)
-        if (isS3Url(candidate)) {
-            this.s3ImagePath = candidate;
-        } else if (candidate.startsWith(HTTP_PREFIX) || candidate.startsWith(HTTPS_PREFIX)) {
-            // External URL (Google Books, Open Library, etc.)
-            this.externalImageUrl = candidate;
-        } else {
-            // Relative path or S3 key (no protocol)
-            this.s3ImagePath = candidate;
-        }
-    }
-
-    /**
-     * @deprecated Use {@link #getExternalImageUrl()} instead.
-     */
-    @Deprecated // Use getExternalImageUrl()
-    public String getImageUrl() {
-        return externalImageUrl;
-    }
-
-    /**
-     * @deprecated Use {@link #setExternalImageUrl(String)} instead.
-     */
-    @Deprecated // Use setExternalImageUrl()
-    public void setImageUrl(String imageUrl) {
-        this.externalImageUrl = imageUrl;
-    }
 
     public void setQualifiers(Map<String, Object> qualifiers) {
         if (qualifiers == null || qualifiers.isEmpty()) {
@@ -230,27 +175,6 @@ public class Book {
                 this.cachedRecommendationIds.add(recommendationId);
             }
         }
-    }
-
-    private boolean isS3Url(String url) {
-        String trimmed = url.trim();
-        if (trimmed.isEmpty()) {
-            return false;
-        }
-        if (trimmed.startsWith(HTTP_PREFIX) || trimmed.startsWith(HTTPS_PREFIX)) {
-            try {
-                String host = java.net.URI.create(trimmed).getHost();
-                if (host == null) {
-                    return false;
-                }
-                String lowerHost = host.toLowerCase();
-                return lowerHost.contains(S3_AMAZON_HOST_FRAGMENT) || lowerHost.endsWith(S3_COMPATIBLE_HOST_SUFFIX);
-            } catch (IllegalArgumentException ignored) {
-                // fall through to string contains check when URI parsing fails
-            }
-        }
-        String lower = trimmed.toLowerCase();
-        return lower.contains(S3_AMAZON_HOST_FRAGMENT) || lower.contains(S3_COMPATIBLE_HOST_SUFFIX);
     }
 
     public void setPublisher(String publisher) {

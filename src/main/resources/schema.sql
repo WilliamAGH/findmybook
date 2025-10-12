@@ -402,6 +402,7 @@ create table if not exists book_image_links (
   book_id uuid not null references books(id) on delete cascade,
   image_type text not null, -- JSON keys: 'smallThumbnail', 'thumbnail', 'small', 'medium', 'large', 'extraLarge'
   url text not null, -- JSON: volumeInfo.imageLinks.{imageType} - full external URL
+  s3_image_path text, -- Internal S3 key when image has been persisted
   source text, -- 'GOOGLE_BOOKS', etc. - which API provided this image
   width integer, -- Image width in pixels (estimated or actual)
   height integer, -- Image height in pixels (estimated or actual)
