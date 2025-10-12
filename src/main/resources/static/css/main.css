@@ -28,75 +28,48 @@
    overridden by CSS in this file, causing persistent visual regressions.
    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! */
 
+/* =============================================================================
+   CASCADE LAYER ARCHITECTURE
+   Layers define specificity hierarchy without !important hacks.
+   Order: reset < base < components < utilities < theme-overrides
+   ============================================================================= */
+@layer reset, base, components, utilities, theme-overrides;
+
 /* Base Styles - Minimal fallbacks for legacy pages */
-body {
-    font-family: var(--font-family-body);
-    background-color: var(--bg-color);
-    color: var(--text-color-primary);
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    line-height: 1.6;
-    margin: 0;
-    padding-top: 0;
-    border-top: 0;
-}
-
-/* @deprecated - Replaced by Tailwind navbar background
- * Old purple navbar gradient no longer used */
-html {
-    margin: 0;
-    padding: 0;
-    border: 0;
-    overscroll-behavior-y: contain; /* Prevent bounce overscroll showing browser background */
-}
-
-/* @deprecated - Replaced by Tailwind navbar
- * Set HTML background to match navbar start color for each theme */
-html:not([data-theme="dark"]) { /* Assumes light theme by default or when data-theme="light" */
-    background-color: #FDFCFA; /* Light mode linen background */
-}
-
-html[data-theme="dark"] {
-    background-color: #171A23; /* Dark mode obsidian background */
+@layer base {
+    body {
+        font-family: var(--font-family-body);
+        background-color: var(--bg-color);
+        color: var(--text-color-primary);
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        line-height: 1.6;
+        margin: 0;
+        padding-top: 0;
+        border-top: 0;
+    }
 }
 
 /* KEEP - Still used for fallback typography, but will be replaced incrementally */
-h1, h2, h3, h4, h5, h6 {
-    font-family: var(--font-family-headings);
-    margin-bottom: 1rem;
-    font-weight: 700;
-    color: var(--text-color-primary);
-}
+@layer base {
+    h1, h2, h3, h4, h5, h6 {
+        font-family: var(--font-family-headings);
+        margin-bottom: 1rem;
+        font-weight: 700;
+        color: var(--text-color-primary);
+    }
 
-/* KEEP - Still used for fallback link styles */
-a {
-    color: var(--link-color);
-    text-decoration: none;
-    transition: all 0.3s ease;
-}
+    /* KEEP - Still used for fallback link styles */
+    a {
+        color: var(--link-color);
+        text-decoration: none;
+        transition: all 0.3s ease;
+    }
 
-a:hover {
-    color: var(--link-hover-color);
-}
-
-/* @deprecated - Replaced by Tailwind utility classes
- * Layout */
-.main-content {
-    flex: 1;
-    padding: 0;
-}
-
-/* @deprecated - Replaced by Tailwind container mx-auto px-4 */
-.container {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 0 1rem;
-}
-
-/* @deprecated - Replaced by Tailwind section classes with explicit spacing */
-section {
-    margin-bottom: 3rem;
+    a:hover {
+        color: var(--link-hover-color);
+    }
 }
 
 
@@ -166,23 +139,6 @@ section {
 }
 /* END DEPRECATED NAVBAR STYLES */
 
-/* =============================================================================
-   @deprecated - FOOTER STYLES - FULLY REPLACED
-   Old footer replaced with Tailwind in layout.html:331-355
-   New: Clean minimal footer with flex layout
-   ============================================================================= */
-.footer {
-    background-color: #080D14;
-    padding: 1.5rem 0;
-    margin-top: auto;
-    box-shadow: 0 -4px 6px -1px rgba(0, 0, 0, 0.07);
-}
-/* END DEPRECATED FOOTER STYLES */
-
-
-
-
-
 /* Badges */
 /* Commenting out the problematic .badge.bg-light to avoid conflicts with the more specific .hero-section .badge styling */
 /*
@@ -242,7 +198,7 @@ section {
 
 .metadata-label {
     font-size: 0.875rem;
-    color: var(--grey-500);
+    color: var(--gray-500);
     margin-bottom: 0.25rem;
 }
 
@@ -364,7 +320,7 @@ section {
 }
 
 .pagination .page-item.disabled .page-link {
-    color: var(--grey-400);
+    color: var(--gray-400);
     pointer-events: none;
 }
 /* END Pagination */
@@ -424,36 +380,6 @@ section {
     }
 }
 /* END Media Queries */
-
-/* =============================================================================
-   @deprecated - THEME TOGGLE HEADER - REPLACED
-   Old theme toggle styling replaced with Tailwind button in layout.html:207-227
-   ============================================================================= */
-.theme-toggle-header {
-    display: inline-flex;
-    align-items: center;
-    color: var(--dark-color);
-    font-size: 1.125rem;
-    transition: color 0.2s ease-in-out, background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
-}
-
-.theme-toggle-header:hover {
-    color: var(--primary-color);
-    background-color: rgba(0, 0, 0, 0.05);
-    border-radius: 0.375rem;
-    padding: 0.25rem;
-}
-
-[data-theme="dark"] .theme-toggle-header:hover {
-    background-color: rgba(255, 255, 255, 0.1);
-    color: var(--primary-color);
-}
-
-/* Remove leftover theme-toggle-item styles */
-.theme-toggle-item {
-    display: none;
-}
-/* END DEPRECATED THEME TOGGLE HEADER */
 
 /* =============================================================================
    KEEP - Dark Theme Base
@@ -516,19 +442,227 @@ section {
     color: var(--text-color-primary);
 }
 
-/* Fixes for elements that might have explicit light theme backgrounds or text colors */
-[data-theme="dark"] .card-footer.bg-white,
-[data-theme="dark"] .card .bg-white,
-[data-theme="dark"] .search-header {
-    background-color: var(--card-bg);
+/* =============================================================================
+   COMPONENT-SPECIFIC DARK MODE RULES
+   Rules for cards and search headers in dark mode
+   ============================================================================= */
+@layer components {
+    /* Card components with explicit light backgrounds need dark mode override */
+    [data-theme="dark"] .card-footer.bg-white,
+    [data-theme="dark"] .card .bg-white,
+    [data-theme="dark"] .search-header {
+        background-color: var(--card-bg);
+    }
 }
 
-/* Footer uses dedicated footer background variable, not card-bg */
-/* REMOVED: Tailwind classes handle footer styling in layout.html */
-/* [data-theme="dark"] footer {
-    background-color: var(--footer-background-color);
-    color: var(--footer-text-color);
-} */
+/* =============================================================================
+   THEME OVERRIDES - Highest Priority Without !important
+   These rules override Tailwind and component styles for theme switching
+   ============================================================================= */
+@layer theme-overrides {
+    /* Body and main content - Light mode defaults */
+    .theme-body,
+    main,
+    .main-content {
+        background-color: #FAF8F5; /* linen-50 light mode */
+        padding-top: 2rem; /* Add space between navbar and content */
+    }
+    
+    .theme-footer {
+        background-color: #FFFFFF; /* white light mode */
+    }
+    
+    /* Body and main content dark mode - slate-800 background to match sections, slate-50 text */
+    [data-theme="dark"] body,
+    [data-theme="dark"] .theme-body,
+    [data-theme="dark"] main,
+    [data-theme="dark"] .main-content {
+        background-color: #1E293B; /* slate-800 - unified with all sections */
+        color: #F8FAFC; /* slate-50 */
+        padding-top: 2rem; /* Add space between navbar and content */
+    }
+    
+    /* Footer dark mode - slate-800 to match navbar elevation */
+    [data-theme="dark"] footer,
+    [data-theme="dark"] .theme-footer {
+        background-color: #1E293B; /* slate-800 */
+        border-color: #334155; /* slate-700 */
+    }
+    
+    /* Navbar border colors - Light mode default and dark mode override */
+    .theme-navbar-border {
+        border-color: rgba(230, 220, 200, 0.6); /* anthracite-200 with opacity for light mode */
+    }
+    
+    [data-theme="dark"] .theme-navbar-border {
+        border-color: transparent; /* No visible border in dark mode */
+    }
+    
+    /* Footer border colors - Light mode default and dark mode override */
+    .theme-footer-border {
+        border-color: #EDE6D9; /* linen-300 for light mode */
+    }
+    
+    [data-theme="dark"] .theme-footer-border {
+        border-color: #334155; /* slate-700 for dark mode */
+    }
+    
+    /* Footer text colors in dark mode */
+    [data-theme="dark"] .theme-footer-text {
+        color: #94A3B8; /* slate-400 */
+    }
+    
+    [data-theme="dark"] .theme-footer-link {
+        color: #60A5FA; /* canvas-500 equivalent for dark mode */
+    }
+    
+    [data-theme="dark"] .theme-footer-link:hover {
+        color: #93C5FD; /* canvas-400 equivalent for dark mode */
+    }
+    
+    /* Hero Section */
+    [data-theme="dark"] .theme-hero-bg {
+        background-color: #0F1419; /* slate-900 */
+    }
+    
+    [data-theme="dark"] .theme-hero-title {
+        color: #F8FAFC; /* slate-50 */
+    }
+    
+    [data-theme="dark"] .theme-hero-text {
+        color: #94A3B8; /* slate-400 */
+    }
+    
+    /* Search Input */
+    [data-theme="dark"] .theme-search-input {
+        background-color: #1E293B; /* slate-800 */
+        color: #F8FAFC; /* slate-50 */
+        border-color: #334155; /* slate-700 */
+    }
+    
+    [data-theme="dark"] .theme-search-button {
+        background-color: #3B82F6; /* canvas-600 */
+        color: #0F1419; /* slate-900 */
+    }
+    
+    [data-theme="dark"] .theme-search-button:hover {
+        background-color: #2563EB; /* canvas-700 */
+    }
+    
+    /* Tags/Badges */
+    [data-theme="dark"] .theme-tag {
+        background-color: #1E293B; /* slate-800 */
+        color: #CBD5E1; /* slate-200 */
+        border-color: #334155; /* slate-700 */
+    }
+    
+    [data-theme="dark"] .theme-tag:hover {
+        background-color: #334155; /* slate-700 */
+        border-color: #3B82F6; /* canvas-600 */
+        color: #60A5FA; /* canvas-400 */
+    }
+    
+    [data-theme="dark"] .theme-badge {
+        background-color: #334155; /* slate-700 */
+        color: #CBD5E1; /* slate-300 */
+    }
+    
+    /* Section Backgrounds - Light mode defaults and dark mode overrides */
+    .theme-hero-bg,
+    .theme-section-alt {
+        background-color: #FAF8F5; /* linen-100 light mode */
+    }
+    
+    .theme-section {
+        background-color: #FFFFFF; /* white light mode */
+    }
+    
+    /* Dark mode: Unified dark background for all sections (like book detail page) */
+    [data-theme="dark"] .theme-section-alt,
+    [data-theme="dark"] .theme-hero-bg,
+    [data-theme="dark"] .theme-section,
+    [data-theme="dark"] section.theme-hero-bg,
+    [data-theme="dark"] section.theme-section,
+    [data-theme="dark"] section.theme-section-alt,
+    [data-theme="dark"] section.bg-linen-50,
+    [data-theme="dark"] section.bg-linen-100,
+    [data-theme="dark"] section.bg-white,
+    [data-theme="dark"] .py-12.theme-section,
+    [data-theme="dark"] .py-16.theme-section {
+        background-color: #1E293B; /* slate-800 - unified dark background */
+    }
+    
+    /* Card Components - Light mode defaults and dark mode overrides */
+    .theme-card {
+        background-color: #FFFFFF; /* white light mode */
+    }
+    
+    .theme-card-cover-bg {
+        background-color: #FAF8F5; /* linen-100 light mode */
+    }
+    
+    .theme-badge {
+        background-color: #EDE6D9; /* linen-200 light mode */
+    }
+    
+    [data-theme="dark"] .theme-card {
+        background-color: #293548; /* Slightly lighter than slate-800 for contrast */
+        border-color: #334155; /* slate-700 */
+    }
+    
+    [data-theme="dark"] .theme-card-cover-bg {
+        background-color: #1E293B; /* slate-800 - slightly lighter than before */
+    }
+    
+    [data-theme="dark"] .theme-card-title {
+        color: #F8FAFC; /* slate-50 */
+    }
+    
+    [data-theme="dark"] .theme-card-title:hover {
+        color: #60A5FA; /* canvas-400 */
+    }
+    
+    [data-theme="dark"] .theme-card-text {
+        color: #94A3B8; /* slate-400 */
+    }
+    
+    [data-theme="dark"] .theme-card-meta {
+        color: #64748B; /* slate-500 */
+    }
+    
+    [data-theme="dark"] .theme-card-button {
+        background-color: #3B82F6; /* canvas-600 */
+        color: #0F1419; /* slate-900 */
+    }
+    
+    [data-theme="dark"] .theme-card-button:hover {
+        background-color: #2563EB; /* canvas-700 */
+    }
+    
+    /* Section Titles and Links */
+    [data-theme="dark"] .theme-section-title {
+        color: #F8FAFC; /* slate-50 */
+    }
+    
+    [data-theme="dark"] .theme-section-link {
+        color: #60A5FA; /* canvas-500 */
+        border-color: #3B82F6; /* canvas-600 */
+    }
+    
+    [data-theme="dark"] .theme-section-link:hover {
+        background-color: #334155; /* slate-700 */
+        color: #60A5FA; /* canvas-400 */
+    }
+    
+    /* Search Header - Light mode default and dark mode override */
+    .theme-search-header {
+        background-color: #FFFFFF; /* white light mode */
+    }
+    
+    [data-theme="dark"] .theme-search-header {
+        background-color: #1E293B; /* slate-800 */
+    }
+}
 
 [data-theme="dark"] .text-decoration-none.text-dark,
 [data-theme="dark"] .card-title a {
@@ -563,14 +697,14 @@ section {
 
 /* Light Mode Hover Effect */
 #theme-toggle:hover {
-    background-color: var(--grey-200);
+    background-color: var(--gray-200);
     box-shadow: 0 0 8px rgba(0,0,0,0.15);
     color: var(--primary-dark);
 }
 
 /* Dark Mode Hover Effect */
 [data-theme="dark"] #theme-toggle:hover {
-    background-color: var(--grey-100);
+    background-color: var(--gray-100);
     box-shadow: 0 0 10px var(--primary-glow-color);
     color: var(--primary-color);
 }
@@ -639,9 +773,9 @@ section {
 .dev-source-LONGITOOD { background-color: var(--secondary-color); }
 .dev-source-S3_CACHE { background-color: var(--success-color); }
 .dev-source-LOCAL_CACHE { background-color: var(--warning-color); color: var(--dark-color); text-shadow: none;}
-.dev-source-UNDEFINED { background-color: var(--grey-500); }
-.dev-source-ANY { background-color: var(--grey-400); }
-.dev-source-NONE { background-color: var(--grey-300); color: var(--dark-color); text-shadow: none;}
+.dev-source-UNDEFINED { background-color: var(--gray-500); }
+.dev-source-ANY { background-color: var(--gray-400); }
+.dev-source-NONE { background-color: var(--gray-300); color: var(--dark-color); text-shadow: none;}
 /* END Development Indicators */
 
 /* =============================================================================
@@ -887,9 +1021,9 @@ section {
 
 [data-theme="dark"] .nav-tabs .nav-link.active {
     color: var(--brand-primary);
-    background-color: var(--grey-900);
-    border-color: var(--grey-700);
-    border-bottom-color: var(--grey-900);
+    background-color: var(--gray-900);
+    border-color: var(--gray-700);
+    border-bottom-color: var(--gray-900);
 }
 
 /* Ensure tab content has proper backgrounds in dark mode */

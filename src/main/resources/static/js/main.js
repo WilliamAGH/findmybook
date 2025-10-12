@@ -64,6 +64,19 @@ function updateServerThemePreference(theme, useSystem) {
     });
 }
 
+/**
+ * Debug utility: Clear stale theme state and reload page
+ * Useful for recovering from localStorage/DOM state mismatches
+ * Usage: Run clearThemeState() in browser console
+ */
+window.clearThemeState = function() {
+    localStorage.removeItem('theme');
+    document.documentElement.removeAttribute('data-theme');
+    console.log('Theme state cleared. Reloading page...');
+    location.reload();
+};
+console.log('Theme debug utility loaded. Run clearThemeState() to reset theme state.');
+
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize tooltips if Bootstrap is available
     if (typeof bootstrap !== 'undefined' && bootstrap.Tooltip) {

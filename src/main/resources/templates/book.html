@@ -273,19 +273,6 @@
                                         </div>
                                     </div>
                                 </div>
-                                
-                                <!-- Categories -->
-<div class="book-categories mb-4" th:if="${book.categories != null and not #lists.isEmpty(book.categories)}">
-                                    <h5 class="mb-3">Categories</h5>
-                                    <div class="d-flex flex-wrap gap-2">
-                                        <a th:each="category : ${book.categories}" 
-                                           th:href="@{/search(query=${category})}" 
-                                           class="btn btn-sm btn-outline-primary rounded-pill text-decoration-none px-3 py-1">
-                                           <i class="fas fa-tag me-1"></i>
-                                           <span th:text="${category}">Category</span>
-                                        </a>
-                                    </div>
-                                </div>
 
                                 <!-- Tab Navigation -->
                                 <ul class="nav nav-tabs" id="bookDetailTabs" role="tablist">
@@ -294,6 +281,12 @@
                                     </li>
                                     <li class="nav-item" role="presentation">
                                         <button class="nav-link" id="details-tab" data-bs-toggle="tab" data-bs-target="#details" type="button" role="tab" aria-controls="details" aria-selected="false">Details</button>
+                                    </li>
+                                    <li class="nav-item" role="presentation" th:if="${book.categories != null and not #lists.isEmpty(book.categories)}">
+                                        <button class="nav-link" id="categories-tab" data-bs-toggle="tab" data-bs-target="#categories" type="button" role="tab" aria-controls="categories" aria-selected="false">
+                                            Categories
+                                            <span class="badge bg-primary ms-1" th:text="${#lists.size(book.categories)}">0</span>
+                                        </button>
                                     </li>
                                     <li class="nav-item" role="presentation" th:if="${book.otherEditions != null and book.otherEditions.size() > 0 and !#lists.isEmpty(book.otherEditions)}">
                                         <button class="nav-link" id="editions-tab" data-bs-toggle="tab" data-bs-target="#editions" type="button" role="tab" aria-controls="editions" aria-selected="false">Other Editions</button>
@@ -477,6 +470,26 @@
 
                                     </div>
                                     
+                                    <!-- Categories Tab -->
+                                    <div class="tab-pane fade" id="categories" role="tabpanel" aria-labelledby="categories-tab" th:if="${book.categories != null and not #lists.isEmpty(book.categories)}">
+                                        <div class="categories-section mb-4">
+                                            <h5 class="mb-4">Book Categories</h5>
+                                            <p class="text-muted mb-3">
+                                                This book is categorized under the following genres and topics. 
+                                                Click any category to discover similar books.
+                                            </p>
+                                            <div class="d-flex flex-wrap gap-2">
+                                                <a th:each="category : ${book.categories}" 
+                                                   th:href="@{/search(query=${category})}" 
+                                                   class="btn btn-outline-primary rounded-pill text-decoration-none px-4 py-2">
+                                                   <i class="fas fa-tag me-2"></i>
+                                                   <span th:text="${category}">Category</span>
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Other Editions Tab -->
                                     <div class="tab-pane fade" id="editions" role="tabpanel" aria-labelledby="editions-tab" th:if="${book.otherEditions != null and !#lists.isEmpty(book.otherEditions)}">
                                         <div class="other-editions-section mb-5">
                                             <h4 class="mb-4">Other Editions</h4>

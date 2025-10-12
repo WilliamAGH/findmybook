@@ -63,26 +63,26 @@
   --info-color: var(--brand-secondary); /* Blue: Info states */
 
   /* ==========================================================================
-     GREYSCALE - Warm neutral tones
+     GRAYSCALE - Warm neutral tones
      Used by: Backgrounds, text colors, borders throughout legacy components
      ========================================================================== */
-  --grey-50: #FDFCFB;   /* Lightest: Page backgrounds */
-  --grey-100: #F7F5F2;  /* Very light: Section backgrounds, placeholder backgrounds */
-  --grey-200: #EAE6E1;  /* Light: Borders, dividers */
-  --grey-300: #D8D2CC;  /* Medium-light: Input borders */
-  --grey-400: #B8B0A9;  /* Medium: Disabled states */
-  --grey-500: #998F86;  /* Medium-dark: Placeholder text */
-  --grey-600: #6D665F;  /* Dark: Secondary text */
-  --grey-700: #4B4640;  /* Darker: Secondary text (light mode) */
-  --grey-800: #3A3530;  /* Very dark: Not currently used */
-  --grey-900: #1E293B;  /* Darkest: Primary text (light mode), footer backgrounds */
+  --gray-50: #FDFCFB;   /* Lightest: Page backgrounds */
+  --gray-100: #F7F5F2;  /* Very light: Section backgrounds, placeholder backgrounds */
+  --gray-200: #EAE6E1;  /* Light: Borders, dividers */
+  --gray-300: #D8D2CC;  /* Medium-light: Input borders */
+  --gray-400: #B8B0A9;  /* Medium: Disabled states */
+  --gray-500: #998F86;  /* Medium-dark: Placeholder text */
+  --gray-600: #6D665F;  /* Dark: Secondary text */
+  --gray-700: #4B4640;  /* Darker: Secondary text (light mode) */
+  --gray-800: #3A3530;  /* Very dark: Not currently used */
+  --gray-900: #1E293B;  /* Darkest: Primary text (light mode), footer backgrounds */
 
   /* ==========================================================================
      LIGHT THEME - Text Colors
      Used by: All text elements in light mode
      ========================================================================== */
-  --text-color-primary: var(--grey-900);     /* Main text: Headings, paragraphs */
-  --text-color-secondary: var(--grey-700);   /* Secondary text: Metadata, descriptions */
+  --text-color-primary: var(--gray-900);     /* Main text: Headings, paragraphs */
+  --text-color-secondary: var(--gray-700);   /* Secondary text: Metadata, descriptions */
   --text-color-accent: var(--brand-primary); /* Accent text: Links, highlights */
   --text-on-primary-bg: #FFFFFF;             /* Text on colored backgrounds: Buttons */
   --text-color: var(--text-color-primary);   /* Legacy alias */
@@ -91,8 +91,8 @@
      LIGHT THEME - Backgrounds & Borders
      Used by: Page, cards, inputs in light mode
      ========================================================================== */
-  --bg-color: var(--grey-50);        /* Page background */
-  --border-color: var(--grey-200);   /* General borders: Cards, inputs */
+  --bg-color: var(--gray-50);        /* Page background */
+  --border-color: var(--gray-200);   /* General borders: Cards, inputs */
   --card-bg: #FFFFFF;                /* Card backgrounds */
 
   /* ==========================================================================
@@ -108,7 +108,7 @@
      Used by: Search bars, text inputs, textareas
      ========================================================================== */
   --input-bg: #FFFFFF;                                 /* Input background */
-  --input-border-color: var(--grey-300);               /* Input border */
+  --input-border-color: var(--gray-300);               /* Input border */
   --input-focus-border-color: var(--brand-primary);    /* Input focus border */
   --input-focus-shadow: 0 0 0 0.2rem rgba(212, 165, 116, 0.15); /* Input focus ring */
 
@@ -140,8 +140,8 @@
      PLACEHOLDERS - Empty states
      Used by: Image placeholders, empty book covers
      ========================================================================== */
-  --placeholder-text-color: var(--grey-500);  /* Placeholder text */
-  --placeholder-bg-color: var(--grey-100);    /* Placeholder background */
+  --placeholder-text-color: var(--gray-500);  /* Placeholder text */
+  --placeholder-bg-color: var(--gray-100);    /* Placeholder background */
 
   /* ==========================================================================
      DROPDOWNS - Context menus
@@ -149,7 +149,7 @@
      ========================================================================== */
   --dropdown-bg: var(--card-bg);                       /* Dropdown background */
   --dropdown-border-color: var(--border-color);        /* Dropdown border */
-  --dropdown-item-hover-bg: var(--grey-100);           /* Item hover background */
+  --dropdown-item-hover-bg: var(--gray-100);           /* Item hover background */
   --dropdown-item-hover-text: var(--text-color-primary); /* Item hover text */
   --dropdown-item-active-bg: rgba(212, 165, 116, 0.15); /* Active item background */
   --dropdown-item-active-text: var(--brand-primary-dark); /* Active item text */
@@ -158,8 +158,8 @@
      FOOTER - Site footer styling
      Used by: Footer in layout.html (legacy CSS components)
      ========================================================================== */
-  --footer-background-color: var(--grey-900);  /* Footer background */
-  --footer-text-color: var(--grey-200);        /* Footer text */
+  --footer-background-color: var(--gray-900);  /* Footer background */
+  --footer-text-color: var(--gray-200);        /* Footer text */
 
   /* ==========================================================================
      LEGACY ALIASES - Backward compatibility
@@ -170,8 +170,8 @@
   --primary-rgb: var(--brand-primary-rgb);
   --primary-glow-color: var(--brand-primary-glow-color);
   --secondary-color: var(--brand-secondary);
-  --light-color: var(--grey-100);
-  --dark-color: var(--grey-900);
+  --light-color: var(--gray-100);
+  --dark-color: var(--gray-900);
   --background-color: var(--bg-color);
 }
 

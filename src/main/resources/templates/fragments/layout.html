@@ -163,12 +163,12 @@
         /* Logo visibility: show appropriate logo based on theme */
         .navbar-brand .logo-light-mode {
             display: inline;
-            height: 96px;
+            height: 120px;
             width: auto;
         }
         .navbar-brand .logo-dark-mode {
             display: none;
-            height: 60px;
+            height: 48px;
             width: auto;
         }
 
@@ -267,12 +267,12 @@
     </style>
 
 </head>
-<body class="modern-layout bg-linen-50 dark:bg-slate-900 text-anthracite-900 dark:text-slate-50 transition-colors duration-300">
+<body class="modern-layout theme-body text-anthracite-900 transition-colors duration-300">
 
 <!-- Navbar - ShadCN/Claude UI Inspired Sophisticated Navigation -->
 <nav th:fragment="navbar" id="main-navbar"
-     class="sticky top-0 z-50 backdrop-blur-md
-            border-b border-anthracite-200/60 dark:border-slate-700/60 transition-all duration-300">
+     class="backdrop-blur-md theme-navbar-border
+            border-b transition-all duration-300">
     <div class="container mx-auto px-4">
         <div class="flex items-center justify-between h-14">
             <!-- Logo (LEFT) -->
@@ -348,7 +348,7 @@
 
         <!-- Mobile Navigation Menu -->
         <div class="collapse lg:hidden" id="navbarSupportedContent">
-            <div class="py-3 space-y-0.5 border-t border-anthracite-200/60 dark:border-obsidian-700/60 mt-1">
+            <div class="py-3 space-y-0.5 theme-navbar-border border-t border-anthracite-200/60 mt-1">
                 <a href="/"
                    th:class="'nav-btn ' + (${activeTab == 'home' ? 'nav-btn-active' : 'nav-btn-inactive nav-btn-hover'})">
                     <i class="fas fa-home w-4 text-center text-xs"></i>
@@ -432,22 +432,22 @@
 
 <!-- Footer - Claude-inspired Minimal -->
 <footer th:fragment="footer"
-        class="mt-auto py-8 bg-white dark:bg-slate-800 border-t border-linen-300 dark:border-slate-700 transition-colors duration-300">
+        class="mt-auto py-8 theme-footer theme-footer-border border-t transition-colors duration-300">
     <div class="container mx-auto px-4">
         <div class="flex flex-col md:flex-row justify-between items-center gap-4 text-sm">
-            <p class="text-anthracite-600 dark:text-slate-400 mb-0">
+            <p class="theme-footer-text text-anthracite-600 mb-0">
                 By <a href="https://williamcallahan.com"
                       target="_blank"
                       rel="noopener"
-                      class="text-canvas-600 dark:text-canvas-500 hover:text-canvas-700 dark:hover:text-canvas-400 font-medium transition-colors duration-200">
+                      class="theme-footer-link text-canvas-600 hover:text-canvas-700 font-medium transition-colors duration-200">
                     William Callahan
                 </a>
             </p>
-            <p class="text-anthracite-600 dark:text-slate-400 mb-0">
+            <p class="theme-footer-text text-anthracite-600 mb-0">
                 <a href="https://github.com/WilliamAGH/book-finder"
                    target="_blank"
                    rel="noopener"
-                   class="text-canvas-600 dark:text-canvas-500 hover:text-canvas-700 dark:hover:text-canvas-400 font-medium transition-colors duration-200">
+                   class="theme-footer-link text-canvas-600 hover:text-canvas-700 font-medium transition-colors duration-200">
                     Open Source
                 </a>
                 <span class="mx-2">•</span>
