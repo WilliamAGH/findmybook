@@ -8,8 +8,11 @@ import com.williamcallahan.book_recommendation_engine.dto.BookListItem;
 import com.williamcallahan.book_recommendation_engine.dto.EditionSummary;
 import com.williamcallahan.book_recommendation_engine.dto.RecommendationCard;
 import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
+import com.williamcallahan.book_recommendation_engine.util.UuidUtils;
+import com.williamcallahan.book_recommendation_engine.util.cover.CoverUrlResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -40,8 +43,10 @@ public class BookQueryRepository {
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
-
-    public BookQueryRepository(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) {
+    public BookQueryRepository(JdbcTemplate jdbcTemplate,
+                               ObjectMapper objectMapper,
+                               @Value("${s3.enabled:true}") boolean ignored,
+                               @Value("${s3.cdn-url:}") String ignoredCdn) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
     }
@@ -65,8 +70,9 @@ public class BookQueryRepository {
         try {
             String sql = "SELECT * FROM get_book_cards(?::UUID[])";
             UUID[] idsArray = bookIds.toArray(new UUID[0]);
-            
-            return jdbcTemplate.query(sql, new BookCardRowMapper(), (Object) idsArray);
+
+            List<BookCard> cards = jdbcTemplate.query(sql, new BookCardRowMapper(), (Object) idsArray);
+            return normalizeBookCardCovers(cards);
         } catch (DataAccessException ex) {
             log.error("Failed to fetch book cards for {} books: {}", bookIds.size(), ex.getMessage(), ex);
             return List.of();
@@ -110,7 +116,8 @@ public class BookQueryRepository {
             // Note: collection_id is TEXT (NanoID), not UUID
             String sql = "SELECT * FROM get_book_cards_by_collection(?, ?)";
             
-            return jdbcTemplate.query(sql, new BookCardRowMapper(), collectionId, limit);
+            List<BookCard> cards = jdbcTemplate.query(sql, new BookCardRowMapper(), collectionId, limit);
+            return normalizeBookCardCovers(cards);
         } catch (DataAccessException ex) {
             log.error("Failed to fetch book cards for collection {}: {}", collectionId, ex.getMessage(), ex);
             return List.of();
@@ -219,7 +226,8 @@ public class BookQueryRepository {
             String sql = "SELECT * FROM get_book_list_items(?::UUID[])";
             UUID[] idsArray = bookIds.toArray(new UUID[0]);
             
-            return jdbcTemplate.query(sql, new BookListItemRowMapper(), (Object) idsArray);
+            List<BookListItem> items = jdbcTemplate.query(sql, new BookListItemRowMapper(), (Object) idsArray);
+            return normalizeBookListItemCovers(items);
         } catch (DataAccessException ex) {
             log.error("Failed to fetch book list items for {} books: {}", bookIds.size(), ex.getMessage(), ex);
             return List.of();
@@ -246,7 +254,8 @@ public class BookQueryRepository {
             String sql = "SELECT * FROM get_book_detail(?::UUID)";
             
             List<BookDetail> results = jdbcTemplate.query(sql, new BookDetailRowMapper(), bookId);
-            return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
+            List<BookDetail> normalized = normalizeBookDetailCovers(results);
+            return normalized.isEmpty() ? Optional.empty() : Optional.of(normalized.get(0));
         } catch (DataAccessException ex) {
             log.error("Failed to fetch book detail for {}: {}", bookId, ex.getMessage(), ex);
             return Optional.empty();
@@ -314,14 +323,16 @@ public class BookQueryRepository {
         @Override
         public BookCard mapRow(@NonNull ResultSet rs, int rowNum) throws SQLException {
             List<String> authors = parseTextArray(rs.getArray("authors"));
-            log.trace("BookCard row: id={}, title={}, authors={}, coverUrl={}", 
-                rs.getString("id"), rs.getString("title"), authors, rs.getString("cover_url"));
+            String rawCover = rs.getString("cover_url");
+            CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(rawCover, rawCover, null, null, null);
+            log.trace("BookCard row: id={}, title={}, authors={}, coverUrl={} -> {}",
+                rs.getString("id"), rs.getString("title"), authors, rawCover, resolved.url());
             return new BookCard(
                 rs.getString("id"),
                 rs.getString("slug"),
                 rs.getString("title"),
                 authors,
-                rs.getString("cover_url"),
+                resolved.url(),
                 getDoubleOrNull(rs, "average_rating"),
                 getIntOrNull(rs, "ratings_count"),
                 parseJsonb(rs.getString("tags"))
@@ -335,6 +346,16 @@ public class BookQueryRepository {
     private class BookListItemRowMapper implements RowMapper<BookListItem> {
         @Override
         public BookListItem mapRow(@NonNull ResultSet rs, int rowNum) throws SQLException {
+            Integer width = getIntOrNull(rs, "cover_width");
+            Integer height = getIntOrNull(rs, "cover_height");
+            Boolean highRes = getBooleanOrNull(rs, "cover_is_high_resolution");
+            CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
+                rs.getString("cover_url"),
+                rs.getString("cover_url"),
+                width,
+                height,
+                highRes
+            );
             return new BookListItem(
                 rs.getString("id"),
                 rs.getString("slug"),
@@ -342,7 +363,10 @@ public class BookQueryRepository {
                 rs.getString("description"),
                 parseTextArray(rs.getArray("authors")),
                 parseTextArray(rs.getArray("categories")),
-                rs.getString("cover_url"),
+                resolved.url(),
+                resolved.width(),
+                resolved.height(),
+                resolved.highResolution(),
                 getDoubleOrNull(rs, "average_rating"),
                 getIntOrNull(rs, "ratings_count"),
                 parseJsonb(rs.getString("tags"))
@@ -356,6 +380,23 @@ public class BookQueryRepository {
     private class BookDetailRowMapper implements RowMapper<BookDetail> {
         @Override
         public BookDetail mapRow(@NonNull ResultSet rs, int rowNum) throws SQLException {
+            Integer width = getIntOrNull(rs, "cover_width");
+            Integer height = getIntOrNull(rs, "cover_height");
+            Boolean highRes = getBooleanOrNull(rs, "cover_is_high_resolution");
+            CoverUrlResolver.ResolvedCover cover = CoverUrlResolver.resolve(
+                rs.getString("cover_url"),
+                rs.getString("thumbnail_url"),
+                width,
+                height,
+                highRes
+            );
+            CoverUrlResolver.ResolvedCover thumb = CoverUrlResolver.resolve(
+                rs.getString("thumbnail_url"),
+                rs.getString("thumbnail_url"),
+                null,
+                null,
+                null
+            );
             return new BookDetail(
                 rs.getString("id"),
                 rs.getString("slug"),
@@ -367,11 +408,11 @@ public class BookQueryRepository {
                 getIntOrNull(rs, "page_count"),
                 parseTextArray(rs.getArray("authors")),
                 parseTextArray(rs.getArray("categories")),
-                rs.getString("cover_url"),
-                rs.getString("thumbnail_url"),
-                getIntOrNull(rs, "cover_width"),
-                getIntOrNull(rs, "cover_height"),
-                getBooleanOrNull(rs, "cover_is_high_resolution"),
+                cover.url(),
+                thumb.url(),
+                cover.width(),
+                cover.height(),
+                cover.highResolution(),
                 rs.getString("data_source"),
                 getDoubleOrNull(rs, "average_rating"),
                 getIntOrNull(rs, "ratings_count"),
@@ -380,7 +421,7 @@ public class BookQueryRepository {
                 rs.getString("preview_link"),
                 rs.getString("info_link"),
                 parseJsonb(rs.getString("tags")),
-                List.of() // Editions fetched separately via fetchBookEditions()
+                List.of()
             );
         }
     }
@@ -403,6 +444,221 @@ public class BookQueryRepository {
                 getIntOrNull(rs, "page_count")
             );
         }
+    }
+
+    private List<BookCard> normalizeBookCardCovers(List<BookCard> cards) {
+        if (cards == null || cards.isEmpty()) {
+            return cards;
+        }
+
+        List<UUID> fallbackIds = cards.stream()
+            .filter(card -> needsFallback(card.coverUrl()))
+            .map(BookCard::id)
+            .map(UuidUtils::parseUuidOrNull)
+            .filter(Objects::nonNull)
+            .distinct()
+            .toList();
+
+        Map<UUID, CoverUrlResolver.ResolvedCover> fallbacks = fetchFallbackCovers(fallbackIds);
+
+        return cards.stream()
+            .map(card -> {
+                UUID id = UuidUtils.parseUuidOrNull(card.id());
+                CoverUrlResolver.ResolvedCover fallback = id != null ? fallbacks.get(id) : null;
+                String coverUrl = fallback != null ? fallback.url() : card.coverUrl();
+                return new BookCard(
+                    card.id(),
+                    card.slug(),
+                    card.title(),
+                    card.authors(),
+                    coverUrl,
+                    card.averageRating(),
+                    card.ratingsCount(),
+                    card.tags()
+                );
+            })
+            .toList();
+    }
+
+    private List<BookListItem> normalizeBookListItemCovers(List<BookListItem> items) {
+        if (items == null || items.isEmpty()) {
+            return items;
+        }
+
+        List<UUID> fallbackIds = items.stream()
+            .filter(item -> needsFallback(item.coverUrl()))
+            .map(BookListItem::id)
+            .map(UuidUtils::parseUuidOrNull)
+            .filter(Objects::nonNull)
+            .distinct()
+            .toList();
+
+        Map<UUID, CoverUrlResolver.ResolvedCover> fallbacks = fetchFallbackCovers(fallbackIds);
+
+        return items.stream()
+            .map(item -> {
+                UUID id = UuidUtils.parseUuidOrNull(item.id());
+                CoverUrlResolver.ResolvedCover fallback = id != null ? fallbacks.get(id) : null;
+                String coverUrl = fallback != null ? fallback.url() : item.coverUrl();
+                Integer width = fallback != null ? fallback.width() : item.coverWidth();
+                Integer height = fallback != null ? fallback.height() : item.coverHeight();
+                Boolean highRes = fallback != null ? fallback.highResolution() : item.coverHighResolution();
+
+                return new BookListItem(
+                    item.id(),
+                    item.slug(),
+                    item.title(),
+                    item.description(),
+                    item.authors(),
+                    item.categories(),
+                    coverUrl,
+                    width,
+                    height,
+                    highRes,
+                    item.averageRating(),
+                    item.ratingsCount(),
+                    item.tags()
+                );
+            })
+            .toList();
+    }
+
+    private List<BookDetail> normalizeBookDetailCovers(List<BookDetail> details) {
+        if (details == null || details.isEmpty()) {
+            return details;
+        }
+
+        List<UUID> fallbackIds = details.stream()
+            .filter(detail -> needsFallback(detail.coverUrl()))
+            .map(BookDetail::id)
+            .map(UuidUtils::parseUuidOrNull)
+            .filter(Objects::nonNull)
+            .distinct()
+            .toList();
+
+        Map<UUID, CoverUrlResolver.ResolvedCover> fallbacks = fetchFallbackCovers(fallbackIds);
+
+        return details.stream()
+            .map(detail -> {
+                UUID id = UuidUtils.parseUuidOrNull(detail.id());
+                CoverUrlResolver.ResolvedCover fallback = id != null ? fallbacks.get(id) : null;
+                String coverUrl = fallback != null ? fallback.url() : detail.coverUrl();
+                Integer width = fallback != null ? fallback.width() : detail.coverWidth();
+                Integer height = fallback != null ? fallback.height() : detail.coverHeight();
+                Boolean highRes = fallback != null ? fallback.highResolution() : detail.coverHighResolution();
+
+                return new BookDetail(
+                    detail.id(),
+                    detail.slug(),
+                    detail.title(),
+                    detail.description(),
+                    detail.publisher(),
+                    detail.publishedDate(),
+                    detail.language(),
+                    detail.pageCount(),
+                    detail.authors(),
+                    detail.categories(),
+                    coverUrl,
+                    detail.thumbnailUrl(),
+                    width,
+                    height,
+                    highRes,
+                    detail.dataSource(),
+                    detail.averageRating(),
+                    detail.ratingsCount(),
+                    detail.isbn10(),
+                    detail.isbn13(),
+                    detail.previewLink(),
+                    detail.infoLink(),
+                    detail.tags(),
+                    detail.editions()
+                );
+            })
+            .toList();
+    }
+
+    private Map<UUID, CoverUrlResolver.ResolvedCover> fetchFallbackCovers(List<UUID> bookIds) {
+        if (bookIds == null || bookIds.isEmpty()) {
+            return Map.of();
+        }
+
+        try {
+            String sql = """
+                SELECT DISTINCT ON (bil.book_id)
+                       bil.book_id,
+                       bil.url,
+                       bil.s3_image_path,
+                       bil.width,
+                       bil.height,
+                       bil.is_high_resolution
+                FROM book_image_links bil
+                WHERE bil.book_id = ANY(?::UUID[])
+                  AND (
+                      (bil.url IS NOT NULL AND bil.url <> '')
+                      OR (bil.s3_image_path IS NOT NULL AND bil.s3_image_path <> '')
+                  )
+                ORDER BY bil.book_id,
+                         CASE
+                             WHEN bil.image_type = 'canonical' THEN 0
+                             WHEN bil.image_type = 'extraLarge' THEN 1
+                             WHEN bil.image_type = 'large' THEN 2
+                             WHEN bil.image_type = 'medium' THEN 3
+                             WHEN bil.image_type = 'small' THEN 4
+                             WHEN bil.image_type = 'thumbnail' THEN 5
+                             WHEN bil.image_type = 'smallThumbnail' THEN 6
+                             ELSE 7
+                         END,
+                         bil.created_at DESC
+                """;
+
+            UUID[] idsArray = bookIds.toArray(new UUID[0]);
+
+            return jdbcTemplate.query(sql, rs -> {
+                Map<UUID, CoverUrlResolver.ResolvedCover> resolved = new java.util.HashMap<>();
+                while (rs.next()) {
+                    UUID id = (UUID) rs.getObject("book_id");
+                    String url = rs.getString("url");
+                    String s3Key = rs.getString("s3_image_path");
+                    Integer width = getIntOrNull(rs, "width");
+                    Integer height = getIntOrNull(rs, "height");
+                    Boolean highRes = getBooleanOrNull(rs, "is_high_resolution");
+
+                    if (ValidationUtils.hasText(url) || ValidationUtils.hasText(s3Key)) {
+                        resolved.put(
+                            id,
+                            CoverUrlResolver.resolve(
+                                ValidationUtils.hasText(s3Key) ? s3Key : url,
+                                ValidationUtils.hasText(url) ? url : null,
+                                width,
+                                height,
+                                highRes
+                            )
+                        );
+                    }
+                }
+                return resolved;
+            }, (Object) idsArray);
+        } catch (DataAccessException ex) {
+            log.warn("Failed to fetch fallback cover URLs for {} books: {}", bookIds.size(), ex.getMessage());
+            return Map.of();
+        }
+    }
+
+    private boolean needsFallback(String url) {
+        if (!ValidationUtils.hasText(url)) {
+            return true;
+        }
+        String lower = url.toLowerCase();
+        if (lower.contains("placeholder-book-cover.svg")) {
+            return true;
+        }
+        if (lower.contains("://localhost") || lower.contains("://127.0.0.1") || lower.contains("://0.0.0.0")) {
+            return true;
+        }
+        if (lower.contains("/images/book-covers/")) {
+            return true;
+        }
+        return !(url.startsWith("http://") || url.startsWith("https://"));
     }
 
     // ==================== Helper Methods (Internal) ====================

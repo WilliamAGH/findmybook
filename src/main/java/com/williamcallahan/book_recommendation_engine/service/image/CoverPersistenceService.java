@@ -3,6 +3,8 @@ package com.williamcallahan.book_recommendation_engine.service.image;
 import com.williamcallahan.book_recommendation_engine.model.image.CoverImageSource;
 import com.williamcallahan.book_recommendation_engine.util.IdGenerator;
 import com.williamcallahan.book_recommendation_engine.util.UrlUtils;
+import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
+import com.williamcallahan.book_recommendation_engine.util.cover.CoverUrlResolver;
 import com.williamcallahan.book_recommendation_engine.util.cover.ImageDimensionUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -23,7 +25,7 @@ import java.util.UUID;
  * 
  * Responsibilities:
  * 1. Persist cover metadata to book_image_links table
- * 2. Update books.s3_image_path with canonical cover URL
+ * 2. Persist canonical cover metadata directly into book_image_links
  * 3. Handle both initial estimates and post-upload actual dimensions
  * 4. Provide idempotent upsert operations
  * 
@@ -53,7 +55,7 @@ public class CoverPersistenceService {
      */
     public record PersistenceResult(
         boolean success,
-        String s3Key,
+        String canonicalUrl,
         Integer width,
         Integer height,
         Boolean highRes
@@ -120,14 +122,25 @@ public class CoverPersistenceService {
             }
         }
         
-        // Update books.s3_image_path with canonical cover
+        // Canonical cover now represented via highest-priority book_image_links row
         if (canonicalCoverUrl != null) {
-            updateBookCoverPath(bookId, canonicalCoverUrl);
-            log.info("Persisted cover metadata for book {}: {}x{}, highRes={}", 
-                bookId, canonicalWidth, canonicalHeight, canonicalHighRes);
-            return new PersistenceResult(true, canonicalCoverUrl, canonicalWidth, canonicalHeight, canonicalHighRes);
+            CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
+                canonicalCoverUrl,
+                canonicalCoverUrl,
+                canonicalWidth,
+                canonicalHeight,
+                canonicalHighRes
+            );
+
+            upsertImageLink(bookId, "canonical", resolved.url(), source,
+                resolved.width(), resolved.height(), resolved.highResolution());
+
+            log.info("Persisted cover metadata for book {}: {} ({}x{}, highRes={})",
+                bookId, resolved.url(), resolved.width(), resolved.height(), resolved.highResolution());
+
+            return new PersistenceResult(true, resolved.url(), resolved.width(), resolved.height(), resolved.highResolution());
         }
-        
+
         return new PersistenceResult(false, null, null, null, false);
     }
     
@@ -161,22 +174,24 @@ public class CoverPersistenceService {
         
         boolean highRes = ImageDimensionUtils.isHighResolution(width, height);
 
-        try {
-            // Upsert book_image_links with actual S3 URL and dimensions, including S3 path
-            upsertImageLink(bookId, "large", s3CdnUrl, source.name(), width, height, highRes, s3Key);
+        if (!ValidationUtils.hasText(s3CdnUrl)) {
+            log.warn("Skipping S3 persistence for book {} because CDN URL resolved empty for key {}", bookId, s3Key);
+            return new PersistenceResult(false, null, width, height, highRes);
+        }
 
-            // Update books table with S3 CDN URL as primary cover
-            updateBookCoverPath(bookId, s3CdnUrl);
+        try {
+            // Upsert canonical S3 row as authoritative cover
+            upsertImageLink(bookId, "canonical", s3CdnUrl, source.name(), width, height, highRes, s3Key);
             
             log.info("Updated cover metadata for book {} after S3 upload: {} ({}x{}, highRes={})",
                 bookId, s3Key, width, height, highRes);
             
-            return new PersistenceResult(true, s3Key, width, height, highRes);
+            return new PersistenceResult(true, s3CdnUrl, width, height, highRes);
             
         } catch (Exception e) {
             log.error("Failed to update cover metadata after S3 upload for book {}: {}", 
                 bookId, e.getMessage(), e);
-            return new PersistenceResult(false, s3Key, width, height, highRes);
+            return new PersistenceResult(false, s3CdnUrl, width, height, highRes);
         }
     }
     
@@ -205,22 +220,26 @@ public class CoverPersistenceService {
         }
         
         String httpsUrl = UrlUtils.normalizeToHttps(externalUrl);
-        int finalWidth = width != null ? width : ImageDimensionUtils.DEFAULT_DIMENSION;
-        int finalHeight = height != null ? height : ImageDimensionUtils.DEFAULT_DIMENSION;
-        boolean highRes = ImageDimensionUtils.isHighResolution(finalWidth, finalHeight);
-        
+        CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
+            httpsUrl,
+            httpsUrl,
+            width,
+            height,
+            null
+        );
+
         try {
-            upsertImageLink(bookId, "medium", httpsUrl, source, finalWidth, finalHeight, highRes);
-            updateBookCoverPath(bookId, httpsUrl);
+            upsertImageLink(bookId, "canonical", resolved.url(), source,
+                resolved.width(), resolved.height(), resolved.highResolution());
             
             log.info("Persisted external cover for book {} from {}: {}x{}", 
-                bookId, source, finalWidth, finalHeight);
+                bookId, source, resolved.width(), resolved.height());
             
-            return new PersistenceResult(true, httpsUrl, finalWidth, finalHeight, highRes);
+            return new PersistenceResult(true, resolved.url(), resolved.width(), resolved.height(), resolved.highResolution());
             
         } catch (Exception e) {
             log.error("Failed to persist external cover for book {}: {}", bookId, e.getMessage(), e);
-            return new PersistenceResult(false, httpsUrl, finalWidth, finalHeight, highRes);
+            return new PersistenceResult(false, resolved.url(), resolved.width(), resolved.height(), resolved.highResolution());
         }
     }
     
@@ -266,8 +285,7 @@ public class CoverPersistenceService {
                 width = EXCLUDED.width,
                 height = EXCLUDED.height,
                 is_high_resolution = EXCLUDED.is_high_resolution,
-                s3_image_path = EXCLUDED.s3_image_path,
-                created_at = NOW()
+                s3_image_path = COALESCE(EXCLUDED.s3_image_path, book_image_links.s3_image_path)
             """,
             IdGenerator.generate(),
             bookId,
@@ -279,22 +297,6 @@ public class CoverPersistenceService {
             highRes,
             s3ImagePath
         );
-    }
-    
-    /**
-     * Updates the books.s3_image_path column with the canonical cover URL.
-     * This column serves as the primary cover reference for the book.
-     */
-    private void updateBookCoverPath(UUID bookId, String coverUrl) {
-        try {
-            jdbcTemplate.update(
-                "UPDATE books SET s3_image_path = ? WHERE id = ?",
-                coverUrl,
-                bookId
-            );
-        } catch (Exception e) {
-            log.warn("Failed to update books.s3_image_path for book {}: {}", bookId, e.getMessage());
-        }
     }
     
     /**

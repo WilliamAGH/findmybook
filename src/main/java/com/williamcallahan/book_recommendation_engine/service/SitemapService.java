@@ -7,23 +7,29 @@ import com.williamcallahan.book_recommendation_engine.repository.SitemapReposito
 import com.williamcallahan.book_recommendation_engine.repository.SitemapRepository.DatasetFingerprint;
 import com.williamcallahan.book_recommendation_engine.repository.SitemapRepository.PageMetadata;
 import com.williamcallahan.book_recommendation_engine.util.PagingUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -33,6 +39,8 @@ import java.util.stream.IntStream;
  */
 @Service
 public class SitemapService {
+
+    private static final Logger log = LoggerFactory.getLogger(SitemapService.class);
 
     public static final List<String> LETTER_BUCKETS;
 
@@ -58,10 +66,14 @@ public class SitemapService {
     private final Cache authorPageMetadataCache;
     private final AtomicReference<DatasetFingerprint> bookFingerprintRef = new AtomicReference<>();
     private final AtomicReference<DatasetFingerprint> authorFingerprintRef = new AtomicReference<>();
+    private final Optional<SitemapFallbackProvider> fallbackProvider;
+    private final AtomicReference<FallbackSnapshot> fallbackSnapshotRef = new AtomicReference<>();
+    private final ThreadLocal<Boolean> fallbackMarker = ThreadLocal.withInitial(() -> Boolean.FALSE);
 
     public SitemapService(SitemapRepository sitemapRepository,
                           SitemapProperties properties,
-                          @Qualifier("sitemapCacheManager") CacheManager cacheManager) {
+                          @Qualifier("sitemapCacheManager") CacheManager cacheManager,
+                          Optional<SitemapFallbackProvider> fallbackProvider) {
         this.sitemapRepository = sitemapRepository;
         this.properties = properties;
         this.booksXmlPageCountCache = requireCache(cacheManager, CacheNames.BOOK_XML_PAGE_COUNT);
@@ -74,6 +86,7 @@ public class SitemapService {
         this.authorXmlPageCache = requireCache(cacheManager, CacheNames.AUTHOR_XML_PAGE);
         this.bookPageMetadataCache = requireCache(cacheManager, CacheNames.BOOK_PAGE_METADATA);
         this.authorPageMetadataCache = requireCache(cacheManager, CacheNames.AUTHOR_PAGE_METADATA);
+        this.fallbackProvider = fallbackProvider != null ? fallbackProvider : Optional.empty();
     }
 
     public SitemapOverview getOverview() {
@@ -219,6 +232,7 @@ public class SitemapService {
         clearCache(authorXmlPageCache);
         clearCache(bookPageMetadataCache);
         clearCache(authorPageMetadataCache);
+        fallbackSnapshotRef.set(null);
     }
 
     public String normalizeBucket(String letter) {
@@ -245,99 +259,136 @@ public class SitemapService {
     }
 
     private int calculateBooksXmlPageCount() {
-        int total = sitemapRepository.countAllBooks();
-        int pageSize = properties.getXmlPageSize();
-        return total == 0 ? 0 : (int) Math.ceil((double) total / pageSize);
+        try {
+            int total = sitemapRepository.countAllBooks();
+            int pageSize = properties.getXmlPageSize();
+            return total == 0 ? 0 : (int) Math.ceil((double) total / pageSize);
+        } catch (DataAccessException ex) {
+            return useFallback("book XML page count", ex,
+                    snapshot -> snapshot.pageCount(properties.getXmlPageSize()));
+        }
     }
 
     private List<BookSitemapItem> loadBooksForXmlPage(int page) {
         int pageSize = properties.getXmlPageSize();
         int offset = (page - 1) * pageSize;
-        return sitemapRepository.fetchBooksForXml(pageSize, offset)
-                .stream()
-                .map(row -> new BookSitemapItem(row.bookId(), row.slug(), row.title(), row.updatedAt()))
-                .toList();
+        try {
+            return sitemapRepository.fetchBooksForXml(pageSize, offset)
+                    .stream()
+                    .map(row -> new BookSitemapItem(row.bookId(), row.slug(), row.title(), row.updatedAt()))
+                    .toList();
+        } catch (DataAccessException ex) {
+            return useFallback("book XML page" + page, ex,
+                    snapshot -> snapshot.page(page, pageSize));
+        }
     }
 
     private List<AuthorListingXmlItem> loadAuthorListingsForXmlPage(int page) {
-        List<AuthorListingDescriptor> descriptors = getAuthorListingDescriptors();
-        if (descriptors.isEmpty()) {
+        try {
+            List<AuthorListingDescriptor> descriptors = getAuthorListingDescriptors();
+            if (descriptors.isEmpty()) {
+                return List.of();
+            }
+            int xmlPageSize = properties.getXmlPageSize();
+            int startIndex = (page - 1) * xmlPageSize;
+            if (startIndex >= descriptors.size()) {
+                return List.of();
+            }
+            int endIndex = Math.min(startIndex + xmlPageSize, descriptors.size());
+            List<AuthorListingDescriptor> slice = descriptors.subList(startIndex, endIndex);
+            List<AuthorListingXmlItem> results = new ArrayList<>(slice.size());
+            for (AuthorListingDescriptor descriptor : slice) {
+                PagedResult<AuthorSection> authorPage = getAuthorsByLetter(descriptor.bucket(), descriptor.page());
+                Instant lastModified = authorPage.items().stream()
+                        .flatMap(author -> {
+                            List<Instant> instants = new ArrayList<>();
+                            if (author.updatedAt() != null) {
+                                instants.add(author.updatedAt());
+                            }
+                            if (author.books() != null) {
+                                author.books().stream()
+                                        .map(BookSitemapItem::updatedAt)
+                                        .filter(Objects::nonNull)
+                                        .forEach(instants::add);
+                            }
+                            return instants.stream();
+                        })
+                        .max(Instant::compareTo)
+                        .orElseGet(() -> currentAuthorFingerprint().lastModified());
+                results.add(new AuthorListingXmlItem(descriptor.bucket(), descriptor.page(), lastModified));
+            }
+            return List.copyOf(results);
+        } catch (DataAccessException ex) {
+            log.warn("Failed to load author listings for sitemap page {}: {}", page, ex.getMessage());
+            markFallbackInvoked();
             return List.of();
         }
-        int xmlPageSize = properties.getXmlPageSize();
-        int startIndex = (page - 1) * xmlPageSize;
-        if (startIndex >= descriptors.size()) {
-            return List.of();
-        }
-        int endIndex = Math.min(startIndex + xmlPageSize, descriptors.size());
-        List<AuthorListingDescriptor> slice = descriptors.subList(startIndex, endIndex);
-        List<AuthorListingXmlItem> results = new ArrayList<>(slice.size());
-        for (AuthorListingDescriptor descriptor : slice) {
-            PagedResult<AuthorSection> authorPage = getAuthorsByLetter(descriptor.bucket(), descriptor.page());
-            Instant lastModified = authorPage.items().stream()
-                    .flatMap(author -> {
-                        List<Instant> instants = new ArrayList<>();
-                        if (author.updatedAt() != null) {
-                            instants.add(author.updatedAt());
-                        }
-                        if (author.books() != null) {
-                            author.books().stream()
-                                    .map(BookSitemapItem::updatedAt)
-                                    .filter(Objects::nonNull)
-                                    .forEach(instants::add);
-                        }
-                        return instants.stream();
-                    })
-                    .max(Instant::compareTo)
-                    .orElseGet(() -> currentAuthorFingerprint().lastModified());
-            results.add(new AuthorListingXmlItem(descriptor.bucket(), descriptor.page(), lastModified));
-        }
-        return List.copyOf(results);
     }
 
     private List<SitemapPageMetadata> loadBookPageMetadata() {
         int pageSize = properties.getXmlPageSize();
-        List<PageMetadata> metadata = sitemapRepository.fetchBookPageMetadata(pageSize);
-        if (metadata.isEmpty()) {
-            return List.of();
+        try {
+            List<PageMetadata> metadata = sitemapRepository.fetchBookPageMetadata(pageSize);
+            if (metadata.isEmpty()) {
+                return List.of();
+            }
+            return metadata.stream()
+                    .map(entry -> new SitemapPageMetadata(entry.pageNumber(), entry.lastModified()))
+                    .toList();
+        } catch (DataAccessException ex) {
+            return useFallback("book sitemap metadata", ex,
+                    snapshot -> snapshot.pageMetadata(pageSize));
         }
-        return metadata.stream()
-                .map(entry -> new SitemapPageMetadata(entry.pageNumber(), entry.lastModified()))
-                .toList();
     }
 
     private List<SitemapPageMetadata> loadAuthorPageMetadata() {
-        int totalPages = getAuthorXmlPageCount();
-        if (totalPages == 0) {
+        try {
+            int totalPages = getAuthorXmlPageCount();
+            if (totalPages == 0) {
+                return List.of();
+            }
+            List<SitemapPageMetadata> results = new ArrayList<>(totalPages);
+            for (int page = 1; page <= totalPages; page++) {
+                Instant lastModified = getAuthorListingsForXmlPage(page).stream()
+                        .map(AuthorListingXmlItem::lastModified)
+                        .max(Instant::compareTo)
+                        .orElseGet(() -> currentAuthorFingerprint().lastModified());
+                results.add(new SitemapPageMetadata(page, lastModified));
+            }
+            return List.copyOf(results);
+        } catch (DataAccessException ex) {
+            log.warn("Failed to load author sitemap metadata; returning empty list: {}", ex.getMessage());
+            markFallbackInvoked();
             return List.of();
         }
-        List<SitemapPageMetadata> results = new ArrayList<>(totalPages);
-        for (int page = 1; page <= totalPages; page++) {
-            Instant lastModified = getAuthorListingsForXmlPage(page).stream()
-                    .map(AuthorListingXmlItem::lastModified)
-                    .max(Instant::compareTo)
-                    .orElseGet(() -> currentAuthorFingerprint().lastModified());
-            results.add(new SitemapPageMetadata(page, lastModified));
-        }
-        return List.copyOf(results);
     }
 
     private Map<String, Integer> loadBookLetterCounts() {
-        Map<String, Integer> raw = sitemapRepository.countBooksByBucket();
-        Map<String, Integer> counts = new LinkedHashMap<>();
-        for (String bucket : LETTER_BUCKETS) {
-            counts.put(bucket, raw.getOrDefault(bucket, 0));
+        try {
+            Map<String, Integer> raw = sitemapRepository.countBooksByBucket();
+            Map<String, Integer> counts = new LinkedHashMap<>();
+            for (String bucket : LETTER_BUCKETS) {
+                counts.put(bucket, raw.getOrDefault(bucket, 0));
+            }
+            return Map.copyOf(counts);
+        } catch (DataAccessException ex) {
+            return useFallback("book letter counts", ex, FallbackSnapshot::letterCounts);
         }
-        return Map.copyOf(counts);
     }
 
     private Map<String, Integer> loadAuthorLetterCounts() {
-        Map<String, Integer> raw = sitemapRepository.countAuthorsByBucket();
-        Map<String, Integer> counts = new LinkedHashMap<>();
-        for (String bucket : LETTER_BUCKETS) {
-            counts.put(bucket, raw.getOrDefault(bucket, 0));
+        try {
+            Map<String, Integer> raw = sitemapRepository.countAuthorsByBucket();
+            Map<String, Integer> counts = new LinkedHashMap<>();
+            for (String bucket : LETTER_BUCKETS) {
+                counts.put(bucket, raw.getOrDefault(bucket, 0));
+            }
+            return Map.copyOf(counts);
+        } catch (DataAccessException ex) {
+            log.warn("Failed to load author letter counts; returning empty counts: {}", ex.getMessage());
+            markFallbackInvoked();
+            return emptyLetterCounts();
         }
-        return Map.copyOf(counts);
     }
 
     private List<AuthorListingDescriptor> loadAuthorListingDescriptors() {
@@ -360,6 +411,25 @@ public class SitemapService {
         return List.copyOf(descriptors);
     }
 
+    private <T> T cached(Cache cache, Object key, Supplier<T> loader) {
+        fallbackMarker.set(Boolean.FALSE);
+        try {
+            T value = cache.get(key, () -> {
+                T loaded = loader.get();
+                if (loaded == null) {
+                    throw new IllegalStateException("Cache loader returned null for key " + key);
+                }
+                return loaded;
+            });
+            if (Boolean.TRUE.equals(fallbackMarker.get())) {
+                cache.evict(key);
+            }
+            return value;
+        } finally {
+            fallbackMarker.remove();
+        }
+    }
+
     private Cache requireCache(CacheManager cacheManager, String name) {
         Cache cache = cacheManager.getCache(name);
         if (cache == null) {
@@ -372,14 +442,41 @@ public class SitemapService {
         cache.clear();
     }
 
-    private <T> T cached(Cache cache, Object key, Supplier<T> loader) {
-        return cache.get(key, () -> {
-            T value = loader.get();
-            if (value == null) {
-                throw new IllegalStateException("Cache loader returned null for key " + key);
+    private <T> T useFallback(String context, RuntimeException cause, Function<FallbackSnapshot, T> converter) {
+        Optional<FallbackSnapshot> snapshotOpt = fallbackSnapshot();
+        if (snapshotOpt.isEmpty()) {
+            throw cause;
+        }
+        log.warn("Falling back to cached sitemap snapshot for {} due to {}", context, cause.getMessage());
+        markFallbackInvoked();
+        return converter.apply(snapshotOpt.get());
+    }
+
+    private Optional<FallbackSnapshot> fallbackSnapshot() {
+        if (fallbackProvider.isEmpty()) {
+            return Optional.empty();
+        }
+        FallbackSnapshot existing = fallbackSnapshotRef.get();
+        if (existing != null) {
+            return Optional.of(existing);
+        }
+        synchronized (fallbackSnapshotRef) {
+            existing = fallbackSnapshotRef.get();
+            if (existing != null) {
+                return Optional.of(existing);
             }
-            return value;
-        });
+            Optional<FallbackSnapshot> loaded = fallbackProvider.flatMap(SitemapFallbackProvider::loadSnapshot);
+            loaded.ifPresent(fallbackSnapshotRef::set);
+            return loaded;
+        }
+    }
+
+    private void markFallbackInvoked() {
+        fallbackMarker.set(Boolean.TRUE);
+    }
+
+    private Map<String, Integer> emptyLetterCounts() {
+        return Collections.emptyMap();
     }
 
     private static final class CacheNames {
@@ -416,4 +513,94 @@ public class SitemapService {
     }
 
     public record SitemapPageMetadata(int page, Instant lastModified) {}
+
+    public static final class FallbackSnapshot {
+        private final Instant generatedAt;
+        private final List<BookSitemapItem> books;
+
+        public FallbackSnapshot(Instant generatedAt, List<BookSitemapItem> books) {
+            this.generatedAt = generatedAt != null ? generatedAt : Instant.EPOCH;
+            this.books = books == null ? List.of() : List.copyOf(books);
+        }
+
+        public int pageCount(int pageSize) {
+            if (pageSize <= 0 || books.isEmpty()) {
+                return 0;
+            }
+            return (int) Math.ceil((double) books.size() / pageSize);
+        }
+
+        public int bookCount() {
+            return books.size();
+        }
+
+        public List<BookSitemapItem> page(int page, int pageSize) {
+            if (pageSize <= 0 || page < 1 || books.isEmpty()) {
+                return List.of();
+            }
+            int start = (page - 1) * pageSize;
+            if (start >= books.size()) {
+                return List.of();
+            }
+            int end = Math.min(start + pageSize, books.size());
+            return List.copyOf(books.subList(start, end));
+        }
+
+        public List<SitemapPageMetadata> pageMetadata(int pageSize) {
+            int totalPages = pageCount(pageSize);
+            if (totalPages == 0) {
+                return List.of();
+            }
+            List<SitemapPageMetadata> metadata = new ArrayList<>(totalPages);
+            for (int page = 1; page <= totalPages; page++) {
+                Instant lastModified = page(page, pageSize).stream()
+                        .map(BookSitemapItem::updatedAt)
+                        .filter(Objects::nonNull)
+                        .max(Comparator.naturalOrder())
+                        .orElse(generatedAt);
+                metadata.add(new SitemapPageMetadata(page, lastModified));
+            }
+            return List.copyOf(metadata);
+        }
+
+        public Map<String, Integer> letterCounts() {
+            Map<String, Integer> counts = new LinkedHashMap<>();
+            for (String bucket : LETTER_BUCKETS) {
+                counts.put(bucket, 0);
+            }
+            for (BookSitemapItem item : books) {
+                String bucket = resolveBucket(item);
+                counts.merge(bucket, 1, Integer::sum);
+            }
+            return Map.copyOf(counts);
+        }
+
+        private String resolveBucket(BookSitemapItem item) {
+            String candidate = firstNonBlank(item.title(), item.slug());
+            if (candidate == null) {
+                return "A";
+            }
+            String trimmed = candidate.trim();
+            if (trimmed.isEmpty()) {
+                return "A";
+            }
+            char first = Character.toUpperCase(trimmed.charAt(0));
+            if (first >= 'A' && first <= 'Z') {
+                return String.valueOf(first);
+            }
+            return "0-9";
+        }
+
+        private String firstNonBlank(String... values) {
+            if (values == null) {
+                return null;
+            }
+            for (String value : values) {
+                if (value != null && !value.isBlank()) {
+                    return value;
+                }
+            }
+            return null;
+        }
+    }
 }

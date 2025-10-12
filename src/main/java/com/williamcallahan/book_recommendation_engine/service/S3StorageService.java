@@ -244,23 +244,15 @@ public CompletableFuture<Void> uploadGenericJsonAsync(String keyName, String jso
     }
 
     /**
-     * Asynchronously fetches a generic JSON file from a specified S3 key.
-     * Automatically handles GZIP decompression if Content-Encoding header is 'gzip'.
-     *
-     * @param keyName The full S3 key (path/filename) from which to fetch the JSON.
-     * @return A CompletableFuture<S3FetchResult<String>> containing the result status and optionally the JSON string if found.
+     * Asynchronously fetches a UTF-8 text payload from the given S3 key, transparently handling optional GZIP compression.
+     * Primarily used by sitemap fallback logic which expects JSON content.
      */
-/**
- * @deprecated Replaced by Postgres-first persistence. Generic JSON fetches from S3 will be removed
- * in version 1.0. This does not impact S3 image storage APIs.
- */
-@Deprecated
-public CompletableFuture<S3FetchResult<String>> fetchGenericJsonAsync(String keyName) {
+    public CompletableFuture<S3FetchResult<String>> fetchUtf8ObjectAsync(String keyName) {
         if (s3Client == null) {
             logger.warn("S3Client is null. Cannot fetch generic JSON from key: {}. S3 may be disabled or misconfigured.", keyName);
             return CompletableFuture.completedFuture(S3FetchResult.disabled());
         }
-        
+
         return Mono.<S3FetchResult<String>>fromCallable(() -> {
             try {
                 GetObjectRequest getObjectRequest = GetObjectRequest.builder()
@@ -304,6 +296,14 @@ public CompletableFuture<S3FetchResult<String>> fetchGenericJsonAsync(String key
         .subscribeOn(Schedulers.boundedElastic())
         .onErrorReturn(S3FetchResult.serviceError("Failed to execute S3 fetch operation for generic JSON key " + keyName))
         .toFuture();
+    }
+
+    /**
+     * @deprecated Use {@link #fetchUtf8ObjectAsync(String)} for UTF-8 payload retrieval.
+     */
+    @Deprecated
+    public CompletableFuture<S3FetchResult<String>> fetchGenericJsonAsync(String keyName) {
+        return fetchUtf8ObjectAsync(keyName);
     }
 
     /**

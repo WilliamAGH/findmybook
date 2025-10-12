@@ -8,7 +8,8 @@ import com.williamcallahan.book_recommendation_engine.dto.EditionSummary;
 import com.williamcallahan.book_recommendation_engine.model.Book;
 import com.williamcallahan.book_recommendation_engine.model.Book.EditionInfo;
 import com.williamcallahan.book_recommendation_engine.model.image.CoverImages;
-import com.williamcallahan.book_recommendation_engine.model.image.ImageDetails;
+import com.williamcallahan.book_recommendation_engine.util.cover.CoverUrlResolver;
+import com.williamcallahan.book_recommendation_engine.util.cover.ImageDimensionUtils;
 import com.williamcallahan.book_recommendation_engine.util.cover.UrlSourceDetector;
 
 import java.time.LocalDate;
@@ -19,7 +20,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 
 /**
  * Converts projection DTOs into legacy {@link Book} instances while the
@@ -28,6 +28,10 @@ import java.util.Optional;
  * duplicating conversion code across controllers and schedulers.
  */
 public final class BookDomainMapper {
+
+    private static final String SUPPRESSED_FLAG_KEY = "cover.suppressed";
+    private static final String SUPPRESSED_REASON_KEY = "cover.suppressed.reason";
+    private static final String SUPPRESSED_MIN_HEIGHT_KEY = "cover.suppressed.minHeight";
 
     private BookDomainMapper() {
     }
@@ -52,10 +56,15 @@ public final class BookDomainMapper {
         book.setInfoLink(detail.infoLink());
         book.setQualifiers(copyMap(detail.tags()));
         book.setOtherEditions(toEditionInfo(detail.editions()));
-        setCoverImages(book, detail.coverUrl(), detail.thumbnailUrl());
-        book.setCoverImageWidth(detail.coverWidth());
-        book.setCoverImageHeight(detail.coverHeight());
-        book.setIsCoverHighResolution(detail.coverHighResolution());
+        CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
+            detail.coverUrl(),
+            detail.thumbnailUrl(),
+            detail.coverWidth(),
+            detail.coverHeight(),
+            detail.coverHighResolution()
+        );
+        setCoverImages(book, resolved, detail.thumbnailUrl());
+        applyCoverMetadata(book, resolved.width(), resolved.height(), resolved.highResolution(), false);
         book.setDataSource(detail.dataSource());
         book.setRetrievedFrom("POSTGRES");
         book.setInPostgres(true);
@@ -70,7 +79,9 @@ public final class BookDomainMapper {
         book.setAverageRating(card.averageRating());
         book.setRatingsCount(card.ratingsCount());
         book.setQualifiers(copyMap(card.tags()));
-        setCoverImages(book, card.coverUrl(), card.coverUrl());
+        CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(card.coverUrl(), card.coverUrl());
+        setCoverImages(book, resolved, card.coverUrl());
+        applyCoverMetadata(book, resolved.width(), resolved.height(), resolved.highResolution(), false);
         book.setRetrievedFrom("POSTGRES");
         book.setInPostgres(true);
         return book;
@@ -96,7 +107,15 @@ public final class BookDomainMapper {
         book.setAverageRating(item.averageRating());
         book.setRatingsCount(item.ratingsCount());
         book.setQualifiers(copyMap(item.tags()));
-        setCoverImages(book, item.coverUrl(), item.coverUrl());
+        CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
+            item.coverUrl(),
+            item.coverUrl(),
+            item.coverWidth(),
+            item.coverHeight(),
+            item.coverHighResolution()
+        );
+        setCoverImages(book, resolved, item.coverUrl());
+        applyCoverMetadata(book, resolved.width(), resolved.height(), resolved.highResolution(), true);
         book.setRetrievedFrom("POSTGRES");
         book.setInPostgres(true);
         return book;
@@ -150,7 +169,9 @@ public final class BookDomainMapper {
             book.setEpubAvailable(identifiers.getEpubAvailable());
         }
 
-        setCoverImages(book, images.preferred(), images.fallback());
+        CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(images.preferred(), images.fallback());
+        setCoverImages(book, resolved, images.fallback());
+        applyCoverMetadata(book, resolved.width(), resolved.height(), resolved.highResolution(), false);
 
         book.setEditionNumber(aggregate.getEditionNumber());
         book.setEditionGroupKey(aggregate.getEditionGroupKey());
@@ -175,20 +196,25 @@ public final class BookDomainMapper {
         book.setSlug(ValidationUtils.hasText(slug) ? slug : id);
         book.setTitle(title);
         book.setAuthors(authors);
-        setCoverImages(book, coverUrl, coverUrl);
+        CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(coverUrl, coverUrl);
+        setCoverImages(book, resolved, coverUrl);
+        applyCoverMetadata(book, resolved.width(), resolved.height(), resolved.highResolution(), false);
         return book;
     }
 
-    private static void setCoverImages(Book book, String preferredUrl, String fallbackUrl) {
-        if (!ValidationUtils.hasText(preferredUrl) && !ValidationUtils.hasText(fallbackUrl)) {
+    private static void setCoverImages(Book book,
+                                       CoverUrlResolver.ResolvedCover resolved,
+                                       String fallbackUrl) {
+        if (resolved == null || !ValidationUtils.hasText(resolved.url())) {
             return;
         }
-        String effectivePreferred = ValidationUtils.hasText(preferredUrl) ? preferredUrl : fallbackUrl;
+        String effectivePreferred = resolved.url();
         book.setExternalImageUrl(effectivePreferred);
 
-        Optional<String> storageLocation = UrlSourceDetector.detectStorageLocation(effectivePreferred);
-        if (storageLocation.filter(ImageDetails.STORAGE_S3::equals).isPresent()) {
-            book.setS3ImagePath(effectivePreferred);
+        if (resolved.fromS3()) {
+            book.setS3ImagePath(resolved.s3Key());
+        } else {
+            book.setS3ImagePath(null);
         }
 
         CoverImages images = new CoverImages(
@@ -197,6 +223,51 @@ public final class BookDomainMapper {
             UrlSourceDetector.detectSource(effectivePreferred)
         );
         book.setCoverImages(images);
+    }
+
+    private static void applyCoverMetadata(Book book,
+                                           Integer width,
+                                           Integer height,
+                                           Boolean highResolution,
+                                           boolean enforceSearchThreshold) {
+        if (book == null) {
+            return;
+        }
+
+        book.setCoverImageWidth(width);
+        book.setCoverImageHeight(height);
+        boolean derivedHighRes = highResolution != null
+            ? highResolution
+            : ImageDimensionUtils.isHighResolution(width, height);
+        book.setIsCoverHighResolution(derivedHighRes);
+
+        if (enforceSearchThreshold
+            && !ImageDimensionUtils.meetsSearchDisplayThreshold(width, height)) {
+            suppressCover(book, "image-below-search-display-threshold");
+        }
+    }
+
+    private static void suppressCover(Book book, String reason) {
+        if (book == null) {
+            return;
+        }
+
+        boolean hasCover = ValidationUtils.hasText(book.getExternalImageUrl())
+            || ValidationUtils.hasText(book.getS3ImagePath());
+        if (!hasCover) {
+            return;
+        }
+
+        book.setExternalImageUrl(null);
+        book.setS3ImagePath(null);
+        book.setCoverImages(null);
+        book.setCoverImageWidth(null);
+        book.setCoverImageHeight(null);
+        book.setIsCoverHighResolution(null);
+
+        book.addQualifier(SUPPRESSED_FLAG_KEY, true);
+        book.addQualifier(SUPPRESSED_REASON_KEY, reason);
+        book.addQualifier(SUPPRESSED_MIN_HEIGHT_KEY, ImageDimensionUtils.MIN_SEARCH_RESULT_HEIGHT);
     }
 
     private static Date toDate(LocalDate value) {

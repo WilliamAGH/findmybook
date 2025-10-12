@@ -7,6 +7,8 @@ import com.williamcallahan.book_recommendation_engine.util.ApplicationConstants;
 import com.williamcallahan.book_recommendation_engine.util.BookDomainMapper;
 import com.williamcallahan.book_recommendation_engine.util.PagingUtils;
 import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
+import com.williamcallahan.book_recommendation_engine.util.cover.CoverUrlResolver;
+import com.williamcallahan.book_recommendation_engine.util.cover.ImageDimensionUtils;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -102,6 +104,8 @@ public class SearchPaginationService {
                                       PagingUtils.Window window,
                                       SearchRequest request) {
         LinkedHashMap<String, Book> ordered = new LinkedHashMap<>();
+        Map<String, Integer> insertionOrder = new LinkedHashMap<>();
+        int position = 0;
         for (Book book : rawResults) {
             if (book == null) {
                 continue;
@@ -110,27 +114,14 @@ public class SearchPaginationService {
             if (!ValidationUtils.hasText(id)) {
                 continue;
             }
-            ordered.putIfAbsent(id, book);
-        }
-
-        List<Book> postgresFirst = new ArrayList<>();
-        List<Book> external = new ArrayList<>();
-        for (Book candidate : ordered.values()) {
-            if (Boolean.TRUE.equals(candidate.getInPostgres())) {
-                postgresFirst.add(candidate);
-            } else {
-                external.add(candidate);
+            if (!ordered.containsKey(id)) {
+                ordered.put(id, book);
+                insertionOrder.put(id, position++);
             }
         }
 
-        Comparator<Book> stableExternalOrder = Comparator
-            .comparing((Book b) -> Optional.ofNullable(b.getTitle()).orElse("").toLowerCase())
-            .thenComparing(b -> Optional.ofNullable(b.getId()).orElse("").toLowerCase());
-        external.sort(stableExternalOrder);
-
-        List<Book> uniqueResults = new ArrayList<>(postgresFirst.size() + external.size());
-        uniqueResults.addAll(postgresFirst);
-        uniqueResults.addAll(external);
+        List<Book> uniqueResults = new ArrayList<>(ordered.values());
+        uniqueResults.sort(buildSearchResultComparator(insertionOrder));
         List<Book> pageItems = PagingUtils.slice(uniqueResults, window.startIndex(), window.limit());
         int totalUnique = uniqueResults.size();
         boolean hasMore = PagingUtils.hasMore(totalUnique, window.startIndex(), window.limit());
@@ -150,6 +141,47 @@ public class SearchPaginationService {
             prefetched,
             request.orderBy()
         );
+    }
+
+    private Comparator<Book> buildSearchResultComparator(Map<String, Integer> insertionOrder) {
+        Comparator<Book> insertionComparator = Comparator.comparingInt(
+            book -> insertionOrder.getOrDefault(book.getId(), Integer.MAX_VALUE)
+        );
+
+        return Comparator
+            .comparingInt(this::coverQualityRank).reversed()
+            .thenComparingLong(book -> ImageDimensionUtils.totalPixels(book.getCoverImageWidth(), book.getCoverImageHeight())).reversed()
+            .thenComparingInt(book -> Optional.ofNullable(book.getCoverImageHeight()).orElse(0)).reversed()
+            .thenComparingInt(book -> Optional.ofNullable(book.getCoverImageWidth()).orElse(0)).reversed()
+            .thenComparing((Book book) -> Boolean.TRUE.equals(book.getInPostgres()) ? 1 : 0, Comparator.reverseOrder())
+            .thenComparing(insertionComparator);
+    }
+
+    private int coverQualityRank(Book book) {
+        if (book == null) {
+            return 0;
+        }
+
+        String externalUrl = book.getExternalImageUrl();
+        boolean hasVisual = ValidationUtils.hasText(externalUrl)
+            && !externalUrl.contains("placeholder-book-cover.svg");
+
+        if (!hasVisual) {
+            return 0;
+        }
+
+        Integer width = book.getCoverImageWidth();
+        Integer height = book.getCoverImageHeight();
+        boolean hasCdn = CoverUrlResolver.isCdnUrl(externalUrl)
+            || ValidationUtils.hasText(book.getS3ImagePath());
+        boolean highRes = Boolean.TRUE.equals(book.getIsCoverHighResolution())
+            || ImageDimensionUtils.isHighResolution(width, height);
+        boolean meetsDisplay = ImageDimensionUtils.meetsSearchDisplayThreshold(width, height);
+
+        if (hasCdn && highRes) return 4;
+        if (highRes) return 3;
+        if (hasCdn || meetsDisplay) return 2;
+        return 1;
     }
 
     private void logPageMetrics(SearchRequest request,

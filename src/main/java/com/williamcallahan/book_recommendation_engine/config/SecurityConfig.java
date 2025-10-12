@@ -115,7 +115,7 @@ public class SecurityConfig {
                 // (Google Books, Open Library, Goodreads, Amazon, etc.)
                 // Note: HTTP allowed because some providers (e.g., Google Books API) return HTTP URLs
                 StringBuilder imgSrcDirective = new StringBuilder("'self' data: blob: https: http: ");
-                StringBuilder scriptSrcDirective = new StringBuilder("'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com 'unsafe-inline' blob:");
+                StringBuilder scriptSrcDirective = new StringBuilder("'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://cdn.tailwindcss.com 'unsafe-inline' blob:");
                 StringBuilder connectSrcDirective = new StringBuilder("'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com");
 
                 if (clickyEnabled) {

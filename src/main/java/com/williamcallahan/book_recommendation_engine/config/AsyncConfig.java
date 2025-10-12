@@ -34,7 +34,7 @@ public class AsyncConfig implements WebMvcConfigurer {
     @Override
     public void configureAsyncSupport(@NonNull AsyncSupportConfigurer configurer) {
         configurer.setDefaultTimeout(60000);
-        configurer.setTaskExecutor(mvcTaskExecutor());
+        configurer.setTaskExecutor(taskExecutor());
     }
 
     /**
@@ -48,8 +48,8 @@ public class AsyncConfig implements WebMvcConfigurer {
      * - Queue capacity of 500 tasks before rejecting new requests
      * - Descriptive thread naming pattern for monitoring
      */
-    @Bean("mvcTaskExecutor")
-    public AsyncTaskExecutor mvcTaskExecutor() {
+    @Bean({"taskExecutor", "mvcTaskExecutor"})
+    public AsyncTaskExecutor taskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(20);
         executor.setMaxPoolSize(100);

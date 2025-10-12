@@ -7,8 +7,8 @@ import com.williamcallahan.book_recommendation_engine.model.image.ImageDetails;
  * 
  * Consolidates logic from:
  * - CoverImageService.estimateDimensions()
- * - ImageCacheUtils.normalizeImageDimension()
- * - ImageCacheUtils.isValidImageDetails() dimension checks
+ * - Legacy cache helper normalizeImageDimension()
+ * - Legacy cache helper isValidImageDetails() dimension checks
  * - CoverSourceFetchingService dimension thresholds
  * 
  * @author William Callahan
@@ -19,9 +19,11 @@ public final class ImageDimensionUtils {
     public static final int MIN_VALID_DIMENSION = 2; // Absolute minimum for valid image
     public static final int MIN_ACCEPTABLE_NON_GOOGLE = 200; // Minimum for acceptable quality (non-Google sources)
     public static final int MIN_ACCEPTABLE_CACHED = 150; // Minimum for cached images to be considered
+    public static final int MIN_SEARCH_RESULT_HEIGHT = 280; // Minimum height for displaying covers in search results
+    public static final int MIN_SEARCH_RESULT_WIDTH = 180; // Minimum width for displaying covers in search results
     
     // High-resolution threshold (total pixels)
-    public static final int HIGH_RES_PIXEL_THRESHOLD = 480_000; // ~800x600 or 600x800
+    public static final int HIGH_RES_PIXEL_THRESHOLD = 320_000; // ~640x500 or 512x625
     
     // Default/fallback dimension for unknown images
     public static final int DEFAULT_DIMENSION = 512;
@@ -52,6 +54,7 @@ public final class ImageDimensionUtils {
         }
         
         return switch (imageType.toLowerCase()) {
+            case "canonical" -> 0;
             case "extralarge" -> 1;
             case "large" -> 2;
             case "medium" -> 3;
@@ -108,9 +111,23 @@ public final class ImageDimensionUtils {
         if (width == null || height == null) {
             return false;
         }
-        
+
         long totalPixels = (long) width * height;
         return totalPixels >= HIGH_RES_PIXEL_THRESHOLD;
+    }
+
+    /**
+     * Computes the total pixel count for the provided dimensions.
+     *
+     * @param width Image width in pixels
+     * @param height Image height in pixels
+     * @return Total pixel count or 0 if dimensions are missing
+     */
+    public static long totalPixels(Integer width, Integer height) {
+        if (width == null || height == null) {
+            return 0L;
+        }
+        return (long) width * height;
     }
     
     /**
@@ -127,6 +144,13 @@ public final class ImageDimensionUtils {
         }
         
         return width >= minThreshold && height >= minThreshold;
+    }
+    
+    public static boolean meetsSearchDisplayThreshold(Integer width, Integer height) {
+        if (width == null || height == null) {
+            return false;
+        }
+        return width >= MIN_SEARCH_RESULT_WIDTH && height >= MIN_SEARCH_RESULT_HEIGHT;
     }
     
     /**
@@ -151,8 +175,18 @@ public final class ImageDimensionUtils {
         if (imageDetails == null) {
             return false;
         }
-        
+
         return areValid(imageDetails.getWidth(), imageDetails.getHeight());
+    }
+
+    /**
+     * Determines whether an image height falls below the minimum threshold for search results.
+     *
+     * @param height Image height in pixels
+     * @return true if the height is known and below the minimum display threshold
+     */
+    public static boolean isBelowSearchMinimum(Integer height) {
+        return height != null && height < MIN_SEARCH_RESULT_HEIGHT;
     }
     
     /**

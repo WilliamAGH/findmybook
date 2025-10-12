@@ -11,6 +11,7 @@ import com.williamcallahan.book_recommendation_engine.util.ApplicationConstants;
 import com.williamcallahan.book_recommendation_engine.util.LoggingUtils;
 import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
 import com.williamcallahan.book_recommendation_engine.util.cover.CoverSourceMapper;
+import com.williamcallahan.book_recommendation_engine.util.cover.UrlSourceDetector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -115,6 +116,11 @@ public class LocalDiskCoverCacheService {
     private void handleSuccessfulUpload(ImageDetails details,
                                         AttemptedSourceInfo attemptInfo,
                                         ImageSourceName sourceNameEnum) {
+        if (!ValidationUtils.hasText(details.getUrlOrPath())) {
+            markAttemptFailure(attemptInfo, ImageAttemptStatus.FAILURE_NOT_FOUND, "s3-url-unavailable");
+            return;
+        }
+
         if (attemptInfo != null) {
             attemptInfo.setStatus(ImageAttemptStatus.SUCCESS);
             attemptInfo.setFetchedUrl(details.getUrlOrPath());
@@ -130,8 +136,10 @@ public class LocalDiskCoverCacheService {
         );
         details.setCoverImageSource(sanitizedSource);
         details.setSourceName(sourceNameEnum.name());
-        if (details.getStorageLocation() == null) {
-            details.setStorageLocation(ImageDetails.STORAGE_S3);
+
+        if (details.getStorageLocation() == null && ValidationUtils.hasText(details.getUrlOrPath())) {
+            UrlSourceDetector.detectStorageLocation(details.getUrlOrPath())
+                .ifPresent(details::setStorageLocation);
         }
     }
 

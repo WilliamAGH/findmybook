@@ -1,6 +1,7 @@
 package com.williamcallahan.book_recommendation_engine.util.cover;
 
 import com.williamcallahan.book_recommendation_engine.model.image.CoverImageSource;
+import java.util.Locale;
 
 /**
  * Single Source of Truth for S3 object key generation for book cover images.
@@ -39,6 +40,55 @@ public final class S3KeyGenerator {
         String sourceSegment = CoverSourceMapper.toS3KeySegment(source);
         
         return COVER_IMAGES_DIRECTORY + bookId + LARGE_SUFFIX + "-" + sourceSegment + normalizedExtension;
+    }
+
+    /**
+     * Generates S3 object key for a book cover image using a raw, possibly free-form source label.
+     * <p>
+     * Legacy code paths often pass download identifiers such as "GoogleHint-AsIs" or
+     * "google_books 2". This helper normalizes those labels to the same canonical
+     * segments used elsewhere (lowercase, hyphen separated, alphanumeric only) so
+     * uploads and lookups remain deterministic.
+     *
+     * @param bookId Book identifier (ISBN or Google Volume ID)
+     * @param fileExtension File extension including dot (e.g., ".jpg")
+     * @param rawSource Raw download/source label
+     * @return S3 object key for the cover image
+     */
+    public static String generateCoverKeyFromRawSource(String bookId, String fileExtension, String rawSource) {
+        validateBookId(bookId);
+
+        String normalizedExtension = normalizeExtension(fileExtension);
+        String sourceSegment = normalizeRawSource(rawSource);
+
+        return COVER_IMAGES_DIRECTORY + bookId + LARGE_SUFFIX + "-" + sourceSegment + normalizedExtension;
+    }
+
+    /**
+     * Derives the canonical S3 key segment from arbitrary input.
+     */
+    public static String normalizeRawSource(String rawSource) {
+        if (rawSource == null || rawSource.isBlank()) {
+            return "unknown";
+        }
+
+        // First try mapping to a known CoverImageSource via existing mapper.
+        CoverImageSource enumSource = CoverSourceMapper.toCoverImageSource(rawSource);
+        if (enumSource != CoverImageSource.UNDEFINED) {
+            return CoverSourceMapper.toS3KeySegment(enumSource);
+        }
+
+        // Fallback: slugify arbitrary input.
+        String slug = rawSource.trim().toLowerCase(Locale.ROOT)
+            .replaceAll("\\s+", "-")              // collapse whitespace
+            .replaceAll("[^a-z0-9_-]", "-")         // non-url-safe -> '-'
+            .replaceAll("-+", "-")                  // collapse duplicate hyphens
+            .replaceAll("^-|-$", "");               // trim leading/trailing hyphen
+
+        if (slug.isBlank()) {
+            return "unknown";
+        }
+        return slug;
     }
     
     /**

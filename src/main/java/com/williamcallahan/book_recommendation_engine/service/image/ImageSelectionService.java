@@ -15,7 +15,7 @@ import java.util.stream.Collectors;
  * Service for selecting the best image from multiple candidates.
  * <p>
  * Encapsulates complex image selection logic that was previously in
- * ImageCacheUtils. Provides prioritization based on storage location,
+ * legacy cache utilities. Provides prioritization based on storage location,
  * dimensions, and data source quality.
  * 
  * @author William Callahan
@@ -101,7 +101,7 @@ public class ImageSelectionService {
         return imageDetails != null
             && imageDetails.getUrlOrPath() != null
             && !Objects.equals(imageDetails.getUrlOrPath(), placeholderPath)
-            && ImageDimensionUtils.areValid(imageDetails.getWidth(), imageDetails.getHeight());
+            && ImageDimensionUtils.meetsSearchDisplayThreshold(imageDetails.getWidth(), imageDetails.getHeight());
     }
     
     /**
@@ -123,10 +123,9 @@ public class ImageSelectionService {
                 boolean isCached = storage != null && !storage.isBlank();
                 
                 if (isCached
-                    && ImageDimensionUtils.meetsThreshold(
+                    && ImageDimensionUtils.meetsSearchDisplayThreshold(
                         details.getWidth(), 
-                        details.getHeight(), 
-                        ImageDimensionUtils.MIN_ACCEPTABLE_CACHED)
+                        details.getHeight())
                     && details.getUrlOrPath() != null
                     && !details.getUrlOrPath().equals(placeholderPath)) {
                     return 0; // Highest priority for cached images

@@ -513,7 +513,7 @@ public class BookUpsertService {
      * - Normalize URLs to HTTPS
      * - Estimate dimensions based on image type
      * - Detect high-resolution images
-     * - Update books.s3_image_path with canonical cover
+     * - Persist canonical cover metadata into book_image_links
      * 
      * Falls back to simple upsert if CoverPersistenceService fails or reports no change.
      */
@@ -529,8 +529,8 @@ public class BookUpsertService {
             );
 
             if (result.success()) {
-                log.debug("Enhanced image metadata persisted for book {}: s3Key={}, dimensions={}x{}, highRes={}",
-                    bookId, result.s3Key(), result.width(), result.height(), result.highRes());
+                log.debug("Enhanced image metadata persisted for book {}: canonicalUrl={}, dimensions={}x{}, highRes={}",
+                    bookId, result.canonicalUrl(), result.width(), result.height(), result.highRes());
                 return;
             }
 

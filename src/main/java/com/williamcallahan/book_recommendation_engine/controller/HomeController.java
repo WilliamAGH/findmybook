@@ -21,6 +21,8 @@ import com.williamcallahan.book_recommendation_engine.util.IsbnUtils;
 import com.williamcallahan.book_recommendation_engine.util.PagingUtils;
 import com.williamcallahan.book_recommendation_engine.util.SeoUtils;
 import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
+import com.williamcallahan.book_recommendation_engine.util.cover.CoverUrlResolver;
+import com.williamcallahan.book_recommendation_engine.util.cover.UrlSourceDetector;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -117,6 +119,21 @@ public class HomeController {
         model.addAttribute("isDevelopmentMode", environmentService.isDevelopmentMode());
         model.addAttribute("currentEnv", environmentService.getCurrentEnvironmentMode());
         model.addAttribute("activeTab", activeTab);
+    }
+
+    /**
+     * Determines the active navigation tab based on the source parameter
+     * @param source The source parameter from navigation (explore, categories, or null)
+     * @return The active tab name for navigation highlighting
+     */
+    private String determineActiveTab(String source) {
+        if ("explore".equals(source)) {
+            return "explore";
+        }
+        if ("categories".equals(source)) {
+            return "categories";
+        }
+        return "search";
     }
 
     private void applySeo(Model model,
@@ -348,15 +365,37 @@ public class HomeController {
             return;
         }
         String placeholder = ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH;
-        if (!ValidationUtils.hasText(book.getS3ImagePath())) {
-            book.setS3ImagePath(placeholder);
+
+        CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
+            book.getS3ImagePath(),
+            book.getExternalImageUrl()
+        );
+
+        String preferredUrl = ValidationUtils.hasText(resolved.url()) ? resolved.url() : placeholder;
+        String fallbackUrl = book.getCoverImages() != null && ValidationUtils.hasText(book.getCoverImages().getFallbackUrl())
+            ? book.getCoverImages().getFallbackUrl()
+            : preferredUrl;
+        if (!ValidationUtils.hasText(fallbackUrl)) {
+            fallbackUrl = placeholder;
         }
-        if (!ValidationUtils.hasText(book.getExternalImageUrl())) {
-            book.setExternalImageUrl(book.getS3ImagePath());
+
+        if (resolved.s3Key() != null) {
+            book.setS3ImagePath(resolved.s3Key());
         }
+
+        book.setExternalImageUrl(preferredUrl);
+
         if (book.getCoverImages() == null) {
-            book.setCoverImages(new CoverImages(book.getS3ImagePath(), book.getS3ImagePath(), null));
+            book.setCoverImages(new CoverImages(preferredUrl, fallbackUrl, UrlSourceDetector.detectSource(preferredUrl)));
+        } else {
+            book.getCoverImages().setPreferredUrl(preferredUrl);
+            book.getCoverImages().setFallbackUrl(fallbackUrl);
+            book.getCoverImages().setSource(UrlSourceDetector.detectSource(preferredUrl));
         }
+
+        book.setCoverImageWidth(resolved.width());
+        book.setCoverImageHeight(resolved.height());
+        book.setIsCoverHighResolution(resolved.highResolution());
     }
 
     private Mono<Book> locateBook(String identifier) {
@@ -460,6 +499,7 @@ public class HomeController {
                                @RequestParam(required = false) Integer year,
                                @RequestParam(required = false, defaultValue = "0") int page,
                                @RequestParam(required = false, defaultValue = "newest") String sort,
+                               @RequestParam(required = false) String source,
                                Model model) {
         // Handle year extraction from query if enabled
         if (isYearFilteringEnabled && year == null && ValidationUtils.hasText(query)) {
@@ -482,11 +522,13 @@ public class HomeController {
 
         Integer effectiveYear = isYearFilteringEnabled ? year : null;
 
-        applyBaseAttributes(model, "search");
+        String activeTab = determineActiveTab(source);
+        applyBaseAttributes(model, activeTab);
         model.addAttribute("query", query);
         model.addAttribute("year", effectiveYear);
         model.addAttribute("currentPage", page);
         model.addAttribute("currentSort", sort);
+        model.addAttribute("source", source);
         model.addAttribute("isYearFilteringEnabled", isYearFilteringEnabled);
 
         applySeo(
@@ -726,11 +768,27 @@ public class HomeController {
         return redirectByIsbn(isbn10, IsbnUtils::isValidIsbn10, "invalidIsbn10");
     }
 
+    /**
+     * Handle explore page requests by redirecting to search with a random curated query
+     * @return redirect to search page with source=explore parameter
+     */
     @GetMapping("/explore")
     public ResponseEntity<Void> explore() {
         String selectedQuery = EXPLORE_QUERIES.get(ThreadLocalRandom.current().nextInt(EXPLORE_QUERIES.size()));
         log.info("Explore page requested, redirecting to search with query: '{}'", selectedQuery);
         String encodedQuery = URLEncoder.encode(selectedQuery, StandardCharsets.UTF_8);
         return redirectTo("/search?query=" + encodedQuery + "&source=explore");
+    }
+
+    /**
+     * Handle categories page requests by redirecting to search with a random category query
+     * @return redirect to search page with source=categories parameter
+     */
+    @GetMapping("/categories")
+    public ResponseEntity<Void> categories() {
+        String selectedQuery = EXPLORE_QUERIES.get(ThreadLocalRandom.current().nextInt(EXPLORE_QUERIES.size()));
+        log.info("Categories page requested, redirecting to search with query: '{}'", selectedQuery);
+        String encodedQuery = URLEncoder.encode(selectedQuery, StandardCharsets.UTF_8);
+        return redirectTo("/search?query=" + encodedQuery + "&source=categories");
     }
 }

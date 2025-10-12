@@ -21,7 +21,10 @@ import java.util.Map;
  * @param description Book description/summary
  * @param authors List of author names in order
  * @param categories List of category names
- * @param coverUrl Primary cover image URL
+ * @param coverUrl Canonical cover URL (prefers persisted S3 key, falls back to best external source)
+ * @param coverWidth Cover image width in pixels when known
+ * @param coverHeight Cover image height in pixels when known
+ * @param coverHighResolution Whether the cover image is considered high resolution
  * @param averageRating Average rating (0.0-5.0)
  * @param ratingsCount Total number of ratings
  * @param tags Qualifier tags as key-value pairs
@@ -40,7 +43,13 @@ public record BookListItem(
     
     @JsonProperty("cover_url")
     String coverUrl,
-    
+    @JsonProperty("cover_width")
+    Integer coverWidth,
+    @JsonProperty("cover_height")
+    Integer coverHeight,
+    @JsonProperty("cover_high_resolution")
+    Boolean coverHighResolution,
+
     @JsonProperty("average_rating")
     Double averageRating,
     
