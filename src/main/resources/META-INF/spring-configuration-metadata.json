@@ -196,6 +196,12 @@
       "defaultValue": true
     },
     {
+      "name": "s3.write-enabled",
+      "type": "java.lang.Boolean",
+      "description": "Allow persisting new cover images to S3 when true",
+      "defaultValue": true
+    },
+    {
       "name": "s3.retry.max-attempts",
       "type": "java.lang.Integer",
       "description": "Maximum retry attempts for S3 operations",
