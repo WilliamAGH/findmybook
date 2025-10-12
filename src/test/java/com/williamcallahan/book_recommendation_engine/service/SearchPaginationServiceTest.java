@@ -2,6 +2,8 @@ package com.williamcallahan.book_recommendation_engine.service;
 
 import com.williamcallahan.book_recommendation_engine.dto.BookListItem;
 import com.williamcallahan.book_recommendation_engine.model.Book;
+import com.williamcallahan.book_recommendation_engine.model.image.CoverImageSource;
+import com.williamcallahan.book_recommendation_engine.model.image.ImageResolutionPreference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.williamcallahan.book_recommendation_engine.dto.BookAggregate;
@@ -75,7 +77,14 @@ class SearchPaginationServiceTest {
             buildListItem(uuid2, "Postgres Two")
         ));
 
-        SearchPaginationService.SearchRequest request = new SearchPaginationService.SearchRequest("java", 0, 12, "newest");
+        SearchPaginationService.SearchRequest request = new SearchPaginationService.SearchRequest(
+            "java",
+            0,
+            12,
+            "newest",
+            CoverImageSource.ANY,
+            ImageResolutionPreference.ANY
+        );
         SearchPaginationService.SearchPage page = service.search(request).block();
 
         assertThat(page).isNotNull();
@@ -106,7 +115,14 @@ class SearchPaginationServiceTest {
         when(bookSearchService.searchBooks(eq("java"), eq(36))).thenReturn(searchResults);
         when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(listItems);
 
-        SearchPaginationService.SearchRequest request = new SearchPaginationService.SearchRequest("java", 12, 12, "newest");
+        SearchPaginationService.SearchRequest request = new SearchPaginationService.SearchRequest(
+            "java",
+            12,
+            12,
+            "newest",
+            CoverImageSource.ANY,
+            ImageResolutionPreference.ANY
+        );
         SearchPaginationService.SearchPage page = service.search(request).block();
 
         assertThat(page).isNotNull();
@@ -159,7 +175,14 @@ class SearchPaginationServiceTest {
             buildListItem(idThree, "Third")
         ));
 
-        SearchPaginationService.SearchRequest request = new SearchPaginationService.SearchRequest("miss", 10, 12, "newest");
+        SearchPaginationService.SearchRequest request = new SearchPaginationService.SearchRequest(
+            "miss",
+            10,
+            12,
+            "newest",
+            CoverImageSource.ANY,
+            ImageResolutionPreference.ANY
+        );
         SearchPaginationService.SearchPage page = postgresOnlyService.search(request).block();
 
         assertThat(page).isNotNull();
@@ -187,7 +210,14 @@ class SearchPaginationServiceTest {
             buildListItem(olderHighQuality, "Older High Quality", 900, 1400, true, "https://cdn.test/high.jpg")
         ));
 
-        SearchPaginationService.SearchRequest request = new SearchPaginationService.SearchRequest("cover-newest", 0, 12, "newest");
+        SearchPaginationService.SearchRequest request = new SearchPaginationService.SearchRequest(
+            "cover-newest",
+            0,
+            12,
+            "newest",
+            CoverImageSource.ANY,
+            ImageResolutionPreference.ANY
+        );
         SearchPaginationService.SearchPage page = service.search(request).block();
 
         assertThat(page).isNotNull();
@@ -231,7 +261,14 @@ class SearchPaginationServiceTest {
             Optional.of(googleBooksMapper)
         );
 
-        SearchPaginationService.SearchRequest request = new SearchPaginationService.SearchRequest("fallback", 0, 12, "newest");
+        SearchPaginationService.SearchRequest request = new SearchPaginationService.SearchRequest(
+            "fallback",
+            0,
+            12,
+            "newest",
+            CoverImageSource.ANY,
+            ImageResolutionPreference.ANY
+        );
         SearchPaginationService.SearchPage page = fallbackService.search(request).block();
 
         assertThat(page).isNotNull();

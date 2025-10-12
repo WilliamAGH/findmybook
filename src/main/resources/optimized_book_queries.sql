@@ -343,6 +343,8 @@ BEGIN
             ARRAY[]::TEXT[]
         ) as categories,
         cover_meta.cover_url as cover_url,
+        cover_meta.cover_s3_key as cover_s3_key,
+        cover_meta.cover_fallback_url as cover_fallback_url,
         -- Get thumbnail for smaller displays
         (SELECT bil.url
          FROM book_image_links bil
@@ -405,6 +407,8 @@ BEGIN
     ) provider_source ON TRUE
     LEFT JOIN LATERAL (
         SELECT coalesce(bil_meta.s3_image_path, bil_meta.url) as cover_url,
+               bil_meta.s3_image_path as cover_s3_key,
+               bil_meta.url as cover_fallback_url,
                bil_meta.width,
                bil_meta.height,
                bil_meta.is_high_resolution

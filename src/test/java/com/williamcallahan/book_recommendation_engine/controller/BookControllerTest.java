@@ -7,6 +7,7 @@ import com.williamcallahan.book_recommendation_engine.dto.RecommendationCard;
 import com.williamcallahan.book_recommendation_engine.model.Book;
 import com.williamcallahan.book_recommendation_engine.model.image.CoverImageSource;
 import com.williamcallahan.book_recommendation_engine.model.image.CoverImages;
+import com.williamcallahan.book_recommendation_engine.model.image.ImageResolutionPreference;
 import com.williamcallahan.book_recommendation_engine.repository.BookQueryRepository;
 import com.williamcallahan.book_recommendation_engine.service.BookDataOrchestrator;
 import com.williamcallahan.book_recommendation_engine.service.BookIdentifierResolver;
@@ -114,7 +115,9 @@ class BookControllerTest {
             true,
             5,
             1,
-            "newest"
+            "newest",
+            CoverImageSource.ANY,
+            ImageResolutionPreference.ANY
         );
 
         when(searchPaginationService.search(any(SearchPaginationService.SearchRequest.class)))

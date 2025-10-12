@@ -5,6 +5,8 @@ import com.williamcallahan.book_recommendation_engine.dto.BookDetail;
 import com.williamcallahan.book_recommendation_engine.dto.RecommendationCard;
 import com.williamcallahan.book_recommendation_engine.model.Book;
 import com.williamcallahan.book_recommendation_engine.repository.BookQueryRepository;
+import com.williamcallahan.book_recommendation_engine.model.image.CoverImageSource;
+import com.williamcallahan.book_recommendation_engine.model.image.ImageResolutionPreference;
 import com.williamcallahan.book_recommendation_engine.service.AffiliateLinkService;
 import com.williamcallahan.book_recommendation_engine.service.BookIdentifierResolver;
 import com.williamcallahan.book_recommendation_engine.service.SearchPaginationService;
@@ -16,6 +18,7 @@ import com.williamcallahan.book_recommendation_engine.service.image.LocalDiskCov
 import com.williamcallahan.book_recommendation_engine.util.ApplicationConstants;
 import com.williamcallahan.book_recommendation_engine.util.BookDomainMapper;
 import com.williamcallahan.book_recommendation_engine.util.IsbnUtils;
+import com.williamcallahan.book_recommendation_engine.util.EnumParsingUtils;
 import com.williamcallahan.book_recommendation_engine.util.SearchQueryUtils;
 import com.williamcallahan.book_recommendation_engine.util.SeoUtils;
 import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
@@ -437,6 +440,8 @@ public class HomeController {
                                @RequestParam(required = false, defaultValue = "0") int page,
                                @RequestParam(required = false, defaultValue = "newest") String sort,
                                @RequestParam(required = false) String source,
+                               @RequestParam(required = false, defaultValue = "ANY") String coverSource,
+                               @RequestParam(required = false, defaultValue = "ANY") String resolution,
                                Model model) {
         // Handle year extraction from query if enabled
         if (isYearFilteringEnabled && year == null && ValidationUtils.hasText(query)) {
@@ -449,15 +454,41 @@ public class HomeController {
                     .trim()
                     .replaceAll("\\s+", " ");
 
-                if (!ValidationUtils.hasText(processedQuery)) {
-                    return Mono.just("redirect:/search?year=" + extractedYear);
+                UriComponentsBuilder redirectBuilder = UriComponentsBuilder.fromPath("/search")
+                    .queryParamIfPresent("query", ValidationUtils.hasText(processedQuery) ? Optional.of(processedQuery) : Optional.empty())
+                    .queryParam("year", extractedYear);
+
+                if (ValidationUtils.hasText(sort)) {
+                    redirectBuilder.queryParam("sort", sort);
                 }
-                return Mono.just("redirect:/search?query="
-                    + URLEncoder.encode(processedQuery, StandardCharsets.UTF_8) + "&year=" + extractedYear);
+                if (ValidationUtils.hasText(source)) {
+                    redirectBuilder.queryParam("source", source);
+                }
+                if (ValidationUtils.hasText(coverSource)) {
+                    redirectBuilder.queryParam("coverSource", coverSource);
+                }
+                if (ValidationUtils.hasText(resolution)) {
+                    redirectBuilder.queryParam("resolution", resolution);
+                }
+
+                String redirectPath = redirectBuilder.build().encode(StandardCharsets.UTF_8).toUriString();
+                return Mono.just("redirect:" + redirectPath);
             }
         }
 
         Integer effectiveYear = isYearFilteringEnabled ? year : null;
+        CoverImageSource coverSourcePreference = EnumParsingUtils.parseOrDefault(
+            coverSource,
+            CoverImageSource.class,
+            CoverImageSource.ANY,
+            raw -> log.debug("Invalid coverSource '{}' on /search view request, defaulting to ANY", raw)
+        );
+        ImageResolutionPreference resolutionPreference = EnumParsingUtils.parseOrDefault(
+            resolution,
+            ImageResolutionPreference.class,
+            ImageResolutionPreference.ANY,
+            raw -> log.debug("Invalid resolution '{}' on /search view request, defaulting to ANY", raw)
+        );
 
         String activeTab = determineActiveTab(source);
         applyBaseAttributes(model, activeTab);
@@ -466,6 +497,8 @@ public class HomeController {
         model.addAttribute("currentPage", page);
         model.addAttribute("currentSort", sort);
         model.addAttribute("source", source);
+        model.addAttribute("coverSource", coverSourcePreference.name());
+        model.addAttribute("resolution", resolutionPreference.name());
         model.addAttribute("isYearFilteringEnabled", isYearFilteringEnabled);
 
         applySeo(
@@ -488,7 +521,9 @@ public class HomeController {
                 normalizedQuery,
                 startIndex,
                 pageSize,
-                sort
+                sort,
+                coverSourcePreference,
+                resolutionPreference
             );
 
             return searchPaginationService.search(request)
