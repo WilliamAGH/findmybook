@@ -14,7 +14,7 @@ import java.util.Iterator;
 import java.util.Map;
 
 /**
- * Shared helpers for serialising {@link Book} objects back to JSON and merging with
+ * Shared helpers for serializing {@link Book} objects back to JSON and merging with
  * existing stored payloads. Complements the {@link com.williamcallahan.book_recommendation_engine.mapper.GoogleBooksMapper}
  * / {@link com.williamcallahan.book_recommendation_engine.util.BookDomainMapper} pipeline so ingest/export paths
  * share a single conversion layer.
@@ -109,7 +109,7 @@ public final class BookJsonWriter {
         try {
             return OBJECT_MAPPER.writeValueAsString(node);
         } catch (IOException e) {
-            throw new UncheckedIOException("Failed to serialise book JSON payload", e);
+            throw new UncheckedIOException("Failed to serialize book JSON payload", e);
         }
     }
 }

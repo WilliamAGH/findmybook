@@ -25,7 +25,7 @@ public final class PagingUtils {
     }
 
     /**
-     * Clamp a page size request, honouring defaults when {@code requested <= 0}.
+     * Clamp a page size request, honoring defaults when {@code requested <= 0}.
      */
     public static int safeLimit(int requested, int defaultValue, int min, int max) {
         int base = requested > 0 ? requested : defaultValue;

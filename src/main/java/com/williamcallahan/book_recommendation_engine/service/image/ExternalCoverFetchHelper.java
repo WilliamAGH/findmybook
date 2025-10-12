@@ -37,9 +37,9 @@ public class ExternalCoverFetchHelper {
     }
 
     /**
-     * @deprecated The cover orchestration now flows through
-     * {@link com.williamcallahan.book_recommendation_engine.service.image.CoverSourceFetchingService}
-     * and {@link com.williamcallahan.book_recommendation_engine.service.image.CoverPersistenceService}.
+     * @deprecated Legacy entry point retained for compatibility with older
+     * cover pipelines. Prefer resolver-backed lookups that persist via
+     * {@link com.williamcallahan.book_recommendation_engine.service.image.CoverPersistenceService}.
      */
     @Deprecated(since = "2025-10-01", forRemoval = true)
     public CompletableFuture<ImageDetails> fetchAndCache(
@@ -114,7 +114,7 @@ public class ExternalCoverFetchHelper {
 
     /**
      * @deprecated Legacy response handling retained only for backwards compatibility with
-     * {@link #fetchAndCache}. Prefer the CoverSourceFetchingService pipeline.
+     * {@link #fetchAndCache}. Prefer the resolver-backed CoverPersistenceService pipeline.
      */
     @Deprecated(since = "2025-10-01", forRemoval = true)
     private CompletableFuture<ImageDetails> handleRemoteResponse(

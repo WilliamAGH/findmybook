@@ -11,7 +11,7 @@ import java.util.UUID;
 
 /**
  * Resolves user-facing identifiers (slug, ISBN, external ID) to canonical UUIDs.
- * Centralising this logic prevents duplicate lookup heuristics across controllers.
+ * Centralizing this logic prevents duplicate lookup heuristics across controllers.
  */
 @Service
 public class BookIdentifierResolver {

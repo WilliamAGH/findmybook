@@ -45,6 +45,7 @@ import com.williamcallahan.book_recommendation_engine.util.PagingUtils;
 import com.williamcallahan.book_recommendation_engine.util.ReactiveErrorUtils;
 import com.williamcallahan.book_recommendation_engine.util.BookDomainMapper;
 import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
+import com.williamcallahan.book_recommendation_engine.util.CategoryNormalizer;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -394,18 +395,11 @@ public class RecommendationService {
      * @param categories List of categories to normalize
      * @return Set of normalized category strings
      * 
-     * @implNote Splits compound categories on slashes
-     * Converts to lowercase and trims whitespace
+     * @implNote Delegates to CategoryNormalizer utility for DRY principle
+     * @see CategoryNormalizer#normalizeForComparison(List)
      */
     private Set<String> normalizeCategories(List<String> categories) {
-        Set<String> normalized = new HashSet<>();
-        for (String category : categories) {
-            // Split compound categories and add each part
-            for (String part : category.split("\\s*/\\s*")) {
-                normalized.add(part.toLowerCase(Locale.ROOT).trim());
-            }
-        }
-        return normalized;
+        return CategoryNormalizer.normalizeForComparison(categories);
     }
     
     /**

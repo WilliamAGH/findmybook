@@ -4,7 +4,7 @@ import java.util.Locale;
 import java.util.regex.Pattern;
 
 /**
- * Shared helpers for normalising ISBN input before lookups or persistence.
+ * Shared helpers for normalizing ISBN input before lookups or persistence.
  */
 public final class IsbnUtils {
 
@@ -14,7 +14,7 @@ public final class IsbnUtils {
     }
 
     /**
-     * Normalises an ISBN by removing non-numeric characters (except the X check digit) and
+     * Normalizes an ISBN by removing non-numeric characters (except the X check digit) and
      * uppercasing the result.
      *
      * @param raw user-provided ISBN input

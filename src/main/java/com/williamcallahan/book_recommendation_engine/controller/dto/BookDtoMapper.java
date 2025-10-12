@@ -23,7 +23,7 @@ import java.util.stream.Collectors;
 
 /**
  * Shared mapper that transforms domain {@link Book} objects into API-facing DTOs.
- * Centralising this logic lets controller layers adopt Postgres-first data
+ * Centralizing this logic lets controller layers adopt Postgres-first data
  * without rewriting mapping code in multiple places.
  */
 public final class BookDtoMapper {
@@ -250,15 +250,22 @@ public final class BookDtoMapper {
             return null;
         }
         CoverImages coverImages = book.getCoverImages();
+        String preferredCandidate = coverImages != null && ValidationUtils.hasText(coverImages.getPreferredUrl())
+            ? coverImages.getPreferredUrl()
+            : null;
         String fallbackCandidate = coverImages != null && ValidationUtils.hasText(coverImages.getFallbackUrl())
             ? coverImages.getFallbackUrl()
             : book.getExternalImageUrl();
+        String alternateCandidate = firstNonBlank(preferredCandidate, book.getExternalImageUrl(), fallbackCandidate);
+        String primaryCandidate = ValidationUtils.hasText(book.getS3ImagePath())
+            ? book.getS3ImagePath()
+            : alternateCandidate;
         String declaredSource = coverImages != null && coverImages.getSource() != null
             ? coverImages.getSource().name()
             : null;
         return buildCoverDto(
-            book.getS3ImagePath(),
-            book.getExternalImageUrl(),
+            primaryCandidate,
+            alternateCandidate,
             fallbackCandidate,
             book.getCoverImageWidth(),
             book.getCoverImageHeight(),
@@ -292,7 +299,7 @@ public final class BookDtoMapper {
         String s3Key = resolved.fromS3() ? resolved.s3Key() : null;
 
         String externalUrl = resolved.fromS3()
-            ? firstNonBlank(alternateCandidate, fallbackCandidate)
+            ? firstNonBlank(fallbackCandidate, alternateCandidate)
             : preferredUrl;
         if (ValidationUtils.hasText(externalUrl) && externalUrl.contains("placeholder-book-cover.svg")) {
             externalUrl = null;

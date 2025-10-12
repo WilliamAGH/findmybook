@@ -2,6 +2,7 @@ package com.williamcallahan.book_recommendation_engine.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.williamcallahan.book_recommendation_engine.util.ApplicationConstants;
+import com.williamcallahan.book_recommendation_engine.util.CategoryNormalizer;
 import com.williamcallahan.book_recommendation_engine.util.IdGenerator;
 import com.williamcallahan.book_recommendation_engine.util.JdbcUtils;
 import com.williamcallahan.book_recommendation_engine.util.UuidUtils;
@@ -59,15 +60,29 @@ public class BookSupplementalPersistenceService {
         }
     }
 
+    /**
+     * Persists categories for a book with normalization and deduplication.
+     * 
+     * <p>Uses {@link CategoryNormalizer#normalizeAndDeduplicate(List)} to:
+     * <ul>
+     *   <li>Split compound categories (e.g., "Fiction / Science Fiction")</li>
+     *   <li>Remove duplicates (case-insensitive)</li>
+     *   <li>Filter out invalid/empty entries</li>
+     * </ul>
+     * 
+     * @param bookId Book UUID
+     * @param categories Raw category list from external source
+     * @see CategoryNormalizer#normalizeAndDeduplicate(List)
+     */
     public void persistCategories(String bookId, List<String> categories) {
         if (!ValidationUtils.hasText(bookId) || ValidationUtils.isNullOrEmpty(categories)) {
             return;
         }
 
-        for (String category : categories) {
-            if (!ValidationUtils.hasText(category)) {
-                continue;
-            }
+        // Normalize, split compound categories, and deduplicate before persistence (DRY principle)
+        List<String> normalizedCategories = CategoryNormalizer.normalizeAndDeduplicate(categories);
+
+        for (String category : normalizedCategories) {
             collectionPersistenceService.upsertCategory(category)
                 .ifPresent(collectionId -> collectionPersistenceService.addBookToCategory(collectionId, bookId));
         }

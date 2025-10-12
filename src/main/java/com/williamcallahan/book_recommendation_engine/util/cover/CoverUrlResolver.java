@@ -9,9 +9,25 @@ import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
  */
 public final class CoverUrlResolver {
 
-    private static final String CDN_BASE = resolveCdnBase();
+    private static final java.util.concurrent.atomic.AtomicReference<String> CDN_BASE_OVERRIDE = new java.util.concurrent.atomic.AtomicReference<>();
 
     private CoverUrlResolver() {
+    }
+
+    public static void setCdnBase(String base) {
+        if (ValidationUtils.hasText(base)) {
+            CDN_BASE_OVERRIDE.set(normalizeBase(base));
+        } else {
+            CDN_BASE_OVERRIDE.set(null);
+        }
+    }
+
+    private static String currentCdnBase() {
+        String override = CDN_BASE_OVERRIDE.get();
+        if (ValidationUtils.hasText(override)) {
+            return override;
+        }
+        return resolveCdnBaseFromEnvironment();
     }
 
     public static ResolvedCover resolve(String primary) {
@@ -30,7 +46,8 @@ public final class CoverUrlResolver {
         UrlResolution urlResolution = resolveUrl(primary, fallbackExternal);
         Dimensions resolvedDimensions = resolveDimensions(urlResolution.url(), width, height);
         boolean resolvedHighRes = Boolean.TRUE.equals(highResolution)
-            || ImageDimensionUtils.isHighResolution(resolvedDimensions.width(), resolvedDimensions.height());
+            || (!resolvedDimensions.defaulted()
+                && ImageDimensionUtils.isHighResolution(resolvedDimensions.width(), resolvedDimensions.height()));
 
         return new ResolvedCover(
             urlResolution.url(),
@@ -43,7 +60,8 @@ public final class CoverUrlResolver {
     }
 
     public static boolean isCdnUrl(String url) {
-        return ValidationUtils.hasText(url) && ValidationUtils.hasText(CDN_BASE) && url.startsWith(CDN_BASE);
+        String cdnBase = currentCdnBase();
+        return ValidationUtils.hasText(url) && ValidationUtils.hasText(cdnBase) && url.startsWith(cdnBase);
     }
 
     private static UrlResolution resolveUrl(String primary, String fallbackExternal) {
@@ -55,10 +73,11 @@ public final class CoverUrlResolver {
             }
 
             // ValidationUtils.hasText() already checks for null, but explicit check satisfies static analysis
-            if (candidate != null && ValidationUtils.hasText(CDN_BASE)) {
+            String cdnBase = currentCdnBase();
+            if (candidate != null && ValidationUtils.hasText(cdnBase)) {
                 String key = candidate.startsWith("/") ? candidate.substring(1) : candidate;
                 if (ValidationUtils.hasText(key)) {
-                    return new UrlResolution(CDN_BASE + key, key, true);
+                    return new UrlResolution(cdnBase + key, key, true);
                 }
             }
         }
@@ -75,7 +94,7 @@ public final class CoverUrlResolver {
 
     private static Dimensions resolveDimensions(String url, Integer width, Integer height) {
         if (width != null && width > 0 && height != null && height > 0) {
-            return new Dimensions(width, height);
+            return new Dimensions(width, height, false);
         }
         return estimateDimensionsFromUrl(url);
     }
@@ -85,18 +104,18 @@ public final class CoverUrlResolver {
         int defaultHeight = defaultWidth * 3 / 2;
 
         if (!ValidationUtils.hasText(url)) {
-            return new Dimensions(defaultWidth, defaultHeight);
+            return new Dimensions(defaultWidth, defaultHeight, true);
         }
 
         // Google Books zoom parameter
         Integer zoom = extractIntQueryParam(url, "zoom");
         if (zoom != null) {
             return switch (zoom) {
-                case 4 -> new Dimensions(640, 960);
-                case 3 -> new Dimensions(512, 768);
-                case 2 -> new Dimensions(320, 480);
-                case 1 -> new Dimensions(200, 300);
-                default -> new Dimensions(defaultWidth, defaultHeight);
+                case 4 -> new Dimensions(640, 960, false);
+                case 3 -> new Dimensions(512, 768, false);
+                case 2 -> new Dimensions(320, 480, false);
+                case 1 -> new Dimensions(200, 300, false);
+                default -> new Dimensions(defaultWidth, defaultHeight, true);
             };
         }
 
@@ -104,21 +123,25 @@ public final class CoverUrlResolver {
         Integer w = extractIntQueryParam(url, "w");
         Integer h = extractIntQueryParam(url, "h");
         if (w != null && h != null) {
-            return new Dimensions(Math.max(w, ImageDimensionUtils.MIN_VALID_DIMENSION), Math.max(h, ImageDimensionUtils.MIN_VALID_DIMENSION));
+            return new Dimensions(
+                Math.max(w, ImageDimensionUtils.MIN_VALID_DIMENSION),
+                Math.max(h, ImageDimensionUtils.MIN_VALID_DIMENSION),
+                false
+            );
         }
 
         // Open Library suffix
         if (url.contains("covers.openlibrary.org")) {
             if (url.contains("-L.jpg") || url.endsWith("-L")) {
-                return new Dimensions(600, 900);
+                return new Dimensions(600, 900, false);
             } else if (url.contains("-M.jpg") || url.endsWith("-M")) {
-                return new Dimensions(320, 480);
+                return new Dimensions(320, 480, false);
             } else if (url.contains("-S.jpg") || url.endsWith("-S")) {
-                return new Dimensions(120, 180);
+                return new Dimensions(120, 180, false);
             }
         }
 
-        return new Dimensions(defaultWidth, defaultHeight);
+        return new Dimensions(defaultWidth, defaultHeight, true);
     }
 
     private static Integer extractIntQueryParam(String url, String param) {
@@ -142,14 +165,18 @@ public final class CoverUrlResolver {
     }
 
     private static boolean isHttp(String value) {
-        return value.startsWith("http://") || value.startsWith("https://");
+        if (!ValidationUtils.hasText(value)) {
+            return false;
+        }
+        return value.regionMatches(true, 0, "http://", 0, 7)
+            || value.regionMatches(true, 0, "https://", 0, 8);
     }
 
     private static boolean isDataUri(String value) {
         return value.startsWith("data:image");
     }
 
-    private static String resolveCdnBase() {
+    private static String resolveCdnBaseFromEnvironment() {
         String configured = System.getProperty("s3.cdn-url");
         if (!ValidationUtils.hasText(configured)) {
             configured = System.getProperty("S3_CDN_URL");
@@ -164,8 +191,16 @@ public final class CoverUrlResolver {
         return trimmed.endsWith("/") ? trimmed : trimmed + "/";
     }
 
+    private static String normalizeBase(String value) {
+        if (!ValidationUtils.hasText(value)) {
+            return "";
+        }
+        String trimmed = value.trim();
+        return trimmed.endsWith("/") ? trimmed : trimmed + "/";
+    }
+
     private record UrlResolution(String url, String s3Key, boolean fromS3) {}
-    private record Dimensions(int width, int height) {}
+    private record Dimensions(int width, int height, boolean defaulted) {}
 
     public record ResolvedCover(String url,
                                 String s3Key,

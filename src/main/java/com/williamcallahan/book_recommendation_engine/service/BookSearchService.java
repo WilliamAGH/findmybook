@@ -47,6 +47,10 @@ public class BookSearchService {
             return List.of();
         }
         String sanitizedQuery = SearchQueryUtils.normalize(query);
+        if (SearchQueryUtils.isWildcard(sanitizedQuery)) {
+            log.debug("Postgres search skipped for blank query");
+            return List.of();
+        }
         int safeLimit = PagingUtils.safeLimit(limit != null ? limit : 0, DEFAULT_LIMIT, 1, MAX_LIMIT);
         try {
             List<SearchResult> results = jdbcTemplate.query(
@@ -110,6 +114,10 @@ public class BookSearchService {
             return List.of();
         }
         String sanitizedQuery = SearchQueryUtils.normalize(query);
+        if (SearchQueryUtils.isWildcard(sanitizedQuery)) {
+            log.debug("Author search skipped for blank query");
+            return List.of();
+        }
         int safeLimit = PagingUtils.safeLimit(limit != null ? limit : 0, DEFAULT_LIMIT, 1, MAX_LIMIT);
         try {
             return jdbcTemplate.query(
@@ -184,7 +192,7 @@ public class BookSearchService {
             Objects.requireNonNull(bookId, "bookId");
         }
 
-        public String matchTypeNormalised() {
+        public String matchTypeNormalized() {
             return matchType == null ? "UNKNOWN" : matchType.toUpperCase(Locale.ROOT);
         }
     }

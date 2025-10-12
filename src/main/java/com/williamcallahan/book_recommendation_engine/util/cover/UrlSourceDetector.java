@@ -10,7 +10,7 @@ import java.util.Optional;
  * Single Source of Truth for detecting cover image source from URL patterns.
  * 
  * Consolidates logic from:
- * - BookCoverManagementService.inferSourceFromUrl()
+ * - Legacy cover orchestration helpers
  * - UrlPatternMatcher.identifySource()
  * - PostgresBookRepository.inferSourceFromUrl() (to be deleted)
  * - Inline URL detection scattered across services

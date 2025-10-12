@@ -81,7 +81,7 @@ public class BookRecommendationPersistenceService {
     }
 
     private void upsertRecommendation(UUID sourceUuid, PersistableRecommendation candidate) {
-        double normalisedScore = Math.max(0.0d, Math.min(1.0d, candidate.record().score() / SCORE_NORMALIZER));
+        double normalizedScore = Math.max(0.0d, Math.min(1.0d, candidate.record().score() / SCORE_NORMALIZER));
         String reason = formatReasons(candidate.record().reasons());
 
         JdbcUtils.executeUpdate(
@@ -94,7 +94,7 @@ public class BookRecommendationPersistenceService {
             sourceUuid,
             candidate.recommendedUuid(),
             PIPELINE_SOURCE,
-            normalisedScore,
+            normalizedScore,
             reason
         );
     }

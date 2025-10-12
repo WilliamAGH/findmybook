@@ -19,7 +19,7 @@ import java.util.UUID;
  * 
  * Consolidates and replaces logic from:
  * - CoverImageService (metadata persistence)
- * - BookCoverManagementService (background S3 upload coordination)
+ * - Legacy background upload orchestrators
  * - S3BookCoverService (direct S3 upload handling)
  * - Scattered book_image_links INSERT/UPDATE statements
  * 
@@ -167,31 +167,39 @@ public class CoverPersistenceService {
         Integer height,
         CoverImageSource source
     ) {
-        if (s3Key == null || s3CdnUrl == null) {
-            log.warn("Cannot update cover for book {}: S3 key or URL is null", bookId);
+        if (s3Key == null) {
+            log.warn("Cannot update cover for book {}: S3 key is null", bookId);
             return new PersistenceResult(false, null, width, height, false);
         }
         
         boolean highRes = ImageDimensionUtils.isHighResolution(width, height);
+        String canonicalUrl = s3CdnUrl;
+        if (!ValidationUtils.hasText(canonicalUrl)) {
+            CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(s3Key, null, width, height, highRes);
+            canonicalUrl = resolved.url();
+            width = resolved.width();
+            height = resolved.height();
+            highRes = resolved.highResolution();
+        }
 
-        if (!ValidationUtils.hasText(s3CdnUrl)) {
+        if (!ValidationUtils.hasText(canonicalUrl)) {
             log.warn("Skipping S3 persistence for book {} because CDN URL resolved empty for key {}", bookId, s3Key);
             return new PersistenceResult(false, null, width, height, highRes);
         }
 
         try {
             // Upsert canonical S3 row as authoritative cover
-            upsertImageLink(bookId, "canonical", s3CdnUrl, source.name(), width, height, highRes, s3Key);
+            upsertImageLink(bookId, "canonical", canonicalUrl, source.name(), width, height, highRes, s3Key);
             
             log.info("Updated cover metadata for book {} after S3 upload: {} ({}x{}, highRes={})",
                 bookId, s3Key, width, height, highRes);
             
-            return new PersistenceResult(true, s3CdnUrl, width, height, highRes);
+            return new PersistenceResult(true, canonicalUrl, width, height, highRes);
             
         } catch (Exception e) {
             log.error("Failed to update cover metadata after S3 upload for book {}: {}", 
                 bookId, e.getMessage(), e);
-            return new PersistenceResult(false, s3CdnUrl, width, height, highRes);
+            return new PersistenceResult(false, canonicalUrl, width, height, highRes);
         }
     }
     

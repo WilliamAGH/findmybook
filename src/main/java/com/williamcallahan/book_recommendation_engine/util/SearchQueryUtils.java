@@ -6,7 +6,7 @@ import java.util.regex.Pattern;
 
 /**
  * Utility methods for working with search queries.
- * Centralises common normalization behaviour so controllers, services,
+ * Centralizes common normalization behavior so controllers, services,
  * caches, and mock helpers stay aligned.
  */
 public final class SearchQueryUtils {
@@ -19,9 +19,9 @@ public final class SearchQueryUtils {
     }
 
     /**
-     * Normalises queries intended for user-facing search APIs.
+     * Normalizes queries intended for user-facing search APIs.
      * <p>
-     * Behaviour mirrors the legacy controller/service helpers: trim whitespace
+     * Behavior mirrors the legacy controller/service helpers: trim whitespace
      * and fall back to {@code "*"} when the incoming query is null or blank.
      */
     public static String normalize(String query) {
@@ -30,6 +30,13 @@ public final class SearchQueryUtils {
         }
         String trimmed = query.trim();
         return trimmed.isEmpty() ? DEFAULT_QUERY : trimmed;
+    }
+
+    /**
+     * Indicates whether the provided query string represents the wildcard fallback.
+     */
+    public static boolean isWildcard(String query) {
+        return DEFAULT_QUERY.equals(query);
     }
 
     /**
@@ -46,7 +53,7 @@ public final class SearchQueryUtils {
 
     /**
      * Generates a filesystem and cache-safe key for search responses without
-     * any language qualifier, preserving previous sanitisation semantics.
+     * any language qualifier, preserving previous sanitization semantics.
      */
     public static String cacheKey(String query) {
         String canonical = Objects.requireNonNullElse(canonicalize(query), "");
@@ -56,7 +63,7 @@ public final class SearchQueryUtils {
 
     /**
      * Generates a filesystem and cache-safe key for search responses that are
-     * scoped by an optional language code. Mirrors previous behaviour by
+     * scoped by an optional language code. Mirrors previous behavior by
      * defaulting to {@code "any"} when a language is not provided.
      */
     public static String cacheKey(String query, String langCode) {

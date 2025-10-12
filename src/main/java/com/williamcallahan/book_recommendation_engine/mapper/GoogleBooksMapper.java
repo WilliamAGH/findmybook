@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -161,24 +162,33 @@ public class GoogleBooksMapper implements ExternalBookMapper {
     }
     
     /**
-     * Extract categories from volumeInfo.categories array.
+     * Extracts categories from volumeInfo.categories while preserving Google Books' hierarchical labels.
+     *
+     * <p>Entries are trimmed and deduplicated in insertion order, but compound categories like
+     * "Business & Economics / Entrepreneurship" remain intact so downstream surfaces render the
+     * same taxonomy that upstream APIs expose.
+     *
+     * @param volumeInfo Google Books volumeInfo JSON node
+     * @return Ordered list of unique category labels
      */
     private List<String> extractCategories(JsonNode volumeInfo) {
-        List<String> categories = new ArrayList<>();
-        
         if (!volumeInfo.has("categories") || !volumeInfo.get("categories").isArray()) {
-            return categories;
+            return List.of();
         }
         
+        LinkedHashSet<String> categories = new LinkedHashSet<>();
         JsonNode categoriesNode = volumeInfo.get("categories");
         for (JsonNode categoryNode : categoriesNode) {
             String category = categoryNode.asText();
             if (category != null && !category.isBlank()) {
-                categories.add(category.trim());
+                String trimmed = category.trim();
+                if (!trimmed.isEmpty()) {
+                    categories.add(trimmed);
+                }
             }
         }
-        
-        return categories;
+
+        return new ArrayList<>(categories);
     }
     
     /**

@@ -9,7 +9,7 @@ import com.williamcallahan.book_recommendation_engine.model.image.ImageDetails;
  * - CoverImageService.estimateDimensions()
  * - Legacy cache helper normalizeImageDimension()
  * - Legacy cache helper isValidImageDetails() dimension checks
- * - CoverSourceFetchingService dimension thresholds
+ * - Legacy cover fetching heuristics for dimension thresholds
  * 
  * @author William Callahan
  */

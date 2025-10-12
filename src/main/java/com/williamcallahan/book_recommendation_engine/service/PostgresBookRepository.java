@@ -5,10 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.williamcallahan.book_recommendation_engine.model.Book;
 import com.williamcallahan.book_recommendation_engine.model.image.CoverImageSource;
 import com.williamcallahan.book_recommendation_engine.model.image.CoverImages;
-import com.williamcallahan.book_recommendation_engine.service.event.CoverMigrationNeededEvent;
 import com.williamcallahan.book_recommendation_engine.util.cover.CoverSourceMapper;
 import com.williamcallahan.book_recommendation_engine.util.ApplicationConstants;
-import com.williamcallahan.book_recommendation_engine.util.cover.UrlSourceDetector;
 import static com.williamcallahan.book_recommendation_engine.util.ApplicationConstants.Database.Queries.BOOK_BY_SLUG;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -19,7 +17,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -30,7 +27,7 @@ import org.springframework.stereotype.Component;
  *
  * <p>This is extracted from {@link BookDataOrchestrator} so that the orchestrator can delegate
  * complex JDBC logic while keeping a slim facade. All methods remain optional-aware to preserve
- * existing behaviour.</p>
+ * existing behavior.</p>
  */
 @Component
 @ConditionalOnClass(JdbcTemplate.class)
@@ -43,14 +40,12 @@ public class PostgresBookRepository {
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
     private final BookLookupService bookLookupService;
-    private final ApplicationEventPublisher eventPublisher;
 
     @Autowired
-    public PostgresBookRepository(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper, BookLookupService bookLookupService, ApplicationEventPublisher eventPublisher) {
+    public PostgresBookRepository(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper, BookLookupService bookLookupService) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
         this.bookLookupService = bookLookupService;
-        this.eventPublisher = eventPublisher;
     }
 
     /**
@@ -62,7 +57,6 @@ public class PostgresBookRepository {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
         this.bookLookupService = new BookLookupService(jdbcTemplate);
-        this.eventPublisher = null; // No event publishing in legacy mode
     }
 
     Optional<Book> fetchByCanonicalId(String id) {
@@ -462,9 +456,6 @@ public class PostgresBookRepository {
                     toCoverSource(primary.source()));
             book.setCoverImages(coverImages);
             
-            // Bug #4 Fix: Trigger background S3 migration if book has external URL but no S3 path
-            checkAndPublishMigrationEvent(book, canonicalId);
-            
         } catch (DataAccessException ex) {
             LOG.debug("Failed to hydrate cover for {}: {}", canonicalId, ex.getMessage());
         }
@@ -622,35 +613,6 @@ public class PostgresBookRepository {
      * Checks if book needs S3 migration and publishes event if needed.
      * Bug #4 implementation: Migrate external cover URLs to S3 storage.
      */
-    private void checkAndPublishMigrationEvent(Book book, UUID canonicalId) {
-        if (eventPublisher == null) {
-            return; // No event publisher available (legacy mode)
-        }
-        
-        String externalUrl = book.getExternalImageUrl();
-        String s3Path = book.getS3ImagePath();
-        
-        // Check if book has external URL but no S3 path, or S3 path equals external URL
-        boolean needsMigration = externalUrl != null && !externalUrl.isBlank()
-            && (s3Path == null || s3Path.isBlank() || s3Path.equals(externalUrl));
-        
-        if (needsMigration && UrlSourceDetector.isExternalUrl(externalUrl)) {
-            String sourceHint = UrlSourceDetector.detectSourceString(externalUrl);
-            LOG.debug("Book {} needs S3 migration: externalUrl={}, s3Path={}, sourceHint={}",
-                canonicalId, externalUrl, s3Path, sourceHint);
-            
-            try {
-                eventPublisher.publishEvent(
-                    new CoverMigrationNeededEvent(this, canonicalId.toString(), externalUrl, sourceHint)
-                );
-                LOG.info("Published CoverMigrationNeededEvent for book {}", canonicalId);
-            } catch (Exception e) {
-                LOG.warn("Failed to publish CoverMigrationNeededEvent for book {}: {}", 
-                    canonicalId, e.getMessage());
-            }
-        }
-    }
-    
     /**
      * @deprecated Deprecated 2025-10-01. Use {@link CoverSourceMapper#toCoverImageSource(String)} instead.
      */

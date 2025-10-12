@@ -21,6 +21,7 @@ import com.williamcallahan.book_recommendation_engine.model.image.ImageResolutio
 import com.williamcallahan.book_recommendation_engine.model.image.ProcessedImage;
 import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
 import com.williamcallahan.book_recommendation_engine.util.cover.CoverIdentifierResolver;
+import com.williamcallahan.book_recommendation_engine.util.cover.CoverUrlResolver;
 import com.williamcallahan.book_recommendation_engine.util.cover.S3KeyGenerator;
 
 import org.slf4j.Logger;
@@ -35,6 +36,7 @@ import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 
+import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -106,6 +108,11 @@ public class S3BookCoverService implements ExternalCoverService {
         } else {
             logger.info("S3BookCoverService: S3 is disabled by configuration.");
         }
+    }
+
+    @PostConstruct
+    void configureCdnResolver() {
+        resolveCdnBase().ifPresent(CoverUrlResolver::setCdnBase);
     }
 
     /**

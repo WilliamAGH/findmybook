@@ -23,7 +23,7 @@ import java.util.Objects;
 
 /**
  * Converts projection DTOs into legacy {@link Book} instances while the
- * application transitions toward DTO-first controllers. This centralises
+ * application transitions toward DTO-first controllers. This centralizes
  * the remaining bridge logic so deprecated mappers can be retired without
  * duplicating conversion code across controllers and schedulers.
  */
@@ -208,8 +208,8 @@ public final class BookDomainMapper {
         if (resolved == null || !ValidationUtils.hasText(resolved.url())) {
             return;
         }
-        String effectivePreferred = resolved.url();
-        book.setExternalImageUrl(effectivePreferred);
+        String effectivePreferred = ValidationUtils.hasText(resolved.url()) ? resolved.url() : fallbackUrl;
+        String effectiveFallback = ValidationUtils.hasText(fallbackUrl) ? fallbackUrl : effectivePreferred;
 
         if (resolved.fromS3()) {
             book.setS3ImagePath(resolved.s3Key());
@@ -219,9 +219,10 @@ public final class BookDomainMapper {
 
         CoverImages images = new CoverImages(
             effectivePreferred,
-            ValidationUtils.hasText(fallbackUrl) ? fallbackUrl : effectivePreferred,
+            effectiveFallback,
             UrlSourceDetector.detectSource(effectivePreferred)
         );
+        book.setExternalImageUrl(effectiveFallback);
         book.setCoverImages(images);
     }
 

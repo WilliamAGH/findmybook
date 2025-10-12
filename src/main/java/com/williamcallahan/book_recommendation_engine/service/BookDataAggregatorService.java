@@ -54,7 +54,7 @@ public class BookDataAggregatorService {
      * @return An ObjectNode containing the merged book data.
      *
      * @deprecated Use {@link com.williamcallahan.book_recommendation_engine.mapper.GoogleBooksMapper} and
-     * {@link com.williamcallahan.book_recommendation_engine.service.BookUpsertService} to normalise provider
+     * {@link com.williamcallahan.book_recommendation_engine.service.BookUpsertService} to normalize provider
      * payloads directly into Postgres before projecting DTOs.
      */
     @Deprecated(since = "2025-10-01", forRemoval = true)

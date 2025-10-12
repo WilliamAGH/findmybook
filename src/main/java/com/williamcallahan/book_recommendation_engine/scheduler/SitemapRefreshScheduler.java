@@ -20,7 +20,7 @@ import java.util.Optional;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * Consolidated sitemap refresh job that warms Postgres queries, persists S3 artefacts, and hydrates external data.
+ * Consolidated sitemap refresh job that warms Postgres queries, persists S3 artifacts, and hydrates external data.
  */
 @Component
 @Slf4j

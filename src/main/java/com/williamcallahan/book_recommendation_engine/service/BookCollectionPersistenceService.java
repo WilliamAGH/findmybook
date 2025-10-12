@@ -2,6 +2,7 @@ package com.williamcallahan.book_recommendation_engine.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.williamcallahan.book_recommendation_engine.util.ApplicationConstants;
+import com.williamcallahan.book_recommendation_engine.util.CategoryNormalizer;
 import com.williamcallahan.book_recommendation_engine.util.IdGenerator;
 import com.williamcallahan.book_recommendation_engine.util.JdbcUtils;
 import com.williamcallahan.book_recommendation_engine.util.LoggingUtils;
@@ -25,12 +26,23 @@ public class BookCollectionPersistenceService {
         this.jdbcTemplate = jdbcTemplate;
     }
 
+    /**
+     * Upserts a category into the book_collections table.
+     * 
+     * <p>Uses {@link CategoryNormalizer#normalizeForDatabase(String)} to generate
+     * a consistent normalized_name for database uniqueness constraints.
+     * 
+     * @param displayName Human-readable category name
+     * @return Optional containing the category ID, or empty if operation failed
+     * @see CategoryNormalizer#normalizeForDatabase(String)
+     */
     public Optional<String> upsertCategory(String displayName) {
         if (jdbcTemplate == null || displayName == null || displayName.isBlank()) {
             return Optional.empty();
         }
 
-        String normalized = displayName.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-");
+        // Use CategoryNormalizer for consistent normalization (DRY principle)
+        String normalized = CategoryNormalizer.normalizeForDatabase(displayName);
 
         try {
             String id = jdbcTemplate.queryForObject(

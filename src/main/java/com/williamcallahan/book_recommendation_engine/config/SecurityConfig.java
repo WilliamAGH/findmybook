@@ -92,7 +92,8 @@ public class SecurityConfig {
             .csrf(csrf -> csrf
                 .ignoringRequestMatchers(
                     new AntPathRequestMatcher("/admin/s3-cleanup/dry-run", "GET"),
-                    new AntPathRequestMatcher("/admin/api-metrics/**", "GET")
+                    new AntPathRequestMatcher("/admin/api-metrics/**", "GET"),
+                    new AntPathRequestMatcher("/api/theme", "POST")
                 )
             );
 

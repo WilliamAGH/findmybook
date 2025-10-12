@@ -14,6 +14,7 @@
 package com.williamcallahan.book_recommendation_engine.service;
 
 import com.williamcallahan.book_recommendation_engine.model.Book;
+import com.williamcallahan.book_recommendation_engine.util.CategoryNormalizer;
 import com.williamcallahan.book_recommendation_engine.util.LoggingUtils;
 import com.williamcallahan.book_recommendation_engine.util.ExternalApiLogger;
 import com.williamcallahan.book_recommendation_engine.util.DateParsingUtils;
@@ -329,13 +330,19 @@ public class OpenLibraryBookDataService {
         }
 
 
-        List<String> categories = new ArrayList<>();
+        // Extract and normalize categories from Open Library subjects
+        List<String> rawCategories = new ArrayList<>();
         if (bookDataNode.has("subjects")) {
             for (JsonNode subjectNode : bookDataNode.path("subjects")) {
-                categories.add(subjectNode.path("name").asText(subjectNode.asText(null))); // Prefer name if subject is an object
+                String subject = subjectNode.path("name").asText(subjectNode.asText(null));
+                if (subject != null && !subject.isBlank()) {
+                    rawCategories.add(subject);
+                }
             }
         }
-        book.setCategories(categories.isEmpty() ? null : categories);
+        // Normalize, split compound categories, and deduplicate (DRY principle)
+        List<String> normalizedCategories = CategoryNormalizer.normalizeAndDeduplicate(rawCategories);
+        book.setCategories(normalizedCategories.isEmpty() ? null : normalizedCategories);
 
         String thumbnailUrl = null;
         String smallThumbnailUrl = null;

@@ -72,10 +72,20 @@ public final class S3KeyGenerator {
             return "unknown";
         }
 
-        // First try mapping to a known CoverImageSource via existing mapper.
-        CoverImageSource enumSource = CoverSourceMapper.toCoverImageSource(rawSource);
-        if (enumSource != CoverImageSource.UNDEFINED) {
-            return CoverSourceMapper.toS3KeySegment(enumSource);
+        // Only map to canonical sources when the label matches the enum name directly.
+        String normalizedEnumCandidate = rawSource
+            .trim()
+            .toUpperCase(Locale.ROOT)
+            .replaceAll("[^A-Z0-9]+", "_");
+
+        for (CoverImageSource source : CoverImageSource.values()) {
+            if (source == CoverImageSource.UNDEFINED || source == CoverImageSource.ANY) {
+                continue;
+            }
+
+            if (source.name().equals(normalizedEnumCandidate)) {
+                return CoverSourceMapper.toS3KeySegment(source);
+            }
         }
 
         // Fallback: slugify arbitrary input.
