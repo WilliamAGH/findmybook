@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.williamcallahan.book_recommendation_engine.dto.BookListItem;
 import com.williamcallahan.book_recommendation_engine.mapper.GoogleBooksMapper;
 import com.williamcallahan.book_recommendation_engine.model.Book;
+import com.williamcallahan.book_recommendation_engine.model.image.CoverImageSource;
+import com.williamcallahan.book_recommendation_engine.model.image.ImageResolutionPreference;
 import com.williamcallahan.book_recommendation_engine.repository.BookQueryRepository;
 import com.williamcallahan.book_recommendation_engine.util.ApplicationConstants;
 import com.williamcallahan.book_recommendation_engine.util.BookDomainMapper;
@@ -11,6 +13,8 @@ import com.williamcallahan.book_recommendation_engine.util.PagingUtils;
 import com.williamcallahan.book_recommendation_engine.util.SearchQueryUtils;
 import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
 import com.williamcallahan.book_recommendation_engine.util.cover.CoverPrioritizer;
+import com.williamcallahan.book_recommendation_engine.util.cover.ImageDimensionUtils;
+import com.williamcallahan.book_recommendation_engine.util.cover.UrlSourceDetector;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -132,9 +136,11 @@ public class SearchPaginationService {
         }
 
         List<Book> uniqueResults = new ArrayList<>(ordered.values());
-        uniqueResults.sort(buildSearchResultComparator(insertionOrder, request));
-        List<Book> pageItems = PagingUtils.slice(uniqueResults, window.startIndex(), window.limit());
-        int totalUnique = uniqueResults.size();
+        List<Book> filtered = applyCoverPreferences(uniqueResults, request.coverSource(), request.resolutionPreference());
+
+        filtered.sort(buildSearchResultComparator(insertionOrder, request));
+        List<Book> pageItems = PagingUtils.slice(filtered, window.startIndex(), window.limit());
+        int totalUnique = filtered.size();
         boolean hasMore = PagingUtils.hasMore(totalUnique, window.startIndex(), window.limit());
         int prefetched = PagingUtils.prefetchedCount(totalUnique, window.startIndex(), window.limit());
         int nextStartIndex = hasMore ? window.startIndex() + window.limit() : window.startIndex();
@@ -146,11 +152,13 @@ public class SearchPaginationService {
             window.totalRequested(),
             totalUnique,
             pageItems,
-            uniqueResults,
+            filtered,
             hasMore,
             nextStartIndex,
             prefetched,
-            request.orderBy()
+            request.orderBy(),
+            request.coverSource(),
+            request.resolutionPreference()
         );
     }
 
@@ -237,6 +245,64 @@ public class SearchPaginationService {
         return CoverPrioritizer.bookComparator(insertionOrder, orderSpecific);
     }
 
+    private List<Book> applyCoverPreferences(List<Book> books,
+                                             CoverImageSource coverSource,
+                                             ImageResolutionPreference resolutionPreference) {
+        if (books.isEmpty()) {
+            return books;
+        }
+
+        CoverImageSource effectiveSource = coverSource == null ? CoverImageSource.ANY : coverSource;
+        ImageResolutionPreference effectiveResolution = resolutionPreference == null
+            ? ImageResolutionPreference.ANY
+            : resolutionPreference;
+
+        return books.stream()
+            .filter(book -> matchesSourcePreference(book, effectiveSource))
+            .filter(book -> matchesResolutionPreference(book, effectiveResolution))
+            .collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    private boolean matchesSourcePreference(Book book, CoverImageSource preference) {
+        if (preference == null || preference == CoverImageSource.ANY) {
+            return true;
+        }
+
+        CoverImageSource source = null;
+        if (book.getCoverImages() != null) {
+            source = book.getCoverImages().getSource();
+        }
+
+        if (source == null || source == CoverImageSource.UNDEFINED || source == CoverImageSource.ANY) {
+            source = UrlSourceDetector.detectSource(book.getExternalImageUrl());
+        }
+
+        return source == preference;
+    }
+
+    private boolean matchesResolutionPreference(Book book, ImageResolutionPreference preference) {
+        if (preference == null || preference == ImageResolutionPreference.ANY || preference == ImageResolutionPreference.HIGH_FIRST) {
+            return true;
+        }
+
+        Integer width = book.getCoverImageWidth();
+        Integer height = book.getCoverImageHeight();
+        boolean highResolution = Boolean.TRUE.equals(book.getIsCoverHighResolution())
+            || ImageDimensionUtils.isHighResolution(width, height);
+
+        return switch (preference) {
+            case HIGH_ONLY -> highResolution;
+            case LARGE -> ImageDimensionUtils.meetsThreshold(width, height, ImageDimensionUtils.MIN_ACCEPTABLE_NON_GOOGLE);
+            case MEDIUM -> ImageDimensionUtils.meetsThreshold(width, height, ImageDimensionUtils.MIN_ACCEPTABLE_CACHED);
+            case SMALL -> width != null && height != null
+                && width < ImageDimensionUtils.MIN_ACCEPTABLE_CACHED
+                && height < ImageDimensionUtils.MIN_ACCEPTABLE_CACHED;
+            case ORIGINAL -> highResolution;
+            case UNKNOWN -> false;
+            case ANY, HIGH_FIRST -> true;
+        };
+    }
+
     private void logPageMetrics(SearchRequest request,
                                 PagingUtils.Window window,
                                 SearchPage page,
@@ -254,10 +320,17 @@ public class SearchPaginationService {
         );
     }
 
-    public record SearchRequest(String query, int startIndex, int maxResults, String orderBy) {
+    public record SearchRequest(String query,
+                                int startIndex,
+                                int maxResults,
+                                String orderBy,
+                                CoverImageSource coverSource,
+                                ImageResolutionPreference resolutionPreference) {
         public SearchRequest {
             Objects.requireNonNull(query, "query");
             orderBy = Optional.ofNullable(orderBy).orElse("newest");
+            coverSource = Optional.ofNullable(coverSource).orElse(CoverImageSource.ANY);
+            resolutionPreference = Optional.ofNullable(resolutionPreference).orElse(ImageResolutionPreference.ANY);
         }
     }
 
@@ -271,6 +344,8 @@ public class SearchPaginationService {
                              boolean hasMore,
                              int nextStartIndex,
                              int prefetchedCount,
-                             String orderBy) {
+                             String orderBy,
+                             CoverImageSource coverSource,
+                             ImageResolutionPreference resolutionPreference) {
     }
 }
