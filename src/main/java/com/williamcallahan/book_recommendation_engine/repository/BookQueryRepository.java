@@ -32,7 +32,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
- * Repository that centralises optimized Postgres read queries for book views.
+ * Repository that centralizes optimized Postgres read queries for book views.
  * Replaces the hydration-heavy implementation with concise functions per DTO use case.
  */
 @Repository
@@ -655,7 +655,7 @@ public class BookQueryRepository {
         if (lower.contains("://localhost") || lower.contains("://127.0.0.1") || lower.contains("://0.0.0.0")) {
             return true;
         }
-        if (lower.contains("/images/book-covers/")) {
+        if (lower.contains("/images/book-covers/") && !CoverUrlResolver.isCdnUrl(url)) {
             return true;
         }
         return !(url.startsWith("http://") || url.startsWith("https://"));

@@ -2,6 +2,10 @@ package com.williamcallahan.book_recommendation_engine.service;
 
 import com.williamcallahan.book_recommendation_engine.dto.BookListItem;
 import com.williamcallahan.book_recommendation_engine.model.Book;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.williamcallahan.book_recommendation_engine.dto.BookAggregate;
+import com.williamcallahan.book_recommendation_engine.mapper.GoogleBooksMapper;
 import com.williamcallahan.book_recommendation_engine.repository.BookQueryRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -9,16 +13,21 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-
+import reactor.core.publisher.Flux;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -30,13 +39,21 @@ class SearchPaginationServiceTest {
     @Mock
     private BookQueryRepository bookQueryRepository;
 
+    @Mock
+    private GoogleApiFetcher googleApiFetcher;
+
+    @Mock
+    private GoogleBooksMapper googleBooksMapper;
+
     private SearchPaginationService service;
 
     @BeforeEach
     void setUp() {
         service = new SearchPaginationService(
             bookSearchService,
-            bookQueryRepository
+            bookQueryRepository,
+            Optional.empty(),
+            Optional.empty()
         );
     }
 
@@ -120,7 +137,9 @@ class SearchPaginationServiceTest {
     void searchPostgresOnlyHonoursHighStartIndexes() {
         SearchPaginationService postgresOnlyService = new SearchPaginationService(
             bookSearchService,
-            bookQueryRepository
+            bookQueryRepository,
+            Optional.empty(),
+            Optional.empty()
         );
 
         UUID idOne = UUID.randomUUID();
@@ -151,6 +170,76 @@ class SearchPaginationServiceTest {
         assertThat(page.nextStartIndex()).isEqualTo(10);
     }
 
+    @Test
+    @DisplayName("search() keeps cover-first ordering when orderBy=newest")
+    void searchCoverFirstWhenNewest() {
+        UUID newerLowQuality = UUID.randomUUID();
+        UUID olderHighQuality = UUID.randomUUID();
+
+        List<BookSearchService.SearchResult> searchResults = List.of(
+            new BookSearchService.SearchResult(newerLowQuality, 0.80, "TSVECTOR"),
+            new BookSearchService.SearchResult(olderHighQuality, 0.60, "TSVECTOR")
+        );
+
+        when(bookSearchService.searchBooks(eq("cover-newest"), eq(24))).thenReturn(searchResults);
+        when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(List.of(
+            buildListItem(newerLowQuality, "Newest Low Quality", 160, 220, false, "https://example.test/low.jpg"),
+            buildListItem(olderHighQuality, "Older High Quality", 900, 1400, true, "https://cdn.test/high.jpg")
+        ));
+
+        SearchPaginationService.SearchRequest request = new SearchPaginationService.SearchRequest("cover-newest", 0, 12, "newest");
+        SearchPaginationService.SearchPage page = service.search(request).block();
+
+        assertThat(page).isNotNull();
+        assertThat(page.pageItems())
+            .extracting(Book::getId)
+            .containsExactly(olderHighQuality.toString(), newerLowQuality.toString());
+    }
+
+    @Test
+    @DisplayName("search() triggers Google API fallback when Postgres returns no matches")
+    void searchInvokesFallbackWhenPostgresEmpty() {
+        UUID fallbackId = UUID.randomUUID();
+        ObjectMapper mapper = new ObjectMapper();
+        ObjectNode node = mapper.createObjectNode();
+        node.put("id", "google-vol-1");
+        ObjectNode volumeInfo = node.putObject("volumeInfo");
+        volumeInfo.put("title", "Fallback Title");
+
+        BookAggregate aggregate = BookAggregate.builder()
+            .title("Fallback Title")
+            .authors(List.of("Google Author"))
+            .slugBase("fallback-title")
+            .identifiers(BookAggregate.ExternalIdentifiers.builder()
+                .source("GOOGLE_BOOKS")
+                .externalId(fallbackId.toString())
+                .imageLinks(Map.of("thumbnail", "https://example.test/fallback.jpg"))
+                .build())
+            .build();
+
+        when(bookSearchService.searchBooks(eq("fallback"), eq(24))).thenReturn(List.of());
+        when(googleApiFetcher.streamSearchItems(eq("fallback"), eq(24), eq("newest"), isNull(), eq(true)))
+            .thenAnswer(inv -> Flux.just(node));
+        when(googleApiFetcher.streamSearchItems(eq("fallback"), eq(24), eq("newest"), isNull(), eq(false)))
+            .thenReturn(Flux.empty());
+        when(googleBooksMapper.map(node)).thenReturn(aggregate);
+
+        SearchPaginationService fallbackService = new SearchPaginationService(
+            bookSearchService,
+            bookQueryRepository,
+            Optional.of(googleApiFetcher),
+            Optional.of(googleBooksMapper)
+        );
+
+        SearchPaginationService.SearchRequest request = new SearchPaginationService.SearchRequest("fallback", 0, 12, "newest");
+        SearchPaginationService.SearchPage page = fallbackService.search(request).block();
+
+        assertThat(page).isNotNull();
+        assertThat(page.totalUnique()).isEqualTo(1);
+        assertThat(page.pageItems()).extracting(Book::getId).containsExactly(fallbackId.toString());
+        verify(googleApiFetcher, times(1)).streamSearchItems(eq("fallback"), eq(24), eq("newest"), isNull(), eq(true));
+    }
+
     private BookListItem buildListItem(UUID id, String title) {
         Map<String, Object> tags = new HashMap<>();
         tags.put("nytBestseller", Map.of("rank", 1));
@@ -169,5 +258,65 @@ class SearchPaginationServiceTest {
             100,
             tags
         );
+    }
+
+    private BookListItem buildListItem(UUID id,
+                                       String title,
+                                       int width,
+                                       int height,
+                                       boolean highResolution,
+                                       String coverUrl) {
+        Map<String, Object> tags = new HashMap<>();
+        return new BookListItem(
+            id.toString(),
+            "slug-" + id,
+            title,
+            title + " description",
+            List.of("Fixture Author"),
+            List.of("Fixture Category"),
+            coverUrl,
+            width,
+            height,
+            highResolution,
+            4.0,
+            25,
+            tags
+        );
+    }
+
+    @ExtendWith(MockitoExtension.class)
+    static class BookSearchServiceBlankQueryTest {
+
+        @Mock
+        private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
+        private BookSearchService bookSearchService;
+
+        @BeforeEach
+        void initService() {
+            bookSearchService = new BookSearchService(
+                jdbcTemplate,
+                Optional.empty(),
+                Optional.empty()
+            );
+        }
+
+        @Test
+        @DisplayName("searchBooks() returns empty list for blank query without touching database")
+        void searchBooksSkipsBlankQuery() {
+            List<BookSearchService.SearchResult> results = bookSearchService.searchBooks("   ", 10);
+
+            assertThat(results).isEmpty();
+            verifyNoInteractions(jdbcTemplate);
+        }
+
+        @Test
+        @DisplayName("searchAuthors() returns empty list for blank query without touching database")
+        void searchAuthorsSkipsBlankQuery() {
+            List<BookSearchService.AuthorResult> results = bookSearchService.searchAuthors("\t", 5);
+
+            assertThat(results).isEmpty();
+            verifyNoInteractions(jdbcTemplate);
+        }
     }
 }

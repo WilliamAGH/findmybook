@@ -1,19 +1,22 @@
 package com.williamcallahan.book_recommendation_engine.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.williamcallahan.book_recommendation_engine.dto.BookListItem;
+import com.williamcallahan.book_recommendation_engine.mapper.GoogleBooksMapper;
 import com.williamcallahan.book_recommendation_engine.model.Book;
 import com.williamcallahan.book_recommendation_engine.repository.BookQueryRepository;
 import com.williamcallahan.book_recommendation_engine.util.ApplicationConstants;
 import com.williamcallahan.book_recommendation_engine.util.BookDomainMapper;
 import com.williamcallahan.book_recommendation_engine.util.PagingUtils;
+import com.williamcallahan.book_recommendation_engine.util.SearchQueryUtils;
 import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
-import com.williamcallahan.book_recommendation_engine.util.cover.CoverUrlResolver;
-import com.williamcallahan.book_recommendation_engine.util.cover.ImageDimensionUtils;
+import com.williamcallahan.book_recommendation_engine.util.cover.CoverPrioritizer;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -21,6 +24,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
@@ -34,11 +38,17 @@ public class SearchPaginationService {
 
     private final BookSearchService bookSearchService;
     private final BookQueryRepository bookQueryRepository;
+    private final Optional<GoogleApiFetcher> googleApiFetcher;
+    private final Optional<GoogleBooksMapper> googleBooksMapper;
 
     public SearchPaginationService(BookSearchService bookSearchService,
-                                   BookQueryRepository bookQueryRepository) {
+                                   BookQueryRepository bookQueryRepository,
+                                   Optional<GoogleApiFetcher> googleApiFetcher,
+                                   Optional<GoogleBooksMapper> googleBooksMapper) {
         this.bookSearchService = bookSearchService;
         this.bookQueryRepository = bookQueryRepository;
+        this.googleApiFetcher = googleApiFetcher != null ? googleApiFetcher : Optional.empty();
+        this.googleBooksMapper = googleBooksMapper != null ? googleBooksMapper : Optional.empty();
     }
 
     public Mono<SearchPage> search(SearchRequest request) {
@@ -48,21 +58,22 @@ public class SearchPaginationService {
             ApplicationConstants.Paging.DEFAULT_SEARCH_LIMIT,
             ApplicationConstants.Paging.MIN_SEARCH_LIMIT,
             ApplicationConstants.Paging.MAX_SEARCH_LIMIT,
-            ApplicationConstants.Paging.MAX_TIERED_LIMIT
+            0
         );
 
-        // Use repository-backed DTO pattern for all searches (replaces deprecated tieredBookSearchService.streamSearch)
-        return performPostgresOnlySearch(request, window);
+        return performSearch(request, window, System.nanoTime());
     }
 
-    private Mono<SearchPage> performPostgresOnlySearch(SearchRequest request, PagingUtils.Window window) {
-        long start = System.nanoTime();
+    private Mono<SearchPage> performSearch(SearchRequest request,
+                                           PagingUtils.Window window,
+                                           long startNanos) {
         return Mono.fromCallable(() -> bookSearchService.searchBooks(request.query(), window.totalRequested()))
             .subscribeOn(Schedulers.boundedElastic())
             .map(results -> results == null ? List.<BookSearchService.SearchResult>of() : results)
-            .map(results -> mapPostgresResults(results))
+            .map(this::mapPostgresResults)
             .map(list -> dedupeAndSlice(list, window, request))
-            .doOnNext(page -> logPageMetrics(request, window, page, start));
+            .flatMap(page -> maybeFallback(request, window, startNanos, page))
+            .doOnNext(page -> logPageMetrics(request, window, page, startNanos));
     }
 
     private List<Book> mapPostgresResults(List<BookSearchService.SearchResult> results) {
@@ -93,7 +104,7 @@ public class SearchPaginationService {
             if (book == null) {
                 continue;
             }
-            book.addQualifier("search.matchType", result.matchTypeNormalised());
+            book.addQualifier("search.matchType", result.matchTypeNormalized());
             book.addQualifier("search.relevanceScore", result.relevanceScore());
             ordered.add(book);
         }
@@ -121,7 +132,7 @@ public class SearchPaginationService {
         }
 
         List<Book> uniqueResults = new ArrayList<>(ordered.values());
-        uniqueResults.sort(buildSearchResultComparator(insertionOrder));
+        uniqueResults.sort(buildSearchResultComparator(insertionOrder, request));
         List<Book> pageItems = PagingUtils.slice(uniqueResults, window.startIndex(), window.limit());
         int totalUnique = uniqueResults.size();
         boolean hasMore = PagingUtils.hasMore(totalUnique, window.startIndex(), window.limit());
@@ -143,45 +154,87 @@ public class SearchPaginationService {
         );
     }
 
-    private Comparator<Book> buildSearchResultComparator(Map<String, Integer> insertionOrder) {
-        Comparator<Book> insertionComparator = Comparator.comparingInt(
-            book -> insertionOrder.getOrDefault(book.getId(), Integer.MAX_VALUE)
-        );
+    private Mono<SearchPage> maybeFallback(SearchRequest request,
+                                           PagingUtils.Window window,
+                                           long startNanos,
+                                           SearchPage currentPage) {
+        boolean shouldFallback = currentPage.totalUnique() == 0
+            && googleApiFetcher.isPresent()
+            && googleBooksMapper.isPresent()
+            && !SearchQueryUtils.isWildcard(request.query())
+            && window.totalRequested() > 0;
 
-        return Comparator
-            .comparingInt(this::coverQualityRank).reversed()
-            .thenComparingLong(book -> ImageDimensionUtils.totalPixels(book.getCoverImageWidth(), book.getCoverImageHeight())).reversed()
-            .thenComparingInt(book -> Optional.ofNullable(book.getCoverImageHeight()).orElse(0)).reversed()
-            .thenComparingInt(book -> Optional.ofNullable(book.getCoverImageWidth()).orElse(0)).reversed()
-            .thenComparing((Book book) -> Boolean.TRUE.equals(book.getInPostgres()) ? 1 : 0, Comparator.reverseOrder())
-            .thenComparing(insertionComparator);
+        if (!shouldFallback) {
+            return Mono.just(currentPage);
+        }
+
+        GoogleApiFetcher fetcher = googleApiFetcher.get();
+        GoogleBooksMapper mapper = googleBooksMapper.get();
+        int desired = window.totalRequested();
+
+        Flux<JsonNode> authenticated = fetcher.streamSearchItems(request.query(), desired, request.orderBy(), null, true)
+            .onErrorResume(ex -> {
+                log.warn("Authenticated Google fallback failed for '{}': {}", request.query(), ex.getMessage());
+                return Flux.empty();
+            });
+
+        Flux<JsonNode> unauthenticated = fetcher.streamSearchItems(request.query(), desired, request.orderBy(), null, false)
+            .onErrorResume(ex -> {
+                log.warn("Unauthenticated Google fallback failed for '{}': {}", request.query(), ex.getMessage());
+                return Flux.empty();
+            });
+
+        return Flux.concat(authenticated, unauthenticated)
+            .map(mapper::map)
+            .filter(Objects::nonNull)
+            .map(BookDomainMapper::fromAggregate)
+            .filter(Objects::nonNull)
+            .filter(book -> ValidationUtils.hasText(book.getId()))
+            .map(book -> {
+                book.addQualifier("search.source", "EXTERNAL_FALLBACK");
+                book.addQualifier("search.matchType", "GOOGLE_API");
+                return book;
+            })
+            .take(desired)
+            .collectList()
+            .map(fallbackBooks -> fallbackBooks.isEmpty() ? currentPage : dedupeAndSlice(fallbackBooks, window, request))
+            .onErrorResume(ex -> {
+                log.warn("Fallback search processing failed for '{}': {}", request.query(), ex.getMessage());
+                return Mono.just(currentPage);
+            });
     }
 
-    private int coverQualityRank(Book book) {
-        if (book == null) {
-            return 0;
+    private Comparator<Book> buildSearchResultComparator(Map<String, Integer> insertionOrder,
+                                                         SearchRequest request) {
+        if (request == null || request.orderBy() == null) {
+            return CoverPrioritizer.bookComparator(insertionOrder, null);
         }
 
-        String externalUrl = book.getExternalImageUrl();
-        boolean hasVisual = ValidationUtils.hasText(externalUrl)
-            && !externalUrl.contains("placeholder-book-cover.svg");
-
-        if (!hasVisual) {
-            return 0;
-        }
-
-        Integer width = book.getCoverImageWidth();
-        Integer height = book.getCoverImageHeight();
-        boolean hasCdn = CoverUrlResolver.isCdnUrl(externalUrl)
-            || ValidationUtils.hasText(book.getS3ImagePath());
-        boolean highRes = Boolean.TRUE.equals(book.getIsCoverHighResolution())
-            || ImageDimensionUtils.isHighResolution(width, height);
-        boolean meetsDisplay = ImageDimensionUtils.meetsSearchDisplayThreshold(width, height);
-
-        if (hasCdn && highRes) return 4;
-        if (highRes) return 3;
-        if (hasCdn || meetsDisplay) return 2;
-        return 1;
+        String orderBy = request.orderBy().toLowerCase(Locale.ROOT);
+        Comparator<Book> orderSpecific = switch (orderBy) {
+            case "newest" -> Comparator
+                .comparing(Book::getPublishedDate, Comparator.nullsLast(java.util.Date::compareTo))
+                .reversed();
+            case "title" -> Comparator.comparing(
+                book -> Optional.ofNullable(book.getTitle()).orElse(""),
+                String.CASE_INSENSITIVE_ORDER
+            );
+            case "author" -> Comparator.comparing(
+                book -> {
+                    if (book == null || book.getAuthors() == null || book.getAuthors().isEmpty()) {
+                        return "";
+                    }
+                    return Optional.ofNullable(book.getAuthors().get(0)).orElse("");
+                },
+                String.CASE_INSENSITIVE_ORDER
+            );
+            case "rating" -> Comparator
+                .comparing((Book book) -> Optional.ofNullable(book.getAverageRating()).orElse(0.0), Comparator.reverseOrder())
+                .thenComparing(book -> Optional.ofNullable(book.getRatingsCount()).orElse(0), Comparator.reverseOrder());
+            case "cover-quality", "quality", "relevance" -> null;
+            default -> null;
+        };
+        return CoverPrioritizer.bookComparator(insertionOrder, orderSpecific);
     }
 
     private void logPageMetrics(SearchRequest request,
