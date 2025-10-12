@@ -190,7 +190,7 @@ public class SecurityConfig {
 
     private String resolvePassword(String propertyKey) {
         String value = environment.getProperty(propertyKey);
-        if (!StringUtils.hasText(value)) {
+        if (value == null || !StringUtils.hasText(value)) {
             return null;
         }
         return value.trim();
@@ -198,7 +198,7 @@ public class SecurityConfig {
 
     private String resolveUsername(String propertyKey, String defaultValue) {
         String value = environment.getProperty(propertyKey);
-        if (!StringUtils.hasText(value)) {
+        if (value == null || !StringUtils.hasText(value)) {
             return defaultValue;
         }
         return value.trim();
