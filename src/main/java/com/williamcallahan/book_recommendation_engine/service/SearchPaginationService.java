@@ -18,30 +18,23 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 /**
- * Coordinates paginated search across Postgres + external sources and emits
- * cursor-friendly slices with deterministic ordering and deduplication.
+ * Coordinates paginated search using repository-backed DTO projections.
+ * Executes postgres-first search with deterministic ordering and deduplication.
  */
 @Service
 @Slf4j
 public class SearchPaginationService {
 
-    private final @Nullable TieredBookSearchService tieredBookSearchService;
-    private final @Nullable BookDataOrchestrator bookDataOrchestrator;
     private final BookSearchService bookSearchService;
     private final BookQueryRepository bookQueryRepository;
 
-    public SearchPaginationService(@Nullable TieredBookSearchService tieredBookSearchService,
-                                   @Nullable BookDataOrchestrator bookDataOrchestrator,
-                                   BookSearchService bookSearchService,
+    public SearchPaginationService(BookSearchService bookSearchService,
                                    BookQueryRepository bookQueryRepository) {
-        this.tieredBookSearchService = tieredBookSearchService;
-        this.bookDataOrchestrator = bookDataOrchestrator;
         this.bookSearchService = bookSearchService;
         this.bookQueryRepository = bookQueryRepository;
     }
@@ -56,17 +49,8 @@ public class SearchPaginationService {
             ApplicationConstants.Paging.MAX_TIERED_LIMIT
         );
 
-        if (tieredBookSearchService == null) {
-            return performPostgresOnlySearch(request, window);
-        }
-
-        long start = System.nanoTime();
-        return tieredBookSearchService.streamSearch(request.query(), null, window.totalRequested(), request.orderBy(), false)
-            .collectList()
-            .defaultIfEmpty(List.of())
-            .map(rawResults -> dedupeAndSlice(rawResults, window, request))
-            .doOnNext(page -> persistExternalResults(page.uniqueResults()))
-            .doOnNext(page -> logPageMetrics(request, window, page, start));
+        // Use repository-backed DTO pattern for all searches (replaces deprecated tieredBookSearchService.streamSearch)
+        return performPostgresOnlySearch(request, window);
     }
 
     private Mono<SearchPage> performPostgresOnlySearch(SearchRequest request, PagingUtils.Window window) {
@@ -166,23 +150,6 @@ public class SearchPaginationService {
             prefetched,
             request.orderBy()
         );
-    }
-
-    private void persistExternalResults(List<Book> candidates) {
-        if (bookDataOrchestrator == null || candidates == null || candidates.isEmpty()) {
-            return;
-        }
-        try {
-            List<Book> externalOnly = candidates.stream()
-                .filter(Objects::nonNull)
-                .filter(book -> !Boolean.TRUE.equals(book.getInPostgres()))
-                .toList();
-            if (!externalOnly.isEmpty()) {
-                bookDataOrchestrator.persistBooksAsync(externalOnly, "SEARCH");
-            }
-        } catch (Exception ex) {
-            log.debug("Failed to schedule persistence for search results: {}", ex.getMessage());
-        }
     }
 
     private void logPageMetrics(SearchRequest request,
