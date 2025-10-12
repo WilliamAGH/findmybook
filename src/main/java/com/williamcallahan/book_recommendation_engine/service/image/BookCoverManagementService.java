@@ -26,6 +26,8 @@ import com.williamcallahan.book_recommendation_engine.util.LoggingUtils;
 import com.williamcallahan.book_recommendation_engine.util.ReactiveErrorUtils;
 import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
 import com.williamcallahan.book_recommendation_engine.util.cover.CoverIdentifierResolver;
+import com.williamcallahan.book_recommendation_engine.util.cover.CoverImagesFactory;
+import com.williamcallahan.book_recommendation_engine.util.cover.CoverUrlResolver;
 import com.williamcallahan.book_recommendation_engine.util.cover.UrlSourceDetector;
 
 import lombok.extern.slf4j.Slf4j;
@@ -162,13 +164,9 @@ public class BookCoverManagementService {
      */
     @Deprecated(since = "0.9.0", forRemoval = true)
     private CoverImages createPlaceholderCoverImages(String bookIdForLog) {
-        CoverImages placeholder = new CoverImages();
         String localPlaceholderPath = localDiskCoverCacheService.getLocalPlaceholderPath();
-        placeholder.setPreferredUrl(localPlaceholderPath);
-        placeholder.setFallbackUrl(localPlaceholderPath);
-        placeholder.setSource(PLACEHOLDER_SOURCE);  // Placeholder has no data source
         log.warn("Returning placeholder for book ID: {}", bookIdForLog);
-        return placeholder;
+        return CoverImagesFactory.createPlaceholder(localPlaceholderPath);
     }
 
     /**
@@ -180,6 +178,11 @@ public class BookCoverManagementService {
      * @return Mono<CoverImages> object containing preferred and fallback URLs, and the source
      */
     public Mono<CoverImages> getInitialCoverUrlAndTriggerBackgroundUpdate(Book book) {
+        return legacyInitialCover(book)
+            .map(images -> normalizeCoverImages(book, images));
+    }
+
+    private Mono<CoverImages> legacyInitialCover(Book book) {
         String localPlaceholderPath = ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH;
 
         if (!cacheEnabled) {
