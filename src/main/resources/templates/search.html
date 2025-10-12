@@ -14,7 +14,7 @@
 <main class="main-content">
     <div class="container">
         <!-- Search Header -->
-        <div class="search-header bg-white p-4 rounded-3 shadow-sm mb-4">
+        <div class="search-header bg-white dark:bg-slate-800 p-4 rounded-3 shadow-sm mb-4">
                         <form action="/search" method="get" class="mb-4">
                 <div class="row g-2 justify-content-center">
                     <div th:class="${isYearFilteringEnabled} ? 'col-md-10' : 'col-md-12 col-lg-10 mx-auto'">
@@ -617,15 +617,60 @@
             }
         };
 
-        function performSearch(query, startIndex, sortBy, coverSource, resolution, year) {
-            // Ensure WebSocket client is ready
+        function subscribeToSearchTopics(queryHash) {
+            if (!queryHash) {
+                return;
+            }
+
+            if (!window._searchWsSubscribed) {
+                window._searchWsSubscribed = new Set();
+            }
+            if (!window._searchWsPendingTopics) {
+                window._searchWsPendingTopics = new Set();
+            }
+
+            if (!window._searchStompClient || !window._searchStompClient.connected) {
+                window._searchWsPendingTopics.add(queryHash);
+                return;
+            }
+
+            if (window._searchWsSubscribed.has(queryHash)) {
+                return;
+            }
+
+            window._searchWsSubscribed.add(queryHash);
+            window._searchStompClient.subscribe(`/topic/search/${queryHash}/progress`, function(msg){ try{ console.log('[WS][progress]', JSON.parse(msg.body)); } catch(e){} });
+            window._searchStompClient.subscribe(`/topic/search/${queryHash}/results`, function(msg){ try{ console.log('[WS][results]', JSON.parse(msg.body)); } catch(e){} });
+        }
+
+        function ensureSearchWebSocketClient() {
+            if (window._searchStompClient) {
+                return;
+            }
+
+            window._searchWsSubscribed = new Set();
+            window._searchWsPendingTopics = new Set();
+
             try {
-                if (!window._searchStompClient) {
-                    var socket = new SockJS('/ws');
-                    window._searchStompClient = Stomp.over(socket);
-                    window._searchStompClient.connect({}, function(){ console.log('[WS] Search client connected'); });
-                }
-            } catch (e) { console.warn('Search WS init failed:', e); }
+                var socket = new SockJS('/ws');
+                window._searchStompClient = Stomp.over(socket);
+                window._searchStompClient.connect({}, function(){
+                    console.log('[WS] Search client connected');
+                    window._searchStompClient.connected = true;
+                    if (window._searchWsPendingTopics && window._searchWsPendingTopics.size > 0) {
+                        window._searchWsPendingTopics.forEach(function(hash){
+                            subscribeToSearchTopics(hash);
+                        });
+                        window._searchWsPendingTopics.clear();
+                    }
+                });
+            } catch (e) {
+                console.warn('Search WS init failed:', e);
+            }
+        }
+
+        function performSearch(query, startIndex, sortBy, coverSource, resolution, year) {
+            ensureSearchWebSocketClient();
             if (!query) return;
             
             const searchSignature = buildSearchSignature(query, sortBy, coverSource, resolution, year);
@@ -703,11 +748,7 @@
             // Subscribe to search WS topics for this query
             try {
                 const queryHash = (query || '').trim().toLowerCase().replace(/[^a-z0-9-_]/g, '_');
-                if (window._searchStompClient && window._searchWsQuery !== queryHash) {
-                    window._searchWsQuery = queryHash;
-                    window._searchStompClient.subscribe(`/topic/search/${queryHash}/progress`, function(msg){ try{ console.log('[WS][progress]', JSON.parse(msg.body)); } catch(e){} });
-                    window._searchStompClient.subscribe(`/topic/search/${queryHash}/results`, function(msg){ try{ console.log('[WS][results]', JSON.parse(msg.body)); } catch(e){} });
-                }
+                subscribeToSearchTopics(queryHash);
             } catch (e) { console.warn('Search WS subscribe failed:', e); }
             
             activeCacheKey = cacheKey;
