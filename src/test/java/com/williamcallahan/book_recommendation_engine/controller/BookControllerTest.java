@@ -120,13 +120,7 @@ class BookControllerTest {
         when(searchPaginationService.search(any(SearchPaginationService.SearchRequest.class)))
             .thenReturn(Mono.just(page));
 
-        String expectedPreferred = CoverUrlResolver.resolve(
-            fixtureBook.getS3ImagePath(),
-            fixtureBook.getExternalImageUrl(),
-            fixtureBook.getCoverImageWidth(),
-            fixtureBook.getCoverImageHeight(),
-            fixtureBook.getIsCoverHighResolution()
-        ).url();
+        String expectedPreferred = fixtureBook.getCoverImages().getPreferredUrl();
 
         performAsync(get("/api/books/search")
             .param("query", "Fixture")

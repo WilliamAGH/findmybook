@@ -89,10 +89,13 @@ public final class BookDtoMapper {
             detail.publisher()
         );
 
+        String alternateCandidate = firstNonBlank(detail.thumbnailUrl(), detail.coverUrl());
+        String fallbackCandidate = firstNonBlank(detail.thumbnailUrl(), detail.coverUrl());
+
         CoverDto cover = buildCoverDto(
             detail.coverUrl(),
-            firstNonBlank(detail.coverUrl(), detail.thumbnailUrl()),
-            firstNonBlank(detail.thumbnailUrl(), detail.coverUrl()),
+            alternateCandidate,
+            fallbackCandidate,
             detail.coverWidth(),
             detail.coverHeight(),
             detail.coverHighResolution(),
