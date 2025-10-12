@@ -33,7 +33,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * Handles canonical {@link Book} persistence into Postgres, extracted from
  * {@link BookDataOrchestrator} to keep orchestration logic lightweight and reuseable.
  * 
- * @deprecated This service is being replaced by {@link BookUpsertService} + {@link com.williamcallahan.book_recommendation_engine.service.image.CoverImageService}
+ * @deprecated This service is being replaced by {@link BookUpsertService} + {@link com.williamcallahan.book_recommendation_engine.service.image.CoverPersistenceService}
  *             for a cleaner, more maintainable persistence layer. New code should use BookUpsertService.
  *             This class will be removed in a future version after full migration.
  */
@@ -474,7 +474,7 @@ public class CanonicalBookPersistenceService {
     }
 
     /**
-     * @deprecated Use {@link com.williamcallahan.book_recommendation_engine.service.image.CoverImageService#upsertAllAndSetPrimary}
+     * @deprecated Use {@link com.williamcallahan.book_recommendation_engine.service.image.CoverPersistenceService#persistFromGoogleImageLinks}
      *             via {@link BookUpsertService} instead. This method only persists basic image URLs without
      *             enhanced metadata (width, height, resolution).
      */
@@ -500,7 +500,7 @@ public class CanonicalBookPersistenceService {
     }
 
     /**
-     * @deprecated Use {@link com.williamcallahan.book_recommendation_engine.service.image.CoverImageService#upsertAllAndSetPrimary}
+     * @deprecated Use {@link com.williamcallahan.book_recommendation_engine.service.image.CoverPersistenceService#persistFromGoogleImageLinks}
      *             via {@link BookUpsertService} instead. This method only persists basic image URLs without
      *             enhanced metadata (width, height, resolution).
      */
