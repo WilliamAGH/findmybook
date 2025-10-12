@@ -3,7 +3,7 @@ package com.williamcallahan.book_recommendation_engine.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.williamcallahan.book_recommendation_engine.controller.BookController;
-import com.williamcallahan.book_recommendation_engine.model.Book;
+import com.williamcallahan.book_recommendation_engine.dto.BookListItem;
 import com.williamcallahan.book_recommendation_engine.repository.BookQueryRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -11,35 +11,31 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
-import reactor.core.publisher.Flux;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
-import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(BookController.class)
@@ -53,34 +49,43 @@ class BookControllerPaginationIntegrationTest {
     @Autowired
     private ObjectMapper objectMapper;
 
-    @MockBean
+    @MockitoBean
     private TieredBookSearchService tieredBookSearchService;
 
-    @MockBean
+    @MockitoBean
     private BookDataOrchestrator bookDataOrchestrator;
 
-    @MockBean
+    @MockitoBean
     private BookSearchService bookSearchService;
 
-    @MockBean
+    @MockitoBean
     private BookQueryRepository bookQueryRepository;
 
-    @MockBean
+    @MockitoBean
     private BookIdentifierResolver bookIdentifierResolver;
 
-    private final List<Book> dataset = new ArrayList<>();
+    private final List<UUID> bookIds = new ArrayList<>();
+    private final List<BookSearchService.SearchResult> searchResults = new ArrayList<>();
+    private final List<BookListItem> listItems = new ArrayList<>();
 
     @BeforeEach
     void setUp() {
-        dataset.clear();
-        IntStream.range(0, 14)
-            .forEach(i -> dataset.add(buildBook("pg-%02d".formatted(i), "Postgres %02d".formatted(i), true)));
-        IntStream.range(0, 15)
-            .forEach(i -> dataset.add(buildBook("ext-%02d".formatted(i), "External %02d".formatted(i), false)));
+        bookIds.clear();
+        searchResults.clear();
+        listItems.clear();
+        
+        // Create 29 books (same as original test had 14+15)
+        IntStream.range(0, 29).forEach(i -> {
+            UUID id = UUID.randomUUID();
+            bookIds.add(id);
+            searchResults.add(new BookSearchService.SearchResult(id, 0.9 - (i * 0.01), "TSVECTOR"));
+            listItems.add(buildListItem(id, "Book %02d".formatted(i)));
+        });
 
-        when(tieredBookSearchService.streamSearch(anyString(), isNull(), anyInt(), anyString(), eq(false)))
-            .thenAnswer(invocation -> Flux.fromIterable(dataset));
-        doNothing().when(bookDataOrchestrator).persistBooksAsync(any(), anyString());
+        when(bookSearchService.searchBooks(anyString(), anyInt()))
+            .thenReturn(searchResults);
+        when(bookQueryRepository.fetchBookListItems(any()))
+            .thenReturn(listItems);
     }
 
     @Test
@@ -92,8 +97,8 @@ class BookControllerPaginationIntegrationTest {
             .andExpect(status().isOk())
             .andExpect(content().contentType(MediaType.APPLICATION_JSON))
             .andExpect(jsonPath("$.results", org.hamcrest.Matchers.hasSize(12)))
-            .andExpect(jsonPath("$.results[0].id", org.hamcrest.Matchers.equalTo("pg-00")))
-            .andExpect(jsonPath("$.results[11].id", org.hamcrest.Matchers.equalTo("pg-11")))
+            .andExpect(jsonPath("$.results[0].id", org.hamcrest.Matchers.equalTo(bookIds.get(0).toString())))
+            .andExpect(jsonPath("$.results[11].id", org.hamcrest.Matchers.equalTo(bookIds.get(11).toString())))
             .andExpect(jsonPath("$.hasMore", org.hamcrest.Matchers.equalTo(true)))
             .andExpect(jsonPath("$.nextStartIndex", org.hamcrest.Matchers.equalTo(12)))
             .andExpect(jsonPath("$.prefetchedCount", org.hamcrest.Matchers.equalTo(17)))
@@ -119,9 +124,9 @@ class BookControllerPaginationIntegrationTest {
             .andExpect(status().isOk())
             .andExpect(content().contentType(MediaType.APPLICATION_JSON))
             .andExpect(jsonPath("$.results", org.hamcrest.Matchers.hasSize(12)))
-            .andExpect(jsonPath("$.results[0].id", org.hamcrest.Matchers.equalTo("pg-12")))
-            .andExpect(jsonPath("$.results[1].id", org.hamcrest.Matchers.equalTo("pg-13")))
-            .andExpect(jsonPath("$.results[2].id", org.hamcrest.Matchers.equalTo("ext-00")))
+            .andExpect(jsonPath("$.results[0].id", org.hamcrest.Matchers.equalTo(bookIds.get(12).toString())))
+            .andExpect(jsonPath("$.results[1].id", org.hamcrest.Matchers.equalTo(bookIds.get(13).toString())))
+            .andExpect(jsonPath("$.results[2].id", org.hamcrest.Matchers.equalTo(bookIds.get(14).toString())))
             .andExpect(jsonPath("$.hasMore", org.hamcrest.Matchers.equalTo(true)))
             .andExpect(jsonPath("$.nextStartIndex", org.hamcrest.Matchers.equalTo(24)))
             .andExpect(jsonPath("$.prefetchedCount", org.hamcrest.Matchers.equalTo(5)))
@@ -151,15 +156,20 @@ class BookControllerPaginationIntegrationTest {
         return initial;
     }
 
-    private Book buildBook(String id, String title, boolean inPostgres) {
-        Book book = new Book();
-        book.setId(id);
-        book.setTitle(title);
-        book.setInPostgres(inPostgres);
-        book.setRetrievedFrom(inPostgres ? "POSTGRES" : "EXTERNAL_API");
-        Map<String, Object> qualifiers = new HashMap<>();
-        qualifiers.put("nytBestseller", Map.of("rank", 1));
-        book.setQualifiers(qualifiers);
-        return book;
+    private BookListItem buildListItem(UUID id, String title) {
+        Map<String, Object> tags = new HashMap<>();
+        tags.put("nytBestseller", Map.of("rank", 1));
+        return new BookListItem(
+            id.toString(),
+            "slug-" + id,
+            title,
+            title + " description",
+            List.of("Author"),
+            List.of("Category"),
+            "https://example.test/" + id + ".jpg",
+            4.5,
+            100,
+            tags
+        );
     }
 }
