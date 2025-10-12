@@ -310,12 +310,6 @@ public class BookCoverManagementService {
         return Mono.just(deduplicated);
     }
 
-    private Optional<String> coverImagesOptional(CoverImages coverImages) {
-        return Optional.ofNullable(coverImages)
-            .map(CoverImages::getPreferredUrl)
-            .filter(ValidationUtils::hasText);
-    }
-
     private void ensureSlug(Book book) {
         if (!ValidationUtils.hasText(book.getSlug())) {
             book.setSlug(book.getId());
