@@ -215,9 +215,11 @@ public class NewYorkTimesBestsellerScheduler {
             }
         }
         if (peakPosition == null) {
-            peakPosition = bookNode.path("rank").isInt()
-                ? bookNode.get("rank").asInt()
-                : (bookNode.path("rank_last_week").isInt() ? bookNode.get("rank_last_week").asInt() : null);
+            if (bookNode.path("rank").isInt()) {
+                peakPosition = bookNode.get("rank").asInt();
+            } else if (bookNode.path("rank_last_week").isInt()) {
+                peakPosition = bookNode.get("rank_last_week").asInt();
+            }
         }
         String providerRef = bookNode.path("amazon_product_url").asText(null);
 
