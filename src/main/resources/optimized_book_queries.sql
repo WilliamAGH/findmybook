@@ -28,6 +28,8 @@ RETURNS TABLE (
     title TEXT,
     authors TEXT[],
     cover_url TEXT,
+    cover_s3_key TEXT,
+    cover_fallback_url TEXT,
     average_rating NUMERIC,
     ratings_count INTEGER,
     tags JSONB
@@ -58,6 +60,8 @@ BEGIN
                 ARRAY[]::TEXT[]
             ) as authors,
             cover_meta.cover_url,
+            cover_meta.cover_s3_key,
+            cover_meta.cover_fallback_url,
             bei.average_rating,
             bei.ratings_count,
             COALESCE(
@@ -73,7 +77,9 @@ BEGIN
         LEFT JOIN authors a ON a.id = baj.author_id
         LEFT JOIN book_external_ids bei ON bei.book_id = b.id AND bei.source = 'GOOGLE_BOOKS'
         LEFT JOIN LATERAL (
-            SELECT COALESCE(bil.s3_image_path, bil.url) AS cover_url
+            SELECT COALESCE(bil.s3_image_path, bil.url) AS cover_url,
+                   bil.s3_image_path AS cover_s3_key,
+                   bil.url AS cover_fallback_url
             FROM book_image_links bil
             WHERE bil.book_id = b.id
               AND bil.download_error IS NULL
@@ -95,7 +101,9 @@ BEGIN
                 bil.created_at DESC
             LIMIT 1
         ) cover_meta ON TRUE
-        GROUP BY input_ids.ord, b.id, b.slug, b.title, cover_meta.cover_url, bei.average_rating, bei.ratings_count
+        GROUP BY input_ids.ord, b.id, b.slug, b.title,
+                 cover_meta.cover_url, cover_meta.cover_s3_key, cover_meta.cover_fallback_url,
+                 bei.average_rating, bei.ratings_count
     )
     SELECT
         card_data.id,
@@ -103,6 +111,8 @@ BEGIN
         card_data.title,
         card_data.authors,
         card_data.cover_url,
+        card_data.cover_s3_key,
+        card_data.cover_fallback_url,
         card_data.average_rating,
         card_data.ratings_count,
         card_data.tags
@@ -128,6 +138,8 @@ RETURNS TABLE (
     authors TEXT[],
     categories TEXT[],
     cover_url TEXT,
+    cover_s3_key TEXT,
+    cover_fallback_url TEXT,
     cover_width INTEGER,
     cover_height INTEGER,
     cover_is_high_resolution BOOLEAN,
@@ -176,6 +188,8 @@ BEGIN
                 ARRAY[]::TEXT[]
             ) as categories,
             cover_meta.cover_url as cover_url,
+            cover_meta.cover_s3_key as cover_s3_key,
+            cover_meta.cover_fallback_url as cover_fallback_url,
             cover_meta.width as cover_width,
             cover_meta.height as cover_height,
             cover_meta.is_high_resolution as cover_is_high_resolution,
@@ -197,6 +211,8 @@ BEGIN
         LEFT JOIN book_external_ids bei ON bei.book_id = b.id AND bei.source = 'GOOGLE_BOOKS'
         LEFT JOIN LATERAL (
             SELECT coalesce(bil_meta.s3_image_path, bil_meta.url) as cover_url,
+                   bil_meta.s3_image_path as cover_s3_key,
+                   bil_meta.url as cover_fallback_url,
                    bil_meta.width,
                    bil_meta.height,
                    bil_meta.is_high_resolution
@@ -223,7 +239,8 @@ BEGIN
         ) cover_meta ON TRUE
         GROUP BY input_ids.ord, b.id, b.slug, b.title, b.description,
                  bei.average_rating, bei.ratings_count,
-                 cover_meta.cover_url, cover_meta.width, cover_meta.height, cover_meta.is_high_resolution
+                 cover_meta.cover_url, cover_meta.cover_s3_key, cover_meta.cover_fallback_url,
+                 cover_meta.width, cover_meta.height, cover_meta.is_high_resolution
     )
     SELECT
         list_data.id,
@@ -233,6 +250,8 @@ BEGIN
         list_data.authors,
         list_data.categories,
         list_data.cover_url,
+        list_data.cover_s3_key,
+        list_data.cover_fallback_url,
         list_data.cover_width,
         list_data.cover_height,
         list_data.cover_is_high_resolution,
@@ -265,6 +284,8 @@ RETURNS TABLE (
     authors TEXT[],
     categories TEXT[],
     cover_url TEXT,
+    cover_s3_key TEXT,
+    cover_fallback_url TEXT,
     thumbnail_url TEXT,
     cover_width INTEGER,
     cover_height INTEGER,

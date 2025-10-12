@@ -9,6 +9,8 @@ import com.williamcallahan.book_recommendation_engine.controller.dto.BookDtoMapp
 import com.williamcallahan.book_recommendation_engine.dto.BookDetail;
 import com.williamcallahan.book_recommendation_engine.dto.RecommendationCard;
 import com.williamcallahan.book_recommendation_engine.model.Book;
+import com.williamcallahan.book_recommendation_engine.model.image.CoverImageSource;
+import com.williamcallahan.book_recommendation_engine.model.image.ImageResolutionPreference;
 import com.williamcallahan.book_recommendation_engine.repository.BookQueryRepository;
 import com.williamcallahan.book_recommendation_engine.service.BookDataOrchestrator;
 import com.williamcallahan.book_recommendation_engine.service.BookIdentifierResolver;
@@ -20,6 +22,7 @@ import com.williamcallahan.book_recommendation_engine.util.ReactiveControllerUti
 import com.williamcallahan.book_recommendation_engine.util.SearchQueryUtils;
 import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
 import com.williamcallahan.book_recommendation_engine.util.SlugGenerator;
+import com.williamcallahan.book_recommendation_engine.util.EnumParsingUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -68,13 +71,29 @@ public class BookController {
     public Mono<ResponseEntity<SearchResponse>> searchBooks(@RequestParam String query,
                                                             @RequestParam(name = "startIndex", defaultValue = "0") int startIndex,
                                                             @RequestParam(name = "maxResults", defaultValue = "12") int maxResults,
-                                                            @RequestParam(name = "orderBy", defaultValue = "newest") String orderBy) {
+                                                            @RequestParam(name = "orderBy", defaultValue = "newest") String orderBy,
+                                                            @RequestParam(name = "coverSource", defaultValue = "ANY") String coverSource,
+                                                            @RequestParam(name = "resolution", defaultValue = "ANY") String resolution) {
         String normalizedQuery = SearchQueryUtils.normalize(query);
+        CoverImageSource coverSourcePreference = EnumParsingUtils.parseOrDefault(
+            coverSource,
+            CoverImageSource.class,
+            CoverImageSource.ANY,
+            raw -> log.debug("Invalid coverSource '{}' supplied to search endpoint, defaulting to ANY", raw)
+        );
+        ImageResolutionPreference resolutionPreference = EnumParsingUtils.parseOrDefault(
+            resolution,
+            ImageResolutionPreference.class,
+            ImageResolutionPreference.ANY,
+            raw -> log.debug("Invalid resolution '{}' supplied to search endpoint, defaulting to ANY", raw)
+        );
         SearchPaginationService.SearchRequest request = new SearchPaginationService.SearchRequest(
             normalizedQuery,
             startIndex,
             maxResults,
-            orderBy
+            orderBy,
+            coverSourcePreference,
+            resolutionPreference
         );
 
         Mono<SearchResponse> responseMono = searchPaginationService.search(request)
@@ -210,6 +229,9 @@ public class BookController {
             hasMore,
             nextStartIndex,
             prefetched,
+            page.orderBy(),
+            page.coverSource() != null ? page.coverSource().name() : CoverImageSource.ANY.name(),
+            page.resolutionPreference() != null ? page.resolutionPreference().name() : ImageResolutionPreference.ANY.name(),
             hits
         );
     }
@@ -223,6 +245,9 @@ public class BookController {
             false,
             request.startIndex(),
             0,
+            request.orderBy(),
+            request.coverSource().name(),
+            request.resolutionPreference().name(),
             List.<SearchHitDto>of()
         );
     }
@@ -346,6 +371,9 @@ public class BookController {
                                   boolean hasMore,
                                   int nextStartIndex,
                                   int prefetchedCount,
+                                  String orderBy,
+                                  String coverSource,
+                                  String resolution,
                                   List<SearchHitDto> results) {
     }
 
