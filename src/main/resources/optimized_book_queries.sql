@@ -34,7 +34,7 @@ RETURNS TABLE (
 ) AS $$
 BEGIN
     RETURN QUERY
-    SELECT 
+    SELECT
         b.id,
         b.slug,
         b.title,
@@ -55,8 +55,8 @@ BEGIN
         bei.average_rating,
         bei.ratings_count,
         COALESCE(
-            (SELECT jsonb_object_agg(bt.key, bta.metadata) 
-             FROM book_tag_assignments bta 
+            (SELECT jsonb_object_agg(bt.key, bta.metadata)
+             FROM book_tag_assignments bta
              JOIN book_tags bt ON bt.id = bta.tag_id
              WHERE bta.book_id = b.id),
             '{}'::JSONB
@@ -119,7 +119,7 @@ RETURNS TABLE (
 ) AS $$
 BEGIN
     RETURN QUERY
-    SELECT 
+    SELECT
         b.id,
         b.slug,
         b.title,
@@ -161,8 +161,8 @@ BEGIN
         bei.ratings_count,
         -- Aggregate tags
         COALESCE(
-            (SELECT jsonb_object_agg(bt.key, bta.metadata) 
-             FROM book_tag_assignments bta 
+            (SELECT jsonb_object_agg(bt.key, bta.metadata)
+             FROM book_tag_assignments bta
              JOIN book_tags bt ON bt.id = bta.tag_id
              WHERE bta.book_id = b.id),
             '{}'::JSONB
@@ -181,7 +181,6 @@ BEGIN
         FROM book_image_links bil_meta
         WHERE bil_meta.book_id = b.id
           AND bil_meta.download_error IS NULL
-        WHERE bil_meta.book_id = b.id
         ORDER BY
             CASE
                 WHEN bil_meta.s3_image_path IS NOT NULL AND bil_meta.is_high_resolution THEN 0
@@ -243,7 +242,7 @@ RETURNS TABLE (
 ) AS $$
 BEGIN
     RETURN QUERY
-    SELECT 
+    SELECT
         b.id,
         b.slug,
         b.title,
@@ -285,9 +284,9 @@ BEGIN
         ) as categories,
         cover_meta.cover_url as cover_url,
         -- Get thumbnail for smaller displays
-        (SELECT bil.url 
-         FROM book_image_links bil 
-         WHERE bil.book_id = b.id 
+        (SELECT bil.url
+         FROM book_image_links bil
+         WHERE bil.book_id = b.id
          ORDER BY CASE bil.image_type
                    WHEN 'thumbnail' THEN 1
                    WHEN 'medium' THEN 2
@@ -321,8 +320,8 @@ BEGIN
         bei.info_link,
         -- Aggregate tags
         COALESCE(
-            (SELECT jsonb_object_agg(bt.key, bta.metadata) 
-             FROM book_tag_assignments bta 
+            (SELECT jsonb_object_agg(bt.key, bta.metadata)
+             FROM book_tag_assignments bta
              JOIN book_tags bt ON bt.id = bta.tag_id
              WHERE bta.book_id = b.id),
             '{}'::JSONB
@@ -371,7 +370,7 @@ BEGIN
         LIMIT 1
     ) cover_meta ON TRUE
     WHERE b.id = book_id_param
-    GROUP BY b.id, b.slug, b.title, b.description, b.publisher, b.published_date, 
+    GROUP BY b.id, b.slug, b.title, b.description, b.publisher, b.published_date,
              b.language, b.page_count, b.isbn10, b.isbn13,
              bei.average_rating, bei.ratings_count, bei.preview_link, bei.info_link,
              cover_meta.cover_url, cover_meta.width, cover_meta.height, cover_meta.is_high_resolution,
@@ -401,7 +400,7 @@ RETURNS TABLE (
 ) AS $$
 BEGIN
     RETURN QUERY
-    SELECT 
+    SELECT
         b.id,
         b.slug,
         b.title,
@@ -437,8 +436,8 @@ BEGIN
         LIMIT 1
     ) edition_cover ON TRUE
     WHERE wcm.cluster_id IN (
-        SELECT cluster_id 
-        FROM work_cluster_members 
+        SELECT cluster_id
+        FROM work_cluster_members
         WHERE book_id = book_id_param
     )
     AND b.id != book_id_param  -- Exclude the current book itself
@@ -471,7 +470,7 @@ RETURNS TABLE (
 ) AS $$
 BEGIN
     RETURN QUERY
-    SELECT 
+    SELECT
         bc.id,
         bc.slug,
         bc.title,

@@ -56,13 +56,15 @@
     <!-- Root logger -->
     <root level="INFO">
         <appender-ref ref="CONSOLE" />
-        <springProfile name="dev,local">
-            <appender-ref ref="FILE" />
-        </springProfile>
     </root>
     
-    <!-- Application-specific logger (only when dev/local profile active) -->
+    <!-- Application-specific loggers when running locally -->
     <springProfile name="dev,local">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE" />
+            <appender-ref ref="FILE" />
+        </root>
+        
         <logger name="com.williamcallahan.book_recommendation_engine" level="DEBUG" additivity="false">
             <appender-ref ref="CONSOLE" />
             <appender-ref ref="APP_FILE" />
