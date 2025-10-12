@@ -140,7 +140,10 @@ class BookControllerTest {
             .andExpect(jsonPath("$.results[0].matchType", equalTo("POSTGRES")))
             .andExpect(jsonPath("$.hasMore", equalTo(false)))
             .andExpect(jsonPath("$.nextStartIndex", equalTo(0)))
-            .andExpect(jsonPath("$.prefetchedCount", equalTo(0)));
+            .andExpect(jsonPath("$.prefetchedCount", equalTo(0)))
+            .andExpect(jsonPath("$.orderBy", equalTo("newest")))
+            .andExpect(jsonPath("$.coverSource", equalTo("ANY")))
+            .andExpect(jsonPath("$.resolution", equalTo("ANY")));
     }
 
     @Test

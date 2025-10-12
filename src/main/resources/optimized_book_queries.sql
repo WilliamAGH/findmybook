@@ -21,7 +21,9 @@
 -- Replaces: hydrateBatchAuthors, hydrateBatchCategories, hydrateBatchCovers, hydrateBatchProviderMetadata
 -- Performance: Single query vs. 5 queries per book (8 books = 40 queries → 1 query)
 -- ============================================================================
-CREATE OR REPLACE FUNCTION get_book_cards(book_ids UUID[])
+DROP FUNCTION IF EXISTS get_book_cards(UUID[]);
+
+CREATE FUNCTION get_book_cards(book_ids UUID[])
 RETURNS TABLE (
     id UUID,
     slug TEXT,
@@ -138,8 +140,6 @@ RETURNS TABLE (
     authors TEXT[],
     categories TEXT[],
     cover_url TEXT,
-    cover_s3_key TEXT,
-    cover_fallback_url TEXT,
     cover_width INTEGER,
     cover_height INTEGER,
     cover_is_high_resolution BOOLEAN,
@@ -188,8 +188,6 @@ BEGIN
                 ARRAY[]::TEXT[]
             ) as categories,
             cover_meta.cover_url as cover_url,
-            cover_meta.cover_s3_key as cover_s3_key,
-            cover_meta.cover_fallback_url as cover_fallback_url,
             cover_meta.width as cover_width,
             cover_meta.height as cover_height,
             cover_meta.is_high_resolution as cover_is_high_resolution,
@@ -211,8 +209,6 @@ BEGIN
         LEFT JOIN book_external_ids bei ON bei.book_id = b.id AND bei.source = 'GOOGLE_BOOKS'
         LEFT JOIN LATERAL (
             SELECT coalesce(bil_meta.s3_image_path, bil_meta.url) as cover_url,
-                   bil_meta.s3_image_path as cover_s3_key,
-                   bil_meta.url as cover_fallback_url,
                    bil_meta.width,
                    bil_meta.height,
                    bil_meta.is_high_resolution
@@ -239,8 +235,7 @@ BEGIN
         ) cover_meta ON TRUE
         GROUP BY input_ids.ord, b.id, b.slug, b.title, b.description,
                  bei.average_rating, bei.ratings_count,
-                 cover_meta.cover_url, cover_meta.cover_s3_key, cover_meta.cover_fallback_url,
-                 cover_meta.width, cover_meta.height, cover_meta.is_high_resolution
+                 cover_meta.cover_url, cover_meta.width, cover_meta.height, cover_meta.is_high_resolution
     )
     SELECT
         list_data.id,
@@ -250,8 +245,6 @@ BEGIN
         list_data.authors,
         list_data.categories,
         list_data.cover_url,
-        list_data.cover_s3_key,
-        list_data.cover_fallback_url,
         list_data.cover_width,
         list_data.cover_height,
         list_data.cover_is_high_resolution,
@@ -284,8 +277,6 @@ RETURNS TABLE (
     authors TEXT[],
     categories TEXT[],
     cover_url TEXT,
-    cover_s3_key TEXT,
-    cover_fallback_url TEXT,
     thumbnail_url TEXT,
     cover_width INTEGER,
     cover_height INTEGER,
@@ -343,8 +334,6 @@ BEGIN
             ARRAY[]::TEXT[]
         ) as categories,
         cover_meta.cover_url as cover_url,
-        cover_meta.cover_s3_key as cover_s3_key,
-        cover_meta.cover_fallback_url as cover_fallback_url,
         -- Get thumbnail for smaller displays
         (SELECT bil.url
          FROM book_image_links bil
@@ -407,8 +396,6 @@ BEGIN
     ) provider_source ON TRUE
     LEFT JOIN LATERAL (
         SELECT coalesce(bil_meta.s3_image_path, bil_meta.url) as cover_url,
-               bil_meta.s3_image_path as cover_s3_key,
-               bil_meta.url as cover_fallback_url,
                bil_meta.width,
                bil_meta.height,
                bil_meta.is_high_resolution

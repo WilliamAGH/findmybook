@@ -18,6 +18,7 @@ import com.williamcallahan.book_recommendation_engine.util.SearchQueryUtils;
 // Use fully-qualified names for image services to avoid import resolution issues in test slice
 import com.williamcallahan.book_recommendation_engine.model.image.CoverImages;
 import com.williamcallahan.book_recommendation_engine.model.image.CoverImageSource;
+import com.williamcallahan.book_recommendation_engine.model.image.ImageResolutionPreference;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -122,7 +123,9 @@ class HomeControllerTest {
                 false,
                 0,
                 0,
-                "newest"
+                "newest",
+                CoverImageSource.ANY,
+                ImageResolutionPreference.ANY
             )));
     }
 
@@ -141,7 +144,9 @@ class HomeControllerTest {
             false,
             ApplicationConstants.Paging.DEFAULT_SEARCH_LIMIT,
             0,
-            "newest"
+            "newest",
+            CoverImageSource.ANY,
+            ImageResolutionPreference.ANY
         );
 
         when(searchPaginationService.search(org.mockito.ArgumentMatchers.any()))
@@ -158,6 +163,8 @@ class HomeControllerTest {
         assertEquals(SearchQueryUtils.normalize("java"), captured.query());
         assertEquals(0, captured.startIndex());
         assertEquals(ApplicationConstants.Paging.DEFAULT_SEARCH_LIMIT, captured.maxResults());
+        assertEquals(CoverImageSource.ANY, captured.coverSource());
+        assertEquals(ImageResolutionPreference.ANY, captured.resolutionPreference());
     }
 
     @Test
