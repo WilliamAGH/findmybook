@@ -34,62 +34,80 @@ RETURNS TABLE (
 ) AS $$
 BEGIN
     RETURN QUERY
+    WITH input_ids AS (
+        SELECT ids.book_id, ids.ord
+        FROM unnest(book_ids) WITH ORDINALITY AS ids(book_id, ord)
+    ),
+    card_data AS (
+        SELECT
+            input_ids.ord,
+            b.id,
+            b.slug,
+            b.title,
+            COALESCE(
+                (
+                    SELECT ARRAY(
+                        SELECT DISTINCT a_inner.name
+                        FROM book_authors_join baj_inner
+                        JOIN authors a_inner ON a_inner.id = baj_inner.author_id
+                        WHERE baj_inner.book_id = b.id
+                          AND a_inner.name IS NOT NULL
+                        ORDER BY a_inner.name
+                    )
+                ),
+                ARRAY[]::TEXT[]
+            ) as authors,
+            cover_meta.cover_url,
+            bei.average_rating,
+            bei.ratings_count,
+            COALESCE(
+                (SELECT jsonb_object_agg(bt.key, bta.metadata)
+                 FROM book_tag_assignments bta
+                 JOIN book_tags bt ON bt.id = bta.tag_id
+                 WHERE bta.book_id = b.id),
+                '{}'::JSONB
+            ) as tags
+        FROM input_ids
+        JOIN books b ON b.id = input_ids.book_id
+        LEFT JOIN book_authors_join baj ON b.id = baj.book_id
+        LEFT JOIN authors a ON a.id = baj.author_id
+        LEFT JOIN book_external_ids bei ON bei.book_id = b.id AND bei.source = 'GOOGLE_BOOKS'
+        LEFT JOIN LATERAL (
+            SELECT COALESCE(bil.s3_image_path, bil.url) AS cover_url
+            FROM book_image_links bil
+            WHERE bil.book_id = b.id
+              AND bil.download_error IS NULL
+            ORDER BY
+                CASE
+                    WHEN bil.s3_image_path IS NOT NULL AND bil.is_high_resolution THEN 0
+                    WHEN bil.s3_image_path IS NOT NULL THEN 1
+                    WHEN bil.is_high_resolution THEN 2
+                    WHEN bil.width >= 320 AND bil.height >= 320 THEN 3
+                    WHEN bil.image_type = 'extraLarge' THEN 4
+                    WHEN bil.image_type = 'large' THEN 5
+                    WHEN bil.image_type = 'medium' THEN 6
+                    WHEN bil.image_type = 'small' THEN 7
+                    WHEN bil.image_type = 'thumbnail' THEN 8
+                    ELSE 9
+                END,
+                bil.height DESC NULLS LAST,
+                bil.width DESC NULLS LAST,
+                bil.created_at DESC
+            LIMIT 1
+        ) cover_meta ON TRUE
+        GROUP BY input_ids.ord, b.id, b.slug, b.title, cover_meta.cover_url, bei.average_rating, bei.ratings_count
+    )
     SELECT
-        b.id,
-        b.slug,
-        b.title,
-        COALESCE(
-            (
-                SELECT ARRAY(
-                    SELECT DISTINCT a_inner.name
-                    FROM book_authors_join baj_inner
-                    JOIN authors a_inner ON a_inner.id = baj_inner.author_id
-                    WHERE baj_inner.book_id = b.id
-                      AND a_inner.name IS NOT NULL
-                    ORDER BY a_inner.name
-                )
-            ),
-            ARRAY[]::TEXT[]
-        ) as authors,
-        cover_meta.cover_url,
-        bei.average_rating,
-        bei.ratings_count,
-        COALESCE(
-            (SELECT jsonb_object_agg(bt.key, bta.metadata)
-             FROM book_tag_assignments bta
-             JOIN book_tags bt ON bt.id = bta.tag_id
-             WHERE bta.book_id = b.id),
-            '{}'::JSONB
-        ) as tags
-    FROM books b
-    LEFT JOIN book_authors_join baj ON b.id = baj.book_id
-    LEFT JOIN authors a ON a.id = baj.author_id
-    LEFT JOIN book_external_ids bei ON bei.book_id = b.id AND bei.source = 'GOOGLE_BOOKS'
-    LEFT JOIN LATERAL (
-        SELECT COALESCE(bil.s3_image_path, bil.url) AS cover_url
-        FROM book_image_links bil
-        WHERE bil.book_id = b.id
-          AND bil.download_error IS NULL
-        ORDER BY
-            CASE
-                WHEN bil.s3_image_path IS NOT NULL AND bil.is_high_resolution THEN 0
-                WHEN bil.s3_image_path IS NOT NULL THEN 1
-                WHEN bil.is_high_resolution THEN 2
-                WHEN bil.width >= 320 AND bil.height >= 320 THEN 3
-                WHEN bil.image_type = 'extraLarge' THEN 4
-                WHEN bil.image_type = 'large' THEN 5
-                WHEN bil.image_type = 'medium' THEN 6
-                WHEN bil.image_type = 'small' THEN 7
-                WHEN bil.image_type = 'thumbnail' THEN 8
-                ELSE 9
-            END,
-            bil.height DESC NULLS LAST,
-            bil.width DESC NULLS LAST,
-            bil.created_at DESC
-        LIMIT 1
-    ) cover_meta ON TRUE
-    WHERE b.id = ANY(book_ids)
-    GROUP BY b.id, b.slug, b.title, cover_meta.cover_url, bei.average_rating, bei.ratings_count;
+        card_data.id,
+        card_data.slug,
+        card_data.title,
+        card_data.authors,
+        card_data.cover_url,
+        card_data.average_rating,
+        card_data.ratings_count,
+        card_data.tags
+    FROM card_data
+    ORDER BY card_data.ord;
 END;
 $$ LANGUAGE plpgsql STABLE;
 
@@ -119,90 +137,110 @@ RETURNS TABLE (
 ) AS $$
 BEGIN
     RETURN QUERY
+    WITH input_ids AS (
+        SELECT ids.book_id, ids.ord
+        FROM unnest(book_ids) WITH ORDINALITY AS ids(book_id, ord)
+    ),
+    list_data AS (
+        SELECT
+            input_ids.ord,
+            b.id,
+            b.slug,
+            b.title,
+            b.description,
+            COALESCE(
+                (
+                    SELECT ARRAY(
+                        SELECT DISTINCT a_inner.name
+                        FROM book_authors_join baj_inner
+                        JOIN authors a_inner ON a_inner.id = baj_inner.author_id
+                        WHERE baj_inner.book_id = b.id
+                          AND a_inner.name IS NOT NULL
+                        ORDER BY a_inner.name
+                    )
+                ),
+                ARRAY[]::TEXT[]
+            ) as authors,
+            COALESCE(
+                (
+                    SELECT ARRAY_AGG(category_name ORDER BY category_name)
+                    FROM (
+                        SELECT DISTINCT bc_inner.display_name AS category_name
+                        FROM book_collections_join bcj_inner
+                        JOIN book_collections bc_inner ON bc_inner.id = bcj_inner.collection_id
+                        WHERE bcj_inner.book_id = b.id
+                          AND bc_inner.collection_type = 'CATEGORY'
+                          AND bc_inner.display_name IS NOT NULL
+                    ) category_list
+                ),
+                ARRAY[]::TEXT[]
+            ) as categories,
+            cover_meta.cover_url as cover_url,
+            cover_meta.width as cover_width,
+            cover_meta.height as cover_height,
+            cover_meta.is_high_resolution as cover_is_high_resolution,
+            bei.average_rating,
+            bei.ratings_count,
+            COALESCE(
+                (SELECT jsonb_object_agg(bt.key, bta.metadata)
+                 FROM book_tag_assignments bta
+                 JOIN book_tags bt ON bt.id = bta.tag_id
+                 WHERE bta.book_id = b.id),
+                '{}'::JSONB
+            ) as tags
+        FROM input_ids
+        JOIN books b ON b.id = input_ids.book_id
+        LEFT JOIN book_authors_join baj ON b.id = baj.book_id
+        LEFT JOIN authors a ON a.id = baj.author_id
+        LEFT JOIN book_collections_join bcj ON bcj.book_id = b.id
+        LEFT JOIN book_collections bc ON bc.id = bcj.collection_id
+        LEFT JOIN book_external_ids bei ON bei.book_id = b.id AND bei.source = 'GOOGLE_BOOKS'
+        LEFT JOIN LATERAL (
+            SELECT coalesce(bil_meta.s3_image_path, bil_meta.url) as cover_url,
+                   bil_meta.width,
+                   bil_meta.height,
+                   bil_meta.is_high_resolution
+            FROM book_image_links bil_meta
+            WHERE bil_meta.book_id = b.id
+              AND bil_meta.download_error IS NULL
+            ORDER BY
+                CASE
+                    WHEN bil_meta.s3_image_path IS NOT NULL AND bil_meta.is_high_resolution THEN 0
+                    WHEN bil_meta.s3_image_path IS NOT NULL THEN 1
+                    WHEN bil_meta.is_high_resolution THEN 2
+                    WHEN bil_meta.width >= 320 AND bil_meta.height >= 320 THEN 3
+                    WHEN bil_meta.image_type = 'extraLarge' THEN 4
+                    WHEN bil_meta.image_type = 'large' THEN 5
+                    WHEN bil_meta.image_type = 'medium' THEN 6
+                    WHEN bil_meta.image_type = 'small' THEN 7
+                    WHEN bil_meta.image_type = 'thumbnail' THEN 8
+                    ELSE 9
+                END,
+                bil_meta.height DESC NULLS LAST,
+                bil_meta.width DESC NULLS LAST,
+                bil_meta.created_at DESC
+            LIMIT 1
+        ) cover_meta ON TRUE
+        GROUP BY input_ids.ord, b.id, b.slug, b.title, b.description,
+                 bei.average_rating, bei.ratings_count,
+                 cover_meta.cover_url, cover_meta.width, cover_meta.height, cover_meta.is_high_resolution
+    )
     SELECT
-        b.id,
-        b.slug,
-        b.title,
-        b.description,
-        -- Aggregate authors in order
-        COALESCE(
-            (
-                SELECT ARRAY(
-                    SELECT DISTINCT a_inner.name
-                    FROM book_authors_join baj_inner
-                    JOIN authors a_inner ON a_inner.id = baj_inner.author_id
-                    WHERE baj_inner.book_id = b.id
-                      AND a_inner.name IS NOT NULL
-                    ORDER BY a_inner.name
-                )
-            ),
-            ARRAY[]::TEXT[]
-        ) as authors,
-        -- Aggregate categories (from CATEGORY collections)
-        COALESCE(
-            (
-                SELECT ARRAY_AGG(category_name ORDER BY category_name)
-                FROM (
-                    SELECT DISTINCT bc_inner.display_name AS category_name
-                    FROM book_collections_join bcj_inner
-                    JOIN book_collections bc_inner ON bc_inner.id = bcj_inner.collection_id
-                    WHERE bcj_inner.book_id = b.id
-                      AND bc_inner.collection_type = 'CATEGORY'
-                      AND bc_inner.display_name IS NOT NULL
-                ) category_list
-            ),
-            ARRAY[]::TEXT[]
-        ) as categories,
-        cover_meta.cover_url as cover_url,
-        cover_meta.width as cover_width,
-        cover_meta.height as cover_height,
-        cover_meta.is_high_resolution as cover_is_high_resolution,
-        bei.average_rating,
-        bei.ratings_count,
-        -- Aggregate tags
-        COALESCE(
-            (SELECT jsonb_object_agg(bt.key, bta.metadata)
-             FROM book_tag_assignments bta
-             JOIN book_tags bt ON bt.id = bta.tag_id
-             WHERE bta.book_id = b.id),
-            '{}'::JSONB
-        ) as tags
-    FROM books b
-    LEFT JOIN book_authors_join baj ON b.id = baj.book_id
-    LEFT JOIN authors a ON a.id = baj.author_id
-    LEFT JOIN book_collections_join bcj ON bcj.book_id = b.id
-    LEFT JOIN book_collections bc ON bc.id = bcj.collection_id
-    LEFT JOIN book_external_ids bei ON bei.book_id = b.id AND bei.source = 'GOOGLE_BOOKS'
-    LEFT JOIN LATERAL (
-        SELECT coalesce(bil_meta.s3_image_path, bil_meta.url) as cover_url,
-               bil_meta.width,
-               bil_meta.height,
-               bil_meta.is_high_resolution
-        FROM book_image_links bil_meta
-        WHERE bil_meta.book_id = b.id
-          AND bil_meta.download_error IS NULL
-        ORDER BY
-            CASE
-                WHEN bil_meta.s3_image_path IS NOT NULL AND bil_meta.is_high_resolution THEN 0
-                WHEN bil_meta.s3_image_path IS NOT NULL THEN 1
-                WHEN bil_meta.is_high_resolution THEN 2
-                WHEN bil_meta.width >= 320 AND bil_meta.height >= 320 THEN 3
-                WHEN bil_meta.image_type = 'extraLarge' THEN 4
-                WHEN bil_meta.image_type = 'large' THEN 5
-                WHEN bil_meta.image_type = 'medium' THEN 6
-                WHEN bil_meta.image_type = 'small' THEN 7
-                WHEN bil_meta.image_type = 'thumbnail' THEN 8
-                ELSE 9
-            END,
-            bil_meta.height DESC NULLS LAST,
-            bil_meta.width DESC NULLS LAST,
-            bil_meta.created_at DESC
-        LIMIT 1
-    ) cover_meta ON TRUE
-    WHERE b.id = ANY(book_ids)
-    GROUP BY b.id, b.slug, b.title, b.description,
-             bei.average_rating, bei.ratings_count,
-             cover_meta.cover_url, cover_meta.width, cover_meta.height, cover_meta.is_high_resolution;
+        list_data.id,
+        list_data.slug,
+        list_data.title,
+        list_data.description,
+        list_data.authors,
+        list_data.categories,
+        list_data.cover_url,
+        list_data.cover_width,
+        list_data.cover_height,
+        list_data.cover_is_high_resolution,
+        list_data.average_rating,
+        list_data.ratings_count,
+        list_data.tags
+    FROM list_data
+    ORDER BY list_data.ord;
 END;
 $$ LANGUAGE plpgsql STABLE;
 
@@ -254,15 +292,16 @@ BEGIN
         -- Aggregate authors in canonical order (position ascending, then alpha)
         COALESCE(
             (
-                SELECT array_agg(author_name ORDER BY author_position, author_name)
+                SELECT array_agg(ordered_authors.author_name ORDER BY ordered_authors.author_position, ordered_authors.author_name)
                 FROM (
-                    SELECT DISTINCT ON (a_inner.id)
+                    SELECT
+                        a_inner.id AS author_id,
                         a_inner.name AS author_name,
-                        COALESCE(baj_inner.position, 9999) AS author_position
+                        MIN(COALESCE(baj_inner.position, 9999)) AS author_position
                     FROM book_authors_join baj_inner
                     JOIN authors a_inner ON a_inner.id = baj_inner.author_id
                     WHERE baj_inner.book_id = b.id
-                    ORDER BY a_inner.id, COALESCE(baj_inner.position, 9999), a_inner.name
+                    GROUP BY a_inner.id, a_inner.name
                 ) ordered_authors
             ),
             ARRAY[]::TEXT[]
