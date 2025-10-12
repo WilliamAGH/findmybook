@@ -137,6 +137,9 @@ class UrlSourceDetectorTest {
             List.of("Author"),
             List.of("Category"),
             "https://books.googleapis.com/books/content/images/frontcover/ABC?fife=w240-h345",
+            240,
+            345,
+            false,
             4.5,
             100,
             Map.of()

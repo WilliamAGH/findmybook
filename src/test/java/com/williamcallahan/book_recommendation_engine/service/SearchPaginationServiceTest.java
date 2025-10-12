@@ -162,6 +162,9 @@ class SearchPaginationServiceTest {
             List.of("Fixture Author"),
             List.of("Fixture Category"),
             "https://example.test/" + id + ".jpg",
+            600,
+            900,
+            true,
             4.5,
             100,
             tags
