@@ -2,6 +2,7 @@ package com.williamcallahan.book_recommendation_engine.mapper;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.williamcallahan.book_recommendation_engine.dto.BookAggregate;
+import com.williamcallahan.book_recommendation_engine.util.CategoryNormalizer;
 import com.williamcallahan.book_recommendation_engine.util.DateParsingUtils;
 import com.williamcallahan.book_recommendation_engine.util.ImageUrlEnhancer;
 import com.williamcallahan.book_recommendation_engine.util.IsbnUtils;
@@ -12,7 +13,6 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -162,33 +162,36 @@ public class GoogleBooksMapper implements ExternalBookMapper {
     }
     
     /**
-     * Extracts categories from volumeInfo.categories while preserving Google Books' hierarchical labels.
-     *
-     * <p>Entries are trimmed and deduplicated in insertion order, but compound categories like
-     * "Business & Economics / Entrepreneurship" remain intact so downstream surfaces render the
-     * same taxonomy that upstream APIs expose.
-     *
+     * Extract and normalize categories from volumeInfo.categories array.
+     * 
+     * <p>Uses {@link CategoryNormalizer#normalizeAndDeduplicate(List)} to:
+     * <ul>
+     *   <li>Split compound categories (e.g., "Fiction / Science Fiction")</li>
+     *   <li>Remove duplicates (case-insensitive)</li>
+     *   <li>Filter out invalid/empty entries</li>
+     * </ul>
+     * 
      * @param volumeInfo Google Books volumeInfo JSON node
-     * @return Ordered list of unique category labels
+     * @return Normalized and deduplicated category list
+     * @see CategoryNormalizer#normalizeAndDeduplicate(List)
      */
     private List<String> extractCategories(JsonNode volumeInfo) {
+        List<String> rawCategories = new ArrayList<>();
+        
         if (!volumeInfo.has("categories") || !volumeInfo.get("categories").isArray()) {
-            return List.of();
+            return rawCategories;
         }
         
-        LinkedHashSet<String> categories = new LinkedHashSet<>();
         JsonNode categoriesNode = volumeInfo.get("categories");
         for (JsonNode categoryNode : categoriesNode) {
             String category = categoryNode.asText();
             if (category != null && !category.isBlank()) {
-                String trimmed = category.trim();
-                if (!trimmed.isEmpty()) {
-                    categories.add(trimmed);
-                }
+                rawCategories.add(category.trim());
             }
         }
-
-        return new ArrayList<>(categories);
+        
+        // Normalize, split compound categories, and deduplicate (DRY principle)
+        return CategoryNormalizer.normalizeAndDeduplicate(rawCategories);
     }
     
     /**

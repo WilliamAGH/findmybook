@@ -47,8 +47,16 @@ class GoogleBooksMapperTest {
         assertThat(aggregate.getAuthors())
             .containsExactly("David A. Vise", "Mark Malseed");
         assertThat(aggregate.getCategories())
-            .contains("Business & Economics / Entrepreneurship")
-            .hasSize(3);
+            .containsExactly(
+                "Business & Economics",
+                "Entrepreneurship",
+                "Computers",
+                "Information Technology",
+                "History",
+                "Modern",
+                "20th Century",
+                "General"
+            );
     }
 
     @Test

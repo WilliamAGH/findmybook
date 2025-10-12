@@ -10,6 +10,7 @@ import com.williamcallahan.book_recommendation_engine.dto.BookDetail;
 import com.williamcallahan.book_recommendation_engine.dto.RecommendationCard;
 import com.williamcallahan.book_recommendation_engine.model.Book;
 import com.williamcallahan.book_recommendation_engine.repository.BookQueryRepository;
+import com.williamcallahan.book_recommendation_engine.service.BookDataOrchestrator;
 import com.williamcallahan.book_recommendation_engine.service.BookIdentifierResolver;
 import com.williamcallahan.book_recommendation_engine.service.BookSearchService;
 import com.williamcallahan.book_recommendation_engine.service.SearchPaginationService;
@@ -20,13 +21,13 @@ import com.williamcallahan.book_recommendation_engine.util.SearchQueryUtils;
 import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
 import com.williamcallahan.book_recommendation_engine.util.SlugGenerator;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.lang.Nullable;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
@@ -37,6 +38,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 import com.williamcallahan.book_recommendation_engine.util.UuidUtils;
 
@@ -48,15 +50,18 @@ public class BookController {
     private final BookQueryRepository bookQueryRepository;
     private final BookIdentifierResolver bookIdentifierResolver;
     private final SearchPaginationService searchPaginationService;
+    private final BookDataOrchestrator bookDataOrchestrator;
 
     public BookController(BookSearchService bookSearchService,
                           BookQueryRepository bookQueryRepository,
                           BookIdentifierResolver bookIdentifierResolver,
-                          SearchPaginationService searchPaginationService) {
+                          SearchPaginationService searchPaginationService,
+                          @Nullable BookDataOrchestrator bookDataOrchestrator) {
         this.bookSearchService = bookSearchService;
         this.bookQueryRepository = bookQueryRepository;
         this.bookIdentifierResolver = bookIdentifierResolver;
         this.searchPaginationService = searchPaginationService;
+        this.bookDataOrchestrator = bookDataOrchestrator;
     }
 
     @GetMapping("/search")
@@ -72,13 +77,14 @@ public class BookController {
             orderBy
         );
 
-        return searchPaginationService.search(request)
-            .map(this::toSearchResponse)
-            .map(ResponseEntity::ok)
-            .onErrorResume(ex -> {
-                log.error("Failed to search books for query '{}': {}", normalizedQuery, ex.getMessage(), ex);
-                return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
-            });
+        Mono<SearchResponse> responseMono = searchPaginationService.search(request)
+            .map(this::toSearchResponse);
+
+        return withEmptyFallback(
+            responseMono,
+            () -> emptySearchResponse(normalizedQuery, request),
+            () -> String.format("Failed to search books for query '%s'", normalizedQuery)
+        );
     }
 
     @GetMapping("/authors/search")
@@ -92,15 +98,16 @@ public class BookController {
             ApplicationConstants.Paging.MAX_AUTHOR_LIMIT
         );
 
-        return Mono.fromCallable(() -> bookSearchService.searchAuthors(normalizedQuery, safeLimit))
-                .subscribeOn(Schedulers.boundedElastic())
-                .map(results -> results == null ? List.<BookSearchService.AuthorResult>of() : results)
-                .map(results -> buildAuthorResponse(normalizedQuery, safeLimit, results))
-                .map(ResponseEntity::ok)
-                .onErrorResume(ex -> {
-                    log.error("Failed to search authors for query '{}': {}", normalizedQuery, ex.getMessage(), ex);
-                    return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
-                });
+        Mono<AuthorSearchResponse> responseMono = Mono.fromCallable(() -> bookSearchService.searchAuthors(normalizedQuery, safeLimit))
+            .subscribeOn(Schedulers.boundedElastic())
+            .map(results -> results == null ? List.<BookSearchService.AuthorResult>of() : results)
+            .map(results -> buildAuthorResponse(normalizedQuery, safeLimit, results));
+
+        return withEmptyFallback(
+            responseMono,
+            () -> emptyAuthorResponse(normalizedQuery, safeLimit),
+            () -> String.format("Failed to search authors for query '%s'", normalizedQuery)
+        );
     }
 
     @GetMapping("/{identifier}")
@@ -186,16 +193,68 @@ public class BookController {
             .filter(Objects::nonNull)
             .toList();
 
+        int knownResults = page.uniqueResults() == null
+            ? Math.max(page.startIndex() + hits.size(), 0)
+            : Math.max(page.uniqueResults().size(), page.startIndex() + hits.size());
+
+        int consumed = page.startIndex() + hits.size();
+        boolean hasMore = knownResults > consumed;
+        int nextStartIndex = hasMore ? consumed : page.startIndex();
+        int prefetched = Math.max(knownResults - consumed, 0);
+
         return new SearchResponse(
             page.query(),
             page.startIndex(),
             page.maxResults(),
-            page.totalUnique(),
-            page.hasMore(),
-            page.nextStartIndex(),
-            page.prefetchedCount(),
+            knownResults,
+            hasMore,
+            nextStartIndex,
+            prefetched,
             hits
         );
+    }
+
+    private SearchResponse emptySearchResponse(String query, SearchPaginationService.SearchRequest request) {
+        return new SearchResponse(
+            query,
+            request.startIndex(),
+            request.maxResults(),
+            0,
+            false,
+            request.startIndex(),
+            0,
+            List.<SearchHitDto>of()
+        );
+    }
+
+    private AuthorSearchResponse emptyAuthorResponse(String query, int limit) {
+        return new AuthorSearchResponse(query, limit, List.of());
+    }
+
+    private <T> Mono<ResponseEntity<T>> withEmptyFallback(Mono<T> pipeline,
+                                                          Supplier<T> emptySupplier,
+                                                          Supplier<String> contextSupplier) {
+        return pipeline
+            .map(ResponseEntity::ok)
+            .onErrorResume(ex -> {
+                log.warn("{}: {}. Returning empty response.", contextSupplier.get(), ex.getMessage(), ex);
+                return Mono.fromSupplier(() -> ResponseEntity.ok(emptySupplier.get()));
+            });
+    }
+
+    private BookDetail enrichWithEditions(BookDetail detail) {
+        if (detail == null || !ValidationUtils.hasText(detail.id())) {
+            return detail;
+        }
+        UUID uuid = UuidUtils.parseUuidOrNull(detail.id());
+        if (uuid == null) {
+            return detail;
+        }
+        List<com.williamcallahan.book_recommendation_engine.dto.EditionSummary> editions = bookQueryRepository.fetchBookEditions(uuid);
+        if (editions == null || editions.isEmpty()) {
+            return detail;
+        }
+        return detail.withEditions(editions);
     }
 
     private SearchHitDto toSearchHit(Book book) {
@@ -231,13 +290,14 @@ public class BookController {
         String trimmed = identifier.trim();
         return Mono.fromCallable(() -> locateBookDto(trimmed))
             .subscribeOn(Schedulers.boundedElastic())
-            .flatMap(dto -> dto == null ? Mono.empty() : Mono.just(dto));
+            .flatMap(dto -> dto == null ? Mono.<BookDto>empty() : Mono.just(dto))
+            .switchIfEmpty(fetchBookViaFallback(trimmed));
     }
 
     private BookDto locateBookDto(String identifier) {
         Optional<BookDetail> bySlug = bookQueryRepository.fetchBookDetailBySlug(identifier);
         if (bySlug.isPresent()) {
-            return BookDtoMapper.fromDetail(bySlug.get());
+            return BookDtoMapper.fromDetail(enrichWithEditions(bySlug.get()));
         }
 
         Optional<String> canonicalId = bookIdentifierResolver.resolveCanonicalId(identifier);
@@ -251,8 +311,18 @@ public class BookController {
         }
 
         return bookQueryRepository.fetchBookDetail(uuid)
+            .map(this::enrichWithEditions)
             .map(BookDtoMapper::fromDetail)
             .orElse(null);
+    }
+
+    private Mono<BookDto> fetchBookViaFallback(String identifier) {
+        if (bookDataOrchestrator == null) {
+            return Mono.empty();
+        }
+        return bookDataOrchestrator.fetchCanonicalBookReactive(identifier)
+            .map(BookDtoMapper::toDto)
+            .doOnNext(bookDto -> log.debug("BookController fallback resolved '{}' via orchestrator", identifier));
     }
 
     private BookDto toRecommendationDto(RecommendationCard card) {
