@@ -259,13 +259,7 @@ public class BookCoverManagementService {
             return Mono.empty();
         }
 
-        // Set placeholder immediately for fast rendering
-        if (!ValidationUtils.hasText(book.getS3ImagePath())) {
-            book.setS3ImagePath(ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH);
-        }
-        if (book.getCoverImages() == null) {
-            book.setCoverImages(createPlaceholderCoverImages(book.getId()));
-        }
+        normalizeCoverImages(book, book.getCoverImages());
         ensureSlug(book);
 
         // Trigger async cover resolution in background (fire and forget)
@@ -276,10 +270,7 @@ public class BookCoverManagementService {
                 coverImages -> {
                     // Update if we got better cover quickly
                     if (coverImages != null && coverImages.getSource() != PLACEHOLDER_SOURCE) {
-                        book.setCoverImages(coverImages);
-                        coverImagesOptional(coverImages)
-                            .filter(ValidationUtils::hasText)
-                            .ifPresent(book::setS3ImagePath);
+                        normalizeCoverImages(book, coverImages);
                     }
                 },
                 e -> log.debug("Background cover fetch failed for {}: {}", book.getId(), e.getMessage())
@@ -307,13 +298,7 @@ public class BookCoverManagementService {
         List<Book> prepared = books.stream()
             .filter(Objects::nonNull)
             .peek(book -> {
-                // Set placeholder immediately
-                if (!ValidationUtils.hasText(book.getS3ImagePath())) {
-                    book.setS3ImagePath(ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH);
-                }
-                if (book.getCoverImages() == null) {
-                    book.setCoverImages(createPlaceholderCoverImages(book.getId()));
-                }
+                normalizeCoverImages(book, book.getCoverImages());
                 ensureSlug(book);
             })
             .toList();
@@ -335,6 +320,80 @@ public class BookCoverManagementService {
         if (!ValidationUtils.hasText(book.getSlug())) {
             book.setSlug(book.getId());
         }
+    }
+
+    private CoverImages normalizeCoverImages(Book book, CoverImages candidate) {
+        String placeholder = ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH;
+
+        String preferredCandidate = candidate != null ? candidate.getPreferredUrl() : null;
+        String fallbackCandidate = candidate != null ? candidate.getFallbackUrl() : null;
+
+        if (book != null) {
+            preferredCandidate = firstNonBlank(preferredCandidate, book.getS3ImagePath(), book.getExternalImageUrl());
+            fallbackCandidate = firstNonBlank(fallbackCandidate, book.getExternalImageUrl(), placeholder);
+        }
+
+        if (!ValidationUtils.hasText(preferredCandidate)) {
+            preferredCandidate = fallbackCandidate;
+        }
+        if (!ValidationUtils.hasText(preferredCandidate)) {
+            preferredCandidate = placeholder;
+        }
+        if (!ValidationUtils.hasText(fallbackCandidate)) {
+            fallbackCandidate = ValidationUtils.hasText(preferredCandidate) ? preferredCandidate : placeholder;
+        }
+
+        Integer width = book != null ? book.getCoverImageWidth() : null;
+        Integer height = book != null ? book.getCoverImageHeight() : null;
+        Boolean highRes = book != null ? book.getIsCoverHighResolution() : null;
+
+        CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
+            preferredCandidate,
+            fallbackCandidate,
+            width,
+            height,
+            highRes
+        );
+
+        String preferredUrl = ValidationUtils.hasText(resolved.url()) ? resolved.url() : placeholder;
+        String fallbackUrl = ValidationUtils.hasText(fallbackCandidate) ? fallbackCandidate : preferredUrl;
+        if (!ValidationUtils.hasText(fallbackUrl)) {
+            fallbackUrl = placeholder;
+        }
+
+        CoverImageSource source = UrlSourceDetector.detectSource(preferredUrl);
+        if (preferredUrl.contains("placeholder-book-cover.svg")) {
+            source = CoverImageSource.NONE;
+        } else if (source == null) {
+            source = CoverImageSource.UNDEFINED;
+        }
+
+        CoverImages normalized = new CoverImages(preferredUrl, fallbackUrl, source);
+
+        if (book != null) {
+            if (resolved.fromS3()) {
+                book.setS3ImagePath(resolved.s3Key());
+            }
+            book.setExternalImageUrl(preferredUrl);
+            book.setCoverImageWidth(resolved.width());
+            book.setCoverImageHeight(resolved.height());
+            book.setIsCoverHighResolution(resolved.highResolution());
+            book.setCoverImages(normalized);
+        }
+
+        return normalized;
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (ValidationUtils.hasText(value)) {
+                return value;
+            }
+        }
+        return null;
     }
 
     /**
