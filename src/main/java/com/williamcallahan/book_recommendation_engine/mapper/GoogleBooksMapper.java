@@ -341,7 +341,7 @@ public class GoogleBooksMapper implements ExternalBookMapper {
     
     /**
      * Extract image links map from volumeInfo.imageLinks.
-     * Enhances URLs for better quality as per BookJsonParser legacy logic.
+     * Enhances URLs for better quality following the same heuristics used by {@link #toBookAggregate(JsonNode)}.
      * Per official API: thumbnail (~128px), small (~300px), medium (~575px), large (~800px), extraLarge (~1280px)
      */
     private Map<String, String> extractImageLinks(JsonNode volumeInfo) {

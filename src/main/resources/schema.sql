@@ -15,7 +15,7 @@ create table if not exists books (
   publisher text, -- JSON: volumeInfo.publisher
   page_count integer, -- JSON: volumeInfo.pageCount or volumeInfo.printedPageCount
   -- Removed edition_number and edition_group_key (replaced with work_clusters system)
-  s3_image_path text, -- Primary cover image URL (S3 or external) - canonical cover for this book
+  -- Canonical cover stored in book_image_links; books table no longer carries cover path
   slug text unique, -- SEO-friendly URL slug (e.g., 'harry-potter-philosophers-stone-j-k-rowling')
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -34,7 +34,6 @@ create unique index if not exists uq_books_isbn13 on books(isbn13) where isbn13 
 create unique index if not exists uq_books_isbn10 on books(isbn10) where isbn10 is not null;
 -- Removed idx_books_edition_group_key index (using work_clusters instead)
 create index if not exists idx_books_slug on books(slug); -- Always index slug for URL lookups
-create index if not exists idx_books_s3_image_path on books(s3_image_path) where s3_image_path is not null;
 create index if not exists idx_books_created_at on books(created_at desc);
 create index if not exists idx_books_updated_at on books(updated_at desc);
 create index if not exists idx_books_search_vector on books using gin (search_vector);
@@ -52,7 +51,6 @@ comment on column books.language is 'Language code (ISO 639-1) from volumeInfo.l
 comment on column books.publisher is 'Publisher name from volumeInfo.publisher';
 comment on column books.page_count is 'Page count from volumeInfo.pageCount or printedPageCount';
 -- Removed edition_number and edition_group_key column comments (using work_clusters instead)
-comment on column books.s3_image_path is 'Primary cover image URL (S3 or external) - canonical cover for this book';
 comment on column books.slug is 'SEO-friendly URL slug generated once at creation, remains stable even if title/authors change';
 
 -- External IDs mapping for many-to-one association to canonical books
@@ -905,7 +903,6 @@ add column if not exists width integer,
 add column if not exists height integer,
 add column if not exists file_size_bytes integer,
 add column if not exists is_high_resolution boolean,
-add column if not exists s3_image_path text,
 add column if not exists s3_uploaded_at timestamptz,
 add column if not exists download_error text;
 

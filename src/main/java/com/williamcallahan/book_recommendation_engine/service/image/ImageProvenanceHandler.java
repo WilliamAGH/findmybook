@@ -15,7 +15,7 @@ import java.util.Collections;
  * Handles image provenance tracking for audit and debugging purposes.
  * <p>
  * Consolidates provenance manipulation logic that was previously scattered
- * in ImageCacheUtils static methods. Provides encapsulated, testable
+ * across legacy image cache helpers. Provides encapsulated, testable
  * provenance operations.
  * 
  * @author William Callahan

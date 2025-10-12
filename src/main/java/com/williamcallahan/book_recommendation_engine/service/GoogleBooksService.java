@@ -389,8 +389,9 @@ public class GoogleBooksService {
     /**
      * Retrieve a specific book by its Google Books volume ID
      * This method now delegates to GoogleApiFetcher for the authenticated API call
-     * and uses BookJsonParser for conversion. S3 caching is handled by BookDataOrchestrator
-     * Resilience4j annotations are kept on this public method
+     * and uses the internal {@link #convertJsonToBook(JsonNode)} mapper (backed by {@link com.williamcallahan.book_recommendation_engine.mapper.GoogleBooksMapper})
+     * for conversion. S3 caching is handled by BookDataOrchestrator.
+     * Resilience4j annotations are kept on this public method.
      * 
      * @param bookId Google Books volume ID
      * @return CompletionStage containing the Book object if found, or null otherwise

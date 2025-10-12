@@ -7,7 +7,7 @@ import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
  * Single Source of Truth for resolving book identifiers for cover caching operations.
  * 
  * Consolidates logic from:
- * - ImageCacheUtils.getIdentifierKey()
+ * - Legacy cache helper getIdentifierKey()
  * - ValidationUtils.BookValidator.getPreferredIsbn()
  * 
  * Priority order:

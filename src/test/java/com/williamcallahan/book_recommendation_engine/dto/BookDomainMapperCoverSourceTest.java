@@ -12,7 +12,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class DtoToBookMapperCoverSourceTest {
+class BookDomainMapperCoverSourceTest {
 
     @Test
     @DisplayName("toBook(BookCard) detects Google Books cover source")
@@ -83,6 +83,9 @@ class DtoToBookMapperCoverSourceTest {
             List.of("Author"),
             List.of("Category"),
             "https://cdn.example.com/covers/item-id.jpg",
+            500,
+            750,
+            false,
             3.9,
             80,
             Map.of()

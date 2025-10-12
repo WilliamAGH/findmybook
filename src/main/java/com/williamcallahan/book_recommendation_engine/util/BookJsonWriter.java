@@ -15,7 +15,8 @@ import java.util.Map;
 
 /**
  * Shared helpers for serialising {@link Book} objects back to JSON and merging with
- * existing stored payloads. Complements {@link BookJsonParser} so ingest/export paths
+ * existing stored payloads. Complements the {@link com.williamcallahan.book_recommendation_engine.mapper.GoogleBooksMapper}
+ * / {@link com.williamcallahan.book_recommendation_engine.util.BookDomainMapper} pipeline so ingest/export paths
  * share a single conversion layer.
  *
  * @deprecated Persist raw payloads via
