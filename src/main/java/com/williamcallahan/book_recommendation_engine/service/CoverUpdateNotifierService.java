@@ -16,20 +16,29 @@
 package com.williamcallahan.book_recommendation_engine.service;
 
 import com.williamcallahan.book_recommendation_engine.model.image.CoverImageSource;
+import com.williamcallahan.book_recommendation_engine.model.image.ImageDetails;
 import com.williamcallahan.book_recommendation_engine.service.event.BookCoverUpdatedEvent;
 import com.williamcallahan.book_recommendation_engine.service.event.SearchProgressEvent;
 import com.williamcallahan.book_recommendation_engine.service.event.SearchResultsUpdatedEvent;
 import com.williamcallahan.book_recommendation_engine.service.event.BookUpsertEvent;
+import com.williamcallahan.book_recommendation_engine.service.image.CoverPersistenceService;
+import com.williamcallahan.book_recommendation_engine.service.image.S3BookCoverService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.context.event.EventListener;
+import org.springframework.lang.Nullable;
 import org.springframework.messaging.core.MessageSendingOperations;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -38,6 +47,9 @@ public class CoverUpdateNotifierService {
 
     private static final Logger logger = LoggerFactory.getLogger(CoverUpdateNotifierService.class);
     private final MessageSendingOperations<String> messagingTemplate;
+    private final S3BookCoverService s3BookCoverService;
+    private final CoverPersistenceService coverPersistenceService;
+    private CoverUpdateNotifierService self;  // Self-injection for transaction propagation
 
     /**
      * Constructs CoverUpdateNotifierService with required dependencies
@@ -48,9 +60,22 @@ public class CoverUpdateNotifierService {
      * @param webSocketConfig WebSocket broker configuration
      */
     public CoverUpdateNotifierService(@Lazy MessageSendingOperations<String> messagingTemplate,
-                                      WebSocketMessageBrokerConfigurer webSocketConfig) {
+                                      WebSocketMessageBrokerConfigurer webSocketConfig,
+                                      @Lazy @Nullable S3BookCoverService s3BookCoverService,
+                                      CoverPersistenceService coverPersistenceService) {
         this.messagingTemplate = messagingTemplate;
+        this.s3BookCoverService = s3BookCoverService;
+        this.coverPersistenceService = coverPersistenceService;
         logger.info("CoverUpdateNotifierService initialized, WebSocketConfig should be ready.");
+    }
+
+    /**
+     * Self-injection setter for transaction propagation across reactive thread boundaries.
+     * Enables @Transactional methods to work correctly when called from reactive callbacks.
+     */
+    @Autowired
+    public void setSelf(CoverUpdateNotifierService self) {
+        this.self = self;
     }
 
     /**
@@ -189,7 +214,110 @@ public class CoverUpdateNotifierService {
         payload.put("title", event.getTitle());
         payload.put("isNew", event.isNew());
         payload.put("context", event.getContext());
+        if (event.getCanonicalImageUrl() != null) {
+            payload.put("canonicalImageUrl", event.getCanonicalImageUrl());
+        }
         logger.info("Sending book upsert to {}: {} (new={})", destination, event.getTitle(), event.isNew());
         this.messagingTemplate.convertAndSend(destination, payload);
+
+        if (s3BookCoverService == null) {
+            logger.debug("S3BookCoverService unavailable; skipping cover upload for {}", event.getBookId());
+            return;
+        }
+
+        triggerS3Upload(event);
+    }
+    /**
+     * Kicks off the asynchronous S3 upload pipeline using the metadata carried by the
+     * upsert event.
+     */
+    private void triggerS3Upload(BookUpsertEvent event) {
+        String canonicalImageUrl = resolveCanonicalImageUrl(event);
+        if (canonicalImageUrl == null || canonicalImageUrl.isBlank()) {
+            logger.debug("BookUpsertEvent for {} contained no resolvable cover URL; skipping S3 upload.", event.getBookId());
+            return;
+        }
+
+        String source = event.getSource() != null ? event.getSource() : "UNKNOWN";
+        try {
+            UUID bookUuid = UUID.fromString(event.getBookId());
+            s3BookCoverService.uploadCoverToS3Async(canonicalImageUrl, event.getBookId(), source)
+                .subscribe(
+                    details -> self.persistS3MetadataInNewTransaction(bookUuid, details),
+                    error -> logger.error("S3 upload failed for book {} ({}): {}", event.getBookId(), canonicalImageUrl, error.getMessage(), error)
+                );
+        } catch (IllegalArgumentException ex) {
+            logger.warn("Received BookUpsertEvent with non-UUID bookId '{}'; skipping S3 upload.", event.getBookId());
+        }
+    }
+
+    /**
+     * Persists S3 metadata in a NEW transaction after successful upload.
+     * This method is called from reactive thread boundaries and uses self-injection
+     * to ensure proper transaction propagation.
+     *
+     * @param bookId UUID of the book
+     * @param details Image details from S3 upload (storage key, dimensions, CDN URL)
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void persistS3MetadataInNewTransaction(UUID bookId, @Nullable ImageDetails details) {
+        if (details == null) {
+            logger.debug("S3 upload returned null details for book {}.", bookId);
+            return;
+        }
+        if (details.getStorageKey() == null || details.getStorageKey().isBlank()) {
+            logger.debug("S3 upload for book {} yielded no storage key; metadata unchanged.", bookId);
+            return;
+        }
+
+        coverPersistenceService.updateAfterS3Upload(
+            bookId,
+            details.getStorageKey(),
+            details.getUrlOrPath(),
+            details.getWidth(),
+            details.getHeight(),
+            details.getCoverImageSource() != null ? details.getCoverImageSource() : CoverImageSource.UNDEFINED
+        );
+        logger.info("Persisted S3 cover metadata for book {} (key {}).", bookId, details.getStorageKey());
+    }
+
+
+    /**
+     * Resolves the best candidate URL to upload, preferring the canonical entry provided
+     * by the producer but falling back to image link heuristics when needed.
+     */
+    private String resolveCanonicalImageUrl(BookUpsertEvent event) {
+        if (event.getCanonicalImageUrl() != null && !event.getCanonicalImageUrl().isBlank()) {
+            return event.getCanonicalImageUrl();
+        }
+        return selectPreferredImageUrl(event.getImageLinks());
+    }
+
+    /**
+     * Applies a deterministic priority ordering across provider-specific image keys.
+     */
+    private String selectPreferredImageUrl(Map<String, String> imageLinks) {
+        if (imageLinks == null || imageLinks.isEmpty()) {
+            return null;
+        }
+        List<String> priorityOrder = List.of(
+            "canonical",
+            "extraLarge",
+            "large",
+            "medium",
+            "small",
+            "thumbnail",
+            "smallThumbnail"
+        );
+        for (String key : priorityOrder) {
+            String candidate = imageLinks.get(key);
+            if (candidate != null && !candidate.isBlank()) {
+                return candidate;
+            }
+        }
+        return imageLinks.values().stream()
+            .filter(url -> url != null && !url.isBlank())
+            .findFirst()
+            .orElse(null);
     }
 }
