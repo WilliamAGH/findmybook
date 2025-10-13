@@ -29,17 +29,13 @@ import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
-import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.zip.GZIPOutputStream;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import com.williamcallahan.book_recommendation_engine.service.s3.S3FetchResult;
 import com.williamcallahan.book_recommendation_engine.util.CompressionUtils;
-import com.williamcallahan.book_recommendation_engine.util.S3Paths;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.S3Object;
@@ -145,105 +141,6 @@ public class S3StorageService {
     }
 
     /**
-     * Asynchronously uploads a JSON string as a GZIP-compressed file to S3.
-     *
-     * @param volumeId The Google Books volume ID, used to construct the S3 key.
-     * @param jsonContent The JSON string to upload.
-     * @return A CompletableFuture<Void> that completes when the upload is finished or fails.
-     */
-/**
- * @deprecated Replaced by Postgres-first persistence. JSON book payloads are no longer
- * written to S3. This API will be removed in version 1.0. S3 image uploads are unaffected.
- */
-@Deprecated
-public CompletableFuture<Void> uploadJsonAsync(String volumeId, String jsonContent) {
-        if (s3Client == null) {
-            logger.warn("S3Client is null. Cannot upload JSON for volumeId: {}. S3 may be disabled or misconfigured.", volumeId);
-            return CompletableFuture.failedFuture(new IllegalStateException("S3Client is not available."));
-        }
-        String keyName = S3Paths.GOOGLE_BOOK_CACHE_PREFIX + volumeId + ".json";
-        return uploadGenericJsonAsync(keyName, jsonContent, true);
-    }
-    
-    /**
-     * Asynchronously fetches and GZIP-decompresses a JSON file from S3.
-     *
-     * @param volumeId The Google Books volume ID, used to construct the S3 key.
-     * @return A CompletableFuture<S3FetchResult<String>> containing the result status and optionally the JSON string if found
-     */
-/**
- * @deprecated Replaced by Postgres-first persistence. JSON book payloads are no longer
- * fetched from S3 at runtime. This API will be removed in version 1.0. S3 image reads are unaffected.
- */
-@Deprecated
-public CompletableFuture<S3FetchResult<String>> fetchJsonAsync(String volumeId) {
-        if (s3Client == null) {
-            logger.warn("S3Client is null. Cannot fetch JSON for volumeId: {}. S3 may be disabled or misconfigured.", volumeId);
-            return CompletableFuture.completedFuture(S3FetchResult.disabled());
-        }
-        String keyName = S3Paths.GOOGLE_BOOK_CACHE_PREFIX + volumeId + ".json";
-        return fetchGenericJsonAsync(keyName);
-    }
-
-    /**
-     * Asynchronously uploads a generic JSON string to a specified S3 key
-     *
-     * @param keyName The full S3 key (path/filename) under which to store the JSON
-     * @param jsonContent The JSON string to upload
-     * @param gzipCompress true to GZIP compress the content before uploading, false otherwise
-     * @return A CompletableFuture<Void> that completes when the upload is finished or fails
-     */
-/**
- * @deprecated Replaced by Postgres-first persistence. Generic JSON storage in S3 will be removed
- * in version 1.0. This does not impact S3 image storage APIs.
- */
-@Deprecated
-public CompletableFuture<Void> uploadGenericJsonAsync(String keyName, String jsonContent, boolean gzipCompress) {
-        if (s3Client == null) {
-            logger.warn("S3Client is null. Cannot upload generic JSON to key: {}. S3 may be disabled or misconfigured.", keyName);
-            return CompletableFuture.failedFuture(new IllegalStateException("S3Client is not available."));
-        }
-        return Mono.<Void>fromRunnable(() -> {
-            try {
-                byte[] contentBytes = jsonContent.getBytes(StandardCharsets.UTF_8);
-                String contentEncodingHeader = null;
-
-                if (gzipCompress) {
-                    try (ByteArrayOutputStream bos = new ByteArrayOutputStream();
-                         GZIPOutputStream gzipOutputStream = new GZIPOutputStream(bos)) {
-                        gzipOutputStream.write(contentBytes);
-                        gzipOutputStream.finish();
-                        contentBytes = bos.toByteArray();
-                        contentEncodingHeader = "gzip";
-                    } catch (IOException e) { 
-                        logger.error("IOException during GZIP compression for key {}: {}", keyName, e.getMessage(), e);
-                        throw new RuntimeException("Failed to GZIP compress content for key " + keyName, e);
-                    }
-                }
-
-                PutObjectRequest.Builder requestBuilder = PutObjectRequest.builder()
-                        .bucket(bucketName)
-                        .key(keyName)
-                        .contentType("application/json");
-
-                if (contentEncodingHeader != null) {
-                    requestBuilder.contentEncoding(contentEncodingHeader);
-                }
-                
-                PutObjectRequest putObjectRequest = requestBuilder.build();
-
-                s3Client.putObject(putObjectRequest, RequestBody.fromBytes(contentBytes));
-                logger.info("Successfully uploaded generic JSON to S3 key {}{}", keyName, gzipCompress ? " (GZIP compressed)" : "");
-            } catch (Exception e) { 
-                logger.error("Error uploading generic JSON to S3 key {}: {}", keyName, e.getMessage(), e);
-                throw new RuntimeException("Failed to upload generic JSON to S3 for key " + keyName, e);
-            }
-        })
-        .subscribeOn(Schedulers.boundedElastic())
-        .toFuture();
-    }
-
-    /**
      * Asynchronously fetches a UTF-8 text payload from the given S3 key, transparently handling optional GZIP compression.
      * This method can retrieve any UTF-8 encoded content (JSON, XML, plain text, etc.) and is primarily used for sitemap
      * fallback logic and other text-based S3 objects.
@@ -301,14 +198,6 @@ public CompletableFuture<Void> uploadGenericJsonAsync(String keyName, String jso
         .subscribeOn(Schedulers.boundedElastic())
         .onErrorReturn(S3FetchResult.serviceError("Failed to execute S3 fetch operation for generic JSON key " + keyName))
         .toFuture();
-    }
-
-    /**
-     * @deprecated Use {@link #fetchUtf8ObjectAsync(String)} for UTF-8 payload retrieval.
-     */
-    @Deprecated
-    public CompletableFuture<S3FetchResult<String>> fetchGenericJsonAsync(String keyName) {
-        return fetchUtf8ObjectAsync(keyName);
     }
 
     /**

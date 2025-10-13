@@ -38,8 +38,6 @@ import io.github.resilience4j.timelimiter.annotation.TimeLimiter;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
-import java.util.concurrent.CompletionStage;
-import java.util.concurrent.CompletableFuture;
 import java.util.*;
 import java.util.List;
 import java.util.Map;
@@ -307,40 +305,6 @@ public class GoogleBooksService {
     }
 
     /**
-     * Searches for books by ISBN using Google Books API
-     * @param isbn The ISBN (10 or 13) to search for
-     * @return Mono containing a list of books matching the ISBN
-     * @deprecated Use {@link BookDataOrchestrator#fetchCanonicalBookReactive(String)} for ISBN lookups
-     */
-    @Deprecated(since = "2025-10-01", forRemoval = true)
-    public Mono<List<Book>> searchBooksByISBN(String isbn) {
-        if (!ValidationUtils.hasText(isbn) || bookSearchService == null || bookQueryRepository == null) {
-            return Mono.just(List.of());
-        }
-
-        String normalized = isbn.trim();
-
-        return Mono.fromCallable(() -> bookSearchService.searchByIsbn(normalized))
-            .subscribeOn(Schedulers.boundedElastic())
-            .flatMap(optional -> optional
-                .map(result -> Mono.fromCallable(() -> bookQueryRepository.fetchBookDetail(result.bookId()))
-                    .subscribeOn(Schedulers.boundedElastic())
-                    .map(detailOpt -> detailOpt
-                        .map(BookDomainMapper::fromDetail)
-                        .map(List::of)
-                        .orElse(List.of()))
-                    .onErrorResume(ex -> {
-                        log.warn("Postgres ISBN detail lookup failed for '{}': {}", normalized, ex.getMessage());
-                        return Mono.just(List.<Book>of());
-                    }))
-                .orElseGet(() -> Mono.just(List.<Book>of())))
-            .onErrorResume(ex -> {
-                log.warn("GoogleBooksService.searchBooksByISBN failed for '{}': {}", normalized, ex.getMessage());
-                return Mono.just(List.<Book>of());
-            });
-    }
-
-    /**
      * Fetches the Google Books ID for a given ISBN
      * This method is specifically for the NYT scheduler to minimize data transfer
      * when only the ID is needed
@@ -370,94 +334,6 @@ public class GoogleBooksService {
                 apiRequestMonitor.recordFailedRequest("volumes/search/isbn_to_id/" + isbn, e.getMessage());
             })
             .onErrorResume(e -> Mono.<String>empty());
-    }
-
-    /**
-     * Retrieve a specific book by its Google Books volume ID
-     * This method now delegates to GoogleApiFetcher for the authenticated API call
-     * and uses the internal {@link #convertJsonToBook(JsonNode)} mapper (backed by {@link com.williamcallahan.book_recommendation_engine.mapper.GoogleBooksMapper})
-     * for conversion. S3 caching is handled by BookDataOrchestrator.
-     * Resilience4j annotations are kept on this public method.
-     * 
-     * @param bookId Google Books volume ID
-     * @return CompletionStage containing the Book object if found, or null otherwise
-     */
-    @CircuitBreaker(name = "googleBooksService", fallbackMethod = "getBookByIdFallback")
-    @TimeLimiter(name = "googleBooksService")
-    @RateLimiter(name = "googleBooksServiceRateLimiter", fallbackMethod = "getBookByIdRateLimitFallback")
-    /**
-     * @deprecated Fetch canonical records via {@link BookDataOrchestrator#fetchCanonicalBookReactive(String)} or
-     * {@link com.williamcallahan.book_recommendation_engine.repository.BookQueryRepository} DTOs; direct
-     * Google volumes access should go through {@link GoogleApiFetcher} utilities.
-     */
-    @Deprecated(since = "2025-10-01", forRemoval = true)
-    public CompletionStage<Book> getBookById(String bookId) {
-        log.warn("GoogleBooksService.getBookById called directly for {}. Consider using orchestrated flow via BookCacheFacadeService/GoogleBooksCachingStrategy.", bookId);
-        // Prevent misuse: do not call volumes/{id} for slugs or unsafe identifiers
-        if (!com.williamcallahan.book_recommendation_engine.util.IdentifierClassifier.isSafeForGoogleBooksVolumesApi(bookId)) {
-            return java.util.concurrent.CompletableFuture.completedFuture(null);
-        }
-        return googleApiFetcher.fetchVolumeByIdAuthenticated(bookId)
-            .switchIfEmpty(googleApiFetcher.fetchVolumeByIdUnauthenticated(bookId))
-            .map(this::convertJsonToBook)
-            .filter(Objects::nonNull)
-            // Record successful API fetch for the book
-            .doOnNext(book -> apiRequestMonitor.recordSuccessfulRequest(
-                "volumes/get/authenticated/" + bookId
-            ))
-            // Handle errors by recording failure and returning empty
-            .onErrorResume(e -> {
-                LoggingUtils.error(log, e, "Error fetching book by ID {}", bookId);
-                apiRequestMonitor.recordFailedRequest(
-                    "volumes/get/authenticated/" + bookId,
-                    e.getMessage()
-                );
-                return Mono.<Book>empty();
-            })
-            .toFuture();
-    }
-
-    /**
-     * Finds books similar to the given book based on author and title
-     * - Creates a search query using author and title information
-     * - Excludes the original book from results
-     * - Limits results to a maximum of 5 similar books
-     * - Returns empty list for invalid input or when no similar books found
-     * - Used for book recommendation features
-     * 
-     * @param book Book to find similar books for
-     * @return Mono containing a list of similar Book objects, limited to 5 results
-     */
-    /**
-     * @deprecated Use {@link RecommendationService} /
-     * {@link com.williamcallahan.book_recommendation_engine.repository.BookQueryRepository#fetchBookCards(java.util.List)}
-     * based pipelines to surface similar titles.
-     */
-    @Deprecated(since = "2025-10-01", forRemoval = true)
-    public Mono<List<Book>> getSimilarBooks(Book book) {
-        if (book == null || book.getAuthors() == null || book.getAuthors().isEmpty() || book.getTitle() == null) {
-            return Mono.just(Collections.emptyList());
-        }
-        
-        String authorQuery = book.getAuthors().stream()
-                .findFirst()
-                .orElse("")
-                .replace(" ", "+");
-
-        String titleQuery = book.getTitle().replace(" ", "+");
-        if (authorQuery.isEmpty() && titleQuery.isEmpty()) {
-            return Mono.just(Collections.emptyList());
-        }
-
-        String query = String.format("inauthor:%s intitle:%s", authorQuery, titleQuery);
-        
-        // This will now use the refactored searchBooksAsyncReactive
-        return searchBooksAsyncReactive(query)
-            .map(similarBooksList -> similarBooksList.stream()
-                .filter(similarBook -> !similarBook.getId().equals(book.getId()))
-                .limit(5)
-                .collect(Collectors.toList())
-            );
     }
 
     /**
@@ -512,46 +388,6 @@ public class GoogleBooksService {
         
         // Return an empty object node instead of Mono.empty() to avoid downstream errors
         return Mono.just(objectMapper.createObjectNode());
-    }
-
-    /**
-     * Fallback method for getBookById when circuit breaker is triggered
-     * - Provides graceful degradation when Google Books API is unavailable
-     * - Logs warning with detailed error information
-     * - Records failure in ApiRequestMonitor
-     * - Returns empty CompletionStage to allow for proper error handling
-     *
-     * @param bookId The book ID that triggered the circuit breaker
-     * @param t The throwable that triggered the circuit breaker
-     * @return CompletedFuture with null value to indicate no book available
-     */
-    public CompletionStage<Book> getBookByIdFallback(String bookId, Throwable t) {
-        log.warn("GoogleBooksService.getBookById circuit breaker opened for bookId: {}. Error: {}", 
-            bookId, t.getMessage());
-        
-        apiRequestMonitor.recordFailedRequest("volumes/get/" + bookId + "/authenticated", "Circuit breaker opened for bookId: " + bookId + ": " + t.getMessage());
-        
-        return CompletableFuture.completedFuture(null); 
-    }
-    
-    /**
-     * Fallback method for getBookById when rate limit is exceeded
-     * - Handles scenario when too many requests are made within time period
-     * - Logs rate limiting information for monitoring
-     * - Adds rate limit metrics to ApiRequestMonitor
-     * - Returns empty CompletionStage to allow for proper error handling
-     *
-     * @param bookId The book ID that triggered the rate limiter
-     * @param t The throwable from the rate limiter
-     * @return CompletedFuture with null value to indicate no book available
-     */
-    public CompletionStage<Book> getBookByIdRateLimitFallback(String bookId, Throwable t) {
-        log.warn("GoogleBooksService.getBookById rate limit exceeded for bookId: {}. Error: {}", 
-            bookId, t.getMessage());
-        
-        apiRequestMonitor.recordMetric("api/rate-limited", "API call rate limited for book " + bookId + " (via GoogleBooksService)");
-        
-        return CompletableFuture.completedFuture(null);
     }
 
     @Autowired(required = false)

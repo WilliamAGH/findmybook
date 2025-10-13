@@ -251,6 +251,7 @@ class SearchPaginationServiceTest {
             .thenAnswer(inv -> Flux.just(node));
         when(googleApiFetcher.streamSearchItems(eq("fallback"), eq(24), eq("newest"), isNull(), eq(false)))
             .thenReturn(Flux.empty());
+        when(googleApiFetcher.isFallbackAllowed()).thenReturn(true);
         when(googleBooksMapper.map(node)).thenReturn(aggregate);
 
         SearchPaginationService fallbackService = new SearchPaginationService(

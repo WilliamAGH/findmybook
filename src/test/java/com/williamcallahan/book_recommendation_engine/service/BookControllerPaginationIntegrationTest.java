@@ -50,9 +50,6 @@ class BookControllerPaginationIntegrationTest {
     private ObjectMapper objectMapper;
 
     @MockitoBean
-    private TieredBookSearchService tieredBookSearchService;
-
-    @MockitoBean
     private BookDataOrchestrator bookDataOrchestrator;
 
     @MockitoBean

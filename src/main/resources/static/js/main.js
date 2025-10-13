@@ -86,6 +86,95 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    const mobileNav = document.getElementById('navbarSupportedContent');
+    if (mobileNav && typeof bootstrap !== 'undefined' && bootstrap.Collapse) {
+        const collapseInstance = bootstrap.Collapse.getOrCreateInstance(mobileNav, { toggle: false });
+        let allowHide = false;
+        const originalHide = collapseInstance.hide.bind(collapseInstance);
+        const originalShow = collapseInstance.show.bind(collapseInstance);
+        const logNavEvent = (label, extra = {}) => {
+            console.log(`[mobile-nav] ${label}`, {
+                time: performance.now().toFixed(2),
+                ...extra
+            });
+        };
+
+        const formatStack = () => {
+            return new Error().stack
+                ?.toString()
+                .split('\n')
+                .slice(1, 6)
+                .map(line => line.trim());
+        };
+
+        collapseInstance.hide = function(...args) {
+            const stack = formatStack();
+            logNavEvent('collapseInstance.hide invoked', { stack, allowHide });
+            if (!allowHide) {
+                logNavEvent('collapseInstance.hide blocked', { stack });
+                return;
+            }
+            allowHide = false;
+            return originalHide(...args);
+        };
+
+        collapseInstance.show = function(...args) {
+            allowHide = false;
+            logNavEvent('collapseInstance.show invoked', { stack: formatStack() });
+            return originalShow(...args);
+        };
+
+        mobileNav.addEventListener('show.bs.collapse', (event) => {
+            logNavEvent('show.bs.collapse', { isTrusted: event.isTrusted, defaultPrevented: event.defaultPrevented });
+        });
+
+        mobileNav.addEventListener('shown.bs.collapse', (event) => {
+            logNavEvent('shown.bs.collapse', { isTrusted: event.isTrusted, defaultPrevented: event.defaultPrevented });
+        });
+
+        mobileNav.addEventListener('hide.bs.collapse', (event) => {
+            logNavEvent('hide.bs.collapse', { isTrusted: event.isTrusted, defaultPrevented: event.defaultPrevented });
+        });
+
+        mobileNav.addEventListener('hidden.bs.collapse', (event) => {
+            allowHide = false;
+            logNavEvent('hidden.bs.collapse', { isTrusted: event.isTrusted, defaultPrevented: event.defaultPrevented });
+        });
+
+        const togglerButtons = document.querySelectorAll('[data-bs-toggle="collapse"][data-bs-target="#navbarSupportedContent"]');
+        togglerButtons.forEach(button => {
+            const markAllowHide = (source) => {
+                if (!mobileNav.classList.contains('show')) {
+                    return;
+                }
+                allowHide = true;
+                logNavEvent('allowHide enabled', { source });
+            };
+
+            ['pointerdown', 'pointerup', 'click'].forEach(evtName => {
+                button.addEventListener(evtName, (event) => {
+                    logNavEvent(`toggler ${evtName}`, {
+                        isTrusted: event.isTrusted,
+                        pointerType: event.pointerType,
+                        timeStamp: event.timeStamp
+                    });
+                    if (event.isTrusted && (evtName === 'click' || evtName === 'pointerdown')) {
+                        markAllowHide(evtName);
+                    }
+                });
+            });
+        });
+
+        mobileNav.querySelectorAll('a[href]:not([data-bs-toggle])').forEach(link => {
+            link.addEventListener('click', (event) => {
+                if (event.isTrusted) {
+                    allowHide = true;
+                    logNavEvent('allowHide enabled via link', { href: link.href });
+                }
+            });
+        });
+    }
+
     // Handle search form submissions
     const searchForms = document.querySelectorAll('form.search-form');
     searchForms.forEach(form => {
@@ -144,8 +233,10 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    const debugNamespace = window.BookFinderDebug || {};
+
     // Add a global function to help with debugging cover issues
-    window.debugBookCovers = function() {
+    debugNamespace.debugBookCovers = function() {
         const covers = document.querySelectorAll('img.book-cover');
         console.log('Found ' + covers.length + ' book covers on page');
         covers.forEach((img, index) => {
@@ -164,7 +255,7 @@ document.addEventListener('DOMContentLoaded', function() {
     };
     
     // Add a global function to retry loading all book covers
-    window.retryAllBookCovers = function() {
+    debugNamespace.retryAllBookCovers = function() {
         const covers = document.querySelectorAll('img.book-cover[data-original-src]');
         console.log('Attempting to reload ' + covers.length + ' book covers');
         covers.forEach(img => {
@@ -178,7 +269,7 @@ document.addEventListener('DOMContentLoaded', function() {
     };
     
     // Add a global function to test and debug theme switching
-    window.testThemeDetection = function() {
+    debugNamespace.testThemeDetection = function() {
         const results = {
             documentTheme: document.documentElement.getAttribute('data-theme'),
             localStorageTheme: localStorage.getItem('theme'),
@@ -199,6 +290,7 @@ document.addEventListener('DOMContentLoaded', function() {
                '- Navbar classes: ' + results.navbarClasses + '\n' +
                '- Theme icons: ' + results.iconClasses;
     };
+    window.BookFinderDebug = debugNamespace;
 
     // Dynamic text truncation for long descriptions
     document.querySelectorAll('.description-text').forEach(desc => {

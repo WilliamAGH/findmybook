@@ -1,15 +1,9 @@
 /**
- * Service for fetching book data from Google Books API
+ * Service for fetching book data from Google Books API via both authenticated and fallback tiers.
+ * Integrates retry logic, quota guards, and request/response monitoring to keep downstream flows
+ * resilient when Google enforces rate limits.
  *
  * @author William Callahan
- * 
- * Features:
- * - Provides authenticated and unauthenticated API access
- * - Offers volume details fetching by ID
- * - Supports search with pagination and filtering
- * - Includes retry logic for resilient API communication
- * - Monitors API call success/failure rates
- * - Handles proper error logging and response transformation
  */
 package com.williamcallahan.book_recommendation_engine.service;
 
@@ -44,7 +38,7 @@ public class GoogleApiFetcher {
     @Value("${google.books.api.base-url}")
     private String googleBooksApiUrl;
 
-    @Value("${google.books.api.key:#{null}}") // Allow API key to be optional
+    @Value("${google.books.api.key:#{null}}")
     private String googleBooksApiKey;
 
     @Value("${app.features.external-fallback.enabled:${app.features.google-fallback.enabled:true}}")
@@ -91,7 +85,6 @@ public class GoogleApiFetcher {
             return Mono.empty();
         }
         if (authenticated) {
-            // Check circuit breaker first
             if (!circuitBreakerService.isApiCallAllowed()) {
                 log.info("Circuit breaker is OPEN - skipping authenticated fetch for book ID: {}. Caller should try unauthenticated fallback.", bookId);
                 ExternalApiLogger.logCircuitBreakerBlocked(log, "GoogleBooks", bookId);
@@ -101,12 +94,14 @@ public class GoogleApiFetcher {
                 log.debug("No API key configured - skipping authenticated fetch for bookId {}", bookId);
                 return Mono.empty();
             }
+        } else if (!circuitBreakerService.isFallbackAllowed()) {
+            log.info("Fallback circuit is OPEN - skipping unauthenticated fetch for book ID: {}", bookId);
+            return Mono.empty();
         }
 
         String url = buildVolumeUrl(bookId, authenticated);
         String endpoint = "volumes/get/" + bookId + "/" + (authenticated ? "authenticated" : "unauthenticated");
         log.debug("Making {} Google Books API GET call for book ID: {}, endpoint: {}", authenticated ? "Authenticated" : "Unauthenticated", bookId, endpoint);
-        ExternalApiLogger.logHttpRequest(log, "GET", url, authenticated);
         return performGetJson(url, endpoint, authenticated);
     }
 
@@ -120,8 +115,6 @@ public class GoogleApiFetcher {
     }
 
     private Mono<JsonNode> performGetJson(String url, String endpoint, boolean authenticated) {
-        ExternalApiLogger.logHttpRequest(log, "GET", url, authenticated);
-
         return webClient.get()
                 .uri(url)
                 .retrieve()
@@ -158,10 +151,7 @@ public class GoogleApiFetcher {
                     if (responseEntity != null) {
                         JsonNode body = responseEntity.getBody();
                         int responseSize = body == null ? 0 : body.toString().length();
-                        ExternalApiLogger.logHttpResponse(log,
-                            responseEntity.getStatusCode().value(),
-                            url,
-                            responseSize);
+                        ExternalApiLogger.logHttpResponse(log, responseEntity.getStatusCode().value(), url, responseSize);
                         apiRequestMonitor.recordSuccessfulRequest(endpoint);
                     }
                     if (authenticated) {
@@ -171,7 +161,6 @@ public class GoogleApiFetcher {
                 .map(responseEntity -> responseEntity != null ? responseEntity.getBody() : null)
                 .onErrorResume(e -> {
                     if (e instanceof PrematureCloseException) {
-                        // Treat premature close as transient/cancellation; do not trip the circuit breaker
                         LoggingUtils.warn(log, e, "Connection prematurely closed during Google API call: {}", url);
                         apiRequestMonitor.recordFailedRequest(endpoint, "Premature close: " + e.getMessage());
                         return Mono.empty();
@@ -186,6 +175,8 @@ public class GoogleApiFetcher {
                             } else {
                                 circuitBreakerService.recordGeneralFailure();
                             }
+                        } else if (wcre.getStatusCode().value() == 429) {
+                            circuitBreakerService.recordFallbackRateLimitFailure();
                         }
                     } else {
                         LoggingUtils.error(log, e, "Error fetching from Google API after retries");
@@ -249,6 +240,10 @@ public class GoogleApiFetcher {
             log.debug("Google fallback disabled - skipping unauthenticated search for query '{}'", query);
             return Mono.empty();
         }
+        if (!circuitBreakerService.isFallbackAllowed()) {
+            log.info("Fallback circuit is OPEN - skipping unauthenticated search for query '{}'", query);
+            return Mono.empty();
+        }
         return searchVolumesInternal(query, startIndex, orderBy, langCode, false, pageSize);
     }
 
@@ -273,6 +268,11 @@ public class GoogleApiFetcher {
         final int effectiveMax = maxResultsToFetch > 0 ? maxResultsToFetch : maxResultsPerPage;
         final int pageCount = (effectiveMax + maxResultsPerPage - 1) / maxResultsPerPage;
 
+        if (!authenticated && (!googleFallbackEnabled || !circuitBreakerService.isFallbackAllowed())) {
+            log.debug("Skipping unauthenticated stream for query '{}' because fallback is disabled or blocked", query);
+            return Flux.empty();
+        }
+
         return Flux.range(0, pageCount)
             .map(page -> page * maxResultsPerPage)
             .concatMap(startIndex -> {
@@ -284,34 +284,22 @@ public class GoogleApiFetcher {
                     ? searchVolumesAuthenticated(query, startIndex, orderBy, langCode, pageSize)
                     : searchVolumesUnauthenticated(query, startIndex, orderBy, langCode, pageSize);
 
-                ExternalApiLogger.logApiCallAttempt(log,
-                    "GoogleBooks",
-                    "SEARCH_PAGE",
-                    String.format("%s start=%d", query, startIndex),
-                    authenticated);
+                ExternalApiLogger.logApiCallAttempt(log, "GoogleBooks", "SEARCH_PAGE", String.format("%s start=%d", query, startIndex), authenticated);
 
                 return apiCall
                     .flatMapMany(responseNode -> {
-                        if (responseNode != null && responseNode.has("items") && responseNode.get("items").isArray()) {
-                            int count = responseNode.get("items").size();
-                            ExternalApiLogger.logApiCallSuccess(log,
-                                "GoogleBooks",
-                                "SEARCH_PAGE",
-                                String.format("%s start=%d", query, startIndex),
-                                count);
-                            return Flux.fromIterable(responseNode.get("items"));
+                        if (responseNode == null || !responseNode.has("items") || !responseNode.get("items").isArray()) {
+                            ExternalApiLogger.logApiCallSuccess(log, "GoogleBooks", "SEARCH_PAGE", String.format("%s start=%d", query, startIndex), 0);
+                            log.debug("GoogleApiFetcher: {} search page for query '{}' startIndex {} returned no items.",
+                                    authenticated ? "Authenticated" : "Unauthenticated", query, startIndex);
+                            return Flux.empty();
                         }
-                        ExternalApiLogger.logApiCallSuccess(log,
-                            "GoogleBooks",
-                            "SEARCH_PAGE",
-                            String.format("%s start=%d", query, startIndex),
-                            0);
-                        log.debug("GoogleApiFetcher: {} search page for query '{}' startIndex {} returned no items.",
-                                authenticated ? "Authenticated" : "Unauthenticated", query, startIndex);
-                        return Flux.empty();
+
+                        int count = responseNode.get("items").size();
+                        ExternalApiLogger.logApiCallSuccess(log, "GoogleBooks", "SEARCH_PAGE", String.format("%s start=%d", query, startIndex), count);
+                        return Flux.fromIterable(responseNode.get("items"));
                     })
                     .switchIfEmpty(Flux.defer(() -> {
-                        // If authenticated call returned empty (e.g., circuit breaker), gracefully end stream
                         log.debug("GoogleApiFetcher: {} search returned empty for query '{}' at startIndex {}. Stream ending gracefully.",
                                 authenticated ? "Authenticated" : "Unauthenticated", query, startIndex);
                         return Flux.empty();
@@ -320,11 +308,7 @@ public class GoogleApiFetcher {
                         LoggingUtils.warn(log, e,
                                 "GoogleApiFetcher: Error during {} search page for query '{}' at startIndex {}. Continuing stream.",
                                 authenticated ? "authenticated" : "unauthenticated", query, startIndex);
-                        ExternalApiLogger.logApiCallFailure(log,
-                                "GoogleBooks",
-                                "SEARCH_PAGE",
-                                String.format("%s start=%d", query, startIndex),
-                                e.getMessage());
+                        ExternalApiLogger.logApiCallFailure(log, "GoogleBooks", "SEARCH_PAGE", String.format("%s start=%d", query, startIndex), e.getMessage());
                         return Flux.empty();
                     });
             })
@@ -349,9 +333,9 @@ public class GoogleApiFetcher {
                                                  int pageSize) {
         UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(googleBooksApiUrl)
                 .pathSegment("volumes")
-                .queryParam("q", query) // builder will safely encode
+                .queryParam("q", query)
                 .queryParam("startIndex", startIndex)
-                .queryParam("maxResults", Math.max(1, Math.min(40, pageSize))); // Keep within Google API bounds
+                .queryParam("maxResults", Math.max(1, Math.min(40, pageSize)));
 
         if (authenticated && googleBooksApiKey != null && !googleBooksApiKey.isEmpty()) {
             builder.queryParam("key", googleBooksApiKey);
@@ -363,7 +347,7 @@ public class GoogleApiFetcher {
             builder.queryParam("langRestrict", langCode);
         }
 
-        String url = builder.build(false).toUriString(); // Changed to false to allow UriComponentsBuilder to encode
+        String url = builder.build(false).toUriString();
         String authStatus = authenticated ? "authenticated" : "unauthenticated";
         String endpoint = "volumes/search/" + getQueryTypeForMonitoring(query) + "/" + authStatus;
 
@@ -377,7 +361,7 @@ public class GoogleApiFetcher {
                 .retrieve()
                 .toEntity(JsonNode.class)
                 .doOnSubscribe(s -> log.debug("Making Google Books API search call ({}) for query: {}, startIndex: {}", authStatus, query, startIndex))
-                .timeout(Duration.ofSeconds(5)) // Add 5-second timeout to prevent blocking
+                .timeout(Duration.ofSeconds(5))
                 .retryWhen(authenticated
                     ? Retry.max(0) // NO RETRIES for authenticated calls - fail fast to trigger circuit breaker
                     : Retry.backoff(1, Duration.ofSeconds(1)) // One retry for unauthenticated
@@ -411,10 +395,7 @@ public class GoogleApiFetcher {
                     if (responseEntity != null) {
                         JsonNode body = responseEntity.getBody();
                         int responseSize = body == null ? 0 : body.toString().length();
-                        ExternalApiLogger.logHttpResponse(log,
-                            responseEntity.getStatusCode().value(),
-                            url,
-                            responseSize);
+                        ExternalApiLogger.logHttpResponse(log, responseEntity.getStatusCode().value(), url, responseSize);
                         apiRequestMonitor.recordSuccessfulRequest(endpoint);
                     }
                     if (authenticated) {
@@ -424,7 +405,6 @@ public class GoogleApiFetcher {
                 .map(responseEntity -> responseEntity != null ? responseEntity.getBody() : null)
                 .onErrorResume(e -> {
                     if (e instanceof PrematureCloseException) {
-                        // Treat premature close as transient/cancellation; do not trip the circuit breaker
                         LoggingUtils.warn(log, e,
                             "Connection prematurely closed during Google API search ({}) for query '{}' at startIndex {}",
                             authStatus, query, startIndex);
@@ -443,6 +423,8 @@ public class GoogleApiFetcher {
                             } else {
                                 circuitBreakerService.recordGeneralFailure();
                             }
+                        } else if (wcre.getStatusCode().value() == 429) {
+                            circuitBreakerService.recordFallbackRateLimitFailure();
                         }
                     } else {
                         LoggingUtils.error(log, e,
@@ -453,11 +435,7 @@ public class GoogleApiFetcher {
                         }
                     }
                     apiRequestMonitor.recordFailedRequest(endpoint, e.getMessage());
-                    ExternalApiLogger.logApiCallFailure(log,
-                        "GoogleBooks",
-                        "SEARCH_HTTP",
-                        url,
-                        e.getMessage());
+                    ExternalApiLogger.logApiCallFailure(log, "GoogleBooks", "SEARCH_HTTP", url, e.getMessage());
                     return Mono.empty();
                 });
     }
@@ -491,5 +469,14 @@ public class GoogleApiFetcher {
      */
     public boolean isGoogleFallbackEnabled() {
         return googleFallbackEnabled;
+    }
+
+    /**
+     * Indicates whether the unauthenticated Google Books fallback tier is currently available.
+     *
+     * @return {@code true} when the feature flag is enabled and the fallback circuit is closed
+     */
+    public boolean isFallbackAllowed() {
+        return googleFallbackEnabled && circuitBreakerService.isFallbackAllowed();
     }
 }

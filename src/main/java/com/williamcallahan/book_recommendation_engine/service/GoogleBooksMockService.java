@@ -9,14 +9,12 @@
  * - Implements file-based lookup and persistence for mock responses in a configurable directory
  *   (typically {@code src/test/resources/mock-responses})
  * - Loads mock responses from the filesystem during initialization
- * - Can save new responses (retrieved from the actual API via {@link BookApiProxy} or {@link GoogleBooksService}
+ * - Can save new responses (retrieved from the actual API via {@link BookDataOrchestrator} or {@link GoogleBooksService}
  *   during a cache miss in dev mode) back to the filesystem to expand the mock dataset
  * - Logs all real API calls (when mock is missed and real API is hit) to help identify frequent queries
  *   that could be added to the static mock dataset
  * - Supports intelligent fallback: if a mock is not found, the call typically proceeds to the real
- *   {@link GoogleBooksService} (orchestrated by {@link BookApiProxy})
- *
- * This service is primarily used by {@link BookApiProxy} when the appropriate profiles are active
+ *   {@link GoogleBooksService} via orchestrated pipelines
  *
  * @author William Callahan
  */
@@ -45,10 +43,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
-import reactor.core.publisher.Mono;
 
 /**
  * Service for mocking Google Books API calls to reduce API usage in tests and development
@@ -319,22 +314,6 @@ public class GoogleBooksMockService {
     }
     
     /**
-     * Gets a book by ID from the mock repository as a CompletionStage
-     * 
-     * @param bookId The book ID to look up
-     * @return CompletionStage containing the Book if found, completed with null otherwise
-     */
-    /**
-     * @deprecated Supply DTO fixtures (e.g. {@link com.williamcallahan.book_recommendation_engine.dto.BookCard}) via
-     * repository-level mocks instead of hydrating legacy {@link Book} objects.
-     */
-    @Deprecated(since = "2025-10-01", forRemoval = true)
-    public CompletionStage<Book> getBookByIdAsync(String bookId) {
-        Book book = getBookById(bookId);
-        return CompletableFuture.completedFuture(book);
-    }
-    
-    /**
      * Gets search results from the mock repository for a given query
      * Uses Spring's caching abstraction ({@code @Cacheable}) for an additional in-memory layer
      * 
@@ -360,21 +339,6 @@ public class GoogleBooksMockService {
         
         // Not in mock data
         return Collections.emptyList();
-    }
-    
-    /**
-     * Gets search results from the mock repository as a Mono
-     * 
-     * @param searchQuery The search query
-     * @return Mono containing a list of Book objects if found, empty list otherwise
-     */
-    /**
-     * @deprecated Replace with DTO-oriented mocks using `BookQueryRepository` fixtures.
-     */
-    @Deprecated(since = "2025-10-01", forRemoval = true)
-    public Mono<List<Book>> searchBooksReactive(String searchQuery) {
-        List<Book> books = searchBooks(searchQuery);
-        return Mono.just(books);
     }
     
     /**

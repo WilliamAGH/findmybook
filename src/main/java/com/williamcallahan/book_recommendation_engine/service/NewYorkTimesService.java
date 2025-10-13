@@ -13,8 +13,6 @@ package com.williamcallahan.book_recommendation_engine.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.williamcallahan.book_recommendation_engine.dto.BookCard;
-import com.williamcallahan.book_recommendation_engine.util.BookDomainMapper;
-import com.williamcallahan.book_recommendation_engine.model.Book;
 import com.williamcallahan.book_recommendation_engine.repository.BookQueryRepository;
 import com.williamcallahan.book_recommendation_engine.util.LoggingUtils;
 import com.williamcallahan.book_recommendation_engine.util.PagingUtils;
@@ -162,18 +160,4 @@ public class NewYorkTimesService {
         return Mono.just(Collections.emptyList());
     }
     
-    /**
-     * @deprecated Use {@link #getCurrentBestSellersCards(String, int)} instead.
-     * This method returns Book entities which trigger hydration queries.
-     * The replacement returns BookCard DTOs with 40x better performance.
-     * Will be removed in v2.0.
-     */
-    @Deprecated(since = "1.5", forRemoval = true)
-    @Cacheable(value = "nytBestsellersCurrent", key = "#listNameEncoded + '-' + T(com.williamcallahan.book_recommendation_engine.util.PagingUtils).clamp(#limit, 1, 100) + '-book'")
-    public Mono<List<Book>> getCurrentBestSellers(String listNameEncoded, int limit) {
-        // Bridge to new method for backward compatibility
-        return getCurrentBestSellersCards(listNameEncoded, limit)
-            .map(BookDomainMapper::fromCards);
-    }
-
 }

@@ -14,6 +14,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.williamcallahan.book_recommendation_engine.service.S3StorageService;
 import com.williamcallahan.book_recommendation_engine.service.s3.S3FetchResult;
+import com.williamcallahan.book_recommendation_engine.util.S3Paths;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,6 +28,7 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.Resource;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -78,51 +80,48 @@ public class TestApiConfig {
         }
         
         @Override
-        public CompletableFuture<S3FetchResult<String>> fetchJsonAsync(String volumeId) {
-            fetchRequests.add(volumeId);
-            logger.debug("Test S3 fetch for volume: {}", volumeId);
-            
-            // Return mock data for specific test IDs
-            if ("testbook123".equals(volumeId) || "Hn41AgAAQBAJ".equals(volumeId)) {
+        public CompletableFuture<S3FetchResult<String>> fetchUtf8ObjectAsync(String keyName) {
+            fetchRequests.add(keyName);
+            logger.debug("Test S3 fetch for key: {}", keyName);
+
+            if (keyName != null && keyName.startsWith(S3Paths.GOOGLE_BOOK_CACHE_PREFIX) && keyName.endsWith(".json")) {
+                String volumeId = keyName.substring(S3Paths.GOOGLE_BOOK_CACHE_PREFIX.length(), keyName.length() - 5);
                 try {
                     Resource mockResource = new ClassPathResource("mock-responses/books/" + volumeId + ".json");
                     if (mockResource.exists()) {
                         String json = new String(mockResource.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
                         return CompletableFuture.completedFuture(S3FetchResult.success(json));
-                    } else {
-                        // Create a minimal fake response
-                        ObjectNode fakeBook = objectMapper.createObjectNode();
-                        fakeBook.put("id", volumeId);
-                        fakeBook.put("kind", "books#volume");
-                        
-                        ObjectNode volumeInfo = objectMapper.createObjectNode();
-                        volumeInfo.put("title", "Test Book " + volumeId);
-                        
-                        ArrayNode authors = objectMapper.createArrayNode();
-                        authors.add("Test Author");
-                        volumeInfo.set("authors", authors);
-                        
-                        volumeInfo.put("description", "This is a test book for unit tests");
-                        fakeBook.set("volumeInfo", volumeInfo);
-                        
-                        return CompletableFuture.completedFuture(S3FetchResult.success(fakeBook.toString()));
                     }
+
+                    ObjectNode fakeBook = objectMapper.createObjectNode();
+                    fakeBook.put("id", volumeId);
+                    fakeBook.put("kind", "books#volume");
+
+                    ObjectNode volumeInfo = objectMapper.createObjectNode();
+                    volumeInfo.put("title", "Test Book " + volumeId);
+
+                    ArrayNode authors = objectMapper.createArrayNode();
+                    authors.add("Test Author");
+                    volumeInfo.set("authors", authors);
+
+                    volumeInfo.put("description", "This is a test book for unit tests");
+                    fakeBook.set("volumeInfo", volumeInfo);
+
+                    return CompletableFuture.completedFuture(S3FetchResult.success(fakeBook.toString()));
                 } catch (IOException e) {
                     logger.warn("Error creating mock S3 response: {}", e.getMessage());
-                     // In case of error, simulate a service error or not found, depending on desired test behavior
                     return CompletableFuture.completedFuture(S3FetchResult.serviceError("Mock data loading error: " + e.getMessage()));
                 }
             }
-            
-            // Return not found for anything else
+
             return CompletableFuture.completedFuture(S3FetchResult.notFound());
         }
-        
+
         @Override
-        public CompletableFuture<Void> uploadJsonAsync(String volumeId, String jsonContent) {
-            uploadRequests.add(volumeId);
-            logger.debug("Test S3 upload for volume: {}", volumeId);
-            return CompletableFuture.completedFuture(null);
+        public CompletableFuture<String> uploadFileAsync(String keyName, InputStream inputStream, long contentLength, String contentType) {
+            uploadRequests.add(keyName);
+            logger.debug("Test S3 upload for key: {}", keyName);
+            return CompletableFuture.completedFuture("mock://" + keyName);
         }
     }
     

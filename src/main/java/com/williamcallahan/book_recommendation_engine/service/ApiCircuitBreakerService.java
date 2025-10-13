@@ -1,7 +1,19 @@
 /**
- * Circuit breaker service to prevent API calls when rate limits are exceeded
- * This service tracks API failures and temporarily disables API calls when rate limits are hit
- * 
+ * Centralizes runtime guards for Google Books API usage.
+ *
+ * <p>The service keeps track of two independent protection rails:</p>
+ * <ul>
+ *   <li>An <strong>authenticated</strong> circuit breaker – once a paid-key request receives a
+ *   429 from Google, the breaker opens for the remainder of the UTC day so we immediately stop
+ *   burning quota. Authenticated calls must check {@link #isApiCallAllowed()} before executing.</li>
+ *   <li>An <strong>unauthenticated fallback</strong> guard – when the public tier also starts to
+ *   rate limit (usually right after the authenticated quota is gone) we disable every
+ *   unauthenticated call until the next UTC reset via {@link #isFallbackAllowed()}.</li>
+ * </ul>
+ *
+ * <p>Both guards reset automatically at UTC midnight and can be inspected or reset manually from
+ * the admin endpoints.</p>
+ *
  * @author William Callahan
  */
 package com.williamcallahan.book_recommendation_engine.service;
@@ -30,6 +42,11 @@ public class ApiCircuitBreakerService {
     private final AtomicInteger failureCount = new AtomicInteger(0);
     private final AtomicReference<LocalDateTime> lastFailureTime = new AtomicReference<>();
     private final AtomicReference<LocalDate> circuitOpenDate = new AtomicReference<>();
+
+    private final AtomicReference<CircuitState> fallbackCircuitState = new AtomicReference<>(CircuitState.CLOSED);
+    private final AtomicInteger fallbackFailureCount = new AtomicInteger(0);
+    private final AtomicReference<LocalDateTime> fallbackLastFailureTime = new AtomicReference<>();
+    private final AtomicReference<LocalDate> fallbackOpenDate = new AtomicReference<>();
     
     // Configuration
     private static final int FAILURE_THRESHOLD = 1; // Open circuit after 1 rate limit error (429)
@@ -45,7 +62,7 @@ public class ApiCircuitBreakerService {
         CircuitState currentState = circuitState.get();
         LocalDate nowUtc = LocalDate.now(ZoneOffset.UTC);
         LocalDate openDate = circuitOpenDate.get();
-        
+
         // Auto-reset at UTC midnight (quota reset)
         if (currentState == CircuitState.OPEN && openDate != null && nowUtc.isAfter(openDate)) {
             if (circuitState.compareAndSet(CircuitState.OPEN, CircuitState.CLOSED)) {
@@ -56,15 +73,51 @@ public class ApiCircuitBreakerService {
                 return true;
             }
         }
-        
+
         switch (currentState) {
             case CLOSED:
                 return true;
-                
+
             case OPEN:
                 log.debug("Circuit breaker is OPEN - blocking API call until UTC midnight");
                 return false;
-                
+
+            default:
+                return true;
+        }
+    }
+
+    /**
+     * Determines whether unauthenticated fallback calls are permitted.
+     *
+     * <p>Mirrors {@link #isApiCallAllowed()} but tracks a separate state so we can independently
+     * disable the public Google Books tier when it also starts rate limiting.</p>
+     *
+     * @return {@code true} when fallback calls are allowed, {@code false} otherwise
+     */
+    public boolean isFallbackAllowed() {
+        CircuitState currentState = fallbackCircuitState.get();
+        LocalDate nowUtc = LocalDate.now(ZoneOffset.UTC);
+        LocalDate openDate = fallbackOpenDate.get();
+
+        if (currentState == CircuitState.OPEN && openDate != null && nowUtc.isAfter(openDate)) {
+            if (fallbackCircuitState.compareAndSet(CircuitState.OPEN, CircuitState.CLOSED)) {
+                fallbackFailureCount.set(0);
+                fallbackLastFailureTime.set(null);
+                fallbackOpenDate.set(null);
+                log.info("Fallback circuit AUTO-RESET at UTC midnight - state: CLOSED");
+                return true;
+            }
+        }
+
+        switch (currentState) {
+            case CLOSED:
+                return true;
+
+            case OPEN:
+                log.debug("Fallback circuit is OPEN - blocking unauthenticated calls until UTC midnight");
+                return false;
+
             default:
                 return true;
         }
@@ -109,6 +162,32 @@ public class ApiCircuitBreakerService {
             }
         }
     }
+
+    /**
+     * Records a rate limit failure for the unauthenticated Google Books tier.
+     *
+     * <p>Once triggered the fallback circuit opens for the remainder of the UTC day, ensuring we
+     * stop hammering the public API tier after quota exhaustion.</p>
+     */
+    public void recordFallbackRateLimitFailure() {
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        LocalDate nowUtcDate = LocalDate.now(ZoneOffset.UTC);
+        fallbackLastFailureTime.set(now);
+
+        int currentFailures = fallbackFailureCount.incrementAndGet();
+        log.warn("Recorded fallback rate limit failure #{} at {}", currentFailures, now);
+
+        CircuitState currentState = fallbackCircuitState.get();
+
+        if (currentState == CircuitState.CLOSED && currentFailures >= FAILURE_THRESHOLD) {
+            if (fallbackCircuitState.compareAndSet(CircuitState.CLOSED, CircuitState.OPEN)) {
+                fallbackOpenDate.set(nowUtcDate);
+                LoggingUtils.error(log, null,
+                    "Fallback circuit OPENED due to rate limit (429) - blocking ALL unauthenticated API calls until next UTC day. Date: {}",
+                    nowUtcDate);
+            }
+        }
+    }
     
     /**
      * Record a general API failure (non-rate-limit)
@@ -136,11 +215,11 @@ public class ApiCircuitBreakerService {
         StringBuilder status = new StringBuilder();
         status.append("Circuit State: ").append(state);
         status.append(", Failures: ").append(failures);
-        
+
         if (lastFailure != null) {
             status.append(", Last Failure: ").append(lastFailure);
         }
-        
+
         if (openDate != null) {
             status.append(", Open Since UTC Date: ").append(openDate);
             status.append(", Current UTC Date: ").append(nowUtcDate);
@@ -148,7 +227,24 @@ public class ApiCircuitBreakerService {
                 status.append(" (Will reset at next UTC midnight)");
             }
         }
-        
+
+        CircuitState fallbackState = fallbackCircuitState.get();
+        int fallbackFailures = fallbackFailureCount.get();
+        LocalDateTime fallbackLastFailure = fallbackLastFailureTime.get();
+        LocalDate fallbackDate = fallbackOpenDate.get();
+
+        status.append(" | Fallback State: ").append(fallbackState);
+        status.append(", Fallback Failures: ").append(fallbackFailures);
+        if (fallbackLastFailure != null) {
+            status.append(", Fallback Last Failure: ").append(fallbackLastFailure);
+        }
+        if (fallbackDate != null) {
+            status.append(", Fallback Open Since UTC Date: ").append(fallbackDate);
+            if (fallbackState == CircuitState.OPEN && !nowUtcDate.isAfter(fallbackDate)) {
+                status.append(" (Fallback resets at next UTC midnight)");
+            }
+        }
+
         return status.toString();
     }
     
@@ -160,6 +256,10 @@ public class ApiCircuitBreakerService {
         failureCount.set(0);
         lastFailureTime.set(null);
         circuitOpenDate.set(null);
+        fallbackCircuitState.set(CircuitState.CLOSED);
+        fallbackFailureCount.set(0);
+        fallbackLastFailureTime.set(null);
+        fallbackOpenDate.set(null);
         log.info("Circuit breaker manually reset to CLOSED state");
     }
 }

@@ -25,11 +25,16 @@ import java.sql.SQLException;
 import java.sql.ResultSetMetaData;
 import java.time.LocalDate;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.WeakHashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -41,6 +46,12 @@ public class BookQueryRepository {
 
     private static final Logger log = LoggerFactory.getLogger(BookQueryRepository.class);
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
+    /**
+     * Cache column labels per {@link ResultSet} to avoid recalculating metadata for every column lookup.
+     * Weak keys ensure the cache entries disappear once the driver releases the result set.
+     */
+    private final Map<ResultSet, Set<String>> columnMetadataCache =
+        Collections.synchronizedMap(new WeakHashMap<>());
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
@@ -787,13 +798,24 @@ public class BookQueryRepository {
     }
 
     private boolean hasColumn(ResultSet rs, String columnName) throws SQLException {
+        Set<String> columnLabels = columnMetadataCache.get(rs);
+        if (columnLabels == null) {
+            columnLabels = loadColumnLabels(rs);
+            columnMetadataCache.put(rs, columnLabels);
+        }
+        return columnLabels.contains(columnName.toLowerCase(Locale.ROOT));
+    }
+
+    private Set<String> loadColumnLabels(ResultSet rs) throws SQLException {
         ResultSetMetaData metaData = rs.getMetaData();
         int columnCount = metaData.getColumnCount();
+        Set<String> labels = new HashSet<>(columnCount);
         for (int i = 1; i <= columnCount; i++) {
-            if (columnName.equalsIgnoreCase(metaData.getColumnLabel(i))) {
-                return true;
+            String label = metaData.getColumnLabel(i);
+            if (label != null) {
+                labels.add(label.toLowerCase(Locale.ROOT));
             }
         }
-        return false;
+        return labels;
     }
 }

@@ -406,15 +406,16 @@ public class HomeController {
         }
     }
 
-    /**
-     * @deprecated Compute OG images from {@link com.williamcallahan.book_recommendation_engine.model.image.CoverImages}
-     * using {@link com.williamcallahan.book_recommendation_engine.util.cover.UrlSourceDetector} rather than
-     * {@link ValidationUtils.BookValidator} helpers.
-     */
-    @Deprecated(since = "2025-10-01", forRemoval = true)
     private String resolveOgImage(Book book) {
+        if (book == null) {
+            return ApplicationConstants.Urls.OG_LOGO;
+        }
+
         String coverUrl = book.getS3ImagePath();
-        if (ValidationUtils.BookValidator.hasActualCover(coverUrl, localDiskCoverCacheService.getLocalPlaceholderPath())) {
+        String placeholder = localDiskCoverCacheService.getLocalPlaceholderPath();
+        if (ValidationUtils.hasText(coverUrl)
+            && (placeholder == null || !placeholder.equals(coverUrl))
+            && !coverUrl.contains("placeholder-book-cover")) {
             return coverUrl;
         }
         return ApplicationConstants.Urls.OG_LOGO;
