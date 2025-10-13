@@ -274,8 +274,8 @@
      class="backdrop-blur-md theme-navbar-border
             border-b transition-all duration-300">
     <div class="container mx-auto px-4">
-        <div class="flex items-center justify-between h-14">
-            <!-- Logo (LEFT) -->
+        <div class="flex items-center h-14 relative">
+            <!-- Logo (LEFT - Absolute positioned on far left) -->
             <div class="flex-shrink-0">
                 <a th:href="@{/}" class="flex items-center group navbar-brand">
                     <!-- Light mode logo (dark text on white/transparent background) -->
@@ -289,8 +289,8 @@
                 </a>
             </div>
 
-            <!-- Desktop Navigation (CENTER) -->
-            <div class="hidden lg:flex items-center gap-1">
+            <!-- Desktop Navigation (CENTER - Absolutely centered in viewport) -->
+            <div class="hidden lg:flex items-center gap-1 absolute left-1/2 transform -translate-x-1/2">
                 <a href="/"
                    th:class="'nav-btn ' + (${activeTab == 'home' ? 'nav-btn-active' : 'nav-btn-inactive nav-btn-hover'})">
                     <i class="fas fa-home w-4 text-center text-xs"></i>
@@ -313,8 +313,8 @@
                 </a>
             </div>
 
-            <!-- Theme Toggle (RIGHT, SEPARATE) -->
-            <div class="hidden lg:flex flex-shrink-0">
+            <!-- Theme Toggle (RIGHT - ml-auto pushes it to far right) -->
+            <div class="hidden lg:flex ml-auto flex-shrink-0">
                 <button type="button"
                         id="theme-toggle-list"
                         class="theme-toggle nav-btn nav-btn-icon nav-btn-inactive nav-btn-hover"
