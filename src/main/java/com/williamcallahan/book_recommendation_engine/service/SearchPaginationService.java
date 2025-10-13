@@ -162,6 +162,12 @@ public class SearchPaginationService {
         );
     }
 
+    /**
+     * Attempts to backfill empty search results using the Google Books tier while respecting all
+     * runtime feature flags and rate-limit guards. Authenticated calls are always attempted first
+     * and the unauthenticated fallback only runs when the shared {@link ApiCircuitBreakerService}
+     * reports that the public quota is still available.
+     */
     private Mono<SearchPage> maybeFallback(SearchRequest request,
                                            PagingUtils.Window window,
                                            long startNanos,
@@ -186,9 +192,14 @@ public class SearchPaginationService {
                 return Flux.empty();
             });
 
-        Flux<JsonNode> unauthenticated = fetcher.streamSearchItems(request.query(), desired, request.orderBy(), null, false)
-            .onErrorResume(ex -> {
-                log.warn("Unauthenticated Google fallback failed for '{}': {}", request.query(), ex.getMessage());
+        Flux<JsonNode> unauthenticated = fetcher.isFallbackAllowed()
+            ? fetcher.streamSearchItems(request.query(), desired, request.orderBy(), null, false)
+                .onErrorResume(ex -> {
+                    log.warn("Unauthenticated Google fallback failed for '{}': {}", request.query(), ex.getMessage());
+                    return Flux.empty();
+                })
+            : Flux.defer(() -> {
+                log.info("Skipping unauthenticated Google fallback for '{}' because fallback circuit is open", request.query());
                 return Flux.empty();
             });
 
