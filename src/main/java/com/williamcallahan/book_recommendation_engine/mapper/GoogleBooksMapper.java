@@ -2,6 +2,7 @@ package com.williamcallahan.book_recommendation_engine.mapper;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.williamcallahan.book_recommendation_engine.dto.BookAggregate;
+import com.williamcallahan.book_recommendation_engine.util.CategoryNormalizer;
 import com.williamcallahan.book_recommendation_engine.util.DateParsingUtils;
 import com.williamcallahan.book_recommendation_engine.util.ImageUrlEnhancer;
 import com.williamcallahan.book_recommendation_engine.util.IsbnUtils;
@@ -161,24 +162,36 @@ public class GoogleBooksMapper implements ExternalBookMapper {
     }
     
     /**
-     * Extract categories from volumeInfo.categories array.
+     * Extract and normalize categories from volumeInfo.categories array.
+     * 
+     * <p>Uses {@link CategoryNormalizer#normalizeAndDeduplicate(List)} to:
+     * <ul>
+     *   <li>Split compound categories (e.g., "Fiction / Science Fiction")</li>
+     *   <li>Remove duplicates (case-insensitive)</li>
+     *   <li>Filter out invalid/empty entries</li>
+     * </ul>
+     * 
+     * @param volumeInfo Google Books volumeInfo JSON node
+     * @return Normalized and deduplicated category list
+     * @see CategoryNormalizer#normalizeAndDeduplicate(List)
      */
     private List<String> extractCategories(JsonNode volumeInfo) {
-        List<String> categories = new ArrayList<>();
+        List<String> rawCategories = new ArrayList<>();
         
         if (!volumeInfo.has("categories") || !volumeInfo.get("categories").isArray()) {
-            return categories;
+            return rawCategories;
         }
         
         JsonNode categoriesNode = volumeInfo.get("categories");
         for (JsonNode categoryNode : categoriesNode) {
             String category = categoryNode.asText();
             if (category != null && !category.isBlank()) {
-                categories.add(category.trim());
+                rawCategories.add(category.trim());
             }
         }
         
-        return categories;
+        // Normalize, split compound categories, and deduplicate (DRY principle)
+        return CategoryNormalizer.normalizeAndDeduplicate(rawCategories);
     }
     
     /**
@@ -341,7 +354,7 @@ public class GoogleBooksMapper implements ExternalBookMapper {
     
     /**
      * Extract image links map from volumeInfo.imageLinks.
-     * Enhances URLs for better quality as per BookJsonParser legacy logic.
+     * Enhances URLs for better quality following the same heuristics used by {@link #toBookAggregate(JsonNode)}.
      * Per official API: thumbnail (~128px), small (~300px), medium (~575px), large (~800px), extraLarge (~1280px)
      */
     private Map<String, String> extractImageLinks(JsonNode volumeInfo) {

@@ -9,8 +9,8 @@ import java.util.Locale;
  * Single Source of Truth for bidirectional cover source type conversions.
  * 
  * Consolidates logic from:
- * - ImageCacheUtils.mapStringToImageSourceName()
- * - ImageCacheUtils.mapCoverImageSourceToImageSourceName()
+ * - Legacy cache helper mapStringToImageSourceName()
+ * - Legacy cache helper mapCoverImageSourceToImageSourceName()
  * - S3BookCoverService.getSourceString()
  * 
  * Provides canonical String representations for all source types.

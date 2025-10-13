@@ -1,57 +1,93 @@
-<!-- 
-  BookCard DTO Fragment
+<!--
+  BookCard DTO Fragment - Claude-inspired Linen Design
   Works with both BookCard and Book entities during migration
   BookCard properties: id, slug, title, authors (List<String>), coverUrl (String), averageRating, ratingsCount, tags (Map)
 -->
-<div xmlns:th="http://www.thymeleaf.org" th:fragment="bookCard(book, showStats)" class="col-sm-6 col-md-4 col-lg-3" th:if="${book != null}" th:with="bookSlug=${book != null && book.slug != null ? book.slug : (book != null ? book.id : 'unknown')}">
-    <div class="card h-100">
-        <div class="position-relative book-cover-container">
-            <a th:href="@{'/book/' + ${bookSlug}}" class="d-block h-100">
-                <!-- BookCard DTO has coverUrl; Book entity has s3ImagePath/externalImageUrl -->
-                <!-- coverUrl takes priority as it's present in both BookCard (directly) and DtoToBookMapper output -->
+<div xmlns:th="http://www.thymeleaf.org" th:fragment="bookCard(book, showStats)"
+     class="col-sm-6 col-md-4 col-lg-3 mb-6"
+     th:if="${book != null}"
+     th:with="bookSlug=${book != null && book.slug != null ? book.slug : (book != null ? book.id : 'unknown')}">
+
+    <!-- Sophisticated Card Container -->
+    <div class="group h-full theme-card rounded-xl border border-linen-300
+                shadow-soft hover:shadow-book transition-all duration-300 hover:-translate-y-1 overflow-hidden flex flex-col">
+
+        <!-- Book Cover Section -->
+        <div class="relative h-64 theme-card-cover-bg overflow-hidden flex items-center justify-center">
+            <a th:href="@{'/book/' + ${bookSlug}}" class="block w-full h-full flex items-center justify-center p-4">
                 <img th:src="${book.coverUrl != null ? book.coverUrl : '/images/placeholder-book-cover.svg'}"
-                     class="card-img-top book-cover"
+                     class="max-h-full w-auto object-contain transition-transform duration-300 group-hover:scale-105"
                      loading="lazy"
                      alt="Book cover"
-                     title="Book cover"
                      th:alt="${book.title != null ? book.title + ' cover' : 'Book cover'}"
                      th:title="${book.title != null ? book.title + ' cover' : 'Book cover'}"
                      th:attr="data-book-id=${book.id},
                               data-preferred-url=${book.coverUrl ?: '/images/placeholder-book-cover.svg'},
-                              data-fallback-url='/images/placeholder-book-cover.svg',
+                              data-fallback-url=${book.fallbackCoverUrl != null && !#strings.isEmpty(book.fallbackCoverUrl) ? book.fallbackCoverUrl : '/images/placeholder-book-cover.svg'},
                               data-ultimate-fallback='/images/placeholder-book-cover.svg'">
             </a>
-            <div th:if="${book.averageRating != null}" class="position-absolute top-0 end-0 m-2 badge bg-warning text-dark">
-                <i class="fas fa-star me-1"></i>
+
+            <!-- Rating Badge -->
+            <div th:if="${book.averageRating != null}"
+                 class="absolute top-3 right-3 px-2.5 py-1 bg-canvas-400 text-white rounded-lg text-sm font-medium shadow-sm flex items-center gap-1">
+                <i class="fas fa-star text-xs"></i>
                 <span th:text="${book.averageRating}">4.5</span>
             </div>
         </div>
-        <div class="card-body">
-            <h5 class="card-title text-truncate">
-                <a th:href="@{'/book/' + ${bookSlug}}" th:text="${book.title}" class="text-decoration-none text-dark">Book Title</a>
+
+        <!-- Card Content -->
+        <div class="p-4 flex-grow flex flex-col">
+            <!-- Title -->
+            <h5 class="text-base font-semibold theme-card-title text-anthracite-900 mb-1.5 line-clamp-2 leading-snug">
+                <a th:href="@{'/book/' + ${bookSlug}}"
+                   th:text="${book.title}"
+                   class="theme-card-title hover:text-canvas-600 transition-colors duration-200">
+                    Book Title
+                </a>
             </h5>
-            <!-- BookCard DTO: authors is List<String> directly | Book entity: also List<String> now -->
-            <p class="card-text small text-muted text-truncate" 
-               th:text="${book.authors != null && !#lists.isEmpty(book.authors) ? book.authors[0] : 'Unknown Author'}">Author Name</p>
-            <!-- BookCard DTO: tags is Map<String, Object> | For stats display only -->
-            <div class="d-flex flex-wrap gap-2 small text-muted mt-2" th:if="${showStats && book.tags != null}"
-                 th:unless="${book.tags['recent.views.24h'] == null && book.tags['recent.views.7d'] == null && book.tags['recent.views.30d'] == null}">
-                <span class="badge bg-light text-dark"
-                      th:if="${book.tags['recent.views.24h'] != null && book.tags['recent.views.24h'] > 0}"
-                      th:text="${#numbers.formatInteger(book.tags['recent.views.24h'], 0)} + ' in 24h'">0 in 24h</span>
-                <span class="badge bg-light text-dark"
-                      th:if="${book.tags['recent.views.7d'] != null && book.tags['recent.views.7d'] > 0}"
-                      th:text="${#numbers.formatInteger(book.tags['recent.views.7d'], 0)} + ' in 7d'">0 in 7d</span>
-                <span class="badge bg-light text-dark"
-                      th:if="${book.tags['recent.views.30d'] != null && book.tags['recent.views.30d'] > 0}"
-                      th:text="${#numbers.formatInteger(book.tags['recent.views.30d'], 0)} + ' in 30d'">0 in 30d</span>
+
+            <!-- Author -->
+            <p class="text-sm theme-card-text text-anthracite-600 mb-3 truncate font-light"
+               th:text="${book.authors != null && !#lists.isEmpty(book.authors) ? book.authors[0] : 'Unknown Author'}">
+                Author Name
+            </p>
+
+            <!-- View Stats (if applicable) -->
+            <div th:if="${showStats && book.tags != null}"
+                 th:unless="${book.tags['recent.views.24h'] == null && book.tags['recent.views.7d'] == null && book.tags['recent.views.30d'] == null}"
+                 class="flex flex-wrap gap-1.5 mb-2 mt-auto">
+                <span th:if="${book.tags['recent.views.24h'] != null && book.tags['recent.views.24h'] > 0}"
+                      class="px-2 py-0.5 text-xs theme-badge text-anthracite-700 rounded-full"
+                      th:text="${#numbers.formatInteger(book.tags['recent.views.24h'], 0)} + ' in 24h'">
+                    0 in 24h
+                </span>
+                <span th:if="${book.tags['recent.views.7d'] != null && book.tags['recent.views.7d'] > 0}"
+                      class="px-2 py-0.5 text-xs theme-badge text-anthracite-700 rounded-full"
+                      th:text="${#numbers.formatInteger(book.tags['recent.views.7d'], 0)} + ' in 7d'">
+                    0 in 7d
+                </span>
+                <span th:if="${book.tags['recent.views.30d'] != null && book.tags['recent.views.30d'] > 0}"
+                      class="px-2 py-0.5 text-xs theme-badge text-anthracite-700 rounded-full"
+                      th:text="${#numbers.formatInteger(book.tags['recent.views.30d'], 0)} + ' in 30d'">
+                    0 in 30d
+                </span>
             </div>
-            <p class="small text-muted mb-0" 
-               th:if="${showStats && book.tags != null && book.tags['recent.views.lastViewedAt'] != null}"
-               th:text="${'Last viewed ' + #temporals.format(book.tags['recent.views.lastViewedAt'], 'MMM d, h:mm a')}"></p>
+
+            <!-- Last Viewed -->
+            <p th:if="${showStats && book.tags != null && book.tags['recent.views.lastViewedAt'] != null}"
+               class="text-xs theme-card-meta text-slate-500 mb-3"
+               th:text="${'Last viewed ' + #temporals.format(book.tags['recent.views.lastViewedAt'], 'MMM d, h:mm a')}">
+            </p>
         </div>
-        <div class="card-footer bg-white border-top-0">
-            <a th:href="@{'/book/' + ${bookSlug}}" class="btn btn-sm btn-outline-primary d-block">View Details</a>
+
+        <!-- Card Footer / CTA -->
+        <div class="px-4 pb-4 mt-auto">
+            <a th:href="@{'/book/' + ${bookSlug}}"
+               class="block w-full text-center px-4 py-2.5 theme-card-button bg-canvas-400 hover:bg-canvas-500
+                      text-white text-sm font-medium rounded-lg transition-all duration-200
+                      hover:shadow-canvas focus:outline-none focus:ring-2 focus:ring-canvas-500 focus:ring-offset-2">
+                View Details
+            </a>
         </div>
     </div>
 </div>

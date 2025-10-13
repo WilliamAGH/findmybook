@@ -45,6 +45,8 @@ import com.williamcallahan.book_recommendation_engine.util.PagingUtils;
 import com.williamcallahan.book_recommendation_engine.util.ReactiveErrorUtils;
 import com.williamcallahan.book_recommendation_engine.util.BookDomainMapper;
 import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
+import com.williamcallahan.book_recommendation_engine.util.CategoryNormalizer;
+import com.williamcallahan.book_recommendation_engine.util.cover.CoverPrioritizer;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -203,9 +205,15 @@ public class RecommendationService {
                 String sourceLang = sourceBook.getLanguage();
                 boolean filterByLanguage = ValidationUtils.hasText(sourceLang);
 
+                Comparator<ScoredBook> comparator = Comparator
+                    .comparingInt((ScoredBook scored) -> CoverPrioritizer.score(scored.getBook()) > 0 ? 1 : 0)
+                    .reversed()
+                    .thenComparing(ScoredBook::getScore, Comparator.reverseOrder())
+                    .thenComparing(scored -> CoverPrioritizer.score(scored.getBook()), Comparator.reverseOrder());
+
                 List<ScoredBook> orderedCandidates = recommendationMap.values().stream()
                     .filter(scored -> isEligibleRecommendation(sourceBook, scored.getBook(), filterByLanguage, sourceLang))
-                    .sorted(Comparator.comparing(ScoredBook::getScore).reversed())
+                    .sorted(comparator)
                     .collect(Collectors.toList());
 
                 if (orderedCandidates.isEmpty()) {
@@ -394,18 +402,11 @@ public class RecommendationService {
      * @param categories List of categories to normalize
      * @return Set of normalized category strings
      * 
-     * @implNote Splits compound categories on slashes
-     * Converts to lowercase and trims whitespace
+     * @implNote Delegates to CategoryNormalizer utility for DRY principle
+     * @see CategoryNormalizer#normalizeForComparison(List)
      */
     private Set<String> normalizeCategories(List<String> categories) {
-        Set<String> normalized = new HashSet<>();
-        for (String category : categories) {
-            // Split compound categories and add each part
-            for (String part : category.split("\\s*/\\s*")) {
-                normalized.add(part.toLowerCase(Locale.ROOT).trim());
-            }
-        }
-        return normalized;
+        return CategoryNormalizer.normalizeForComparison(categories);
     }
     
     /**

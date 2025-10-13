@@ -20,20 +20,13 @@ import com.williamcallahan.book_recommendation_engine.dto.BookAggregate;
 import com.williamcallahan.book_recommendation_engine.dto.BookListItem;
 import com.williamcallahan.book_recommendation_engine.mapper.GoogleBooksMapper;
 import com.williamcallahan.book_recommendation_engine.model.Book;
-import com.williamcallahan.book_recommendation_engine.model.image.ImageDetails;
-import com.williamcallahan.book_recommendation_engine.model.image.ImageProvenanceData;
-import com.williamcallahan.book_recommendation_engine.model.image.ImageSourceName;
 import com.williamcallahan.book_recommendation_engine.repository.BookQueryRepository;
 import com.williamcallahan.book_recommendation_engine.util.BookDomainMapper;
 import com.williamcallahan.book_recommendation_engine.util.SearchQueryQualifierExtractor;
-import com.williamcallahan.book_recommendation_engine.service.image.GoogleCoverUrlEvaluator;
 import com.williamcallahan.book_recommendation_engine.util.LoggingUtils;
 import com.williamcallahan.book_recommendation_engine.util.ExternalApiLogger;
 import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
-import com.williamcallahan.book_recommendation_engine.service.image.ExternalCoverFetchHelper;
-import com.williamcallahan.book_recommendation_engine.model.image.ImageResolutionPreference;
 import com.williamcallahan.book_recommendation_engine.util.cover.CoverIdentifierResolver;
-import com.williamcallahan.book_recommendation_engine.util.GoogleBooksUrlEnhancer;
 import com.williamcallahan.book_recommendation_engine.util.UuidUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,8 +45,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
-import com.williamcallahan.book_recommendation_engine.service.image.LocalDiskCoverCacheService;
-import com.williamcallahan.book_recommendation_engine.service.image.CoverCacheManager;
 
 @Service
 @Slf4j
@@ -62,8 +53,6 @@ public class GoogleBooksService {
     private final ObjectMapper objectMapper;
     private final ApiRequestMonitor apiRequestMonitor;
     private final GoogleApiFetcher googleApiFetcher;
-    private final ExternalCoverFetchHelper externalCoverFetchHelper;
-    private final GoogleCoverUrlEvaluator googleCoverUrlEvaluator;
     private final GoogleBooksMapper googleBooksMapper;
 
     private BookSearchService bookSearchService;
@@ -92,14 +81,10 @@ public class GoogleBooksService {
             ObjectMapper objectMapper,
             ApiRequestMonitor apiRequestMonitor,
             GoogleApiFetcher googleApiFetcher,
-            ExternalCoverFetchHelper externalCoverFetchHelper,
-            GoogleCoverUrlEvaluator googleCoverUrlEvaluator,
             GoogleBooksMapper googleBooksMapper) {
         this.objectMapper = objectMapper;
         this.apiRequestMonitor = apiRequestMonitor;
         this.googleApiFetcher = googleApiFetcher;
-        this.externalCoverFetchHelper = externalCoverFetchHelper;
-        this.googleCoverUrlEvaluator = googleCoverUrlEvaluator;
         this.googleBooksMapper = googleBooksMapper;
     }
 
@@ -313,6 +298,7 @@ public class GoogleBooksService {
      * {@link com.williamcallahan.book_recommendation_engine.repository.BookQueryRepository#fetchBookCards(java.util.List)}
      * and only consult {@link GoogleApiFetcher} within the orchestrator layer.
      */
+    @Deprecated(since = "2025-10-01", forRemoval = true)
     private Book applyQualifiers(Book book, Map<String, Object> queryQualifiers) {
         if (book != null && queryQualifiers != null && !queryQualifiers.isEmpty()) {
             queryQualifiers.forEach(book::addQualifier);
@@ -389,8 +375,9 @@ public class GoogleBooksService {
     /**
      * Retrieve a specific book by its Google Books volume ID
      * This method now delegates to GoogleApiFetcher for the authenticated API call
-     * and uses BookJsonParser for conversion. S3 caching is handled by BookDataOrchestrator
-     * Resilience4j annotations are kept on this public method
+     * and uses the internal {@link #convertJsonToBook(JsonNode)} mapper (backed by {@link com.williamcallahan.book_recommendation_engine.mapper.GoogleBooksMapper})
+     * for conversion. S3 caching is handled by BookDataOrchestrator.
+     * Resilience4j annotations are kept on this public method.
      * 
      * @param bookId Google Books volume ID
      * @return CompletionStage containing the Book object if found, or null otherwise
@@ -565,117 +552,6 @@ public class GoogleBooksService {
         apiRequestMonitor.recordMetric("api/rate-limited", "API call rate limited for book " + bookId + " (via GoogleBooksService)");
         
         return CompletableFuture.completedFuture(null);
-    }
-
-    /**
-     * @deprecated Route Google cover hydration through
-     * {@link com.williamcallahan.book_recommendation_engine.service.image.CoverSourceFetchingService}
-     * so results are persisted via {@link com.williamcallahan.book_recommendation_engine.service.image.CoverPersistenceService}.
-     */
-    @Deprecated(since = "2025-10-01", forRemoval = true)
-    public CompletableFuture<ImageDetails> fetchCoverByIsbn(
-        String isbn,
-        String bookIdForLog,
-        ImageProvenanceData provenanceData,
-        LocalDiskCoverCacheService localDiskCoverCacheService,
-        CoverCacheManager coverCacheManager) {
-
-        log.debug("Attempting Google Books API by ISBN {} (book log id: {})", isbn, bookIdForLog);
-
-        return externalCoverFetchHelper.fetchAndCache(
-            isbn,
-            coverCacheManager::isKnownBadImageUrl,
-            url -> coverCacheManager.addKnownBadImageUrl(url),
-            () -> searchBooksByISBN(isbn)
-                .toFuture()
-                .thenApply(books -> {
-                    if (books == null || books.isEmpty()) {
-                        return Optional.empty();
-                    }
-                    Book googleBook = books.get(0);
-                    if (googleBook == null) {
-                        return Optional.empty();
-                    }
-                    if (googleBook.getRawJsonResponse() != null && provenanceData.getGoogleBooksApiResponse() == null) {
-                        provenanceData.setGoogleBooksApiResponse(googleBook.getRawJsonResponse());
-                    }
-                    String googleUrl = googleBook.getExternalImageUrl();
-                    if (!ValidationUtils.hasText(googleUrl) || googleUrl.contains("image-not-available.png")) {
-                        return Optional.empty();
-                    }
-                    String enhanced = GoogleBooksUrlEnhancer.enhanceUrl(googleUrl, 0);
-                    return Optional.of(new ImageDetails(
-                        enhanced,
-                        "GOOGLE_BOOKS",
-                        googleBook.getId(),
-                        com.williamcallahan.book_recommendation_engine.model.image.CoverImageSource.GOOGLE_BOOKS,
-                        ImageResolutionPreference.ORIGINAL
-                    ));
-                }),
-            "Google ISBN: " + isbn,
-            ImageSourceName.GOOGLE_BOOKS,
-            "GoogleBooksAPI-ISBN",
-            "google-isbn",
-            provenanceData,
-            bookIdForLog,
-            new ExternalCoverFetchHelper.ValidationHooks(
-                googleCoverUrlEvaluator::isAcceptableUrl,
-                details -> googleCoverUrlEvaluator.isAcceptableUrl(details.getUrlOrPath())
-            )
-        );
-    }
-
-    /**
-     * @deprecated Use {@link com.williamcallahan.book_recommendation_engine.service.image.CoverSourceFetchingService}
-     * for Google volume lookups persisted via {@link com.williamcallahan.book_recommendation_engine.service.image.CoverPersistenceService}.
-     */
-    @Deprecated(since = "2025-10-01", forRemoval = true)
-    public CompletableFuture<ImageDetails> fetchCoverByVolumeId(
-        String googleVolumeId,
-        String bookIdForLog,
-        ImageProvenanceData provenanceData,
-        LocalDiskCoverCacheService localDiskCoverCacheService,
-        CoverCacheManager coverCacheManager) {
-
-        log.debug("Attempting Google Books API by Volume ID {} (book log id: {})", googleVolumeId, bookIdForLog);
-
-        return externalCoverFetchHelper.fetchAndCache(
-            googleVolumeId,
-            coverCacheManager::isKnownBadImageUrl,
-            url -> coverCacheManager.addKnownBadImageUrl(url),
-            () -> getBookById(googleVolumeId)
-                .toCompletableFuture()
-                .thenApply(googleBook -> {
-                    if (googleBook != null && googleBook.getRawJsonResponse() != null && provenanceData.getGoogleBooksApiResponse() == null) {
-                        provenanceData.setGoogleBooksApiResponse(googleBook.getRawJsonResponse());
-                    }
-                    if (googleBook == null) {
-                        return Optional.empty();
-                    }
-                    String googleUrl = googleBook.getExternalImageUrl();
-                    if (!ValidationUtils.hasText(googleUrl) || googleUrl.contains("image-not-available.png")) {
-                        return Optional.empty();
-                    }
-                    String enhanced = GoogleBooksUrlEnhancer.enhanceUrl(googleUrl, 0);
-                    return Optional.of(new ImageDetails(
-                        enhanced,
-                        "GOOGLE_BOOKS",
-                        googleBook.getId(),
-                        com.williamcallahan.book_recommendation_engine.model.image.CoverImageSource.GOOGLE_BOOKS,
-                        ImageResolutionPreference.ORIGINAL
-                    ));
-                }),
-            "Google VolumeID: " + googleVolumeId,
-            ImageSourceName.GOOGLE_BOOKS,
-            "GoogleBooksAPI-VolumeID",
-            "google-volume",
-            provenanceData,
-            bookIdForLog,
-            new ExternalCoverFetchHelper.ValidationHooks(
-                googleCoverUrlEvaluator::isAcceptableUrl,
-                details -> googleCoverUrlEvaluator.isAcceptableUrl(details.getUrlOrPath())
-            )
-        );
     }
 
     @Autowired(required = false)

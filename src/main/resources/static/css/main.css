@@ -1,74 +1,83 @@
-/* Base Styles */
-body {
-    font-family: var(--font-family-body);
-    background-color: var(--bg-color);
-    color: var(--text-color-primary);
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    line-height: 1.6;
-    margin: 0; /* Ensure no body margin */
-    padding-top: 0; /* Ensure no body top padding */
-    border-top: 0; /* Ensure no body top border */
+/* =============================================================================
+   LEGACY CSS - BEING PHASED OUT
+   This file contains deprecated styles replaced by Tailwind CSS (via CDN).
+   See layout.html for Tailwind config and new component implementations.
+   ============================================================================= */
+
+/* !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+   ⛔ CRITICAL: NAVBAR STYLES FORBIDDEN HERE ⛔
+   
+   DO NOT add ANY navbar background, #main-navbar, or .navbar background styles!
+   
+   WHY: Navbar styles MUST live in layout.html's inline <style> block to:
+   - Ensure !important precedence without cascade conflicts
+   - Keep navbar UI separate from legacy CSS
+   - Prevent the 7+ regressions we've had from CSS file loading order
+   
+   LOCATION: src/main/resources/templates/fragments/layout.html (lines 169-178)
+   
+   ALLOWED HERE: .navbar-brand, .navbar-toggler (non-background styling only)
+   FORBIDDEN: Any #main-navbar styles, navbar background colors, navbar layout
+   
+   IF YOU NEED TO CHANGE NAVBAR:
+   1. Edit layout.html's <style> block, NOT this file
+   2. Do NOT add navbar background styles here
+   3. Legacy .navbar-brand styles below are ONLY for logo, not background
+   
+   This guard exists because navbar background styles were repeatedly 
+   overridden by CSS in this file, causing persistent visual regressions.
+   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! */
+
+/* =============================================================================
+   CASCADE LAYER ARCHITECTURE
+   Layers define specificity hierarchy without !important hacks.
+   Order: reset < base < components < utilities < theme-overrides
+   ============================================================================= */
+@layer reset, base, components, utilities, theme-overrides;
+
+/* Base Styles - Minimal fallbacks for legacy pages */
+@layer base {
+    /* Ensure HTML element also gets background color to prevent white gaps */
+    html {
+        background-color: var(--bg-color);
+        margin: 0;
+        padding: 0;
+    }
+    
+    body {
+        font-family: var(--font-family-body);
+        background-color: var(--bg-color);
+        color: var(--text-color-primary);
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        line-height: 1.6;
+        margin: 0;
+        padding: 0;
+    }
 }
 
-html {
-    margin: 0;
-    padding: 0;
-    border: 0;
-    overscroll-behavior-y: contain; /* Prevent bounce overscroll showing browser background */
+/* KEEP - Still used for fallback typography, but will be replaced incrementally */
+@layer base {
+    h1, h2, h3, h4, h5, h6 {
+        font-family: var(--font-family-headings);
+        margin-bottom: 1rem;
+        font-weight: 700;
+        color: var(--text-color-primary);
+    }
+
+    /* KEEP - Still used for fallback link styles */
+    a {
+        color: var(--link-color);
+        text-decoration: none;
+        transition: all 0.3s ease;
+    }
+
+    a:hover {
+        color: var(--link-hover-color);
+    }
 }
 
-/* Set HTML background to match navbar start color for each theme */
-html:not([data-theme="dark"]) { /* Assumes light theme by default or when data-theme="light" */
-    background-color: #4a38bd; /* Light mode navbar gradient start */
-}
-
-html[data-theme="dark"] {
-    background-color: #1a1a2e; /* Dark mode navbar gradient start */
-}
-
-h1, h2, h3, h4, h5, h6 {
-    font-family: var(--font-family-headings);
-    margin-bottom: 1rem;
-    font-weight: 700;
-    color: var(--text-color-primary);
-}
-
-a {
-    color: var(--link-color);
-    text-decoration: none;
-    transition: all 0.3s ease;
-}
-
-a:hover {
-    color: var(--link-hover-color);
-}
-
-/* Layout */
-.main-content {
-    flex: 1;
-    padding: 2rem 0;
-}
-
-.container {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 0 1rem;
-}
-
-section {
-    margin-bottom: 3rem;
-}
-
-/* Navbar */
-.navbar {
-    /* Subtle gradient for more visual interest */
-    background: linear-gradient(to right, #1a1a2e, #16213e);
-    box-shadow: var(--card-shadow);
-    padding-top: 0.75rem;
-    border-radius: var(--border-radius-soft);
-}
 
 .navbar-brand {
     font-family: var(--font-family-headings);
@@ -134,239 +143,7 @@ section {
 .navbar-toggler:focus {
     box-shadow: none;
 }
-
-/* Footer */
-.footer {
-    background-color: #080D14;
-    padding: 1.5rem 0;
-    margin-top: auto;
-    box-shadow: 0 -4px 6px -1px rgba(0, 0, 0, 0.07);
-}
-
-/* Hero Section Styles */
-.hero-section {
-    background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%);
-    color: white;
-    padding: 5rem 0;
-    border-radius: 0 0 20px 20px;
-    margin-bottom: 2rem;
-    text-align: center;
-}
-
-.hero-section h1 {
-    font-size: 3rem;
-    font-weight: 700;
-    margin-bottom: 1rem;
-}
-
-.hero-section p {
-    font-size: 1.25rem;
-    margin-bottom: 2rem;
-}
-
-/* Search Form */
-.search-form .form-control {
-    border-radius: 30px 0 0 30px;
-    background-color: var(--input-bg);
-    color: var(--text-color-primary);
-    border: 1px solid var(--input-border-color);
-    padding: 0.875rem 1.5rem;
-    font-size: 1rem;
-}
-
-.search-form .input-group {
-    background-color: transparent !important;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.05) !important;
-    border-radius: 30px;
-    overflow: hidden;
-}
-
-.search-form .form-control:focus {
-    box-shadow: var(--input-focus-shadow);
-    border-color: var(--input-focus-border-color);
-    z-index: 2;
-}
-
-.search-form .btn {
-    border-radius: 0 30px 30px 0;
-    background-color: var(--hero-search-button-bg);
-    color: var(--hero-search-button-text);
-    border: 1px solid var(--hero-search-button-bg);
-    padding: 0.875rem 1.75rem;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
-    font-size: 0.9rem;
-}
-
-.search-form .btn:hover {
-    background-color: var(--hero-search-button-hover-bg);
-    border-color: var(--hero-search-button-hover-bg);
-}
-
-/* Popular Search Tags in Hero - Refined Styling */
-.hero-section .badge {
-    background-color: var(--popular-tag-bg);
-    color: var(--popular-tag-text);
-    border: 1px solid var(--border-color); /* Uses theme-aware border color */
-    padding: 0.6em 1.2em; /* Adjusted padding */
-    font-size: 0.875rem; /* Slightly larger */
-    font-weight: 500; /* Inter medium */
-    font-family: var(--font-family-body);
-    border-radius: var(--border-radius-soft); /* Softer radius, e.g., 6px-8px */
-    transition: all 0.2s ease-in-out;
-    text-decoration: none; /* Ensure it behaves like a button */
-    display: inline-block;
-}
-
-.hero-section .badge:hover {
-    background-color: var(--popular-tag-hover-bg);
-    color: var(--popular-tag-hover-text);
-    transform: translateY(-2px);
-    border-color: transparent; /* Optional: remove border on hover for a flatter effect */
-}
-
-/* Dark mode specific hover shadow for tags */
-[data-theme="dark"] .hero-section .badge:hover {
-    box-shadow: 0 3px 12px rgba(var(--brand-secondary-rgb), 0.25); /* Subtle blue glow */
-}
-
-/* Light mode specific hover shadow for tags */
-[data-theme="light"] .hero-section .badge:hover {
-    box-shadow: 0 3px 12px rgba(0,0,0,0.12); /* Softer black shadow */
-}
-
-/* Book Cards */
-.card {
-    border-radius: 12px;
-    border: 1px solid var(--grey-300);
-    box-shadow: var(--card-shadow);
-    transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
-    background-color: var(--card-bg);
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-}
-
-.card:hover {
-    transform: translateY(-6px);
-    box-shadow: var(--card-shadow-hover);
-}
-
-.book-cover-container {
-    height: 250px;
-    overflow: hidden;
-    background-color: var(--placeholder-bg-color);
-    position: relative;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-}
-
-.book-cover {
-    height: 100%;
-    width: auto;
-    max-width: 100%;
-    object-fit: contain;
-    transition: transform 0.3s ease;
-    background-color: transparent;
-}
-
-/* Book Cover Placeholder and Loading Styles */
-.book-cover.loading {
-    opacity: 0;
-    transition: opacity 0.3s ease;
-}
-
-.book-cover.loaded {
-    opacity: 1;
-}
-
-.book-cover-placeholder {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background-color: var(--placeholder-bg-color);
-    color: var(--placeholder-text-color);
-    font-size: 0.875rem;
-    text-align: center;
-    padding: 1rem;
-}
-
-.book-cover-loading {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background-color: rgba(255, 255, 255, 0.7);
-    z-index: 1;
-}
-
-.book-cover-container:hover .book-cover {
-    transform: scale(1.05);
-}
-
-.card-body {
-    padding: 1rem;
-    flex-grow: 1;
-}
-
-.card-title {
-    font-weight: 600;
-    margin-bottom: 0.35rem;
-    color: var(--text-color-primary);
-    font-size: 1.1rem;
-}
-
-.card-title a {
-    color: inherit;
-    text-decoration: none;
-}
-
-.card-title a:hover {
-    color: var(--link-hover-color);
-}
-
-.card-text.small {
-    color: var(--text-color-secondary);
-    font-size: 0.85rem;
-    margin-bottom: 0.75rem;
-}
-
-.card-footer {
-    background-color: var(--card-bg);
-    border-top: 1px solid var(--grey-300);
-    padding: 0.75rem 1rem;
-    margin-top: auto;
-}
-
-/* Styling for "View Details" button in card footer */
-.card-footer .btn {
-    background-color: var(--button-primary-bg);
-    color: var(--button-primary-text);
-    border: 1px solid var(--button-primary-bg);
-    font-weight: 500;
-    padding: 0.375rem 0.75rem;
-    font-size: 0.875rem;
-    width: 100%;
-    transition: all 0.2s ease-in-out;
-}
-
-.card-footer .btn:hover {
-    background-color: rgba(var(--brand-secondary-rgb), 0.1);
-    color: var(--brand-secondary-dark);
-    border-color: var(--button-primary-bg);
-}
+/* END DEPRECATED NAVBAR STYLES */
 
 /* Badges */
 /* Commenting out the problematic .badge.bg-light to avoid conflicts with the more specific .hero-section .badge styling */
@@ -383,12 +160,16 @@ section {
 }
 */
 
+/* KEEP - Still used for ratings badges */
 .badge.bg-warning {
     background-color: var(--warning-color) !important;
     color: var(--dark-color) !important;
 }
 
-/* Book Details Page */
+/* =============================================================================
+   KEEP - Book Details Page (not yet migrated to Tailwind)
+   These styles are still active for book.html
+   ============================================================================= */
 .book-cover-wrapper {
     display: flex;
     justify-content: center;
@@ -423,7 +204,7 @@ section {
 
 .metadata-label {
     font-size: 0.875rem;
-    color: var(--grey-500);
+    color: var(--gray-500);
     margin-bottom: 0.25rem;
 }
 
@@ -434,8 +215,12 @@ section {
 .description-text {
     line-height: 1.7;
 }
+/* END Book Details Page */
 
-/* Buttons */
+/* =============================================================================
+   PARTIALLY DEPRECATED - Button Styles
+   Some buttons still use Bootstrap classes (book details page)
+   ============================================================================= */
 .btn {
     border-radius: 8px;
     font-weight: 600;
@@ -479,8 +264,11 @@ section {
     padding: 0.25rem 1rem;
     font-size: 0.875rem;
 }
+/* END Button Styles */
 
-/* Search Results */
+/* =============================================================================
+   KEEP - Search Results Page (not yet migrated)
+   ============================================================================= */
 .search-header {
     background-color: white;
     border-radius: 10px;
@@ -492,8 +280,11 @@ section {
     max-height: 200px;
     object-fit: cover;
 }
+/* END Search Results */
 
-/* Pagination */
+/* =============================================================================
+   KEEP - Pagination (not yet migrated)
+   ============================================================================= */
 .pagination {
     display: inline-flex;
     background: rgba(255, 255, 255, 0.1);
@@ -519,14 +310,14 @@ section {
 }
 
 .pagination .page-item .page-link:hover {
-    background-color: rgba(79, 70, 229, 0.1);
+    background-color: rgba(212, 165, 116, 0.1); /* Canvas-400 */
 }
 
 .pagination .page-item.active .page-link {
     background-color: var(--primary-color);
     color: white;
     border: none;
-    box-shadow: 0 4px 6px rgba(79, 70, 229, 0.25);
+    box-shadow: 0 4px 6px rgba(212, 165, 116, 0.25); /* Canvas-400 */
 }
 
 .pagination .page-item .page-link:focus {
@@ -535,11 +326,14 @@ section {
 }
 
 .pagination .page-item.disabled .page-link {
-    color: var(--grey-400);
+    color: var(--gray-400);
     pointer-events: none;
 }
+/* END Pagination */
 
-/* Utility Classes */
+/* =============================================================================
+   KEEP - Utility Classes (still used across app)
+   ============================================================================= */
 .text-primary {
     color: var(--primary-color) !important;
 }
@@ -552,19 +346,22 @@ section {
 .spinner-border.text-primary {
     color: var(--primary-color) !important;
 }
+/* END Utility Classes */
 
-/* Media Queries */
+/* =============================================================================
+   KEEP - Media Queries (still functional)
+   ============================================================================= */
 @media (max-width: 767.98px) {
     /* Hide search text on mobile, show only icon */
     .search-form .btn .search-text {
         display: none;
     }
-    
+
     /* Adjust padding for search button on mobile */
     .search-form .btn {
         padding: 0 1rem;
     }
-    
+
     /* Remove margin after icon when text is hidden */
     .search-form .btn .fa-search {
         margin-right: 0 !important;
@@ -573,11 +370,11 @@ section {
         border-radius: 0.375rem 0.375rem 0 0;
         padding: 1.5rem;
     }
-    
+
     .book-cover {
         max-height: 350px;
     }
-    
+
     .hero-section {
         padding: 3rem 0;
     }
@@ -588,33 +385,11 @@ section {
         width: 50%;
     }
 }
+/* END Media Queries */
 
-/* New header theme toggle styling */
-.theme-toggle-header {
-    display: inline-flex;
-    align-items: center;
-    color: var(--dark-color);
-    font-size: 1.125rem;
-    transition: color 0.2s ease-in-out, background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
-}
-
-.theme-toggle-header:hover {
-    color: var(--primary-color);
-    background-color: rgba(0, 0, 0, 0.05);
-    border-radius: 0.375rem;
-    padding: 0.25rem;
-}
-
-[data-theme="dark"] .theme-toggle-header:hover {
-    background-color: rgba(255, 255, 255, 0.1);
-    color: var(--primary-color);
-}
-
-/* Remove leftover theme-toggle-item styles */
-.theme-toggle-item {
-    display: none;
-}
-
+/* =============================================================================
+   KEEP - Dark Theme Base
+   ============================================================================= */
 /* Dark Theme Overrides */
 /* Variable definitions for dark theme are now centralized in variables.css */
 
@@ -624,8 +399,8 @@ section {
    are handled by general rules + variables.css.
    Specific overrides for .navbar-brand and .nav-link:hover/.active are below if needed. */
 
-/* .search-form .form-control, .search-form .btn, .badge.bg-light, 
-   .hero-section h1, .hero-section p, h2, h3 dark theme styles 
+/* .search-form .form-control, .search-form .btn, .badge.bg-light,
+   .hero-section h1, .hero-section p, h2, h3 dark theme styles
    are handled by general rules + variables.css.
    The .hero-section itself might need a specific text color if --text-color-on-accent isn't sufficient.
    The current rule for [data-theme="dark"] .hero-section { color: #E0E7FF; } is a specific override. */
@@ -644,19 +419,19 @@ section {
 }
 
 /* Dark mode styling for book cards and containers */
-/* These are now largely handled by general rules using variables from variables.css */
+/* All styles use CSS variables - no !important declarations */
 
-/* Fix text visibility in card headings and small text for dark mode if general variables are not enough */
+/* Text visibility in card headings and small text for dark mode */
 [data-theme="dark"] .metadata-item .metadata-label,
 [data-theme="dark"] .card-subtitle.text-muted,
 [data-theme="dark"] .tab-content .text-muted,
 [data-theme="dark"] .card .text-muted {
-    color: var(--text-color-secondary) !important;
+    color: var(--text-color-secondary);
 }
 
 /* Specific overrides for elements if needed, beyond what variables provide */
 [data-theme="dark"] .other-editions-section .card-title {
-    color: var(--text-color);
+    color: var(--text-color-primary);
 }
 
 [data-theme="dark"] .other-editions-section .list-unstyled {
@@ -670,19 +445,253 @@ section {
 }
 
 [data-theme="dark"] .list-unstyled strong {
-    color: var(--text-color); 
+    color: var(--text-color-primary);
 }
 
-/* Fixes for elements that might have explicit light theme backgrounds or text colors */
-[data-theme="dark"] .card-footer.bg-white,
-[data-theme="dark"] .bg-white,
-[data-theme="dark"] .search-header {
-    background-color: var(--card-bg) !important;
+/* =============================================================================
+   COMPONENT-SPECIFIC DARK MODE RULES
+   Rules for cards and search headers in dark mode
+   ============================================================================= */
+@layer components {
+    /* Card components with explicit light backgrounds need dark mode override */
+    [data-theme="dark"] .card-footer.bg-white,
+    [data-theme="dark"] .card .bg-white,
+    [data-theme="dark"] .search-header {
+        background-color: var(--card-bg);
+    }
+}
+
+/* =============================================================================
+   THEME OVERRIDES - Highest Priority Without !important
+   These rules override Tailwind and component styles for theme switching
+   ============================================================================= */
+@layer theme-overrides {
+    /* HTML and Body - Light mode defaults (ensure no white gaps) */
+    html {
+        background-color: #FAF8F5; /* linen-50 light mode */
+    }
+    
+    /* Body and main content - Light mode defaults */
+    .theme-body,
+    body,
+    main,
+    .main-content {
+        background-color: #FAF8F5; /* linen-50 light mode */
+    }
+    
+    main,
+    .main-content {
+        padding-top: 2rem; /* Add space between navbar and content */
+    }
+    
+    .theme-footer {
+        background-color: #FFFFFF; /* white light mode */
+    }
+    
+    /* HTML and Body - Dark mode (ensure no white gaps) */
+    [data-theme="dark"] html {
+        background-color: #1E293B; /* slate-800 - unified with all sections */
+    }
+    
+    /* Body and main content dark mode - slate-800 background to match sections, slate-50 text */
+    [data-theme="dark"] body,
+    [data-theme="dark"] .theme-body,
+    [data-theme="dark"] main,
+    [data-theme="dark"] .main-content {
+        background-color: #1E293B; /* slate-800 - unified with all sections */
+        color: #F8FAFC; /* slate-50 */
+    }
+    
+    [data-theme="dark"] main,
+    [data-theme="dark"] .main-content {
+        padding-top: 2rem; /* Add space between navbar and content */
+    }
+    
+    /* Footer dark mode - slate-800 to match navbar elevation */
+    [data-theme="dark"] footer,
+    [data-theme="dark"] .theme-footer {
+        background-color: #1E293B; /* slate-800 */
+        border-color: #334155; /* slate-700 */
+    }
+    
+    /* Navbar border colors - Light mode default and dark mode override */
+    .theme-navbar-border {
+        border-color: rgba(230, 220, 200, 0.6); /* anthracite-200 with opacity for light mode */
+    }
+    
+    [data-theme="dark"] .theme-navbar-border {
+        border-color: transparent; /* No visible border in dark mode */
+    }
+    
+    /* Footer border colors - Light mode default and dark mode override */
+    .theme-footer-border {
+        border-color: #EDE6D9; /* linen-300 for light mode */
+    }
+    
+    [data-theme="dark"] .theme-footer-border {
+        border-color: #334155; /* slate-700 for dark mode */
+    }
+    
+    /* Footer text colors in dark mode */
+    [data-theme="dark"] .theme-footer-text {
+        color: #94A3B8; /* slate-400 */
+    }
+    
+    [data-theme="dark"] .theme-footer-link {
+        color: #60A5FA; /* canvas-500 equivalent for dark mode */
+    }
+    
+    [data-theme="dark"] .theme-footer-link:hover {
+        color: #93C5FD; /* canvas-400 equivalent for dark mode */
+    }
+    
+    /* Hero Section */
+    [data-theme="dark"] .theme-hero-bg {
+        background-color: #0F1419; /* slate-900 */
+    }
+    
+    [data-theme="dark"] .theme-hero-title {
+        color: #F8FAFC; /* slate-50 */
+    }
+    
+    [data-theme="dark"] .theme-hero-text {
+        color: #94A3B8; /* slate-400 */
+    }
+    
+    /* Search Input */
+    [data-theme="dark"] .theme-search-input {
+        background-color: #1E293B; /* slate-800 */
+        color: #F8FAFC; /* slate-50 */
+        border-color: #334155; /* slate-700 */
+    }
+    
+    [data-theme="dark"] .theme-search-button {
+        background-color: #3B82F6; /* canvas-600 */
+        color: #0F1419; /* slate-900 */
+    }
+    
+    [data-theme="dark"] .theme-search-button:hover {
+        background-color: #2563EB; /* canvas-700 */
+    }
+    
+    /* Tags/Badges */
+    [data-theme="dark"] .theme-tag {
+        background-color: #1E293B; /* slate-800 */
+        color: #CBD5E1; /* slate-200 */
+        border-color: #334155; /* slate-700 */
+    }
+    
+    [data-theme="dark"] .theme-tag:hover {
+        background-color: #334155; /* slate-700 */
+        border-color: #3B82F6; /* canvas-600 */
+        color: #60A5FA; /* canvas-400 */
+    }
+    
+    [data-theme="dark"] .theme-badge {
+        background-color: #334155; /* slate-700 */
+        color: #CBD5E1; /* slate-300 */
+    }
+    
+    /* Section Backgrounds - Light mode defaults and dark mode overrides */
+    .theme-hero-bg,
+    .theme-section-alt {
+        background-color: #FAF8F5; /* linen-100 light mode */
+    }
+    
+    .theme-section {
+        background-color: #FFFFFF; /* white light mode */
+    }
+    
+    /* Dark mode: Unified dark background for all sections (like book detail page) */
+    [data-theme="dark"] .theme-section-alt,
+    [data-theme="dark"] .theme-hero-bg,
+    [data-theme="dark"] .theme-section,
+    [data-theme="dark"] section.theme-hero-bg,
+    [data-theme="dark"] section.theme-section,
+    [data-theme="dark"] section.theme-section-alt,
+    [data-theme="dark"] section.bg-linen-50,
+    [data-theme="dark"] section.bg-linen-100,
+    [data-theme="dark"] section.bg-white,
+    [data-theme="dark"] .py-12.theme-section,
+    [data-theme="dark"] .py-16.theme-section {
+        background-color: #1E293B; /* slate-800 - unified dark background */
+    }
+    
+    /* Card Components - Light mode defaults and dark mode overrides */
+    .theme-card {
+        background-color: #FFFFFF; /* white light mode */
+    }
+    
+    .theme-card-cover-bg {
+        background-color: #FAF8F5; /* linen-100 light mode */
+    }
+    
+    .theme-badge {
+        background-color: #EDE6D9; /* linen-200 light mode */
+    }
+    
+    [data-theme="dark"] .theme-card {
+        background-color: #293548; /* Slightly lighter than slate-800 for contrast */
+        border-color: #334155; /* slate-700 */
+    }
+    
+    [data-theme="dark"] .theme-card-cover-bg {
+        background-color: #1E293B; /* slate-800 - slightly lighter than before */
+    }
+    
+    [data-theme="dark"] .theme-card-title {
+        color: #F8FAFC; /* slate-50 */
+    }
+    
+    [data-theme="dark"] .theme-card-title:hover {
+        color: #60A5FA; /* canvas-400 */
+    }
+    
+    [data-theme="dark"] .theme-card-text {
+        color: #94A3B8; /* slate-400 */
+    }
+    
+    [data-theme="dark"] .theme-card-meta {
+        color: #64748B; /* slate-500 */
+    }
+    
+    [data-theme="dark"] .theme-card-button {
+        background-color: #3B82F6; /* canvas-600 */
+        color: #0F1419; /* slate-900 */
+    }
+    
+    [data-theme="dark"] .theme-card-button:hover {
+        background-color: #2563EB; /* canvas-700 */
+    }
+    
+    /* Section Titles and Links */
+    [data-theme="dark"] .theme-section-title {
+        color: #F8FAFC; /* slate-50 */
+    }
+    
+    [data-theme="dark"] .theme-section-link {
+        color: #60A5FA; /* canvas-500 */
+        border-color: #3B82F6; /* canvas-600 */
+    }
+    
+    [data-theme="dark"] .theme-section-link:hover {
+        background-color: #334155; /* slate-700 */
+        color: #60A5FA; /* canvas-400 */
+    }
+    
+    /* Search Header - Light mode default and dark mode override */
+    .theme-search-header {
+        background-color: #FFFFFF; /* white light mode */
+    }
+    
+    [data-theme="dark"] .theme-search-header {
+        background-color: #1E293B; /* slate-800 */
+    }
 }
 
 [data-theme="dark"] .text-decoration-none.text-dark,
 [data-theme="dark"] .card-title a {
-    color: var(--text-color) !important;
+    color: var(--text-color-primary);
 }
 
 /* Form controls, dropdowns, and pagination should now be styled by their general rules using dark theme variables.
@@ -692,7 +701,9 @@ section {
 /* [data-theme="dark"] .pagination { ... } */
 
 
-/* Theme toggle button specific styles */
+/* =============================================================================
+   KEEP - Theme Toggle Button (still functional)
+   ============================================================================= */
 #theme-toggle {
     border-radius: 50%;
     width: 38px;
@@ -711,14 +722,14 @@ section {
 
 /* Light Mode Hover Effect */
 #theme-toggle:hover {
-    background-color: var(--grey-200);
+    background-color: var(--gray-200);
     box-shadow: 0 0 8px rgba(0,0,0,0.15);
     color: var(--primary-dark);
 }
 
 /* Dark Mode Hover Effect */
 [data-theme="dark"] #theme-toggle:hover {
-    background-color: var(--grey-100);
+    background-color: var(--gray-100);
     box-shadow: 0 0 10px var(--primary-glow-color);
     color: var(--primary-color);
 }
@@ -737,7 +748,11 @@ section {
     height: 40px;
     border-radius: 50%;
 }
+/* END Theme Toggle */
 
+/* =============================================================================
+   KEEP - Book Details Dark Mode Styles (not yet migrated)
+   ============================================================================= */
 /* Dark mode styling for "Other Editions" section in book details */
 [data-theme="dark"] #bookDetailTabContent #editions .list-group {
     background-color: transparent;
@@ -766,24 +781,11 @@ section {
     color: var(--text-color-secondary);
 }
 
-/* Navbar container flex layout to align brand, mobile toggle, and hamburger */
-#main-navbar > .container {
-    display: flex;
-    align-items: center;
-}
+/* Book Details Dark Mode - Maintained for book.html */
 
-/* Push mobile toggle to the right, just before hamburger */
-.theme-toggle-header {
-    margin-left: auto;
-    margin-right: 0.25rem;
-}
-
-/* Slight spacing for hamburger after toggle */
-.navbar-toggler {
-    margin-right: 0;
-}
-
-/* Development Mode Image Source Indicator Colors */
+/* =============================================================================
+   KEEP - Development Mode Indicators
+   ============================================================================= */
 .dev-source-indicator {
     opacity: 0.9;
     border-radius: 50%;
@@ -796,11 +798,14 @@ section {
 .dev-source-LONGITOOD { background-color: var(--secondary-color); }
 .dev-source-S3_CACHE { background-color: var(--success-color); }
 .dev-source-LOCAL_CACHE { background-color: var(--warning-color); color: var(--dark-color); text-shadow: none;}
-.dev-source-UNDEFINED { background-color: var(--grey-500); }
-.dev-source-ANY { background-color: var(--grey-400); }
-.dev-source-NONE { background-color: var(--grey-300); color: var(--dark-color); text-shadow: none;}
+.dev-source-UNDEFINED { background-color: var(--gray-500); }
+.dev-source-ANY { background-color: var(--gray-400); }
+.dev-source-NONE { background-color: var(--gray-300); color: var(--dark-color); text-shadow: none;}
+/* END Development Indicators */
 
-/* Normalized book covers for consistent sizing */
+/* =============================================================================
+   KEEP - Normalized Book Covers (still functional)
+   ============================================================================= */
 .normalized-cover {
     height: auto !important;
     width: auto !important;
@@ -833,8 +838,11 @@ section {
 [data-theme="dark"] .book-cover-section {
     background-color: transparent !important;
 }
+/* END Normalized Covers */
 
-/* Tab styling for dark mode, if general variables are not sufficient */
+/* =============================================================================
+   KEEP - Tab Styling (not yet migrated)
+   ============================================================================= */
 [data-theme="dark"] .nav-tabs {
     border-bottom-color: var(--border-color);
 }
@@ -857,88 +865,13 @@ section {
 /* Book details headings, if general h5 and metadata-label variables are not sufficient */
 [data-theme="dark"] .book-metadata .metadata-label,
 [data-theme="dark"] .tab-content h5 {
-    color: var(--text-color-secondary) !important;
+    color: var(--text-color-secondary);
 }
+/* END Tab Styling */
 
-/* Badges / Popular Search Tags */
-/* Assuming .badge is used for popular search tags. If not, adjust selector */
-.badge.popular-search-tag {
-    border-radius: 30px;
-    padding: 0.5rem 1rem;
-    font-weight: 500;
-    margin: 0.25rem;
-    display: inline-block;
-    cursor: pointer;
-    background-color: var(--popular-tag-bg);
-    color: var(--popular-tag-text);
-    border: 1px solid var(--popular-tag-border);
-    transition: background-color 0.3s, color 0.3s, border-color 0.3s;
-}
 
-.badge.popular-search-tag:hover {
-    background-color: var(--popular-tag-hover-bg);
-    color: var(--popular-tag-hover-text);
-    border-color: var(--popular-tag-hover-bg);
-}
 
-/* General Badge styling (if different from popular tags) */
-.badge:not(.popular-search-tag) {
-    border-radius: 30px;
-    padding: 0.5rem 1rem;
-    font-weight: 500;
-}
-
-.badge.bg-warning {
-    background-color: var(--warning-color) !important;
-    color: var(--dark-color) !important;
-}
-
-/* Button for "View All" - assuming a common class like .btn-view-all */
-.btn-view-all {
-    padding: 0.75rem 1.5rem;
-    border-radius: 50px;
-    font-weight: 600;
-    transition: background-color 0.3s, color 0.3s, border-color 0.3s;
-    text-align: center;
-    display: inline-block;
-}
-
-/* Filled View All Button Style */
-.btn-view-all.btn-filled {
-    background-color: var(--button-primary-bg);
-    color: var(--button-primary-text);
-    border: 1px solid var(--button-primary-bg);
-}
-.btn-view-all.btn-filled:hover {
-    background-color: var(--button-primary-hover-bg);
-    border-color: var(--button-primary-hover-bg);
-}
-
-/* Outlined View All Button Style */
-.btn-view-all.btn-outlined {
-    background-color: transparent;
-    color: var(--button-outline-primary-text);
-    border: 2px solid var(--button-outline-primary-border);
-}
-.btn-view-all.btn-outlined:hover {
-    background-color: var(--button-outline-primary-hover-bg);
-    color: var(--button-outline-primary-hover-text);
-    border-color: var(--button-outline-primary-hover-bg);
-}
-
-/* [data-theme="dark"] specific overrides - simplified */
-/* Many general styles are now handled by variables defined in variables.css */
-
-[data-theme="dark"] .navbar-brand {
-    color: var(--text-color-accent);
-}
-
-[data-theme="dark"] .nav-link:hover,
-[data-theme="dark"] .nav-link.active {
-    color: var(--text-color-accent);
-}
-
-/* The hero-section, search-form .btn, cards, placeholders, popular-tags 
+/* The hero-section, search-form .btn, cards, placeholders, popular-tags
    should now mostly be styled correctly by the generic rules using dark theme variables.
    We only add specific overrides if the generic variable approach isn't sufficient
    or if a distinctly different style is wanted for dark mode beyond variable changes. */
@@ -946,15 +879,15 @@ section {
 /* Example: If badges need further specific dark mode tweaks not covered by their variables */
 /* [data-theme="dark"] .badge.bg-light { ... } */
 
-/* Ensure any text that should remain dark on a light background (or vice-versa) is handled. 
+/* Ensure any text that should remain dark on a light background (or vice-versa) is handled.
    Most of these should be covered by the new text color variables. */
 
 /* Clean up previous specific dark theme rules if they are now handled by the variables */
 /* For example, if you had specific color settings for h2, h3, card-title etc. in dark mode,
-   they should now inherit correctly from 'color: var(--text-color);' 
+   they should now inherit correctly from 'color: var(--text-color);'
    or use 'var(--text-color-secondary)' as appropriate. */
 
-/* Remove or comment out old [data-theme="dark"] rules that are now covered by the new variable system. 
+/* Remove or comment out old [data-theme="dark"] rules that are now covered by the new variable system.
    For example, lines like:
    [data-theme="dark"] body { background-color: #1F2937; color: #F9FAFB; }
    [data-theme="dark"] .card { background-color: #374151; border-color: #4B5563; }
@@ -963,27 +896,6 @@ section {
 
 /* End of file */
 
-/* Logo visibility based on theme */
-.navbar-brand .logo-dark-mode {
-    display: none; /* Hidden by default */
-}
-.navbar-brand .logo-light-mode {
-    display: inline; /* Visible by default */
-}
-
-[data-theme="dark"] .navbar-brand .logo-light-mode {
-    display: none;
-}
-[data-theme="dark"] .navbar-brand .logo-dark-mode {
-    display: inline; 
-    height: 50px; 
-}
-
-/* Ensure navbar brand text (if visible, e.g. light mode logo part) is light in dark mode */
-[data-theme="dark"] .navbar-brand,
-[data-theme="dark"] .navbar-brand .logo-light-mode span /* More specific for the text part */ {
-    color: var(--text-color-primary); /* Should be white */
-}
 
 [data-theme="dark"] .hero-section {
     /* background: linear-gradient(135deg, var(--hero-gradient-start) 0%, var(--hero-gradient-end) 100%); /* OLD GRADIENT */
@@ -991,80 +903,70 @@ section {
 }
 
 
-/* "View All" button in dark mode - change to text link style */
+/* "View All" button in dark mode - uses CSS variables */
 [data-theme="dark"] .btn-view-all.btn-outlined {
     background-color: transparent;
-    color: var(--brand-secondary-light); /* Light blue text */
+    color: var(--link-color);
     border-color: transparent;
-    padding-left: 0; /* Adjust padding if needed for text link appearance */
+    padding-left: 0;
     padding-right: 0;
 }
 
 [data-theme="dark"] .btn-view-all.btn-outlined:hover {
     background-color: transparent;
-    color: var(--brand-secondary); /* Slightly darker blue on hover */
+    color: var(--link-hover-color);
     border-color: transparent;
     text-decoration: underline;
 }
 
-[data-theme="dark"] .card:hover {
-    border-color: var(--brand-primary-light);
-    box-shadow: var(--card-shadow-hover); /* Already has a nice shadow, ensure border is additive */
-}
-
 [data-theme="dark"] .search-form .form-control {
-    color: var(--text-color-primary); /* Ensure light text in dark mode search input */
+    color: var(--text-color-primary);
+    background-color: var(--input-bg);
+    border-color: var(--input-border-color);
 }
 
 [data-theme="dark"] .search-form .form-control::placeholder {
-    color: var(--placeholder-text-color); /* Ensure placeholder also uses dark theme variable */
+    color: var(--placeholder-text-color);
 }
 
-/* Explicit dark mode card background for sections, to ensure override */
-[data-theme="dark"] .current-bestsellers-section .card,
-[data-theme="dark"] .recent-views-section .card {
-    background-color: var(--card-bg);
-    border-color: var(--grey-300);
-}
-
-/* Dark mode comprehensive card styling overhaul */
+/* Dark mode card styling - uses CSS variables for consistency */
 [data-theme="dark"] .card {
-    background-color: #121820 !important; /* Near black background like bookshop.org */
-    border: 1px solid #2a3340 !important; /* Subtle dark border */
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3); /* Subtle shadow */
+    background-color: var(--card-bg);
+    border-color: var(--border-color);
+    box-shadow: var(--card-shadow);
     transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
 }
 
 [data-theme="dark"] .card:hover {
-    transform: translateY(-6px) scale(1.02); /* Lift effect */
-    box-shadow: 0 8px 24px rgba(var(--brand-secondary-rgb), 0.3); /* Bluish glow on hover */
-    border-color: var(--brand-secondary-light) !important; /* Accent border on hover */
+    transform: translateY(-6px);
+    box-shadow: var(--card-shadow-hover);
+    border-color: var(--brand-primary);
 }
 
-/* Fix text colors */
+/* Fix text colors using CSS variables */
 [data-theme="dark"] .card .card-title,
 [data-theme="dark"] .card .card-title a {
-    color: white !important; /* Bright text for titles */
+    color: var(--text-color-primary);
     font-weight: 600;
 }
 
 [data-theme="dark"] .card .card-text.small,
 [data-theme="dark"] .card .card-text.small a,
 [data-theme="dark"] .card .text-muted {
-    color: #a0aec0 !important; /* Light grey for secondary text */
+    color: var(--text-color-secondary);
 }
 
-/* Card footer fixes */
+/* Card footer using CSS variables */
 [data-theme="dark"] .card-footer {
-    background-color: #121820 !important; /* Same as card background */
-    border-top: 1px solid #2a3340 !important; /* Subtle divider */
+    background-color: var(--card-bg);
+    border-top-color: var(--border-color);
 }
 
-/* Button styling to match bookshop.org's vibrant CTA buttons */
+/* Button styling using CSS variables */
 [data-theme="dark"] .card-footer .btn {
-    background-color: #3182ce !important; /* Bright blue */
-    color: white !important;
-    border: none !important;
+    background-color: var(--button-primary-bg);
+    color: var(--button-primary-text);
+    border-color: var(--button-primary-bg);
     font-weight: 500;
     border-radius: 4px;
     padding: 0.5rem 1rem;
@@ -1073,181 +975,53 @@ section {
 }
 
 [data-theme="dark"] .card-footer .btn:hover {
-    background-color: #4299e1 !important; /* Lighter blue on hover */
+    background-color: var(--button-primary-hover-bg);
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
     transform: translateY(-1px);
 }
 
-/* Remove any remaining white backgrounds */
-[data-theme="dark"] .card-footer.bg-white,
-[data-theme="dark"] .bg-white,
+/* Card body backgrounds using CSS variables */
 [data-theme="dark"] .card-body {
-    background-color: #121820 !important; /* Ensure consistent dark background */
+    background-color: var(--card-bg);
 }
 
-/* Ensure book cover container has dark background */
+/* Book cover container background */
 [data-theme="dark"] .book-cover-container {
-    background-color: #121820 !important;
+    background-color: var(--card-bg);
 }
 
-/* Fix any ratings badge to have proper contrast */
+/* Ratings badge with proper contrast */
 [data-theme="dark"] .badge.bg-warning {
-    background-color: #ECC94B !important; /* Brighter yellow */
-    color: #000 !important; /* Black text on yellow */
+    background-color: var(--warning-color);
+    color: var(--dark-color);
 }
 
-/* Modern Layout Styles */
-.modern-layout {
-    background-color: var(--background-color);
-    color: var(--text-color);
-    transition: background-color 0.3s, color 0.3s;
-}
 
-/* Modern Navbar Styles */
-.modern-navbar {
-    /* Enhanced navbar styling with gradient */
-    background: linear-gradient(to right, #1a1a2e, #16213e);
-    -webkit-backdrop-filter: blur(8px);
-    backdrop-filter: blur(8px);
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-    padding: 0.75rem 0;
-    position: relative;
-    z-index: 1000;
-}
-
-/* Light mode specific navbar styling to blend with hero */
-[data-theme="light"] .modern-navbar {
-    /* Gradient that blends with the hero purple gradient */
-    background: linear-gradient(to right, #4a38bd, #6d28d9);
-    box-shadow: 0 2px 10px rgba(109, 40, 217, 0.2);
-}
-
-/* Improve nav links in light header */
-[data-theme="light"] .modern-navbar .nav-link {
-    color: rgba(255, 255, 255, 0.85);
-    font-weight: 500;
-    transition: color 0.2s ease, transform 0.2s ease;
-}
-
-[data-theme="light"] .modern-navbar .nav-link:hover {
-    color: white;
-    transform: translateY(-1px);
-}
-
-[data-theme="light"] .modern-navbar .nav-link.active {
-    color: white;
-    position: relative;
-}
-
-[data-theme="light"] .modern-navbar .nav-link.active:after {
-    content: '';
-    position: absolute;
-    bottom: -5px;
-    left: 0;
-    width: 100%;
-    height: 2px;
-    background-color: white;
-    border-radius: 2px;
-}
-
-/* Modern Main Content Styles */
-.modern-main-content {
-    padding: 2rem 0;
-}
-
-/* Modern Footer Styles */
-.modern-footer {
-    background-color: var(--footer-background-color);
-    color: var(--footer-text-color);
-    padding: 1rem 0;
-}
-
-/* Modern Hero Section Styles */
-.modern-hero {
-    background: linear-gradient(135deg, var(--hero-gradient-start) 0%, var(--hero-gradient-end) 100%);
-    color: var(--hero-text-color);
-    padding: 5rem 0;
-    border-radius: 0 0 20px 20px;
-    margin-bottom: 2rem;
-}
-
-/* Modern Search Form Styles */
-.modern-search-form .form-control {
-    border-radius: 50px 0 0 50px;
-    border: none;
-}
-
-.modern-search-form .btn {
-    border-radius: 0 50px 50px 0;
-    border: none;
-}
-
-/* Featured Books Section Styles */
-.featured-books-section {
-    background-color: var(--section-bg-color);
-    padding: 2rem 0;
-}
-
-.featured-books-section h2 {
-    color: var(--text-color-primary);
-    font-size: 1.8rem;
-    margin-bottom: 1rem;
-}
-
-.btn-view-all {
-    padding: 0.75rem 1.5rem;
-    border-radius: 50px;
-    font-weight: 600;
-    transition: background-color 0.3s, color 0.3s, border-color 0.3s;
-    text-align: center;
-    display: inline-block;
-}
-
-.btn-view-all.btn-outlined {
-    background-color: transparent;
-    color: var(--button-outline-primary-text);
-    border: 2px solid var(--button-outline-primary-border);
-}
-
-.btn-view-all.btn-outlined:hover {
-    background-color: var(--button-outline-primary-hover-bg);
-    color: var(--button-outline-primary-hover-text);
-    border-color: var(--button-outline-primary-hover-bg);
-}
-
-/* Main content top padding consistency for hero bleed and general layout */
-[data-theme="light"] .main-content,
-[data-theme="dark"] .main-content {
-    padding-top: 0 !important;
-}
-[data-theme="light"] .hero-section,
-[data-theme="light"] .modern-hero {
-    border-radius: 0 !important;
-    margin-bottom: 0 !important;
-}
-
+/* =============================================================================
+   KEEP - Search/Book Details Dark Mode (not yet migrated)
+   ============================================================================= */
 /* Ensure search result text visibility in dark mode */
 [data-theme="dark"] .search-results-container h2,
 [data-theme="dark"] .search-results-container h3,
 [data-theme="dark"] .search-results-container p {
-    color: white !important; /* Ensure text is visible */
+    color: var(--text-color-primary);
 }
 
 /* Specific override for "Results for:" text */
 [data-theme="dark"] .search-header {
-    color: #e2e8f0 !important;
+    color: var(--text-color-primary);
 }
 
 /* Fix for "Results for" text in the search header */
 [data-theme="dark"] .search-header .text-muted {
-    color: #e2e8f0 !important; /* Light gray color for better visibility */
+    color: var(--text-color-secondary);
 }
 
 /* Dark mode text color fixes for book details page */
 [data-theme="dark"] .breadcrumb-item,
 [data-theme="dark"] .breadcrumb-item a,
 [data-theme="dark"] .breadcrumb-item.active {
-    color: #e2e8f0 !important;
+    color: var(--text-color-secondary);
 }
 
 [data-theme="dark"] .book-details h1.card-title,
@@ -1258,35 +1032,39 @@ section {
 [data-theme="dark"] .book-details-section h5,
 [data-theme="dark"] .book-details .nav-tabs .nav-link,
 [data-theme="dark"] .book-categories h5 {
-    color: #ffffff !important;
+    color: var(--text-color-primary);
 }
 
 [data-theme="dark"] .book-details .metadata-label,
 [data-theme="dark"] .book-details .small.text-muted {
-    color: #a0aec0 !important;
+    color: var(--text-color-secondary);
 }
 
 [data-theme="dark"] .book-details .fw-bold {
-    color: #e2e8f0 !important;
+    color: var(--text-color-secondary);
 }
 
 [data-theme="dark"] .nav-tabs .nav-link.active {
-    color: var(--brand-primary) !important;
-    background-color: var(--grey-900) !important;
-    border-color: var(--grey-700) !important;
-    border-bottom-color: var(--grey-900) !important;
+    color: var(--brand-primary);
+    background-color: var(--gray-900);
+    border-color: var(--gray-700);
+    border-bottom-color: var(--gray-900);
 }
 
 /* Ensure tab content has proper backgrounds in dark mode */
 [data-theme="dark"] .tab-content {
-    background-color: transparent !important;
+    background-color: transparent;
 }
 
 /* Ensure breadcrumb links have proper styling */
 [data-theme="dark"] .breadcrumb-item a:hover {
-    color: var(--brand-secondary-light) !important;
+    color: var(--link-hover-color);
 }
+/* END Search/Book Details Dark Mode */
 
+/* =============================================================================
+   KEEP - Mobile Responsive (still functional)
+   ============================================================================= */
 /* Mobile responsive active link styling */
 @media (max-width: 991.98px) {
     .nav-link.active:after,
@@ -1298,22 +1076,26 @@ section {
         right: 0;
         display: inline-block;
     }
-    
+
     .navbar-collapse .nav-link {
         padding: 0.75rem 1rem;
         display: inline-block;
     }
-    
+
     /* Use flexbox to align child elements (e.g., links) within navigation items for mobile responsiveness */
     .nav-item {
         display: flex;
     }
 }
+/* END Mobile Responsive */
 
+/* =============================================================================
+   KEEP - Affiliate Buttons (still functional)
+   ============================================================================= */
 /* Custom Affiliate Button Styles */
 .btn.btn-affiliate {
     transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out, background-color 0.2s ease-in-out, border-color 0.2s ease-in-out;
-    margin-bottom: 0.5rem; 
+    margin-bottom: 0.5rem;
 }
 .btn.btn-affiliate:hover {
     transform: scale(1.05);
@@ -1330,32 +1112,32 @@ section {
 }
 
 .btn.btn-barnesandnoble {
-    background-color: #00563f !important; 
+    background-color: #00563f !important;
     border-color: #00563f !important;
     color: #ffffff !important;
 }
 .btn.btn-barnesandnoble:hover {
-    background-color: #00402f !important; 
+    background-color: #00402f !important;
     border-color: #003526 !important;
 }
 
 .btn.btn-bookshop {
-    background-color: #4C32C0 !important; 
+    background-color: #4C32C0 !important;
     border-color: #4C32C0 !important;
     color: #ffffff !important;
 }
 .btn.btn-bookshop:hover {
-    background-color: #3c28a0 !important; 
+    background-color: #3c28a0 !important;
     border-color: #302080 !important;
 }
 
 .btn.btn-audible {
-    background-color: #ff9900 !important; 
+    background-color: #ff9900 !important;
     border-color: #ff9900 !important;
-    color: #000000 !important; 
+    color: #000000 !important;
 }
 .btn.btn-audible:hover {
-    background-color: #e68a00 !important; 
+    background-color: #e68a00 !important;
     border-color: #cc7a00 !important;
     color: #000000 !important;
 }
@@ -1440,11 +1222,11 @@ section {
 }
 .affiliate-dropdown .dropdown-item:hover,
 .affiliate-dropdown .dropdown-item:focus {
-    background-color: #7C3AED !important; /* Brand purple */
+    background-color: #D4A574 !important; /* Canvas-400 */
     color: #ffffff !important;
 }
 .affiliate-dropdown .dropdown-item.active {
-    background-color: #7C3AED !important;
+    background-color: #D4A574 !important;
     color: #ffffff !important;
 }
 
@@ -1457,3 +1239,281 @@ section {
 .tab-content {
     overflow: visible !important;
 }
+/* END Affiliate Buttons & Dropdowns */
+
+/* =============================================================================
+   KEEP - Bootstrap Alert Dark Mode Overrides
+   Bootstrap alerts need explicit dark mode styling to prevent light mode fallback
+   ============================================================================= */
+[data-theme="dark"] .alert {
+    color: var(--text-color-primary);
+    background-color: var(--card-bg);
+    border-color: var(--border-color);
+}
+
+[data-theme="dark"] .alert-warning {
+    background-color: rgba(251, 191, 36, 0.15); /* warning-color with low opacity */
+    border-color: rgba(251, 191, 36, 0.3);
+    color: #FCD34D; /* Brighter yellow for visibility on dark bg */
+}
+
+[data-theme="dark"] .alert-danger {
+    background-color: rgba(239, 68, 68, 0.15); /* danger-color with low opacity */
+    border-color: rgba(239, 68, 68, 0.3);
+    color: #FCA5A5; /* Brighter red for visibility on dark bg */
+}
+
+[data-theme="dark"] .alert-info {
+    background-color: rgba(59, 130, 246, 0.15); /* info-color with low opacity */
+    border-color: rgba(59, 130, 246, 0.3);
+    color: #93C5FD; /* Brighter blue for visibility on dark bg */
+}
+
+[data-theme="dark"] .alert-success {
+    background-color: rgba(16, 185, 129, 0.15); /* success-color with low opacity */
+    border-color: rgba(16, 185, 129, 0.3);
+    color: #6EE7B7; /* Brighter green for visibility on dark bg */
+}
+
+/* Icons inside alerts should maintain proper contrast */
+[data-theme="dark"] .alert i.fas,
+[data-theme="dark"] .alert i.fa {
+    opacity: 0.9;
+}
+
+[data-theme="dark"] .alert-secondary {
+    background-color: rgba(100, 116, 139, 0.15); /* slate-500 with low opacity */
+    border-color: rgba(100, 116, 139, 0.3);
+    color: #94A3B8; /* slate-400 for visibility */
+}
+/* END Bootstrap Alert Dark Mode */
+
+/* =============================================================================
+   KEEP - Bootstrap Badge Dark Mode Overrides
+   Badges need explicit dark mode styling to prevent light mode fallback
+   ============================================================================= */
+[data-theme="dark"] .badge {
+    color: var(--text-color-primary);
+}
+
+[data-theme="dark"] .badge.bg-primary {
+    background-color: var(--brand-primary);
+    color: var(--text-on-primary-bg);
+}
+
+[data-theme="dark"] .badge.bg-light {
+    background-color: rgba(148, 163, 184, 0.2); /* slate-400 with opacity */
+    color: #CBD5E1; /* slate-300 */
+    border-color: rgba(148, 163, 184, 0.3);
+}
+
+[data-theme="dark"] .badge.bg-info {
+    background-color: rgba(59, 130, 246, 0.2); /* info-color with opacity */
+    color: #93C5FD; /* Brighter blue for visibility */
+    border-color: rgba(59, 130, 246, 0.3);
+}
+
+[data-theme="dark"] .badge.bg-secondary {
+    background-color: rgba(100, 116, 139, 0.2); /* slate-500 */
+    color: #94A3B8; /* slate-400 */
+}
+
+[data-theme="dark"] .badge.text-dark {
+    color: #F8FAFC !important; /* Override Bootstrap's text-dark in dark mode */
+}
+/* END Bootstrap Badge Dark Mode */
+
+/* =============================================================================
+   KEEP - Bootstrap Breadcrumb Dark Mode Overrides
+   Breadcrumbs need proper dark mode styling for navigation clarity
+   ============================================================================= */
+[data-theme="dark"] .breadcrumb {
+    background-color: transparent;
+}
+
+[data-theme="dark"] .breadcrumb-item,
+[data-theme="dark"] .breadcrumb-item a {
+    color: var(--text-color-secondary);
+}
+
+[data-theme="dark"] .breadcrumb-item.active {
+    color: var(--text-color-primary);
+}
+
+[data-theme="dark"] .breadcrumb-item + .breadcrumb-item::before {
+    color: var(--text-color-secondary);
+}
+
+[data-theme="dark"] .breadcrumb-item a:hover {
+    color: var(--link-hover-color);
+}
+/* END Bootstrap Breadcrumb Dark Mode */
+
+/* =============================================================================
+   KEEP - Bootstrap Button Dark Mode Overrides (Additional Coverage)
+   Ensure all button variants have proper dark mode styling
+   ============================================================================= */
+[data-theme="dark"] .btn-secondary {
+    background-color: #475569; /* slate-600 */
+    border-color: #475569;
+    color: #F8FAFC;
+}
+
+[data-theme="dark"] .btn-secondary:hover {
+    background-color: #334155; /* slate-700 */
+    border-color: #334155;
+}
+
+[data-theme="dark"] .btn-outline-secondary {
+    color: #94A3B8; /* slate-400 */
+    border-color: #475569; /* slate-600 */
+}
+
+[data-theme="dark"] .btn-outline-secondary:hover {
+    background-color: rgba(71, 85, 105, 0.2);
+    color: #CBD5E1; /* slate-300 */
+    border-color: #64748B; /* slate-500 */
+}
+
+[data-theme="dark"] .btn-info {
+    background-color: var(--info-color);
+    border-color: var(--info-color);
+    color: #FFFFFF;
+}
+
+[data-theme="dark"] .btn-info:hover {
+    background-color: var(--brand-secondary-dark);
+    border-color: var(--brand-secondary-dark);
+}
+/* END Bootstrap Button Dark Mode */
+
+/* =============================================================================
+   KEEP - Bootstrap Form Control Dark Mode Overrides
+   Form inputs need proper dark mode styling to prevent light mode fallback
+   ============================================================================= */
+[data-theme="dark"] .form-control,
+[data-theme="dark"] .form-select {
+    background-color: var(--input-bg);
+    border-color: var(--input-border-color);
+    color: var(--text-color-primary);
+}
+
+[data-theme="dark"] .form-control:focus,
+[data-theme="dark"] .form-select:focus {
+    background-color: var(--input-bg);
+    border-color: var(--input-focus-border-color);
+    color: var(--text-color-primary);
+    box-shadow: var(--input-focus-shadow);
+}
+
+[data-theme="dark"] .form-control::placeholder {
+    color: var(--placeholder-text-color);
+}
+
+[data-theme="dark"] .form-control:disabled,
+[data-theme="dark"] .form-select:disabled {
+    background-color: rgba(51, 65, 85, 0.3); /* slate-700 with opacity */
+    color: var(--text-color-secondary);
+}
+
+/* Input Group styling */
+[data-theme="dark"] .input-group-text {
+    background-color: #334155; /* slate-700 */
+    border-color: var(--input-border-color);
+    color: var(--text-color-secondary);
+}
+
+/* Form labels */
+[data-theme="dark"] .form-label {
+    color: var(--text-color-primary);
+}
+
+/* Form text (help text) */
+[data-theme="dark"] .form-text {
+    color: var(--text-color-secondary);
+}
+/* END Bootstrap Form Control Dark Mode */
+
+/* =============================================================================
+   KEEP - Bootstrap Dropdown Dark Mode Overrides
+   Dropdowns need proper dark mode styling (beyond affiliate dropdown)
+   ============================================================================= */
+[data-theme="dark"] .dropdown-menu {
+    background-color: var(--dropdown-bg);
+    border-color: var(--dropdown-border-color);
+}
+
+[data-theme="dark"] .dropdown-item {
+    color: var(--text-color-primary);
+}
+
+[data-theme="dark"] .dropdown-item:hover,
+[data-theme="dark"] .dropdown-item:focus {
+    background-color: var(--dropdown-item-hover-bg);
+    color: var(--dropdown-item-hover-text);
+}
+
+[data-theme="dark"] .dropdown-item.active,
+[data-theme="dark"] .dropdown-item:active {
+    background-color: var(--dropdown-item-active-bg);
+    color: var(--dropdown-item-active-text);
+}
+
+[data-theme="dark"] .dropdown-divider {
+    border-top-color: var(--border-color);
+}
+
+[data-theme="dark"] .dropdown-header {
+    color: var(--text-color-secondary);
+}
+/* END Bootstrap Dropdown Dark Mode */
+
+/* =============================================================================
+   KEEP - Container and Layout Dark Mode Coverage
+   Ensure all container elements inherit dark background properly
+   ============================================================================= */
+[data-theme="dark"] .container,
+[data-theme="dark"] .container-fluid,
+[data-theme="dark"] div.container,
+[data-theme="dark"] div.container-fluid {
+    background-color: transparent !important; /* Force transparent to let parent background show through */
+}
+
+/* Ensure the main page container areas don't have white backgrounds */
+[data-theme="dark"] main .container,
+[data-theme="dark"] .main-content .container,
+[data-theme="dark"] main div.container,
+[data-theme="dark"] .main-content div.container {
+    background-color: transparent !important;
+}
+
+/* Target Bootstrap padding utility classes that might have backgrounds */
+[data-theme="dark"] .py-1,
+[data-theme="dark"] .py-2,
+[data-theme="dark"] .py-3,
+[data-theme="dark"] .py-4,
+[data-theme="dark"] .py-5 {
+    background-color: transparent !important;
+}
+
+/* Ensure Bootstrap grid system elements are transparent */
+[data-theme="dark"] .row,
+[data-theme="dark"] .col,
+[data-theme="dark"] [class*="col-"] {
+    background-color: transparent !important;
+}
+
+/* Ensure all direct children of main content areas are transparent */
+[data-theme="dark"] main > *,
+[data-theme="dark"] .main-content > *,
+[data-theme="dark"] main > div,
+[data-theme="dark"] .main-content > div {
+    background-color: transparent !important;
+}
+
+/* Nuclear option: Force all divs within main to be transparent unless they're cards/alerts */
+[data-theme="dark"] main div:not(.card):not(.alert):not(.badge):not(.btn),
+[data-theme="dark"] .main-content div:not(.card):not(.alert):not(.badge):not(.btn) {
+    background-color: transparent !important;
+}
+/* END Container Dark Mode */

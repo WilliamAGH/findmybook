@@ -21,7 +21,8 @@ import com.williamcallahan.book_recommendation_engine.model.image.ImageResolutio
 import com.williamcallahan.book_recommendation_engine.model.image.ProcessedImage;
 import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
 import com.williamcallahan.book_recommendation_engine.util.cover.CoverIdentifierResolver;
-import com.williamcallahan.book_recommendation_engine.util.cover.CoverSourceMapper;
+import com.williamcallahan.book_recommendation_engine.util.cover.CoverUrlResolver;
+import com.williamcallahan.book_recommendation_engine.util.cover.S3KeyGenerator;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,13 +32,17 @@ import org.springframework.web.reactive.function.client.WebClient;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
-import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 
+import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -49,8 +54,7 @@ import java.util.Optional;
 @Service
 public class S3BookCoverService implements ExternalCoverService {
     private static final Logger logger = LoggerFactory.getLogger(S3BookCoverService.class);
-    private static final String COVER_IMAGES_DIRECTORY = "images/book-covers/";
-    private static final String LARGE_SUFFIX = "-lg";
+    private static final List<String> DEFAULT_SOURCE_BASE_LABELS = List.of("google-books", "open-library", "longitood");
     
     @Value("${s3.bucket-name}")
     private String s3BucketName;
@@ -72,6 +76,9 @@ public class S3BookCoverService implements ExternalCoverService {
     
     @Value("${s3.enabled:true}")
     private boolean s3EnabledCheck;
+
+    @Value("${s3.write-enabled:${S3_WRITE_ENABLED:true}}")
+    private boolean s3WriteEnabled;
 
     @Value("${app.cover-cache.max-file-size-bytes:5242880}") 
     private long maxFileSizeBytes; 
@@ -101,6 +108,11 @@ public class S3BookCoverService implements ExternalCoverService {
         } else {
             logger.info("S3BookCoverService: S3 is disabled by configuration.");
         }
+    }
+
+    @PostConstruct
+    void configureCdnResolver() {
+        resolveCdnBase().ifPresent(CoverUrlResolver::setCdnBase);
     }
 
     /**
@@ -218,17 +230,198 @@ public class S3BookCoverService implements ExternalCoverService {
      * @throws IllegalArgumentException if bookId is null, empty or contains invalid characters
      */
     public String generateS3Key(String bookId, String fileExtension, String source) {
-        if (bookId == null || bookId.isEmpty()) {
-            throw new IllegalArgumentException("Book ID cannot be null or empty");
+        return S3KeyGenerator.generateCoverKeyFromRawSource(bookId, fileExtension, source);
+    }
+
+    private static List<String> candidateSegmentsFor(String rawSource) {
+        LinkedHashSet<String> variants = new LinkedHashSet<>();
+
+        if (rawSource != null) {
+            String trimmed = rawSource.trim().toLowerCase(Locale.ROOT);
+            if (!trimmed.isEmpty()) {
+                variants.add(trimmed);
+                variants.add(trimmed.replace(' ', '-'));
+                variants.add(trimmed.replace(' ', '_'));
+            }
         }
-        if (!bookId.matches("[a-zA-Z0-9_-]+")) {
-            throw new IllegalArgumentException("Book ID contains invalid characters. Only alphanumeric characters, hyphens, and underscores are allowed.");
+
+        String canonical = S3KeyGenerator.normalizeRawSource(rawSource);
+        if (canonical != null && !canonical.isBlank()) {
+            variants.add(canonical);
+            variants.add(canonical.replace('-', '_'));
+            variants.add(canonical.replace('_', '-'));
         }
-        if (fileExtension == null || fileExtension.isEmpty() || !fileExtension.startsWith(".")) {
-             fileExtension = ".jpg"; 
+
+        variants.removeIf(String::isBlank);
+        return new ArrayList<>(variants);
+    }
+
+    private List<String> buildCandidateKeys(String bookId, String fileExtension, String rawSource) {
+        LinkedHashSet<String> keys = new LinkedHashSet<>();
+        for (String segment : candidateSegmentsFor(rawSource)) {
+            keys.add(S3KeyGenerator.generateCoverKeyFromRawSource(bookId, fileExtension, segment));
         }
-        String normalizedSource = source != null ? source.toLowerCase().replaceAll("[^a-z0-9_-]", "-") : "unknown";
-        return COVER_IMAGES_DIRECTORY + bookId + LARGE_SUFFIX + "-" + normalizedSource + fileExtension;
+        return new ArrayList<>(keys);
+    }
+
+    private Mono<String> locateExistingKeyAsync(String bookId, String fileExtension, String rawSource) {
+        if (!s3EnabledCheck || s3Client == null) {
+            return Mono.empty();
+        }
+        List<String> candidateKeys = buildCandidateKeys(bookId, fileExtension, rawSource);
+        return Flux.fromIterable(candidateKeys)
+            .concatMap(key -> headObjectExistsAsync(key)
+                .filter(Boolean::booleanValue)
+                .map(exists -> key))
+            .next();
+    }
+
+    private Optional<String> locateExistingKeySync(String bookId, String fileExtension, String rawSource) {
+        if (!s3EnabledCheck || s3Client == null) {
+            return Optional.empty();
+        }
+        for (String key : buildCandidateKeys(bookId, fileExtension, rawSource)) {
+            if (headObjectExistsSync(key)) {
+                return Optional.of(key);
+            }
+        }
+        return Optional.empty();
+    }
+
+    private Mono<Boolean> headObjectExistsAsync(String s3Key) {
+        Boolean cached = objectExistsCache.getIfPresent(s3Key);
+        if (cached != null) {
+            return Mono.just(cached);
+        }
+        return Mono.fromCallable(() -> headObjectExistsSync(s3Key))
+            .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    private boolean headObjectExistsSync(String s3Key) {
+        Boolean cached = objectExistsCache.getIfPresent(s3Key);
+        if (cached != null) {
+            return cached;
+        }
+
+        try {
+            s3Client.headObject(HeadObjectRequest.builder().bucket(s3BucketName).key(s3Key).build());
+            objectExistsCache.put(s3Key, true);
+            return true;
+        } catch (NoSuchKeyException e) {
+            objectExistsCache.put(s3Key, false);
+            return false;
+        } catch (software.amazon.awssdk.services.s3.model.S3Exception s3e) {
+            if (s3e.statusCode() == 404) {
+                objectExistsCache.put(s3Key, false);
+                return false;
+            }
+            logger.error("S3Exception checking object existence for key {}: Status={}, Message={}", s3Key, s3e.statusCode(), s3e.getMessage());
+            objectExistsCache.put(s3Key, false);
+            return false;
+        } catch (Exception e) {
+            logger.error("Unexpected error checking object existence for key {}: {}", s3Key, e.getMessage(), e);
+            objectExistsCache.put(s3Key, false);
+            return false;
+        }
+    }
+
+    private ImageDetails buildImageDetailsFromKey(String s3Key) {
+        return buildImageDetailsFromKey(s3Key, null);
+    }
+
+    private ImageDetails buildImageDetailsFromKey(String s3Key, ProcessedImage processedImage) {
+        Integer width = processedImage != null ? processedImage.getWidth() : null;
+        Integer height = processedImage != null ? processedImage.getHeight() : null;
+
+        ImageDetails details = new ImageDetails(
+            null,
+            "S3",
+            s3Key,
+            CoverImageSource.UNDEFINED,
+            ImageResolutionPreference.ORIGINAL,
+            width,
+            height
+        );
+
+        buildCdnUrl(s3Key).ifPresent(cdnUrl -> {
+            details.setUrlOrPath(cdnUrl);
+            details.setStorageLocation(ImageDetails.STORAGE_S3);
+            details.setStorageKey(s3Key);
+        });
+
+        return details;
+    }
+
+    private Optional<String> buildCdnUrl(String s3Key) {
+        return resolveCdnBase()
+            .map(base -> appendPath(base, s3Key))
+            .or(() -> {
+                logger.warn("No CDN base configured; unable to build S3 cover URL for key {}", s3Key);
+                return Optional.empty();
+            });
+    }
+
+    private Optional<String> resolveCdnBase() {
+        if (ValidationUtils.hasText(s3PublicCdnUrl)) {
+            return Optional.of(normalizeBase(s3PublicCdnUrl));
+        }
+        if (ValidationUtils.hasText(s3CdnUrl)) {
+            return Optional.of(normalizeBase(s3CdnUrl));
+        }
+        if (ValidationUtils.hasText(s3ServerUrl) && ValidationUtils.hasText(s3BucketName)) {
+            String combined = appendPath(normalizeBase(s3ServerUrl), s3BucketName);
+            return Optional.of(normalizeBase(combined));
+        }
+        return Optional.empty();
+    }
+
+    private String normalizeBase(String value) {
+        String trimmed = value == null ? "" : value.trim();
+        if (trimmed.endsWith("/")) {
+            return trimmed.substring(0, trimmed.length() - 1);
+        }
+        return trimmed;
+    }
+
+    private String appendPath(String base, String suffix) {
+        if (base == null || base.isBlank()) {
+            return suffix;
+        }
+        if (base.endsWith("/")) {
+            return base + suffix;
+        }
+        return base + "/" + suffix;
+    }
+
+    private Mono<ImageDetails> handleExistingObject(String existingKey,
+                                                    String canonicalKey,
+                                                    byte[] imageBytesForS3,
+                                                    String mimeTypeForS3,
+                                                    String bookId,
+                                                    String fileExtensionForS3,
+                                                    String rawSource,
+                                                    ProcessedImage processedImage,
+                                                    ImageProvenanceData provenanceData) {
+        return Mono.fromCallable(() -> s3Client.headObject(HeadObjectRequest.builder().bucket(s3BucketName).key(existingKey).build()))
+            .subscribeOn(Schedulers.boundedElastic())
+            .flatMap(headResponse -> {
+                if (existingKey.equals(canonicalKey) && headResponse.contentLength() == imageBytesForS3.length) {
+                    logger.info("Processed cover for book {} already exists in S3 with same size, skipping upload. Key: {}", bookId, existingKey);
+                    objectExistsCache.put(existingKey, true);
+                    return Mono.just(buildImageDetailsFromKey(existingKey, processedImage));
+                }
+
+                if (!existingKey.equals(canonicalKey)) {
+                    logger.info("Book {} has legacy S3 key {}. Uploading canonical key {} for future lookups.", bookId, existingKey, canonicalKey);
+                }
+
+                return uploadToS3Internal(canonicalKey, imageBytesForS3, mimeTypeForS3, bookId, fileExtensionForS3, rawSource, processedImage, provenanceData);
+            })
+            .onErrorResume(NoSuchKeyException.class, e -> uploadToS3Internal(canonicalKey, imageBytesForS3, mimeTypeForS3, bookId, fileExtensionForS3, rawSource, processedImage, provenanceData))
+            .onErrorResume(e -> {
+                logger.warn("Error checking existing S3 object for book {}: {}. Proceeding with canonical upload.", bookId, e.getMessage());
+                return uploadToS3Internal(canonicalKey, imageBytesForS3, mimeTypeForS3, bookId, fileExtensionForS3, rawSource, processedImage, provenanceData);
+            });
     }
 
     /**
@@ -263,28 +456,13 @@ public class S3BookCoverService implements ExternalCoverService {
         final String finalBookKey = bookKey;
         String fileExtension = ".jpg"; 
         
-        String[] s3SourceStrings = {
-            CoverSourceMapper.toS3KeySegment(CoverImageSource.GOOGLE_BOOKS),
-            CoverSourceMapper.toS3KeySegment(CoverImageSource.OPEN_LIBRARY),
-            CoverSourceMapper.toS3KeySegment(CoverImageSource.LONGITOOD),
-            "unknown"
-        };
-
-        return Flux.fromArray(s3SourceStrings)
-            .concatMap(sourceForS3Key -> 
-                coverExistsInS3Async(finalBookKey, fileExtension, sourceForS3Key)
-                    .filter(Boolean::booleanValue)
-                    .map(exists -> {
-                        String s3Key = generateS3Key(finalBookKey, fileExtension, sourceForS3Key);
-                        String cdnUrl = getS3CoverUrl(finalBookKey, fileExtension, sourceForS3Key);
-                        logger.debug("Found existing S3 cover for book {} from source key '{}': {}", finalBookKey, sourceForS3Key, cdnUrl);
-                        // S3 is storage location, not data source - use UNDEFINED for source
-                        com.williamcallahan.book_recommendation_engine.model.image.ImageDetails details = 
-                            new com.williamcallahan.book_recommendation_engine.model.image.ImageDetails(
-                                cdnUrl, "S3", s3Key, CoverImageSource.UNDEFINED, ImageResolutionPreference.ORIGINAL);
-                        details.setStorageLocation(ImageDetails.STORAGE_S3);
-                        details.setStorageKey(s3Key);
-                        return Optional.of(details);
+        return Flux.fromIterable(DEFAULT_SOURCE_BASE_LABELS)
+            .concatMap(baseLabel ->
+                locateExistingKeyAsync(finalBookKey, fileExtension, baseLabel)
+                    .map(existingKey -> {
+                        String resolvedUrl = buildCdnUrl(existingKey).orElse(null);
+                        logger.debug("Found existing S3 cover for book {} using source '{}': {}", finalBookKey, baseLabel, resolvedUrl);
+                        return Optional.of(buildImageDetailsFromKey(existingKey));
                     })
                     .switchIfEmpty(Mono.just(Optional.empty()))
             )
@@ -306,36 +484,7 @@ public class S3BookCoverService implements ExternalCoverService {
      * @return Boolean indicating if the object exists in S3
      */
     public boolean coverExistsInS3(String bookId, String fileExtension, String source) {
-        if (!s3EnabledCheck || s3Client == null) return false;
-        String s3Key = generateS3Key(bookId, fileExtension, source);
-        
-        Boolean cachedExists = objectExistsCache.getIfPresent(s3Key);
-        if (cachedExists != null) {
-            return cachedExists;
-        }
-        
-        try {
-            HeadObjectResponse response = s3Client.headObject(HeadObjectRequest.builder().bucket(s3BucketName).key(s3Key).build());
-            boolean exists = response != null; 
-            objectExistsCache.put(s3Key, exists);
-            return exists;
-        } catch (NoSuchKeyException e) { // Specifically for object not found
-            objectExistsCache.put(s3Key, false);
-            return false;
-        } catch (software.amazon.awssdk.services.s3.model.S3Exception s3e) { // Catch broader S3 exceptions
-            if (s3e.statusCode() == 404) { // Not Found
-                objectExistsCache.put(s3Key, false);
-                return false;
-            }
-            // For other S3 errors, log it and return false
-            logger.error("S3Exception checking S3 object existence for key {}: Status={}, Message={}", s3Key, s3e.statusCode(), s3e.getMessage());
-            objectExistsCache.put(s3Key, false);
-            return false;
-        } catch (Exception e) {
-            logger.error("Unexpected error checking S3 object existence for key {}: {}", s3Key, e.getMessage(), e);
-            objectExistsCache.put(s3Key, false);
-            return false; 
-        }
+        return locateExistingKeySync(bookId, fileExtension, source).isPresent();
     }
 
     /**
@@ -351,53 +500,20 @@ public class S3BookCoverService implements ExternalCoverService {
      * @return Mono containing boolean indicating if the object exists in S3
      */
     public Mono<Boolean> coverExistsInS3Async(String bookId, String fileExtension, String source) {
-        if (!s3EnabledCheck || s3Client == null) {
-            return Mono.just(false);
-        }
-        String s3Key = generateS3Key(bookId, fileExtension, source);
-        
-        Boolean cachedExists = objectExistsCache.getIfPresent(s3Key);
-        if (cachedExists != null) {
-            return Mono.just(cachedExists);
-        }
-        
-        return Mono.fromCallable(() -> {
-            try {
-                s3Client.headObject(HeadObjectRequest.builder().bucket(s3BucketName).key(s3Key).build());
-                return true; // If no exception, object exists
-            } catch (NoSuchKeyException e) {
-                return false; // Object does not exist specifically
-            } catch (software.amazon.awssdk.services.s3.model.S3Exception s3e) {
-                if (s3e.statusCode() == 404) {
-                    return false; // Object not found via S3Exception
-                }
-                // For other S3 errors, log it and re-throw to be handled by onErrorResume
-                logger.error("S3Exception (async) checking S3 object existence for key {}: Status={}, Message={}", s3Key, s3e.statusCode(), s3e.getMessage());
-                throw s3e; 
-            } catch (Exception e) { // Catch any other unexpected exceptions
-                logger.error("Unexpected error (async) checking S3 object existence for key {}: {}", s3Key, e.getMessage(), e);
-                throw e; // Re-throw to be handled by onErrorResume
-            }
-        })
-        .subscribeOn(Schedulers.boundedElastic()) // Offload blocking call
-        .doOnSuccess(exists -> objectExistsCache.put(s3Key, exists)) // Cache success (true or false from try-catch)
-        .onErrorResume(e -> {
-            // This will catch exceptions re-thrown from the try-catch block (e.g., non-404 S3Exception, other unexpected errors)
-            // It will cache 'false' in these error cases to prevent repeated failed attempts for a while
-            // Depending on the error, one might choose not to cache or cache for a shorter duration
-            objectExistsCache.put(s3Key, false); 
-            logger.warn("Async S3 check failed for key {} due to {}. Caching as non-existent.", s3Key, e.getClass().getSimpleName());
-            return Mono.just(false); 
-        });
+        return locateExistingKeyAsync(bookId, fileExtension, source).hasElement();
     }
 
     public Mono<Boolean> coverExistsInS3Async(String bookId, String fileExtension) {
-        String[] sourcesToTry = {"google-books", "open-library", "longitood", "unknown"};
-        return Flux.fromArray(sourcesToTry)
-            .concatMap(source -> coverExistsInS3Async(bookId, fileExtension, source))
-            .any(exists -> exists); // Returns true if any source exists
+        return Flux.concat(
+                Flux.fromIterable(DEFAULT_SOURCE_BASE_LABELS)
+                    .concatMap(label -> coverExistsInS3Async(bookId, fileExtension, label)),
+                coverExistsInS3Async(bookId, fileExtension, "unknown")
+            )
+            .filter(Boolean::booleanValue)
+            .next()
+            .defaultIfEmpty(false);
     }
-    
+
     public Mono<ImageDetails> uploadCoverToS3Async(String imageUrl, String bookId, String source) {
         return uploadCoverToS3Async(imageUrl, bookId, source, null);
     }
@@ -440,38 +556,30 @@ public class S3BookCoverService implements ExternalCoverService {
                             return Mono.just(new com.williamcallahan.book_recommendation_engine.model.image.ImageDetails(imageUrl, source, "processed-image-too-large-" + bookId, CoverImageSource.ANY, ImageResolutionPreference.ORIGINAL));
                         }
 
-                        String s3Key = generateS3Key(bookId, fileExtensionForS3, s3Source);
+                        String canonicalKey = generateS3Key(bookId, fileExtensionForS3, s3Source);
 
-                        // Asynchronous check for existing object
-                        return coverExistsInS3Async(bookId, fileExtensionForS3, s3Source)
-                            .flatMap(exists -> {
-                                if (exists) {
-                                    // Check content length if it exists
-                                    return Mono.fromCallable(() -> s3Client.headObject(HeadObjectRequest.builder().bucket(s3BucketName).key(s3Key).build()))
-                                        .subscribeOn(Schedulers.boundedElastic())
-                                        .flatMap(headResponse -> {
-                                            if (headResponse.contentLength() == imageBytesForS3.length) {
-                                                logger.info("Processed cover for book {} already exists in S3 with same size, skipping upload. Key: {}", bookId, s3Key);
-                                                String cdnUrl = getS3CoverUrl(bookId, fileExtensionForS3, s3Source);
-                                                com.williamcallahan.book_recommendation_engine.model.image.ImageDetails details = 
-                                                    new com.williamcallahan.book_recommendation_engine.model.image.ImageDetails(
-                                                        cdnUrl, "S3", s3Key, CoverImageSource.UNDEFINED, 
-                                                        ImageResolutionPreference.ORIGINAL, processedImage.getWidth(), processedImage.getHeight());
-                                                details.setStorageLocation(ImageDetails.STORAGE_S3);
-                                                details.setStorageKey(s3Key);
-                                                return Mono.just(details);
-                                            }
-                                            return uploadToS3Internal(s3Key, imageBytesForS3, mimeTypeForS3, bookId, fileExtensionForS3, s3Source, processedImage, provenanceData);
-                                        })
-                                        .onErrorResume(NoSuchKeyException.class, e -> uploadToS3Internal(s3Key, imageBytesForS3, mimeTypeForS3, bookId, fileExtensionForS3, s3Source, processedImage, provenanceData))
-                                        .onErrorResume(e -> {
-                                             logger.warn("Error checking existing S3 object for book {}: {}. Proceeding with upload.", bookId, e.getMessage());
-                                             return uploadToS3Internal(s3Key, imageBytesForS3, mimeTypeForS3, bookId, fileExtensionForS3, s3Source, processedImage, provenanceData);
-                                        });
-                                } else {
-                                    return uploadToS3Internal(s3Key, imageBytesForS3, mimeTypeForS3, bookId, fileExtensionForS3, s3Source, processedImage, provenanceData);
-                                }
-                            });
+                        return locateExistingKeyAsync(bookId, fileExtensionForS3, s3Source)
+                            .flatMap(existingKey -> handleExistingObject(
+                                existingKey,
+                                canonicalKey,
+                                imageBytesForS3,
+                                mimeTypeForS3,
+                                bookId,
+                                fileExtensionForS3,
+                                s3Source,
+                                processedImage,
+                                provenanceData
+                            ))
+                            .switchIfEmpty(uploadToS3Internal(
+                                canonicalKey,
+                                imageBytesForS3,
+                                mimeTypeForS3,
+                                bookId,
+                                fileExtensionForS3,
+                                s3Source,
+                                processedImage,
+                                provenanceData
+                            ));
                     })
                     .onErrorResume(e -> { // Catches exceptions from imageProcessingService.processImageForS3 or subsequent reactive chain
                         logger.error("Unexpected exception during S3 upload (image processing or subsequent steps) for book {}: {}. URL: {}", bookId, e.getMessage(), imageUrl, e);
@@ -485,6 +593,21 @@ public class S3BookCoverService implements ExternalCoverService {
     }
 
     private Mono<com.williamcallahan.book_recommendation_engine.model.image.ImageDetails> uploadToS3Internal(String s3Key, byte[] imageBytesForS3, String mimeTypeForS3, String bookId, String fileExtensionForS3, String s3Source, ProcessedImage processedImage, ImageProvenanceData provenanceData) {
+        if (!s3WriteEnabled) {
+            logger.debug("S3 write disabled; skipping upload for book {} (key {}).", bookId, s3Key);
+            com.williamcallahan.book_recommendation_engine.model.image.ImageDetails details =
+                new com.williamcallahan.book_recommendation_engine.model.image.ImageDetails(
+                    null,
+                    s3Source,
+                    null,
+                    CoverImageSource.UNDEFINED,
+                    ImageResolutionPreference.ORIGINAL,
+                    processedImage != null ? processedImage.width() : null,
+                    processedImage != null ? processedImage.height() : null
+                );
+            details.setStorageLocation(ImageDetails.STORAGE_LOCAL);
+            return Mono.just(details);
+        }
         return Mono.fromCallable(() -> {
             PutObjectRequest putObjectRequest = PutObjectRequest.builder()
                     .bucket(s3BucketName)
@@ -494,18 +617,10 @@ public class S3BookCoverService implements ExternalCoverService {
                     .build();
             s3Client.putObject(putObjectRequest, RequestBody.fromBytes(imageBytesForS3));
             
-            String cdnUrl = getS3CoverUrl(bookId, fileExtensionForS3, s3Source);
             objectExistsCache.put(s3Key, true);
             logger.info("Successfully uploaded processed cover for book {} to S3. Key: {}", bookId, s3Key);
 
-            // Provenance JSON uploads to S3 are deprecated and disabled as of 2025-10-01.
-            com.williamcallahan.book_recommendation_engine.model.image.ImageDetails details = 
-                new com.williamcallahan.book_recommendation_engine.model.image.ImageDetails(
-                    cdnUrl, "S3", s3Key, CoverImageSource.UNDEFINED, 
-                    ImageResolutionPreference.ORIGINAL, processedImage.getWidth(), processedImage.getHeight());
-            details.setStorageLocation(ImageDetails.STORAGE_S3);
-            details.setStorageKey(s3Key);
-            return details;
+            return buildImageDetailsFromKey(s3Key, processedImage);
         }).subscribeOn(Schedulers.boundedElastic());
     }
  
@@ -542,8 +657,15 @@ public class S3BookCoverService implements ExternalCoverService {
      * Generates CDN URL for a book cover with known source
      */
     public String getS3CoverUrl(String bookId, String fileExtension, String source) {
-        String s3Key = generateS3Key(bookId, fileExtension, source);
-        return (s3PublicCdnUrl != null && !s3PublicCdnUrl.isEmpty() ? s3PublicCdnUrl : s3CdnUrl) + "/" + s3Key;
+        Optional<String> existingKey = locateExistingKeySync(bookId, fileExtension, source);
+        if (existingKey.isPresent()) {
+            return buildCdnUrl(existingKey.get()).orElse(null);
+        }
+
+        String fallbackKey = S3KeyGenerator.generateCoverKeyFromRawSource(bookId, fileExtension, source);
+        logger.warn("getS3CoverUrl(bookId={}, fileExtension={}, source={}) found no existing object. Returning canonical key {}.",
+            bookId, fileExtension, source, fallbackKey);
+        return buildCdnUrl(fallbackKey).orElse(null);
     }
 
     /**
@@ -554,14 +676,15 @@ public class S3BookCoverService implements ExternalCoverService {
      * @return CDN URL for the first found cover or null if none exists
      */
     public String getS3CoverUrl(String bookId, String fileExtension) {
-        String[] sourcesToTry = {"google-books", "open-library", "longitood", "unknown"};
-        for (String source : sourcesToTry) {
-            if (coverExistsInS3(bookId, fileExtension, source)) { 
-                return getS3CoverUrl(bookId, fileExtension, source);
+        for (String baseLabel : DEFAULT_SOURCE_BASE_LABELS) {
+            Optional<String> key = locateExistingKeySync(bookId, fileExtension, baseLabel);
+            if (key.isPresent()) {
+                return buildCdnUrl(key.get()).orElse(null);
             }
         }
-        logger.warn("getS3CoverUrl(bookId, fileExtension) called for book {} with extension {}, but no cover found from any known source.", bookId, fileExtension);
-        return null; 
+
+        logger.warn("getS3CoverUrl(bookId={}, fileExtension={}) could not locate any cover. Returning canonical unknown key.", bookId, fileExtension);
+        return buildCdnUrl(S3KeyGenerator.generateCoverKeyFromRawSource(bookId, fileExtension, "unknown")).orElse(null);
     }
 
     /**
@@ -571,7 +694,7 @@ public class S3BookCoverService implements ExternalCoverService {
      * @return File extension with leading dot or default (.jpg) if none found
      */
     /**
-     * @deprecated Deprecated 2025-10-01. Use {@link com.williamcallahan.book_recommendation_engine.util.ImageCacheUtils#getFileExtensionFromUrl(String)} instead.
+     * @deprecated Deprecated 2025-10-01. Use {@link com.williamcallahan.book_recommendation_engine.util.UrlUtils#extractFileExtension(String)} instead.
      */
     @Deprecated(since = "2025-10-01", forRemoval = true)
     public String getFileExtensionFromUrl(String url) {

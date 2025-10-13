@@ -26,7 +26,7 @@ import java.util.stream.Collectors;
  * Provides Postgres-first read access for legacy {@link Book} projections while the
  * application migrates toward DTO-centric controllers.
  * <p>
- * Centralises all lookups so callers no longer need to depend on the deprecated
+ * Centralizes all lookups so callers no longer need to depend on the deprecated
  * tiered orchestrator methods.
  */
 @Service
@@ -50,7 +50,7 @@ public class BookViewService {
      * {@link BookQueryRepository#searchBookCards(String, String, int, String)}
      * or use {@link BookSearchService#searchBooks(String, Integer)} combined with
      * {@link BookQueryRepository#fetchBookListItems(java.util.List)} to return DTO projections
-     * instead of rematerialising legacy {@link Book} entities.
+     * instead of rematerializing legacy {@link Book} entities.
      */
     @Deprecated(since = "2025-10-01", forRemoval = true)
     public Mono<List<Book>> searchBooks(String query,
@@ -213,7 +213,7 @@ public class BookViewService {
                 if (book == null) {
                     return null;
                 }
-                book.addQualifier("search.matchType", result.matchTypeNormalised());
+                book.addQualifier("search.matchType", result.matchTypeNormalized());
                 book.addQualifier("search.relevanceScore", result.relevanceScore());
                 return book;
             })

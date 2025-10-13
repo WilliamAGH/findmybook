@@ -48,7 +48,7 @@ class BookDtoMapperTest {
         assertThat(dto.publication().language()).isEqualTo("en");
         assertThat(dto.authors()).extracting(AuthorDto::name).containsExactly("Author One");
         assertThat(dto.categories()).containsExactly("Fiction");
-        assertThat(dto.cover().preferredUrl()).isEqualTo("https://cdn.test/preferred.jpg");
+        assertThat(dto.cover().preferredUrl()).isEqualTo(coverImages.getPreferredUrl());
         assertThat(dto.cover().source()).isEqualTo(ApplicationConstants.Provider.GOOGLE_BOOKS);
         assertThat(dto.tags()).hasSize(1);
         assertThat(dto.editions()).hasSize(1);

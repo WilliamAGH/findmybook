@@ -176,6 +176,11 @@ public class NewYorkTimesBestsellerScheduler {
             isbn10 = null;
         }
 
+        if (isbn13 == null && isbn10 == null) {
+            log.warn("Skipping NYT list entry without valid ISBNs for list '{}'.", listCode);
+            return;
+        }
+
         String canonicalId = resolveCanonicalBookId(isbn13, isbn10);
         boolean isNewBook = (canonicalId == null);
         
@@ -197,7 +202,25 @@ public class NewYorkTimesBestsellerScheduler {
         Integer rank = bookNode.path("rank").isInt() ? bookNode.get("rank").asInt() : null;
         Integer weeksOnList = bookNode.path("weeks_on_list").isInt() ? bookNode.get("weeks_on_list").asInt() : null;
         Integer rankLastWeek = bookNode.path("rank_last_week").isInt() ? bookNode.get("rank_last_week").asInt() : null;
-        Integer peakPosition = bookNode.path("audiobook_rank").isInt() ? bookNode.get("audiobook_rank").asInt() : null;
+        Integer peakPosition = null;
+        JsonNode ranksHistory = bookNode.path("ranks_history");
+        if (ranksHistory.isArray() && ranksHistory.size() > 0) {
+            for (JsonNode rh : ranksHistory) {
+                if (rh.path("rank").isInt()) {
+                    int r = rh.get("rank").asInt();
+                    if (peakPosition == null || r < peakPosition) {
+                        peakPosition = r;
+                    }
+                }
+            }
+        }
+        if (peakPosition == null) {
+            if (bookNode.path("rank").isInt()) {
+                peakPosition = bookNode.get("rank").asInt();
+            } else if (bookNode.path("rank_last_week").isInt()) {
+                peakPosition = bookNode.get("rank_last_week").asInt();
+            }
+        }
         String providerRef = bookNode.path("amazon_product_url").asText(null);
 
         String rawItem;
@@ -338,7 +361,7 @@ public class NewYorkTimesBestsellerScheduler {
         if (!ValidationUtils.hasText(sanitized)) {
             return;
         }
-        String normalized = sanitized.replace(" and ", ",");
+        String normalized = sanitized.replaceAll("(?i)\\band\\b", ",");
         for (String part : normalized.split("[,;&]")) {
             String cleaned = part.trim();
             if (ValidationUtils.hasText(cleaned)) {

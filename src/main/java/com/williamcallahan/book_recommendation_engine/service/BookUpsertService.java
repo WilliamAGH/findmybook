@@ -3,6 +3,7 @@ package com.williamcallahan.book_recommendation_engine.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.williamcallahan.book_recommendation_engine.dto.BookAggregate;
 import com.williamcallahan.book_recommendation_engine.service.image.CoverPersistenceService;
+import com.williamcallahan.book_recommendation_engine.util.CategoryNormalizer;
 import com.williamcallahan.book_recommendation_engine.util.DimensionParser;
 import com.williamcallahan.book_recommendation_engine.util.IdGenerator;
 import com.williamcallahan.book_recommendation_engine.util.UrlUtils;
@@ -513,7 +514,7 @@ public class BookUpsertService {
      * - Normalize URLs to HTTPS
      * - Estimate dimensions based on image type
      * - Detect high-resolution images
-     * - Update books.s3_image_path with canonical cover
+     * - Persist canonical cover metadata into book_image_links
      * 
      * Falls back to simple upsert if CoverPersistenceService fails or reports no change.
      */
@@ -529,8 +530,8 @@ public class BookUpsertService {
             );
 
             if (result.success()) {
-                log.debug("Enhanced image metadata persisted for book {}: s3Key={}, dimensions={}x{}, highRes={}",
-                    bookId, result.s3Key(), result.width(), result.height(), result.highRes());
+                log.debug("Enhanced image metadata persisted for book {}: canonicalUrl={}, dimensions={}x{}, highRes={}",
+                    bookId, result.canonicalUrl(), result.width(), result.height(), result.highRes());
                 return;
             }
 
@@ -615,13 +616,20 @@ public class BookUpsertService {
     
     /**
      * UPSERT categories via BookCollectionPersistenceService.
+     * 
+     * <p>Normalizes and deduplicates categories before persistence for consistency
+     * in case categories come from different sources or were already partially normalized.
+     * 
+     * @param bookId Book UUID
+     * @param categories Raw or pre-normalized category list
+     * @see CategoryNormalizer#normalizeAndDeduplicate(List)
      */
     private void upsertCategories(UUID bookId, List<String> categories) {
-        for (String category : categories) {
-            if (category == null || category.isBlank()) {
-                continue;
-            }
-            
+        // Normalize and deduplicate for consistency (DRY principle)
+        // This ensures consistency even if categories come from different sources
+        List<String> normalizedCategories = CategoryNormalizer.normalizeAndDeduplicate(categories);
+        
+        for (String category : normalizedCategories) {
             collectionPersistenceService.upsertCategory(category)
                 .ifPresent(collectionId -> 
                     collectionPersistenceService.addBookToCategory(collectionId, bookId.toString())

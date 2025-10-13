@@ -105,7 +105,7 @@ public class TieredBookSearchService {
      * @deprecated Stream DTOs via repository-backed queries rather than legacy {@link Book} flows.
      */
     @Deprecated(since = "2025-10-01", forRemoval = true)
-    Flux<Book> streamSearch(String query,
+    public Flux<Book> streamSearch(String query,
                              String langCode,
                              int desiredTotalResults,
                              String orderBy,
@@ -721,7 +721,7 @@ public class TieredBookSearchService {
                         for (BookSearchService.SearchResult hit : hits) {
                             Book book = bookMap.get(hit.bookId().toString());
                             if (book != null) {
-                                book.addQualifier("search.matchType", hit.matchTypeNormalised());
+                                book.addQualifier("search.matchType", hit.matchTypeNormalized());
                                 book.addQualifier("search.relevanceScore", hit.relevanceScore());
                                 orderedResults.add(book);
                             }

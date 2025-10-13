@@ -6,8 +6,12 @@ import com.williamcallahan.book_recommendation_engine.dto.BookListItem;
 import com.williamcallahan.book_recommendation_engine.dto.EditionSummary;
 import com.williamcallahan.book_recommendation_engine.model.Book;
 import com.williamcallahan.book_recommendation_engine.model.image.CoverImages;
+import com.williamcallahan.book_recommendation_engine.model.image.CoverImageSource;
+import com.williamcallahan.book_recommendation_engine.util.ApplicationConstants;
 import com.williamcallahan.book_recommendation_engine.util.SlugGenerator;
 import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
+import com.williamcallahan.book_recommendation_engine.util.cover.CoverUrlResolver;
+import com.williamcallahan.book_recommendation_engine.util.cover.UrlSourceDetector;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -19,7 +23,7 @@ import java.util.stream.Collectors;
 
 /**
  * Shared mapper that transforms domain {@link Book} objects into API-facing DTOs.
- * Centralising this logic lets controller layers adopt Postgres-first data
+ * Centralizing this logic lets controller layers adopt Postgres-first data
  * without rewriting mapping code in multiple places.
  */
 public final class BookDtoMapper {
@@ -85,15 +89,17 @@ public final class BookDtoMapper {
             detail.publisher()
         );
 
-        CoverDto cover = new CoverDto(
+        String alternateCandidate = firstNonBlank(detail.thumbnailUrl(), detail.coverUrl());
+        String fallbackCandidate = firstNonBlank(detail.thumbnailUrl(), detail.coverUrl());
+
+        CoverDto cover = buildCoverDto(
             detail.coverUrl(),
-            detail.coverUrl(),
-            null,
-            null,
-            null,
-            detail.coverUrl(),
-            ValidationUtils.hasText(detail.thumbnailUrl()) ? detail.thumbnailUrl() : detail.coverUrl(),
-            null
+            alternateCandidate,
+            fallbackCandidate,
+            detail.coverWidth(),
+            detail.coverHeight(),
+            detail.coverHighResolution(),
+            detail.dataSource()
         );
 
         List<AuthorDto> authors = toAuthorDtos(detail.authors());
@@ -129,14 +135,13 @@ public final class BookDtoMapper {
             return null;
         }
 
-        CoverDto cover = new CoverDto(
+        CoverDto cover = buildCoverDto(
+            card.coverUrl(),
             card.coverUrl(),
             card.coverUrl(),
             null,
             null,
             null,
-            card.coverUrl(),
-            card.coverUrl(),
             null
         );
 
@@ -170,14 +175,13 @@ public final class BookDtoMapper {
 
         PublicationDto publication = new PublicationDto(null, null, null, null);
 
-        CoverDto cover = new CoverDto(
+        CoverDto cover = buildCoverDto(
             item.coverUrl(),
             item.coverUrl(),
-            null,
-            null,
-            null,
             item.coverUrl(),
-            item.coverUrl(),
+            item.coverWidth(),
+            item.coverHeight(),
+            item.coverHighResolution(),
             null
         );
 
@@ -245,17 +249,100 @@ public final class BookDtoMapper {
     }
 
     private static CoverDto buildCover(Book book) {
+        if (book == null) {
+            return null;
+        }
         CoverImages coverImages = book.getCoverImages();
-        return new CoverDto(
-                book.getS3ImagePath(),
-                book.getExternalImageUrl(),
-                book.getCoverImageWidth(),
-                book.getCoverImageHeight(),
-                book.getIsCoverHighResolution(),
-                coverImages != null ? coverImages.getPreferredUrl() : null,
-                coverImages != null ? coverImages.getFallbackUrl() : null,
-                coverImages != null && coverImages.getSource() != null ? coverImages.getSource().name() : null
+        String preferredCandidate = coverImages != null && ValidationUtils.hasText(coverImages.getPreferredUrl())
+            ? coverImages.getPreferredUrl()
+            : null;
+        String fallbackCandidate = coverImages != null && ValidationUtils.hasText(coverImages.getFallbackUrl())
+            ? coverImages.getFallbackUrl()
+            : book.getExternalImageUrl();
+        String alternateCandidate = firstNonBlank(preferredCandidate, book.getExternalImageUrl(), fallbackCandidate);
+        String primaryCandidate = ValidationUtils.hasText(book.getS3ImagePath())
+            ? book.getS3ImagePath()
+            : alternateCandidate;
+        String declaredSource = coverImages != null && coverImages.getSource() != null
+            ? coverImages.getSource().name()
+            : null;
+        return buildCoverDto(
+            primaryCandidate,
+            alternateCandidate,
+            fallbackCandidate,
+            book.getCoverImageWidth(),
+            book.getCoverImageHeight(),
+            book.getIsCoverHighResolution(),
+            declaredSource
         );
+    }
+
+    private static CoverDto buildCoverDto(String primaryCandidate,
+                                          String alternateCandidate,
+                                          String fallbackCandidate,
+                                          Integer width,
+                                          Integer height,
+                                          Boolean highResolution,
+                                          String declaredSource) {
+        CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
+            primaryCandidate,
+            alternateCandidate,
+            width,
+            height,
+            highResolution
+        );
+
+        String placeholder = ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH;
+        String fallbackUrl = firstNonBlank(fallbackCandidate, alternateCandidate, primaryCandidate, placeholder);
+        String preferredUrl = ValidationUtils.hasText(resolved.url()) ? resolved.url() : fallbackUrl;
+        if (!ValidationUtils.hasText(preferredUrl)) {
+            preferredUrl = placeholder;
+        }
+
+        String s3Key = resolved.fromS3() ? resolved.s3Key() : null;
+
+        String externalUrl = resolved.fromS3()
+            ? firstNonBlank(fallbackCandidate, alternateCandidate)
+            : preferredUrl;
+        if (ValidationUtils.hasText(externalUrl) && externalUrl.contains("placeholder-book-cover.svg")) {
+            externalUrl = null;
+        }
+
+        String source = declaredSource;
+        if (!ValidationUtils.hasText(source)) {
+            if (resolved.fromS3()) {
+                source = "S3_CACHE";
+            } else {
+                CoverImageSource detected = UrlSourceDetector.detectSource(preferredUrl);
+                source = detected != null ? detected.name() : CoverImageSource.UNDEFINED.name();
+            }
+        }
+        if (preferredUrl.contains("placeholder-book-cover.svg")) {
+            source = CoverImageSource.NONE.name();
+        }
+
+        return new CoverDto(
+            s3Key,
+            externalUrl,
+            resolved.width(),
+            resolved.height(),
+            resolved.highResolution(),
+            preferredUrl,
+            fallbackUrl,
+            source
+        );
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (ValidationUtils.hasText(value)) {
+                return value;
+            }
+        }
+        return null;
     }
 
     private static List<AuthorDto> mapAuthors(Book book) {

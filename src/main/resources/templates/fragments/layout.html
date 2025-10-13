@@ -37,15 +37,120 @@
 
     <!-- Bootstrap 5 CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Font Awesome -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Font Awesome (ensure mobile font loading via CORS + preconnect/preload) -->
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" integrity="sha512-SnH5WK+bZxgPHs44uWIX+LLJAJ9/2PkPKZ5QiAj6Ta86w+fsb2TkcmfRyVX3pBnMFcV7oQPJkl9QevSCWr3W6A==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-solid-900.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+    <link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-brands-400.woff2" as="font" type="font/woff2" crossorigin="anonymous">
+    <link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-regular-400.woff2" as="font" type="font/woff2" crossorigin="anonymous">
     
     <!-- Google Fonts - New (Inter & Poppins) -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@500;600;700&display=swap" rel="stylesheet">
     
-    <!-- Custom CSS -->
+    <!-- Tailwind CSS Play CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: ['selector', '[data-theme="dark"]'],
+            theme: {
+                extend: {
+                    colors: {
+                        'linen': {
+                            50: '#FDFCFA',
+                            100: '#F5F1E8',
+                            200: '#EDE8DC',
+                            300: '#E3DDD0',
+                            400: '#D4CAB7',
+                            500: '#C4B8A0',
+                            600: '#A89778',
+                            700: '#8B7355',
+                            800: '#6B5642',
+                            900: '#4A3B2E'
+                        },
+                        'canvas': {
+                            50: '#FAF7F2',
+                            100: '#F0E9DA',
+                            200: '#E8DCBD',
+                            300: '#DECCA0',
+                            400: '#D4A574',
+                            500: '#C8935A',
+                            600: '#B17B45',
+                            700: '#8F6236',
+                            800: '#6D4A28',
+                            900: '#4A321B'
+                        },
+                        'anthracite': {
+                            50: '#F9F8F7',
+                            100: '#E8E6E3',
+                            200: '#D1CCC6',
+                            300: '#B5AEA6',
+                            400: '#948B81',
+                            500: '#6D665F',
+                            600: '#534E48',
+                            700: '#3D3935',
+                            800: '#2A2623',
+                            900: '#1A1816'
+                        },
+                        'sage': {
+                            50: '#F7F8F6',
+                            100: '#E8EBE4',
+                            200: '#D4D9CC',
+                            300: '#B8BFB0',
+                            400: '#96A188',
+                            500: '#768269',
+                            600: '#5C6752',
+                            700: '#454E3E',
+                            800: '#2F352B',
+                            900: '#1C1F1A'
+                        },
+                        'obsidian': {
+                            50: '#F8FAFC',   // slate-50 - near white text
+                            100: '#F1F5F9',  // slate-100 - very light backgrounds
+                            200: '#E2E8F0',  // slate-200 - light borders
+                            300: '#CBD5E1',  // slate-300 - muted borders
+                            400: '#94A3B8',  // slate-400 - secondary text
+                            500: '#64748B',  // slate-500 - placeholder text
+                            600: '#475569',  // slate-600 - dark secondary text
+                            700: '#334155',  // slate-700 - borders in dark mode
+                            800: '#1E293B',  // slate-800 - elevated surfaces (cards)
+                            900: '#0F1419'   // slate-900 - page background
+                        },
+                        'slate': {
+                            50: '#F8FAFC',   // near white text
+                            100: '#F1F5F9',  // very light backgrounds
+                            200: '#E2E8F0',  // light borders
+                            300: '#CBD5E1',  // muted borders
+                            400: '#94A3B8',  // secondary text
+                            500: '#64748B',  // placeholder text
+                            600: '#475569',  // dark secondary text
+                            700: '#334155',  // borders in dark mode
+                            800: '#1E293B',  // elevated surfaces (cards)
+                            900: '#0F1419'   // page background
+                        }
+                    },
+                    fontFamily: {
+                        'sans': ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+                        'heading': ['Poppins', 'Inter', 'sans-serif'],
+                        'serif': ['Crimson Pro', 'Georgia', 'serif']
+                    },
+                    boxShadow: {
+                        'soft': '0 2px 8px rgba(26, 24, 22, 0.04), 0 1px 2px rgba(26, 24, 22, 0.06)',
+                        'soft-lg': '0 10px 25px rgba(26, 24, 22, 0.08), 0 4px 10px rgba(26, 24, 22, 0.05)',
+                        'canvas': '0 4px 12px rgba(212, 165, 116, 0.15)',
+                        'book': '0 8px 20px rgba(139, 115, 85, 0.2)'
+                    },
+                    borderRadius: {
+                        'book': '0.375rem'
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Custom CSS (legacy - will be phased out) -->
     <!-- CSS Variables Definitions -->
     <link rel="stylesheet" th:href="@{/css/variables.css}">
     <link rel="stylesheet" th:href="@{/css/main.css}">
@@ -53,71 +158,218 @@
     <!-- Additional CSS -->
     <th:block th:replace="${extraCSS} ?: _"></th:block>
 
-    <!-- Logo visibility based on theme -->
+    <!-- Logo and navbar refinements -->
     <style>
-        /* Always show dark-mode logo on dark header background */
+        /* Logo visibility: show appropriate logo based on theme */
         .navbar-brand .logo-light-mode {
-            display: none !important;
+            display: inline;
+            height: 120px;
+            width: auto;
         }
         .navbar-brand .logo-dark-mode {
-            display: inline !important;
-            height: 50px;
+            display: none;
+            height: 48px;
+            width: auto;
+        }
+
+        [data-theme="dark"] .navbar-brand .logo-light-mode {
+            display: none;
+        }
+
+        [data-theme="dark"] .navbar-brand .logo-dark-mode {
+            display: inline;
+        }
+
+        /* ================================================================
+           ⛔ CRITICAL: NAVBAR BACKGROUND - ONLY EDIT HERE ⛔
+           
+           This is the SINGLE SOURCE OF TRUTH for navbar background colors.
+           DO NOT add navbar backgrounds to:
+           - variables.css
+           - main.css  
+           - Any other CSS file
+           
+           Inline styles provide sufficient specificity without !important.
+           
+           Context: After 7+ regressions where external CSS overrode these
+           styles, we've consolidated ALL navbar background control here.
+           
+           To change navbar colors, ONLY edit this block below.
+           ================================================================ */
+        #main-navbar {
+            background-color: rgba(253, 252, 250, 0.80); /* Linen-50: light, airy, glass effect */
+            -webkit-backdrop-filter: blur(12px); /* Safari/older WebKit */
+            backdrop-filter: blur(12px); /* Standard property for modern browsers */
+        }
+
+        [data-theme="dark"] #main-navbar {
+            background-color: rgba(30, 41, 59, 0.95); /* Dark mode: slate-800 with transparency - better logo contrast */
+        }
+        /* ================================================================
+           END NAVBAR BACKGROUND - Protected Zone
+           ================================================================ */
+
+        /* DRY navigation button styles - using standard CSS for CDN compatibility */
+        .nav-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 0.875rem;
+            border-radius: 0.375rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            transition: all 0.2s ease-out;
+        }
+
+        .nav-btn:focus-visible {
+            outline: 2px solid #D4A574;
+            outline-offset: 2px;
+        }
+
+        .nav-btn-inactive {
+            color: #4B4640; /* Anthracite-700: visible on light background */
+        }
+
+        [data-theme="dark"] .nav-btn-inactive {
+            color: #94A3B8; /* Slate-400 */
+        }
+
+        /* Hover state: Subtle warm bookstore accent */
+        .nav-btn-hover:hover {
+            color: #3A3530; /* Anthracite-800: slightly darker for emphasis */
+            background-color: rgba(212, 165, 116, 0.08); /* Canvas with subtle warmth */
+        }
+
+        [data-theme="dark"] .nav-btn-hover:hover {
+            color: #F8FAFC; /* Slate-50 */
+            background-color: rgba(51, 65, 85, 0.5); /* Slate-700 */
+        }
+
+        /* Active state: Distinctive warm canvas background with shadow */
+        .nav-btn-active {
+            color: #6D4A28; /* Canvas-800: rich warm brown */
+            background-color: rgba(232, 220, 189, 0.85); /* Canvas-200: warm bookstore accent */
+            box-shadow: 0 1px 3px rgba(212, 165, 116, 0.4), 0 1px 2px rgba(212, 165, 116, 0.3);
+            font-weight: 600;
+        }
+
+        [data-theme="dark"] .nav-btn-active {
+            color: #C4B8A0; /* Muted canvas-500 */
+            background-color: rgba(168, 151, 120, 0.15); /* Canvas-600 with transparency */
+            box-shadow: 0 1px 3px rgba(168, 151, 120, 0.2);
+        }
+
+        .nav-btn-icon {
+            width: 2.25rem;
+            height: 2.25rem;
+            justify-content: center;
         }
     </style>
 
 </head>
-<body class="modern-layout">
+<body class="modern-layout theme-body text-anthracite-900 transition-colors duration-300">
 
-<!-- Navbar -->
-<nav th:fragment="navbar" id="main-navbar" class="navbar navbar-expand-lg sticky-top navbar-dark bg-dark modern-navbar">
-    <div class="container">
-        <a class="navbar-brand" th:href="@{/}">
-            <span class="logo-light-mode">
-                <img th:src="@{/images/findmybook-logo.png}" alt="Book Finder Logo" style="height: 50px;">
-            </span>
-            <img th:src="@{/images/findmybook-logo.png}" alt="Book Finder Logo" class="logo-dark-mode" style="height: 50px;">
-        </a>
-        
-        <!-- Theme toggle button outside hamburger menu for mobile -->
-        <a id="theme-toggle" class="theme-toggle theme-toggle-header d-lg-none" href="#" title="Toggle theme">
-            <i class="fas fa-moon theme-icon"></i>
-        </a>
-        
-        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" 
-                data-bs-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" 
-                aria-expanded="false" aria-label="Toggle navigation">
-            <span class="navbar-toggler-icon"></span>
-        </button>
-        <div class="collapse navbar-collapse" id="navbarSupportedContent">
-            <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
-                <li class="nav-item">
-                    <a class="nav-link" th:classappend="${activeTab == 'home' ? 'active' : ''}" 
-                       href="/" aria-current="page">
-                        <i class="fas fa-home me-1"></i> Home
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" th:classappend="${activeTab == 'search' ? 'active' : ''}" 
-                       href="/search">
-                        <i class="fas fa-search me-1"></i> Search
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" th:href="@{/explore}">
-                        <i class="fas fa-book me-1"></i> Explore
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" th:href="@{/explore}">
-                        <i class="fas fa-list me-1"></i> Categories
-                    </a>
-                </li>
-                <li class="nav-item theme-toggle-item d-none d-lg-block">
-                    <a id="theme-toggle-list" class="nav-link theme-toggle" href="#" title="Toggle theme">
-                        <i class="fas fa-moon theme-icon"></i>
-                    </a>
-                </li>
-            </ul>
+<!-- Navbar - ShadCN/Claude UI Inspired Sophisticated Navigation -->
+<nav th:fragment="navbar" id="main-navbar"
+     class="backdrop-blur-md theme-navbar-border
+            border-b transition-all duration-300">
+    <div class="container mx-auto px-4">
+        <div class="flex items-center justify-between h-14">
+            <!-- Logo (LEFT) -->
+            <div class="flex-shrink-0">
+                <a th:href="@{/}" class="flex items-center group navbar-brand">
+                    <!-- Light mode logo (dark text on white/transparent background) -->
+                    <img th:src="@{/images/findmybook-logo-white-bg.png}"
+                         alt="Book Finder Logo"
+                         class="logo-light-mode transition-transform duration-200 group-hover:scale-105">
+                    <!-- Dark mode logo (light text for dark backgrounds) -->
+                    <img th:src="@{/images/findmybook-logo.png}"
+                         alt="Book Finder Logo"
+                         class="logo-dark-mode transition-transform duration-200 group-hover:scale-105">
+                </a>
+            </div>
+
+            <!-- Desktop Navigation (CENTER) -->
+            <div class="hidden lg:flex items-center gap-1">
+                <a href="/"
+                   th:class="'nav-btn ' + (${activeTab == 'home' ? 'nav-btn-active' : 'nav-btn-inactive nav-btn-hover'})">
+                    <i class="fas fa-home w-4 text-center text-xs"></i>
+                    <span class="tracking-wide">Home</span>
+                </a>
+                <a href="/search"
+                   th:class="'nav-btn ' + (${activeTab == 'search' ? 'nav-btn-active' : 'nav-btn-inactive nav-btn-hover'})">
+                    <i class="fas fa-search w-4 text-center text-xs"></i>
+                    <span class="tracking-wide">Search</span>
+                </a>
+                <a th:href="@{/explore}"
+                   th:class="'nav-btn ' + (${activeTab == 'explore' ? 'nav-btn-active' : 'nav-btn-inactive nav-btn-hover'})">
+                    <i class="fas fa-book w-4 text-center text-xs"></i>
+                    <span class="tracking-wide">Explore</span>
+                </a>
+                <a th:href="@{/categories}"
+                   th:class="'nav-btn ' + (${activeTab == 'categories' ? 'nav-btn-active' : 'nav-btn-inactive nav-btn-hover'})">
+                    <i class="fas fa-list w-4 text-center text-xs"></i>
+                    <span class="tracking-wide">Categories</span>
+                </a>
+            </div>
+
+            <!-- Theme Toggle (RIGHT, SEPARATE) -->
+            <div class="hidden lg:flex flex-shrink-0">
+                <button type="button"
+                        id="theme-toggle-list"
+                        class="theme-toggle nav-btn nav-btn-icon nav-btn-inactive nav-btn-hover"
+                        title="Toggle theme">
+                    <i class="fas fa-moon theme-icon text-sm"></i>
+                </button>
+            </div>
+
+            <!-- Mobile Menu Controls (RIGHT) -->
+            <div class="flex items-center gap-1.5 lg:hidden ml-auto">
+                <!-- Theme Toggle Mobile -->
+                <button type="button"
+                        id="theme-toggle"
+                        class="theme-toggle nav-btn nav-btn-icon nav-btn-inactive nav-btn-hover"
+                        title="Toggle theme">
+                    <i class="fas fa-moon theme-icon text-sm"></i>
+                </button>
+
+                <!-- Mobile Menu Button -->
+                <button type="button"
+                        class="nav-btn nav-btn-icon nav-btn-inactive nav-btn-hover"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#navbarSupportedContent"
+                        aria-controls="navbarSupportedContent"
+                        aria-expanded="false"
+                        aria-label="Toggle navigation">
+                    <i class="fas fa-bars text-sm"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Mobile Navigation Menu -->
+        <div class="collapse lg:hidden" id="navbarSupportedContent">
+            <div class="py-3 space-y-0.5 theme-navbar-border border-t border-anthracite-200/60 mt-1">
+                <a href="/"
+                   th:class="'nav-btn ' + (${activeTab == 'home' ? 'nav-btn-active' : 'nav-btn-inactive nav-btn-hover'})">
+                    <i class="fas fa-home w-4 text-center text-xs"></i>
+                    <span class="tracking-wide">Home</span>
+                </a>
+                <a href="/search"
+                   th:class="'nav-btn ' + (${activeTab == 'search' ? 'nav-btn-active' : 'nav-btn-inactive nav-btn-hover'})">
+                    <i class="fas fa-search w-4 text-center text-xs"></i>
+                    <span class="tracking-wide">Search</span>
+                </a>
+                <a th:href="@{/explore}"
+                   th:class="'nav-btn ' + (${activeTab == 'explore' ? 'nav-btn-active' : 'nav-btn-inactive nav-btn-hover'})">
+                    <i class="fas fa-book w-4 text-center text-xs"></i>
+                    <span class="tracking-wide">Explore</span>
+                </a>
+                <a th:href="@{/categories}"
+                   th:class="'nav-btn ' + (${activeTab == 'categories' ? 'nav-btn-active' : 'nav-btn-inactive nav-btn-hover'})">
+                    <i class="fas fa-list w-4 text-center text-xs"></i>
+                    <span class="tracking-wide">Categories</span>
+                </a>
+            </div>
         </div>
     </div>
 </nav>
@@ -178,16 +430,29 @@
     </div>
 </div>
 
-<!-- Footer -->
-<footer th:fragment="footer" class="footer modern-footer">
-    <div class="container">
-        <div class="row">
-            <div class="col-md-6">
-                <p class="mb-0">By <a href="https://williamcallahan.com" target="_blank" rel="noopener" class="text-decoration-none">William Callahan</a></p>
-            </div>
-            <div class="col-md-6 text-md-end">
-                <p class="mb-0"><a href="https://github.com/WilliamAGH/book-finder" target="_blank" rel="noopener" class="text-decoration-none">Open Source</a> • Made with ❤️ in California</p>
-            </div>
+<!-- Footer - Claude-inspired Minimal -->
+<footer th:fragment="footer"
+        class="mt-auto py-8 theme-footer theme-footer-border border-t transition-colors duration-300">
+    <div class="container mx-auto px-4">
+        <div class="flex flex-col md:flex-row justify-between items-center gap-4 text-sm">
+            <p class="theme-footer-text text-anthracite-600 mb-0">
+                By <a href="https://williamcallahan.com"
+                      target="_blank"
+                      rel="noopener"
+                      class="theme-footer-link text-canvas-600 hover:text-canvas-700 font-medium transition-colors duration-200">
+                    William Callahan
+                </a>
+            </p>
+            <p class="theme-footer-text text-anthracite-600 mb-0">
+                <a href="https://github.com/WilliamAGH/book-finder"
+                   target="_blank"
+                   rel="noopener"
+                   class="theme-footer-link text-canvas-600 hover:text-canvas-700 font-medium transition-colors duration-200">
+                    Open Source
+                </a>
+                <span class="mx-2">•</span>
+                Made with <span class="text-red-500">❤️</span> in California
+            </p>
         </div>
     </div>
 </footer>

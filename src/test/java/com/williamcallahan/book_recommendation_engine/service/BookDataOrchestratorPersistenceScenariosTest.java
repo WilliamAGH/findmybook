@@ -26,7 +26,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 /**
- * Covers retrofit checklist scenarios for dedupe and edition-chaining behaviour.
+ * Covers retrofit checklist scenarios for dedupe and edition-chaining behavior.
  * See docs/task-retrofit-code-for-postgres-schema.md.
  */
 @ExtendWith(MockitoExtension.class)

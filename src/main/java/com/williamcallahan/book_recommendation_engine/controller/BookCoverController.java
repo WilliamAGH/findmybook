@@ -1,323 +1,157 @@
 package com.williamcallahan.book_recommendation_engine.controller;
 
-import com.williamcallahan.book_recommendation_engine.dto.BookDetail;
-import com.williamcallahan.book_recommendation_engine.model.Book;
-import com.williamcallahan.book_recommendation_engine.model.image.CoverImageSource;
 import com.williamcallahan.book_recommendation_engine.repository.BookQueryRepository;
-import com.williamcallahan.book_recommendation_engine.service.BookIdentifierResolver;
 import com.williamcallahan.book_recommendation_engine.service.BookDataOrchestrator;
-import com.williamcallahan.book_recommendation_engine.service.image.BookImageOrchestrationService;
-import com.williamcallahan.book_recommendation_engine.util.EnumParsingUtils;
+import com.williamcallahan.book_recommendation_engine.service.BookIdentifierResolver;
+import com.williamcallahan.book_recommendation_engine.util.ApplicationConstants;
 import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
-import com.williamcallahan.book_recommendation_engine.controller.support.ErrorResponseUtils;
-import com.williamcallahan.book_recommendation_engine.util.BookDomainMapper;
-import com.williamcallahan.book_recommendation_engine.util.UuidUtils;
+import com.williamcallahan.book_recommendation_engine.util.cover.CoverUrlResolver;
+import com.williamcallahan.book_recommendation_engine.util.cover.UrlSourceDetector;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
-import org.springframework.web.context.request.async.DeferredResult;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.CompletionException;
-
-import reactor.core.Disposable;
-import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
+import java.util.Optional;
+import java.util.UUID;
 
 /**
- * Controller for book cover image operations and retrieval
- * 
- * @author William Callahan
- * 
- * Features:
- * - Provides API endpoints for retrieving book cover images
- * - Supports source preferences for cover images (Google Books, Open Library, etc.)
- * - Orchestrates multi-source image fetching with fallbacks
- * - Handles async processing for optimal response times
- * - Manages error cases with appropriate HTTP status codes
+ * Lightweight cover endpoint backed by Postgres projections and resolver utilities.
+ * Eliminates the legacy cover orchestration pipeline and surfaces the canonical
+ * `CoverUrlResolver` output for clients that still call `/api/covers/{id}`.
  */
 @RestController
 @RequestMapping("/api/covers")
 @Slf4j
 public class BookCoverController {
 
-    private final BookImageOrchestrationService bookImageOrchestrationService;
     private final BookQueryRepository bookQueryRepository;
     private final BookIdentifierResolver bookIdentifierResolver;
     private final BookDataOrchestrator bookDataOrchestrator;
-    
-    /**
-     * Constructs BookCoverController with required services
- * - Resolves canonical book metadata from Postgres projections
- * - Leverages BookImageOrchestrationService for cover image processing
-     * 
-     * @param googleBooksService Service for retrieving book information from Google Books API
-     * @param bookImageOrchestrationService Service for orchestrating book cover image operations
-     */
-    public BookCoverController(BookImageOrchestrationService bookImageOrchestrationService,
-                               BookQueryRepository bookQueryRepository,
+
+    public BookCoverController(BookQueryRepository bookQueryRepository,
                                BookIdentifierResolver bookIdentifierResolver,
                                BookDataOrchestrator bookDataOrchestrator) {
-        this.bookImageOrchestrationService = bookImageOrchestrationService;
         this.bookQueryRepository = bookQueryRepository;
         this.bookIdentifierResolver = bookIdentifierResolver;
         this.bookDataOrchestrator = bookDataOrchestrator;
     }
-    
-    /**
-     * Get the best cover URL for a book with an optional source preference
-     * - Retrieves cover URL based on book ID
-     * - Supports source preference parameter for choosing image provider
-     * - Handles asynchronous processing with timeout
-     * - Returns structured JSON response with cover URLs
-     * 
-     * @param id Book ID
-     * @param source Optional source preference (GOOGLE_BOOKS, OPEN_LIBRARY, LONGITOOD, or ANY)
-     * @return The best cover URL for the book
-     */
-    @GetMapping("/{id}")
-    public DeferredResult<ResponseEntity<Map<String, Object>>> getBookCover(
-            @PathVariable String id,
-            @RequestParam(required = false, defaultValue = "ANY") String source) {
-        log.info("Getting book cover for book ID: {} with source preference: {}", id, source);
-        final CoverImageSource preferredSource = parsePreferredSource(source);
 
-        long timeoutValue = 120_000L; // 120 seconds in milliseconds
-        DeferredResult<ResponseEntity<Map<String, Object>>> deferredResult = 
-            new DeferredResult<>(timeoutValue);
+    @GetMapping("/{identifier}")
+    public ResponseEntity<Map<String, Object>> getCover(@PathVariable String identifier,
+                                                        @RequestParam(required = false, defaultValue = "ANY") String sourcePreference) {
+        CoverPayload payload = resolveCover(identifier)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Book not found with ID: " + identifier));
 
-        Mono<Book> canonicalBookMono = locateBookForCover(id)
-            .switchIfEmpty(bookDataOrchestrator != null
-                ? bookDataOrchestrator.fetchCanonicalBookReactive(id)
-                    .doOnNext(book -> log.debug("Cover fallback hydrated via orchestrator for id {}", id))
-                : Mono.empty());
+        Map<String, Object> response = new HashMap<>();
+        response.put("bookId", payload.bookId());
+        response.put("requestedSourcePreference", sourcePreference);
 
-        Mono<ResponseEntity<Map<String, Object>>> responseMono = canonicalBookMono
-            .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Book not found")))
-            .flatMap(book -> {
-                // bookImageOrchestrationService.getBestCoverUrlAsync returns CompletableFuture<Book>
-                return Mono.fromFuture(bookImageOrchestrationService.getBestCoverUrlAsync(book, preferredSource))
-                    .map(updatedBook -> {
-                        Map<String, Object> response = new HashMap<>();
+        Map<String, Object> cover = new HashMap<>();
+        cover.put("preferredUrl", payload.cover().url());
+        cover.put("fallbackUrl", payload.fallbackUrl());
+        cover.put("source", payload.sourceLabel());
+        cover.put("width", payload.cover().width());
+        cover.put("height", payload.cover().height());
+        cover.put("highResolution", payload.cover().highResolution());
+        cover.put("requestedSourcePreference", sourcePreference);
+        response.put("cover", cover);
 
-                        response.put("bookId", id);
+        response.put("coverUrl", payload.cover().url());
+        response.put("preferredUrl", payload.cover().url());
+        response.put("fallbackUrl", payload.fallbackUrl());
 
-                        Map<String, Object> bookNode = new HashMap<>();
-                        bookNode.put("id", updatedBook.getId());
-                        bookNode.put("slug", updatedBook.getSlug());
-                        response.put("book", bookNode);
-
-                        // Improved fallback logic with proper coalescing
-                        String s3Path = updatedBook.getS3ImagePath();
-                        String preferredFromImages = updatedBook.getCoverImages() != null ?
-                            updatedBook.getCoverImages().getPreferredUrl() : null;
-                        String fallbackFromImages = updatedBook.getCoverImages() != null ?
-                            updatedBook.getCoverImages().getFallbackUrl() : null;
-                        String externalUrl = updatedBook.getExternalImageUrl();
-                        String placeholder = "/images/placeholder-book-cover.svg";
-
-                        // Priority: S3 > preferred > external > placeholder
-                        String coverUrl = firstNonBlank(s3Path, preferredFromImages, externalUrl, placeholder);
-
-                        Map<String, Object> coverNode = new HashMap<>();
-                        coverNode.put("resolvedUrl", coverUrl);
-
-                        if (updatedBook.getCoverImages() != null) {
-                            coverNode.put("preferredUrl", firstNonBlank(preferredFromImages, coverUrl));
-                            coverNode.put("fallbackUrl", firstNonBlank(fallbackFromImages, coverUrl));
-                            coverNode.put("source", updatedBook.getCoverImages().getSource());
-                        } else {
-                            String fallback = firstNonBlank(s3Path, externalUrl, placeholder);
-                            coverNode.put("preferredUrl", fallback);
-                            coverNode.put("fallbackUrl", fallback);
-                        }
-                        coverNode.put("requestedSourcePreference", preferredSource.name());
-                        response.put("cover", coverNode);
-
-                        response.put("coverUrl", coverUrl);
-                        response.put("preferredUrl", coverNode.get("preferredUrl"));
-                        response.put("fallbackUrl", coverNode.get("fallbackUrl"));
-                        response.put("requestedSourcePreference", preferredSource.name());
-
-                        return ResponseEntity.ok(response);
-                    });
-            })
-            .switchIfEmpty(Mono.defer(new java.util.function.Supplier<Mono<ResponseEntity<Map<String, Object>>>>() {
-                @Override
-                public Mono<ResponseEntity<Map<String, Object>>> get() {
-                    log.warn("Book not found with ID: {} when processing getBookCover.", id);
-                    return Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, "Book not found with ID: " + id));
-                }
-            }));
-
-        // Subscribe to the Mono and bridge to DeferredResult
-        Disposable subscription = responseMono.subscribe(
-            result -> {
-                if (!deferredResult.isSetOrExpired()) {
-                    deferredResult.setResult(result);
-                }
-            },
-            error -> {
-                if (deferredResult.isSetOrExpired()) return;
-                
-                Throwable cause = error;
-                // Check if cause is wrapped, e.g. in CompletionException if Mono.fromFuture passed it
-                if (error instanceof java.util.concurrent.CompletionException && error.getCause() != null) {
-                    cause = error.getCause();
-                }
-
-                if (cause instanceof ResponseStatusException rse) {
-                    deferredResult.setErrorResult(ErrorResponseUtils.error(HttpStatus.valueOf(rse.getStatusCode().value()), rse.getReason()));
-                } else {
-                    log.error("Error processing getBookCover reactive chain: {}", cause.getMessage(), cause);
-                    deferredResult.setErrorResult(ErrorResponseUtils.internalServerError(
-                        "Error occurred while getting book cover",
-                        cause.getMessage()
-                    ));
-                }
-            }
-        );
-
-        deferredResult.onTimeout(() -> {
-            if (deferredResult.isSetOrExpired()) return;
-            if (!deferredResult.isSetOrExpired()) {
-                deferredResult.setErrorResult(ErrorResponseUtils.error(
-                    HttpStatus.SERVICE_UNAVAILABLE,
-                    "Request timeout",
-                    "The request to get book cover took too long to process. Please try again later."
-                ));
-            }
-            if (subscription != null && !subscription.isDisposed()) {
-                subscription.dispose();
-            }
-        });
-        
-        deferredResult.onCompletion(() -> {
-            if (subscription != null && !subscription.isDisposed()) {
-                subscription.dispose();
-            }
-        });
-
-        // This onError handles errors in DeferredResult's own processing,
-        // or if an error is set via deferredResult.setErrorResult explicitly before the Mono completes.
-        deferredResult.onError(ex -> {
-             if (deferredResult.isSetOrExpired()) return;
-             Throwable cause = (ex instanceof CompletionException && ex.getCause() != null)
-                ? ex.getCause() : ex;
-            if (cause instanceof ResponseStatusException rse) {
-                 if (!deferredResult.isSetOrExpired()) deferredResult.setErrorResult(ErrorResponseUtils.error(HttpStatus.valueOf(rse.getStatusCode().value()), rse.getReason()));
-            } else {
-                log.error("Error in DeferredResult for getBookCover: {}", cause.getMessage(), cause);
-                 if (!deferredResult.isSetOrExpired()) deferredResult.setErrorResult(ErrorResponseUtils.internalServerError(
-                    "Error occurred while getting book cover",
-                    cause.getMessage()
-                 ));
-            }
-        });
-
-        return deferredResult;
+        return ResponseEntity.ok(response);
     }
 
-    private Mono<Book> locateBookForCover(String identifier) {
+    private Optional<CoverPayload> resolveCover(String identifier) {
         if (!ValidationUtils.hasText(identifier)) {
-            return Mono.empty();
+            return Optional.empty();
         }
-        String trimmed = identifier.trim();
-        return Mono.fromCallable(() -> findBookForCover(trimmed))
-            .subscribeOn(Schedulers.boundedElastic())
-            .flatMap(book -> book == null ? Mono.empty() : Mono.just(book));
-    }
 
-    private Book findBookForCover(String identifier) {
-        BookDetail detail = findDetail(identifier);
-        if (detail != null) {
-            return BookDomainMapper.fromDetail(detail);
+        Optional<CoverPayload> fromSlug = bookQueryRepository.fetchBookDetailBySlug(identifier)
+            .map(detail -> toPayload(detail.id(), detail.coverUrl(), detail.thumbnailUrl(), detail.coverWidth(), detail.coverHeight(), detail.coverHighResolution()));
+        if (fromSlug.isPresent()) {
+            return fromSlug;
         }
-        return bookIdentifierResolver.resolveToUuid(identifier)
-            .flatMap(uuid -> bookQueryRepository.fetchBookCard(uuid)
-                .map(BookDomainMapper::fromCard))
-            .orElse(null);
-    }
 
-    private BookDetail findDetail(String identifier) {
-        return bookQueryRepository.fetchBookDetailBySlug(identifier)
-            .or(() -> bookIdentifierResolver.resolveCanonicalId(identifier)
-                .map(UuidUtils::parseUuidOrNull)
-                .filter(uuid -> uuid != null)
-                .flatMap(uuid -> bookQueryRepository.fetchBookDetail(uuid)))
-            .orElse(null);
-    }
-
-    /**
-     * Helper method to find the first non-blank string from a list of values
-     * @param values Variable number of string values to check
-     * @return The first non-blank string, or null if all are blank
-     */
-    private static String firstNonBlank(String... values) {
-        if (values == null) return null;
-        for (String v : values) {
-            if (ValidationUtils.hasText(v)) return v;
+        Optional<UUID> maybeUuid = bookIdentifierResolver.resolveToUuid(identifier);
+        if (maybeUuid.isPresent()) {
+            Optional<CoverPayload> fromUuid = bookQueryRepository.fetchBookDetail(maybeUuid.get())
+                .map(detail -> toPayload(detail.id(), detail.coverUrl(), detail.thumbnailUrl(), detail.coverWidth(), detail.coverHeight(), detail.coverHighResolution()));
+            if (fromUuid.isPresent()) {
+                return fromUuid;
+            }
         }
-        return null;
+
+        if (bookDataOrchestrator == null) {
+            return Optional.empty();
+        }
+
+        try {
+            return bookDataOrchestrator.fetchCanonicalBookReactive(identifier)
+                .timeout(Duration.ofSeconds(5))
+                .blockOptional()
+                .map(book -> toPayload(
+                    book.getId(),
+                    book.getS3ImagePath(),
+                    book.getExternalImageUrl(),
+                    book.getCoverImageWidth(),
+                    book.getCoverImageHeight(),
+                    book.getIsCoverHighResolution()
+                ));
+        } catch (Exception ex) {
+            log.warn("Cover orchestrator fallback failed for '{}': {}", identifier, ex.getMessage());
+            return Optional.empty();
+        }
     }
 
-    /**
-     * Handle validation errors for request parameters
-     * - Converts IllegalArgumentException to HTTP 400 Bad Request
-     * - Provides structured error response with explanation
-     * - Maps exception message to error field in response
-     * - Returns consistent error format for client consumption
-     * 
-     * @param ex The IllegalArgumentException thrown during request processing
-     * @return ResponseEntity with error details and 400 status code
-     */
-    @ExceptionHandler(IllegalArgumentException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public ResponseEntity<Map<String, String>> handleValidationExceptions(IllegalArgumentException ex) {
-        return ErrorResponseUtils.badRequest(ex.getMessage(), null);
-    }
-
-    /**
-     * Handle asynchronous request timeouts
-     * - Captures AsyncRequestTimeoutException for long-running requests
-     * - Returns 503 Service Unavailable with friendly message
-     * - Prompts client to retry the request later
-     * - Provides standardized error response format
-     * - Handles timeout for any async method not using DeferredResult
-     * 
-     * @param ex The AsyncRequestTimeoutException thrown when request times out
-     * @return ResponseEntity with timeout details and 503 status code
-     */
-    @ExceptionHandler(AsyncRequestTimeoutException.class)
-    @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
-    public ResponseEntity<Map<String, String>> handleAsyncTimeout(AsyncRequestTimeoutException ex) {
-        return ErrorResponseUtils.error(
-            HttpStatus.SERVICE_UNAVAILABLE,
-            "Request timeout",
-            "The request took too long to process. Please try again later."
+    private CoverPayload toPayload(String bookId,
+                                   String primaryUrl,
+                                   String fallbackCandidate,
+                                   Integer width,
+                                   Integer height,
+                                   Boolean highRes) {
+        CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
+            primaryUrl,
+            fallbackCandidate,
+            width,
+            height,
+            highRes
         );
+
+        String fallbackUrl = firstNonBlank(fallbackCandidate, primaryUrl, ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH);
+        String sourceLabel = resolved.fromS3()
+            ? "S3_CACHE"
+            : Optional.ofNullable(UrlSourceDetector.detectSource(resolved.url()))
+                .map(Enum::name)
+                .orElse("UNDEFINED");
+
+        return new CoverPayload(bookId, resolved, fallbackUrl, sourceLabel);
     }
 
-    /**
-     * Safely parse the preferred cover image source from request parameter
-     * - Converts string source parameter to CoverImageSource enum
-     * - Handles invalid values gracefully by defaulting to ANY
-     * - Logs warning when input source is invalid
-     * - Prevents exceptions from invalid source parameters
-     * 
-     * @param sourceParam String representation of cover image source
-     * @return The corresponding CoverImageSource enum value
-     */
-    private CoverImageSource parsePreferredSource(String sourceParam) {
-        return EnumParsingUtils.parseOrDefault(
-                sourceParam,
-                CoverImageSource.class,
-                CoverImageSource.ANY,
-                invalid -> log.warn("Invalid source parameter: {}. Defaulting to ANY.", invalid)
-        );
+    private static String firstNonBlank(String... candidates) {
+        if (candidates == null) {
+            return ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH;
+        }
+        for (String candidate : candidates) {
+            if (ValidationUtils.hasText(candidate)) {
+                return candidate;
+            }
+        }
+        return ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH;
     }
+
+    private record CoverPayload(String bookId,
+                                CoverUrlResolver.ResolvedCover cover,
+                                String fallbackUrl,
+                                String sourceLabel) {}
 }

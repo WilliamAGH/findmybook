@@ -20,40 +20,111 @@
 
 <!-- Main Content -->
 <main class="main-content">
-    <!-- Hero Section with Search Bar -->
-    <section class="hero-section py-5 mb-4 text-center modern-hero">
-        <div class="container">
-            <h1 class="display-3 fw-bold mb-3">Discover, Read, Repeat</h1>
-            <p class="lead mb-4">FindMyBook, your personal gateway to millions of books. Search now and get tailored recommendations.</p>
+    <!-- Hero Section with Search Bar - Claude-inspired Linen Aesthetic -->
+    <section class="theme-hero-bg py-16 md:py-24 transition-colors duration-300">
+        <div class="container mx-auto px-4 max-w-4xl">
+            <!-- Refined Typography -->
+            <div class="text-center mb-10">
+                <h1 class="font-heading text-4xl md:text-5xl lg:text-6xl font-bold theme-hero-title text-anthracite-900 mb-4 tracking-tight">
+                    Discover Your Next Great Read
+                </h1>
+                <p class="text-lg md:text-xl theme-hero-text text-anthracite-600 max-w-2xl mx-auto font-light leading-relaxed">
+                    Curated book recommendations with a touch of elegance. Search millions of titles and find your perfect match.
+                </p>
+            </div>
 
-            <form action="/search" method="get" class="search-form modern-search-form d-flex justify-content-center mb-4">
-                <div class="input-group input-group-lg shadow-lg" style="max-width:800px; width:100%;">
-                    <input type="text" name="query" class="form-control py-3" placeholder="Search by title, author, or keyword..." aria-label="Search books" required>
-                    <button class="btn btn-primary px-3" type="submit" aria-label="Search">
+            <!-- Elegant Search Form -->
+            <form action="/search" method="get" class="mb-8">
+                <div class="relative max-w-2xl mx-auto">
+                    <input
+                        type="text"
+                        name="query"
+                        class="w-full px-6 py-4 pr-14 text-base md:text-lg theme-search-input bg-white
+                               text-anthracite-900 border border-linen-300
+                               rounded-xl shadow-soft focus:shadow-soft-lg
+                               focus:outline-none focus:ring-2 focus:ring-canvas-400
+                               focus:border-transparent transition-all duration-200
+                               placeholder:text-anthracite-400"
+                        placeholder="Search by title, author, or ISBN..."
+                        aria-label="Search books"
+                        required>
+                    <button
+                        type="submit"
+                        class="absolute right-2 top-1/2 -translate-y-1/2
+                               px-5 py-2.5 theme-search-button bg-canvas-400 hover:bg-canvas-500
+                               text-white rounded-lg transition-all duration-200
+                               hover:shadow-canvas focus:outline-none focus:ring-2 focus:ring-canvas-500 focus:ring-offset-2"
+                        aria-label="Search">
                         <i class="fas fa-search"></i>
                     </button>
                 </div>
             </form>
 
-            <div class="mt-4">
-                <p class="text-white mb-2">Popular searches:</p>
-                <div class="d-flex flex-wrap justify-content-center gap-2">
-                    <a href="/search?query=fiction" class="badge popular-search-tag">Fiction</a>
-                    <a href="/search?query=mystery" class="badge popular-search-tag">Mystery</a>
-                    <a href="/search?query=sci-fi" class="badge popular-search-tag">Science Fiction</a>
-                    <a href="/search?query=fantasy" class="badge popular-search-tag">Fantasy</a>
-                    <a href="/search?query=biography" class="badge popular-search-tag">Biography</a>
+            <!-- Sophisticated Tag Pills -->
+            <div class="text-center">
+                <p class="text-sm font-medium theme-hero-text text-anthracite-600 mb-3 uppercase tracking-wider">
+                    Popular Genres
+                </p>
+                <div class="flex flex-wrap justify-center gap-2">
+                    <a href="/search?query=fiction"
+                       class="px-4 py-2 text-sm font-medium theme-tag bg-white
+                              text-anthracite-700 border border-linen-300
+                              rounded-full hover:border-canvas-400
+                              hover:bg-linen-50 hover:text-canvas-700
+                              transition-all duration-200 shadow-sm hover:shadow-md">
+                        Fiction
+                    </a>
+                    <a href="/search?query=mystery"
+                       class="px-4 py-2 text-sm font-medium theme-tag bg-white
+                              text-anthracite-700 border border-linen-300
+                              rounded-full hover:border-canvas-400
+                              hover:bg-linen-50 hover:text-canvas-700
+                              transition-all duration-200 shadow-sm hover:shadow-md">
+                        Mystery
+                    </a>
+                    <a href="/search?query=sci-fi"
+                       class="px-4 py-2 text-sm font-medium theme-tag bg-white
+                              text-anthracite-700 border border-linen-300
+                              rounded-full hover:border-canvas-400
+                              hover:bg-linen-50 hover:text-canvas-700
+                              transition-all duration-200 shadow-sm hover:shadow-md">
+                        Science Fiction
+                    </a>
+                    <a href="/search?query=fantasy"
+                       class="px-4 py-2 text-sm font-medium theme-tag bg-white
+                              text-anthracite-700 border border-linen-300
+                              rounded-full hover:border-canvas-400
+                              hover:bg-linen-50 hover:text-canvas-700
+                              transition-all duration-200 shadow-sm hover:shadow-md">
+                        Fantasy
+                    </a>
+                    <a href="/search?query=biography"
+                       class="px-4 py-2 text-sm font-medium theme-tag bg-white
+                              text-anthracite-700 border border-linen-300
+                              rounded-full hover:border-canvas-400
+                              hover:bg-linen-50 hover:text-canvas-700
+                              transition-all duration-200 shadow-sm hover:shadow-md">
+                        Biography
+                    </a>
                 </div>
             </div>
         </div>
     </section>
     
     <!-- Current Bestsellers Section -->
-    <section class="current-bestsellers-section py-4">
-        <div class="container">
-            <div class="d-flex justify-content-between align-items-center mb-4">
-                <h2>NYT Bestsellers</h2>
-                <a th:href="@{/search(query='new york times', year=${T(java.time.Year).now().getValue()})}" class="btn btn-view-all btn-outlined btn-outline-primary">View All</a>
+    <section class="py-12 md:py-16 theme-section transition-colors duration-300">
+        <div class="container mx-auto px-4">
+            <div class="flex justify-between items-center mb-8">
+                <h2 class="text-2xl md:text-3xl font-heading font-bold theme-section-title text-anthracite-900">
+                    NYT Bestsellers
+                </h2>
+                <a th:href="@{/search(query='new york times', year=${T(java.time.Year).now().getValue()})}"
+                   class="px-6 py-2.5 text-sm font-medium theme-section-link text-canvas-600
+                          border border-canvas-400 rounded-lg
+                          hover:bg-canvas-50 hover:text-canvas-700
+                          transition-all duration-200">
+                    View All
+                </a>
             </div>
             
             <div class="row g-4">
@@ -73,11 +144,19 @@
     </section>
 
     <!-- Recent Views Section -->
-    <section class="recent-views-section py-4">
-        <div class="container">
-            <div class="d-flex justify-content-between align-items-center mb-4">
-                <h2>Recent Views</h2>
-                <a href="/search?query=explore" class="btn btn-view-all btn-outlined btn-outline-primary">Explore More</a>
+    <section class="py-12 md:py-16 theme-section-alt transition-colors duration-300">
+        <div class="container mx-auto px-4">
+            <div class="flex justify-between items-center mb-8">
+                <h2 class="text-2xl md:text-3xl font-heading font-bold theme-section-title text-anthracite-900">
+                    Recent Views
+                </h2>
+                <a href="/search?query=explore"
+                   class="px-6 py-2.5 text-sm font-medium theme-section-link text-canvas-600
+                          border border-canvas-400 rounded-lg
+                          hover:bg-canvas-50 hover:text-canvas-700
+                          transition-all duration-200">
+                    Explore More
+                </a>
             </div>
             
             <div class="row g-4">
@@ -103,62 +182,8 @@
 <!-- Scripts -->
 <th:block th:replace="~{fragments/layout :: scripts}"></th:block>
 
-<!-- Extra page-specific styles -->
-<!-- Styles moved to main.css for consistency
-<style>
-    .hero-section {
-        background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%);
-        color: white;
-        padding: 5rem 0;
-        border-radius: 0 0 20px 20px;
-        margin-bottom: 2rem;
-    }
-    
-    .search-form .form-control {
-        border-radius: 50px 0 0 50px;
-        border: none;
-    }
-    
-    .search-form .btn {
-        border-radius: 0 50px 50px 0;
-        border: none;
-    }
-    
-    .book-cover-container {
-        height: 250px;
-        overflow: hidden;
-        border-radius: 10px 10px 0 0;
-        background-color: #f8f9fa;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-    }
-    
-    .book-cover {
-        height: auto;
-        max-height: 100%;
-        width: auto;
-        max-width: 100%;
-        object-fit: contain;
-        transition: transform 0.3s ease;
-    }
-    
-    .card:hover .book-cover {
-        transform: scale(1.05);
-    }
-    
-    .badge {
-        border-radius: 30px;
-    }
-    
-    /* Custom breakpoint for book cards * /
-    @media (min-width: 576px) and (max-width: 991.98px) {
-        .col-sm-6.col-md-4.col-lg-3 {
-            width: 50%;
-        }
-    }
-</style>
--->
+<!-- @deprecated - All page-specific styles moved to main.css
+     Old purple gradient hero section (#4F46E5, #7C3AED) replaced with Tailwind linen/canvas/anthracite palette -->
 
 </body>
 </html>

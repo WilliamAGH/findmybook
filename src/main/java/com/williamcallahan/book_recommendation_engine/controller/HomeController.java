@@ -2,25 +2,28 @@ package com.williamcallahan.book_recommendation_engine.controller;
 
 import com.williamcallahan.book_recommendation_engine.dto.BookCard;
 import com.williamcallahan.book_recommendation_engine.dto.BookDetail;
-import com.williamcallahan.book_recommendation_engine.dto.BookListItem;
 import com.williamcallahan.book_recommendation_engine.dto.RecommendationCard;
 import com.williamcallahan.book_recommendation_engine.model.Book;
 import com.williamcallahan.book_recommendation_engine.repository.BookQueryRepository;
+import com.williamcallahan.book_recommendation_engine.model.image.CoverImageSource;
+import com.williamcallahan.book_recommendation_engine.model.image.ImageResolutionPreference;
 import com.williamcallahan.book_recommendation_engine.service.AffiliateLinkService;
 import com.williamcallahan.book_recommendation_engine.service.BookIdentifierResolver;
-import com.williamcallahan.book_recommendation_engine.service.BookSearchService;
+import com.williamcallahan.book_recommendation_engine.service.SearchPaginationService;
 import com.williamcallahan.book_recommendation_engine.service.DuplicateBookService;
 import com.williamcallahan.book_recommendation_engine.service.EnvironmentService;
 import com.williamcallahan.book_recommendation_engine.service.NewYorkTimesService;
 import com.williamcallahan.book_recommendation_engine.service.RecentlyViewedService;
 import com.williamcallahan.book_recommendation_engine.service.image.LocalDiskCoverCacheService;
 import com.williamcallahan.book_recommendation_engine.util.ApplicationConstants;
-import com.williamcallahan.book_recommendation_engine.model.image.CoverImages;
 import com.williamcallahan.book_recommendation_engine.util.BookDomainMapper;
 import com.williamcallahan.book_recommendation_engine.util.IsbnUtils;
-import com.williamcallahan.book_recommendation_engine.util.PagingUtils;
+import com.williamcallahan.book_recommendation_engine.util.EnumParsingUtils;
+import com.williamcallahan.book_recommendation_engine.util.SearchQueryUtils;
 import com.williamcallahan.book_recommendation_engine.util.SeoUtils;
 import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
+import com.williamcallahan.book_recommendation_engine.util.UuidUtils;
+import com.williamcallahan.book_recommendation_engine.util.cover.CoverPrioritizer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -38,12 +41,12 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.Objects;
@@ -62,7 +65,7 @@ public class HomeController {
     private final NewYorkTimesService newYorkTimesService;
     private final AffiliateLinkService affiliateLinkService;
     private final BookQueryRepository bookQueryRepository;
-    private final BookSearchService bookSearchService;
+    private final SearchPaginationService searchPaginationService;
     private final BookIdentifierResolver bookIdentifierResolver;
     private final boolean isYearFilteringEnabled;
 
@@ -88,7 +91,7 @@ public class HomeController {
      * @param recentlyViewedService Service for tracking user book view history
      * @param environmentService Service providing environment configuration information
      * @param duplicateBookService Service for handling duplicate book editions
-     * @param bookSearchService Service for search projections
+     * @param searchPaginationService Service coordinating paginated search
      * @param bookIdentifierResolver Resolver for canonical identifiers
      */
     public HomeController(RecentlyViewedService recentlyViewedService,
@@ -99,7 +102,7 @@ public class HomeController {
                           NewYorkTimesService newYorkTimesService,
                           AffiliateLinkService affiliateLinkService,
                           BookQueryRepository bookQueryRepository,
-                          BookSearchService bookSearchService,
+                          SearchPaginationService searchPaginationService,
                           BookIdentifierResolver bookIdentifierResolver) {
         this.recentlyViewedService = recentlyViewedService;
         this.environmentService = environmentService;
@@ -109,7 +112,7 @@ public class HomeController {
         this.newYorkTimesService = newYorkTimesService;
         this.affiliateLinkService = affiliateLinkService;
         this.bookQueryRepository = bookQueryRepository;
-        this.bookSearchService = bookSearchService;
+        this.searchPaginationService = searchPaginationService;
         this.bookIdentifierResolver = bookIdentifierResolver;
     }
 
@@ -117,6 +120,21 @@ public class HomeController {
         model.addAttribute("isDevelopmentMode", environmentService.isDevelopmentMode());
         model.addAttribute("currentEnv", environmentService.getCurrentEnvironmentMode());
         model.addAttribute("activeTab", activeTab);
+    }
+
+    /**
+     * Determines the active navigation tab based on the source parameter
+     * @param source The source parameter from navigation (explore, categories, or null)
+     * @return The active tab name for navigation highlighting
+     */
+    private String determineActiveTab(String source) {
+        if ("explore".equals(source)) {
+            return "explore";
+        }
+        if ("categories".equals(source)) {
+            return "categories";
+        }
+        return "search";
     }
 
     private void applySeo(Model model,
@@ -233,17 +251,20 @@ public class HomeController {
                 return List.<BookCard>of();
             }
             
-            // Convert String IDs to UUIDs
+            // Convert identifiers to UUIDs, supporting canonical resolution for slugs/NanoIDs
             List<UUID> uuids = bookIds.stream()
-                .map(id -> {
-                    try {
-                        return UUID.fromString(id);
-                    } catch (IllegalArgumentException e) {
-                        log.warn("Invalid UUID in recently viewed: {}", id);
-                        return null;
+                .map(identifier -> {
+                    UUID direct = UuidUtils.parseUuidOrNull(identifier);
+                    if (direct != null) {
+                        return direct;
                     }
+                    return bookIdentifierResolver.resolveToUuid(identifier).orElseGet(() -> {
+                        log.warn("Unable to resolve recently viewed identifier '{}' to UUID", identifier);
+                        return null;
+                    });
                 })
                 .filter(Objects::nonNull)
+                .distinct()
                 .collect(Collectors.toList());
             
             if (uuids.isEmpty()) {
@@ -252,8 +273,19 @@ public class HomeController {
             
             // Fetch as BookCard DTOs with single query
             List<BookCard> cards = bookQueryRepository.fetchBookCards(uuids);
-            log.debug("Loaded {} recent books as BookCard DTOs", cards.size());
-            return cards;
+            if (cards.isEmpty()) {
+                return List.<BookCard>of();
+            }
+
+            Map<String, Integer> originalOrder = new LinkedHashMap<>();
+            for (int index = 0; index < uuids.size(); index++) {
+                originalOrder.putIfAbsent(uuids.get(index).toString(), index);
+            }
+
+            List<BookCard> ordered = new ArrayList<>(cards);
+            ordered.sort(Comparator.comparingInt(card -> originalOrder.getOrDefault(card.id(), Integer.MAX_VALUE)));
+            log.debug("Loaded {} recent books as BookCard DTOs", ordered.size());
+            return ordered;
         })
         .subscribeOn(Schedulers.boundedElastic())
         .onErrorResume(e -> {
@@ -283,12 +315,21 @@ public class HomeController {
                             }
                             Book book = BookDomainMapper.fromCard(card.card());
                             if (book != null) {
-                                ensureCoverDefaults(book);
                                 mapped.add(book);
                             }
                             if (mapped.size() >= 6) {
                                 break;
                             }
+                        }
+                        if (!mapped.isEmpty()) {
+                            Map<String, Integer> insertionOrder = new LinkedHashMap<>();
+                            for (int idx = 0; idx < mapped.size(); idx++) {
+                                Book candidate = mapped.get(idx);
+                                if (candidate != null && ValidationUtils.hasText(candidate.getId())) {
+                                    insertionOrder.putIfAbsent(candidate.getId(), idx);
+                                }
+                            }
+                            mapped.sort(CoverPrioritizer.bookComparator(insertionOrder, null));
                         }
                         return Mono.just(mapped);
                     })
@@ -305,60 +346,6 @@ public class HomeController {
             });
     }
 
-    private List<Book> searchBooksForView(String query, int totalRequested) {
-        List<BookSearchService.SearchResult> results = bookSearchService.searchBooks(query, totalRequested);
-        if (results == null || results.isEmpty()) {
-            return List.of();
-        }
-
-        List<UUID> bookIds = results.stream()
-            .map(BookSearchService.SearchResult::bookId)
-            .filter(Objects::nonNull)
-            .toList();
-
-        if (bookIds.isEmpty()) {
-            return List.of();
-        }
-
-        List<BookListItem> items = bookQueryRepository.fetchBookListItems(bookIds);
-        Map<String, BookListItem> itemsById = items.stream()
-            .filter(Objects::nonNull)
-            .collect(Collectors.toMap(BookListItem::id, Function.identity(), (first, second) -> first, LinkedHashMap::new));
-
-        List<Book> books = new ArrayList<>(results.size());
-        for (BookSearchService.SearchResult result : results) {
-            UUID bookId = result.bookId();
-            if (bookId == null) {
-                continue;
-            }
-            BookListItem item = itemsById.get(bookId.toString());
-            if (item == null) {
-                continue;
-            }
-            Book book = BookDomainMapper.fromListItem(item);
-            ensureCoverDefaults(book);
-            books.add(book);
-        }
-
-        return books;
-    }
-
-    private void ensureCoverDefaults(Book book) {
-        if (book == null) {
-            return;
-        }
-        String placeholder = ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH;
-        if (!ValidationUtils.hasText(book.getS3ImagePath())) {
-            book.setS3ImagePath(placeholder);
-        }
-        if (!ValidationUtils.hasText(book.getExternalImageUrl())) {
-            book.setExternalImageUrl(book.getS3ImagePath());
-        }
-        if (book.getCoverImages() == null) {
-            book.setCoverImages(new CoverImages(book.getS3ImagePath(), book.getS3ImagePath(), null));
-        }
-    }
-
     private Mono<Book> locateBook(String identifier) {
         if (!ValidationUtils.hasText(identifier)) {
             return Mono.empty();
@@ -372,9 +359,7 @@ public class HomeController {
     private Book findBook(String identifier) {
         Optional<BookDetail> bySlug = bookQueryRepository.fetchBookDetailBySlug(identifier);
         if (bySlug.isPresent()) {
-            Book book = BookDomainMapper.fromDetail(bySlug.get());
-            ensureCoverDefaults(book);
-            return book;
+            return BookDomainMapper.fromDetail(bySlug.get());
         }
 
         Optional<UUID> maybeUuid = bookIdentifierResolver.resolveToUuid(identifier);
@@ -385,17 +370,11 @@ public class HomeController {
 
         Optional<BookDetail> detail = bookQueryRepository.fetchBookDetail(uuid);
         if (detail.isPresent()) {
-            Book book = BookDomainMapper.fromDetail(detail.get());
-            ensureCoverDefaults(book);
-            return book;
+            return BookDomainMapper.fromDetail(detail.get());
         }
 
         return bookQueryRepository.fetchBookCard(uuid)
             .map(BookDomainMapper::fromCard)
-            .map(book -> {
-                ensureCoverDefaults(book);
-                return book;
-            })
             .orElse(null);
     }
 
@@ -460,6 +439,9 @@ public class HomeController {
                                @RequestParam(required = false) Integer year,
                                @RequestParam(required = false, defaultValue = "0") int page,
                                @RequestParam(required = false, defaultValue = "newest") String sort,
+                               @RequestParam(required = false) String source,
+                               @RequestParam(required = false, defaultValue = "ANY") String coverSource,
+                               @RequestParam(required = false, defaultValue = "ANY") String resolution,
                                Model model) {
         // Handle year extraction from query if enabled
         if (isYearFilteringEnabled && year == null && ValidationUtils.hasText(query)) {
@@ -472,21 +454,51 @@ public class HomeController {
                     .trim()
                     .replaceAll("\\s+", " ");
 
-                if (!ValidationUtils.hasText(processedQuery)) {
-                    return Mono.just("redirect:/search?year=" + extractedYear);
+                UriComponentsBuilder redirectBuilder = UriComponentsBuilder.fromPath("/search")
+                    .queryParamIfPresent("query", ValidationUtils.hasText(processedQuery) ? Optional.of(processedQuery) : Optional.empty())
+                    .queryParam("year", extractedYear);
+
+                if (ValidationUtils.hasText(sort)) {
+                    redirectBuilder.queryParam("sort", sort);
                 }
-                return Mono.just("redirect:/search?query="
-                    + URLEncoder.encode(processedQuery, StandardCharsets.UTF_8) + "&year=" + extractedYear);
+                if (ValidationUtils.hasText(source)) {
+                    redirectBuilder.queryParam("source", source);
+                }
+                if (ValidationUtils.hasText(coverSource)) {
+                    redirectBuilder.queryParam("coverSource", coverSource);
+                }
+                if (ValidationUtils.hasText(resolution)) {
+                    redirectBuilder.queryParam("resolution", resolution);
+                }
+
+                String redirectPath = redirectBuilder.build().encode(StandardCharsets.UTF_8).toUriString();
+                return Mono.just("redirect:" + redirectPath);
             }
         }
 
         Integer effectiveYear = isYearFilteringEnabled ? year : null;
+        CoverImageSource coverSourcePreference = EnumParsingUtils.parseOrDefault(
+            coverSource,
+            CoverImageSource.class,
+            CoverImageSource.ANY,
+            raw -> log.debug("Invalid coverSource '{}' on /search view request, defaulting to ANY", raw)
+        );
+        ImageResolutionPreference resolutionPreference = EnumParsingUtils.parseOrDefault(
+            resolution,
+            ImageResolutionPreference.class,
+            ImageResolutionPreference.ANY,
+            raw -> log.debug("Invalid resolution '{}' on /search view request, defaulting to ANY", raw)
+        );
 
-        applyBaseAttributes(model, "search");
+        String activeTab = determineActiveTab(source);
+        applyBaseAttributes(model, activeTab);
         model.addAttribute("query", query);
         model.addAttribute("year", effectiveYear);
         model.addAttribute("currentPage", page);
         model.addAttribute("currentSort", sort);
+        model.addAttribute("source", source);
+        model.addAttribute("coverSource", coverSourcePreference.name());
+        model.addAttribute("resolution", resolutionPreference.name());
         model.addAttribute("isYearFilteringEnabled", isYearFilteringEnabled);
 
         applySeo(
@@ -500,25 +512,33 @@ public class HomeController {
 
         // Server-render initial results if query provided
         if (ValidationUtils.hasText(query)) {
-            final int pageSize = 12; // Default page size
+            final int pageSize = ApplicationConstants.Paging.DEFAULT_SEARCH_LIMIT;
             final int safePage = Math.max(page, 0);
-            final int safeStart = Math.multiplyExact(safePage, pageSize);
-            final PagingUtils.Window window = PagingUtils.window(
-                safeStart,
+            final int startIndex = Math.multiplyExact(safePage, pageSize);
+            String normalizedQuery = SearchQueryUtils.normalize(query);
+
+            SearchPaginationService.SearchRequest request = new SearchPaginationService.SearchRequest(
+                normalizedQuery,
+                startIndex,
                 pageSize,
-                pageSize,
-                pageSize,
-                pageSize,
-                safeStart + pageSize
+                sort,
+                coverSourcePreference,
+                resolutionPreference
             );
 
-            return Mono.fromCallable(() -> searchBooksForView(query, window.totalRequested()))
-                .subscribeOn(Schedulers.boundedElastic())
-                .map(results -> {
-                    List<Book> windowed = PagingUtils.slice(results, window.startIndex(), window.limit());
+            return searchPaginationService.search(request)
+                .map(result -> {
+                    List<Book> windowed = result.pageItems();
+                    if (effectiveYear != null) {
+                        windowed = windowed.stream()
+                            .filter(book -> book.getPublishedDate() != null)
+                            .filter(book -> book.getPublishedDate().toInstant()
+                                .atZone(java.time.ZoneId.systemDefault()).getYear() == effectiveYear)
+                            .toList();
+                    }
                     model.addAttribute("initialResults", windowed);
                     model.addAttribute("hasInitialResults", !windowed.isEmpty());
-                    model.addAttribute("totalResults", results != null ? results.size() : 0);
+                    model.addAttribute("totalResults", result.totalUnique());
                     model.addAttribute("initialResultsError", null);
                     log.info("Server-rendered {} search results for query '{}'", windowed.size(), query);
                     return "search";
@@ -726,17 +746,27 @@ public class HomeController {
         return redirectByIsbn(isbn10, IsbnUtils::isValidIsbn10, "invalidIsbn10");
     }
 
+    /**
+     * Handle explore page requests by redirecting to search with a random curated query
+     * @return redirect to search page with source=explore parameter
+     */
     @GetMapping("/explore")
     public ResponseEntity<Void> explore() {
         String selectedQuery = EXPLORE_QUERIES.get(ThreadLocalRandom.current().nextInt(EXPLORE_QUERIES.size()));
         log.info("Explore page requested, redirecting to search with query: '{}'", selectedQuery);
-        try {
-            String encodedQuery = URLEncoder.encode(selectedQuery, StandardCharsets.UTF_8.toString());
-            return redirectTo("/search?query=" + encodedQuery + "&source=explore");
-        } catch (java.io.UnsupportedEncodingException e) {
-            log.error("Error encoding query parameter for explore redirect: {}", selectedQuery, e);
-            // Fallback to redirect without query or to an error page if critical
-            return redirectTo("/search?source=explore&error=queryEncoding");
-        }
+        String encodedQuery = URLEncoder.encode(selectedQuery, StandardCharsets.UTF_8);
+        return redirectTo("/search?query=" + encodedQuery + "&source=explore");
+    }
+
+    /**
+     * Handle categories page requests by redirecting to search with a random category query
+     * @return redirect to search page with source=categories parameter
+     */
+    @GetMapping("/categories")
+    public ResponseEntity<Void> categories() {
+        String selectedQuery = EXPLORE_QUERIES.get(ThreadLocalRandom.current().nextInt(EXPLORE_QUERIES.size()));
+        log.info("Categories page requested, redirecting to search with query: '{}'", selectedQuery);
+        String encodedQuery = URLEncoder.encode(selectedQuery, StandardCharsets.UTF_8);
+        return redirectTo("/search?query=" + encodedQuery + "&source=categories");
     }
 }

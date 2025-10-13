@@ -1,7 +1,7 @@
 package com.williamcallahan.book_recommendation_engine.util;
 
 /**
- * Centralised S3 path helpers so cache prefixes stay consistent across services
+ * Centralized S3 path helpers so cache prefixes stay consistent across services
  * and migrations.
  */
 /**

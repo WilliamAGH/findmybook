@@ -39,9 +39,11 @@ class UrlSourceDetectorTest {
             "Test Book",
             List.of("Test Author"),
             "https://covers.openlibrary.org/b/id/12345-L.jpg",
+            "openlibrary/12345",
+            "https://covers.openlibrary.org/b/id/12345-M.jpg",
             4.5,
             100,
-            Map.of()
+            Map.<String, Object>of()
         );
 
         assertThat(UrlSourceDetector.detectSource(card.coverUrl()))
@@ -56,9 +58,11 @@ class UrlSourceDetectorTest {
             "Test Book",
             List.of("Test Author"),
             "https://books.google.com/books/content?id=ABC123&printsec=frontcover",
+            null,
+            "https://books.google.com/books/content?id=ABC123&printsec=frontcover&zoom=1",
             4.5,
             100,
-            Map.of()
+            Map.<String, Object>of()
         );
 
         assertThat(UrlSourceDetector.detectSource(card.coverUrl()))
@@ -73,9 +77,11 @@ class UrlSourceDetectorTest {
             "Test Book",
             List.of("Test Author"),
             "HTTPS://COVERS.OPENLIBRARY.ORG/B/ID/12345-L.JPG",
+            "openlibrary/12345",
+            "https://covers.openlibrary.org/b/id/12345-M.jpg",
             4.5,
             100,
-            Map.of()
+            Map.<String, Object>of()
         );
 
         assertThat(UrlSourceDetector.detectSource(card.coverUrl()))
@@ -96,31 +102,11 @@ class UrlSourceDetectorTest {
 
     @Test
     void detectSource_supportsOpenLibraryFromBookDetail() {
-        BookDetail detail = new BookDetail(
-            "id2",
-            "slug2",
-            "Title 2",
-            "Description",
-            "Publisher",
-            null,
-            "en",
-            300,
-            List.of("Author"),
-            List.of("Category"),
+        BookDetail detail = buildDetail(
             "https://covers.openlibrary.org/b/isbn/9780596520687-M.jpg",
-            null,
-            600,
-            900,
-            Boolean.TRUE,
-            "OPEN_LIBRARY",
-            4.0,
-            50,
-            null,
-            null,
-            "preview",
-            "info",
-            java.util.Collections.<String, Object>emptyMap(),
-            java.util.Collections.<EditionSummary>emptyList()
+            "openlibrary/9780596520687",
+            "https://covers.openlibrary.org/b/isbn/9780596520687-L.jpg",
+            "https://covers.openlibrary.org/b/isbn/9780596520687-S.jpg"
         );
 
         assertThat(UrlSourceDetector.detectSource(detail.coverUrl()))
@@ -137,12 +123,51 @@ class UrlSourceDetectorTest {
             List.of("Author"),
             List.of("Category"),
             "https://books.googleapis.com/books/content/images/frontcover/ABC?fife=w240-h345",
+            null,
+            "https://books.googleapis.com/books/content/images/frontcover/ABC?fife=w120-h180",
+            240,
+            345,
+            false,
             4.5,
             100,
-            Map.of()
+            Map.<String, Object>of()
         );
 
         assertThat(UrlSourceDetector.detectSource(item.coverUrl()))
             .isEqualTo(CoverImageSource.GOOGLE_BOOKS);
+    }
+
+    private static BookDetail buildDetail(String coverUrl,
+                                          String coverS3Key,
+                                          String fallbackUrl,
+                                          String thumbnailUrl) {
+        return new BookDetail(
+            "id2",
+            "slug2",
+            "Title 2",
+            "Description",
+            "Publisher",
+            null,
+            "en",
+            300,
+            List.of("Author"),
+            List.of("Category"),
+            coverUrl,
+            coverS3Key,
+            fallbackUrl,
+            thumbnailUrl,
+            Integer.valueOf(600),
+            Integer.valueOf(900),
+            Boolean.TRUE,
+            "OPEN_LIBRARY",
+            Double.valueOf(4.0),
+            Integer.valueOf(50),
+            null,
+            null,
+            "preview",
+            "info",
+            Map.<String, Object>of(),
+            List.<EditionSummary>of()
+        );
     }
 }

@@ -7,12 +7,7 @@ import com.williamcallahan.book_recommendation_engine.model.image.ImageDetails;
 /**
  * Factory for creating CoverImages objects with consistent defaults.
  * 
- * <p>Eliminates duplicate placeholder and construction logic scattered across:
- * <ul>
- *   <li>BookImageOrchestrationService (4 locations)</li>
- *   <li>BookCoverManagementService.createPlaceholderCoverImages()</li>
- *   <li>Other services with inline CoverImages construction</li>
- * </ul>
+ * <p>Eliminates duplicate placeholder and construction logic scattered across legacy services.
  * 
  * <p>This factory ensures all CoverImages objects are created with consistent
  * defaults and proper initialization, following the Single Responsibility Principle.

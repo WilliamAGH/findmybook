@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
- * Builds sitemap snapshots from Postgres and synchronises supporting artefacts (S3 JSON, cover probes, API warmups).
+ * Builds sitemap snapshots from Postgres and synchronizes supporting artifacts (S3 JSON, cover probes, API warmups).
  */
 @Service
 @Slf4j

@@ -8,9 +8,9 @@ import java.util.Map;
 
 /**
  * Extracts semantic qualifiers from search queries while preserving
- * the canonical logic previously hosted in {@link BookJsonParser}.
+ * the canonical logic that historically lived in the legacy JSON mappers.
  * <p>
- * Centralising this behaviour keeps query enrichment reusable without
+ * Centralizing this behavior keeps query enrichment reusable without
  * relying on deprecated legacy utilities.
  */
 public final class SearchQueryQualifierExtractor {

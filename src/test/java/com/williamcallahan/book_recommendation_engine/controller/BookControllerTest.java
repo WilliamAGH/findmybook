@@ -2,16 +2,18 @@ package com.williamcallahan.book_recommendation_engine.controller;
 
 import com.williamcallahan.book_recommendation_engine.dto.BookCard;
 import com.williamcallahan.book_recommendation_engine.dto.BookDetail;
-import com.williamcallahan.book_recommendation_engine.dto.BookListItem;
+import com.williamcallahan.book_recommendation_engine.dto.EditionSummary;
 import com.williamcallahan.book_recommendation_engine.dto.RecommendationCard;
 import com.williamcallahan.book_recommendation_engine.model.Book;
 import com.williamcallahan.book_recommendation_engine.model.image.CoverImageSource;
 import com.williamcallahan.book_recommendation_engine.model.image.CoverImages;
+import com.williamcallahan.book_recommendation_engine.model.image.ImageResolutionPreference;
 import com.williamcallahan.book_recommendation_engine.repository.BookQueryRepository;
 import com.williamcallahan.book_recommendation_engine.service.BookDataOrchestrator;
 import com.williamcallahan.book_recommendation_engine.service.BookIdentifierResolver;
 import com.williamcallahan.book_recommendation_engine.service.BookSearchService;
-import com.williamcallahan.book_recommendation_engine.service.image.BookImageOrchestrationService;
+import com.williamcallahan.book_recommendation_engine.service.SearchPaginationService;
+import com.williamcallahan.book_recommendation_engine.util.cover.CoverUrlResolver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -33,20 +35,21 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.hasItems;
 import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @ExtendWith(MockitoExtension.class)
@@ -65,7 +68,7 @@ class BookControllerTest {
     private BookDataOrchestrator bookDataOrchestrator;
 
     @Mock
-    private BookImageOrchestrationService bookImageOrchestrationService;
+    private SearchPaginationService searchPaginationService;
 
     private MockMvc mockMvc;
 
@@ -73,9 +76,14 @@ class BookControllerTest {
 
     @BeforeEach
     void setUp() {
-        BookController bookController = new BookController(bookSearchService, bookQueryRepository, bookIdentifierResolver);
+        BookController bookController = new BookController(
+            bookSearchService,
+            bookQueryRepository,
+            bookIdentifierResolver,
+            searchPaginationService,
+            bookDataOrchestrator
+        );
         BookCoverController bookCoverController = new BookCoverController(
-            bookImageOrchestrationService,
             bookQueryRepository,
             bookIdentifierResolver,
             bookDataOrchestrator
@@ -83,31 +91,39 @@ class BookControllerTest {
 
         mockMvc = MockMvcBuilders.standaloneSetup(bookController, bookCoverController).build();
         fixtureBook = buildBook("11111111-1111-4111-8111-111111111111", "fixture-book-of-secrets");
+
+        lenient().when(bookDataOrchestrator.fetchCanonicalBookReactive(any()))
+            .thenReturn(Mono.empty());
+        lenient().when(bookQueryRepository.fetchBookEditions(any(UUID.class)))
+            .thenReturn(List.of());
     }
 
     @Test
     @DisplayName("GET /api/books/search returns DTO results")
     void searchBooks_returnsDtos() throws Exception {
-        UUID bookUuid = UUID.fromString(fixtureBook.getId());
-        List<BookSearchService.SearchResult> searchResults = List.of(
-            new BookSearchService.SearchResult(bookUuid, 0.92, "POSTGRES")
-        );
-        Map<String, Object> tags = Map.of("nytBestseller", Map.of("rank", 1));
-        BookListItem listItem = new BookListItem(
-            fixtureBook.getId(),
-            fixtureBook.getSlug(),
-            fixtureBook.getTitle(),
-            fixtureBook.getDescription(),
-            fixtureBook.getAuthors(),
-            fixtureBook.getCategories(),
-            fixtureBook.getCoverImages().getPreferredUrl(),
-            4.8,
-            123,
-            tags
+        fixtureBook.addQualifier("search.matchType", "POSTGRES");
+        fixtureBook.addQualifier("search.relevanceScore", 0.92);
+
+        SearchPaginationService.SearchPage page = new SearchPaginationService.SearchPage(
+            "Fixture",
+            0,
+            5,
+            10,
+            1,
+            List.of(fixtureBook),
+            List.of(fixtureBook),
+            true,
+            5,
+            1,
+            "newest",
+            CoverImageSource.ANY,
+            ImageResolutionPreference.ANY
         );
 
-        when(bookSearchService.searchBooks(eq("Fixture"), anyInt())).thenReturn(searchResults);
-        when(bookQueryRepository.fetchBookListItems(eq(List.of(bookUuid)))).thenReturn(List.of(listItem));
+        when(searchPaginationService.search(any(SearchPaginationService.SearchRequest.class)))
+            .thenReturn(Mono.just(page));
+
+        String expectedPreferred = fixtureBook.getCoverImages().getPreferredUrl();
 
         performAsync(get("/api/books/search")
             .param("query", "Fixture")
@@ -118,10 +134,16 @@ class BookControllerTest {
             .andExpect(jsonPath("$.results", hasSize(1)))
             .andExpect(jsonPath("$.results[0].id", equalTo(fixtureBook.getId())))
             .andExpect(jsonPath("$.results[0].slug", equalTo(fixtureBook.getSlug())))
-            .andExpect(jsonPath("$.results[0].cover.preferredUrl", containsString("preferred")))
-            .andExpect(jsonPath("$.results[0].tags[0].key", equalTo("nytBestseller")))
-            .andExpect(jsonPath("$.results[0].tags[0].attributes.rank", equalTo(1)))
-            .andExpect(jsonPath("$.results[0].matchType", equalTo("POSTGRES")));
+            .andExpect(jsonPath("$.results[0].cover.preferredUrl", equalTo(expectedPreferred)))
+            .andExpect(jsonPath("$.results[0].tags[*].key", hasItems("search.matchType", "search.relevanceScore", "nytBestseller")))
+            .andExpect(jsonPath("$.results[0].tags[*].attributes.rank", hasItem(1)))
+            .andExpect(jsonPath("$.results[0].matchType", equalTo("POSTGRES")))
+            .andExpect(jsonPath("$.hasMore", equalTo(false)))
+            .andExpect(jsonPath("$.nextStartIndex", equalTo(0)))
+            .andExpect(jsonPath("$.prefetchedCount", equalTo(0)))
+            .andExpect(jsonPath("$.orderBy", equalTo("newest")))
+            .andExpect(jsonPath("$.coverSource", equalTo("ANY")))
+            .andExpect(jsonPath("$.resolution", equalTo("ANY")));
     }
 
     @Test
@@ -137,7 +159,15 @@ class BookControllerTest {
             .andExpect(jsonPath("$.id", equalTo(fixtureBook.getId())))
             .andExpect(jsonPath("$.slug", equalTo(fixtureBook.getSlug())))
             .andExpect(jsonPath("$.authors[0].name", equalTo("Fixture Author")))
-            .andExpect(jsonPath("$.cover.s3ImagePath", equalTo(fixtureBook.getS3ImagePath())))
+            .andExpect(jsonPath("$.cover.preferredUrl", equalTo(
+                CoverUrlResolver.resolve(
+                    detail.coverUrl(),
+                    detail.thumbnailUrl(),
+                    detail.coverWidth(),
+                    detail.coverHeight(),
+                    detail.coverHighResolution()
+                ).url()
+            )))
             .andExpect(jsonPath("$.tags[0].key", equalTo("nytBestseller")));
     }
 
@@ -158,6 +188,53 @@ class BookControllerTest {
             .andExpect(content().contentType(MediaType.APPLICATION_JSON))
             .andExpect(jsonPath("$.id", equalTo(fixtureBook.getId())))
             .andExpect(jsonPath("$.slug", equalTo(fixtureBook.getSlug())));
+    }
+
+    @Test
+    @DisplayName("GET /api/books/{id} includes edition summaries from repository")
+    void getBookByIdentifier_includesEditions() throws Exception {
+        BookDetail detail = buildDetailFromBook(fixtureBook);
+        EditionSummary summary = new EditionSummary(
+            UUID.randomUUID().toString(),
+            "edition-slug",
+            "Fixture Hardcover",
+            LocalDate.of(2023, 5, 1),
+            "Fixture Publisher",
+            "9781234567897",
+            "https://cdn.test/edition.jpg",
+            "en",
+            352
+        );
+
+        when(bookQueryRepository.fetchBookDetailBySlug(fixtureBook.getSlug()))
+            .thenReturn(Optional.of(detail));
+        when(bookQueryRepository.fetchBookEditions(UUID.fromString(fixtureBook.getId())))
+            .thenReturn(List.of(summary));
+
+        performAsync(get("/api/books/" + fixtureBook.getSlug()))
+            .andExpect(status().isOk())
+            .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+            .andExpect(jsonPath("$.editions", hasSize(1)))
+            .andExpect(jsonPath("$.editions[0].googleBooksId", equalTo(summary.id())))
+            .andExpect(jsonPath("$.editions[0].isbn13", equalTo(summary.isbn13())));
+    }
+
+    @Test
+    @DisplayName("GET /api/books/{identifier} falls back to orchestrator when Postgres misses")
+    void getBookByIdentifier_usesFallbackWhenRepositoryMisses() throws Exception {
+        String fallbackSlug = "fallback-book";
+        stubRepositoryMiss(fallbackSlug);
+
+        Book fallback = buildBook(UUID.randomUUID().toString(), fallbackSlug);
+        when(bookDataOrchestrator.fetchCanonicalBookReactive(fallbackSlug))
+            .thenReturn(Mono.just(fallback));
+
+        performAsync(get("/api/books/" + fallbackSlug))
+            .andExpect(status().isOk())
+            .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+            .andExpect(jsonPath("$.id", equalTo(fallback.getId())))
+            .andExpect(jsonPath("$.slug", equalTo(fallbackSlug)))
+            .andExpect(jsonPath("$.title", equalTo(fallback.getTitle())));
     }
 
     @Test
@@ -183,9 +260,11 @@ class BookControllerTest {
             fixtureBook.getTitle(),
             fixtureBook.getAuthors(),
             fixtureBook.getCoverImages().getPreferredUrl(),
+            fixtureBook.getS3ImagePath(),
+            fixtureBook.getCoverImages().getFallbackUrl(),
             4.7,
             321,
-            Map.of("reason", Map.of("type", "AUTHOR"))
+            Map.<String, Object>of("reason", Map.<String, Object>of("type", "AUTHOR"))
         );
         List<RecommendationCard> cards = List.of(new RecommendationCard(card, 0.9, "AUTHOR"));
         when(bookQueryRepository.fetchRecommendationCards(bookUuid, 3)).thenReturn(cards);
@@ -215,16 +294,20 @@ class BookControllerTest {
         Book fallback = buildBook(UUID.randomUUID().toString(), "fallback-book");
         when(bookDataOrchestrator.fetchCanonicalBookReactive("orchestrator-id"))
             .thenReturn(Mono.just(fallback));
-        stubCoverPipeline();
 
-        String expectedCoverUrl = fallback.getS3ImagePath();
-        String expectedPreferred = fallback.getCoverImages().getPreferredUrl();
+        CoverUrlResolver.ResolvedCover expectedCover = CoverUrlResolver.resolve(
+            fallback.getS3ImagePath(),
+            fallback.getExternalImageUrl(),
+            fallback.getCoverImageWidth(),
+            fallback.getCoverImageHeight(),
+            fallback.getIsCoverHighResolution()
+        );
 
-        performAsync(get("/api/covers/orchestrator-id"))
+        mockMvc.perform(get("/api/covers/orchestrator-id"))
             .andExpect(status().isOk())
             .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-            .andExpect(jsonPath("$.preferredUrl", equalTo(expectedPreferred)))
-            .andExpect(jsonPath("$.coverUrl", equalTo(expectedCoverUrl)))
+            .andExpect(jsonPath("$.preferredUrl", equalTo(expectedCover.url())))
+            .andExpect(jsonPath("$.coverUrl", equalTo(expectedCover.url())))
             .andExpect(jsonPath("$.requestedSourcePreference", equalTo("ANY")));
     }
 
@@ -234,14 +317,20 @@ class BookControllerTest {
         BookDetail detail = buildDetailFromBook(fixtureBook);
         when(bookQueryRepository.fetchBookDetailBySlug(fixtureBook.getSlug()))
             .thenReturn(Optional.of(detail));
-        when(bookDataOrchestrator.fetchCanonicalBookReactive(fixtureBook.getSlug()))
-            .thenReturn(Mono.empty());
-        stubCoverPipeline();
 
-        performAsync(get("/api/covers/" + fixtureBook.getSlug()))
+        CoverUrlResolver.ResolvedCover expectedCover = CoverUrlResolver.resolve(
+            detail.coverUrl(),
+            detail.thumbnailUrl(),
+            detail.coverWidth(),
+            detail.coverHeight(),
+            detail.coverHighResolution()
+        );
+
+        mockMvc.perform(get("/api/covers/" + fixtureBook.getSlug()))
             .andExpect(status().isOk())
             .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-            .andExpect(jsonPath("$.coverUrl", containsString(fixtureBook.getId())));
+            .andExpect(jsonPath("$.coverUrl", equalTo(expectedCover.url())))
+            .andExpect(jsonPath("$.preferredUrl", equalTo(expectedCover.url())));
     }
 
     @Test
@@ -260,13 +349,6 @@ class BookControllerTest {
             .andExpect(jsonPath("$.query", equalTo("Fixture")))
             .andExpect(jsonPath("$.results", hasSize(1)))
             .andExpect(jsonPath("$.results[0].id", containsString("author-1")));
-    }
-
-    private ResultActions performAsync(MockHttpServletRequestBuilder builder) throws Exception {
-        MvcResult result = mockMvc.perform(builder)
-            .andExpect(request().asyncStarted())
-            .andReturn();
-        return mockMvc.perform(asyncDispatch(result));
     }
 
     private Book buildBook(String id, String slug) {
@@ -289,7 +371,10 @@ class BookControllerTest {
             "https://cdn.test/preferred/" + id + ".jpg",
             "https://cdn.test/fallback/" + id + ".jpg",
             CoverImageSource.GOOGLE_BOOKS));
-        book.setQualifiers(Map.of("nytBestseller", Map.of("rank", 1)));
+        book.setQualifiers(new java.util.HashMap<>(Map.<String, Object>of(
+            "nytBestseller",
+            Map.<String, Object>of("rank", 1)
+        )));
         book.setCachedRecommendationIds(List.of("rec-1", "rec-2"));
         book.setPublishedDate(Date.from(Instant.parse("2020-01-01T00:00:00Z")));
         book.setDataSource("POSTGRES");
@@ -297,10 +382,14 @@ class BookControllerTest {
     }
 
     private BookDetail buildDetailFromBook(Book book) {
-        Map<String, Object> tags = Map.of("nytBestseller", Map.of("rank", 1));
+        Map<String, Object> tags = Map.<String, Object>of(
+            "nytBestseller",
+            Map.<String, Object>of("rank", 1)
+        );
 
-        String preferredCover = book.getS3ImagePath() != null ? book.getS3ImagePath() : book.getExternalImageUrl();
-        String fallbackCover = book.getExternalImageUrl();
+        String preferredCover = book.getCoverImages().getPreferredUrl();
+        String fallbackCover = book.getCoverImages().getFallbackUrl();
+        String thumbnail = fallbackCover;
 
         return new BookDetail(
             book.getId(),
@@ -314,7 +403,9 @@ class BookControllerTest {
             book.getAuthors(),
             book.getCategories(),
             preferredCover,
+            book.getS3ImagePath(),
             fallbackCover,
+            thumbnail,
             book.getCoverImageWidth(),
             book.getCoverImageHeight(),
             book.getIsCoverHighResolution(),
@@ -326,34 +417,22 @@ class BookControllerTest {
             "https://preview",
             "https://info",
             tags,
-            List.of()
+            List.<EditionSummary>of()
         );
     }
 
     private void stubRepositoryMiss(String identifier) {
-        when(bookQueryRepository.fetchBookDetailBySlug(identifier)).thenReturn(Optional.empty());
-        when(bookIdentifierResolver.resolveCanonicalId(identifier)).thenReturn(Optional.empty());
-        when(bookIdentifierResolver.resolveToUuid(identifier)).thenReturn(Optional.empty());
+        lenient().when(bookQueryRepository.fetchBookDetailBySlug(identifier)).thenReturn(Optional.empty());
+        lenient().when(bookIdentifierResolver.resolveCanonicalId(identifier)).thenReturn(Optional.empty());
+        lenient().when(bookIdentifierResolver.resolveToUuid(identifier)).thenReturn(Optional.empty());
     }
 
-    private void stubCoverPipeline() {
-        when(bookImageOrchestrationService.getBestCoverUrlAsync(any(Book.class), any(CoverImageSource.class)))
-            .thenAnswer(invocation -> {
-                Book book = invocation.getArgument(0);
-                CoverImageSource source = invocation.getArgument(1);
-                CoverImages images = book.getCoverImages();
-                if (images == null) {
-                    images = new CoverImages(
-                        "https://cdn.example/preferred/" + book.getId() + ".jpg",
-                        book.getExternalImageUrl(),
-                        source
-                    );
-                    book.setCoverImages(images);
-                }
-                if (book.getS3ImagePath() == null) {
-                    book.setS3ImagePath(images.getPreferredUrl());
-                }
-                return CompletableFuture.completedFuture(book);
-            });
+    private ResultActions performAsync(MockHttpServletRequestBuilder builder) throws Exception {
+        ResultActions initial = mockMvc.perform(builder);
+        MvcResult mvcResult = initial.andReturn();
+        if (mvcResult.getRequest().isAsyncStarted()) {
+            return mockMvc.perform(asyncDispatch(mvcResult));
+        }
+        return initial;
     }
 }

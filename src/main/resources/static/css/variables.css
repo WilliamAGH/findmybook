@@ -1,219 +1,284 @@
-/*
- * Global CSS Custom Properties (Variables)
- * Define every CSS variable used across the application to avoid missing-variable warnings.
- */
+/* =============================================================================
+   CSS VARIABLES - SINGLE SOURCE OF TRUTH
+   Core color palette: linen, canvas, anthracite, sage, obsidian
+   Used by: Legacy Bootstrap components in book.html, search.html, book cards
+   ============================================================================= */
 
-/* Font Families & Base Palette - Modern & Inspiring (Logo Aligned) */
+/* !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+   ⛔ CRITICAL: NAVBAR STYLES FORBIDDEN HERE ⛔
+   
+   DO NOT add ANY navbar background, #main-navbar, or .navbar styles to this file!
+   
+   WHY: Navbar styles MUST live in layout.html's inline <style> block to:
+   - Ensure !important precedence without cascade conflicts
+   - Keep navbar UI separate from legacy Bootstrap variables
+   - Prevent the 7+ regressions we've had from CSS file loading order
+   
+   LOCATION: src/main/resources/templates/fragments/layout.html (lines 169-178)
+   
+   IF YOU NEED TO CHANGE NAVBAR:
+   1. Edit layout.html's <style> block, NOT this file
+   2. Do NOT add navbar-related variables here
+   3. Do NOT add navbar background colors here
+   
+   This guard exists because navbar styles were repeatedly overridden by
+   variables defined here, causing persistent visual regressions.
+   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! */
+
 :root {
-  --font-family-sans-serif: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+  /* ==========================================================================
+     FONTS - Used by all legacy HTML components
+     ========================================================================== */
+  --font-family-sans-serif: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-family-headings: 'Poppins', var(--font-family-sans-serif);
   --font-family-body: var(--font-family-sans-serif);
 
-  /* Core Brand Colors - Inspired by New Logo */
-  --brand-primary: #6D28D9; /* Deep Purple (from magnifying glass idea) */
-  --brand-primary-dark: #5B21B6; /* Darker Purple */
-  --brand-primary-light: #8B5CF6; /* Lighter Purple (good for dark mode accents) */
-  --brand-primary-rgb: 109, 40, 217;
-  --brand-primary-glow-color: rgba(var(--brand-primary-rgb), 0.15);
+  /* ==========================================================================
+     PRIMARY BRAND COLORS - Canvas (warm bookstore accent)
+     Used by: Buttons, links, accents, affiliate dropdown hovers
+     ========================================================================== */
+  --brand-primary: #D4A574;              /* Canvas-400: Main brand color */
+  --brand-primary-dark: #B17B45;         /* Canvas-600: Hover states */
+  --brand-primary-light: #E8DCBD;        /* Canvas-200: Backgrounds */
+  --brand-primary-rgb: 212, 165, 116;    /* RGB for rgba() usage */
+  --brand-primary-glow-color: rgba(212, 165, 116, 0.15); /* Focus rings, hover backgrounds */
 
-  --brand-secondary: #3B82F6; /* Bright Blue (from book icon / original info color) */
-  --brand-secondary-dark: #2563EB;
-  --brand-secondary-light: #60A5FA;
-  --brand-secondary-rgb: 59, 130, 246;
-  --brand-secondary-glow-color: rgba(var(--brand-secondary-rgb), 0.15);
+  /* ==========================================================================
+     SECONDARY BRAND COLORS - Blue (information, dark mode primary)
+     Used by: Info badges, dark mode buttons, dark mode links
+     ========================================================================== */
+  --brand-secondary: #3B82F6;            /* Bright Blue: Info elements */
+  --brand-secondary-dark: #2563EB;       /* Hover states for secondary */
+  --brand-secondary-light: #60A5FA;      /* Light variant for dark mode */
+  --brand-secondary-rgb: 59, 130, 246;   /* RGB for rgba() usage */
+  --brand-secondary-glow-color: rgba(59, 130, 246, 0.15); /* Focus rings */
 
-  /* Semantic colors */
-  --success-color:       #10B981; /* Keep or adjust if needed */
-  --warning-color:       #FBBF24;
-  --danger-color:        #EF4444;
-  --info-color:          var(--brand-secondary); /* Align info with new secondary blue */
+  /* ==========================================================================
+     SEMANTIC COLORS - Status indicators
+     Used by: Success messages, warnings, errors, info badges
+     ========================================================================== */
+  --success-color: #10B981;  /* Green: Success states */
+  --warning-color: #FBBF24;  /* Yellow: Warning states, rating badges */
+  --danger-color: #EF4444;   /* Red: Error states */
+  --info-color: var(--brand-secondary); /* Blue: Info states */
 
-  /* Greyscale - Keeping slightly warmer greys for balance */
-  --grey-50:             #FDFCFB;
-  --grey-100:            #F7F5F2;
-  --grey-200:            #EAE6E1;
-  --grey-300:            #D8D2CC;
-  --grey-400:            #B8B0A9;
-  --grey-500:            #998F86;
-  --grey-600:            #6D665F;
-  --grey-700:            #4B4640;
-  --grey-800:            #3A3530; /* Good for dark card backgrounds */
-  --grey-900:            #1E293B; /* Dark Blue-Grey for dark backgrounds (cooler than #2C2824) */
+  /* ==========================================================================
+     GRAYSCALE - Warm neutral tones
+     Used by: Backgrounds, text colors, borders throughout legacy components
+     ========================================================================== */
+  --gray-50: #FDFCFB;   /* Lightest: Page backgrounds */
+  --gray-100: #F7F5F2;  /* Very light: Section backgrounds, placeholder backgrounds */
+  --gray-200: #EAE6E1;  /* Light: Borders, dividers */
+  --gray-300: #D8D2CC;  /* Medium-light: Input borders */
+  --gray-400: #B8B0A9;  /* Medium: Disabled states */
+  --gray-500: #998F86;  /* Medium-dark: Placeholder text */
+  --gray-600: #6D665F;  /* Dark: Secondary text */
+  --gray-700: #4B4640;  /* Darker: Secondary text (light mode) */
+  --gray-800: #3A3530;  /* Very dark: Not currently used */
+  --gray-900: #1E293B;  /* Darkest: Primary text (light mode), footer backgrounds */
 
+  /* ==========================================================================
+     LIGHT THEME - Text Colors
+     Used by: All text elements in light mode
+     ========================================================================== */
+  --text-color-primary: var(--gray-900);     /* Main text: Headings, paragraphs */
+  --text-color-secondary: var(--gray-700);   /* Secondary text: Metadata, descriptions */
+  --text-color-accent: var(--brand-primary); /* Accent text: Links, highlights */
+  --text-on-primary-bg: #FFFFFF;             /* Text on colored backgrounds: Buttons */
+  --text-color: var(--text-color-primary);   /* Legacy alias */
 
-  /* LIGHT THEME DEFAULTS */
-  --bg-color: var(--grey-50); /* Or #FFFFFF for extreme crispness */
-  --text-color-primary: var(--grey-900); /* Use the darkest grey instead of pure black */
-  --text-color-secondary: var(--grey-700);
-  --text-color-accent: var(--brand-primary);
-  --text-on-primary-bg: #FFFFFF;
+  /* ==========================================================================
+     LIGHT THEME - Backgrounds & Borders
+     Used by: Page, cards, inputs in light mode
+     ========================================================================== */
+  --bg-color: var(--gray-50);        /* Page background */
+  --border-color: var(--gray-200);   /* General borders: Cards, inputs */
+  --card-bg: #FFFFFF;                /* Card backgrounds */
 
-  --border-color: var(--grey-200);
-  --card-bg: #FFFFFF;
-  --card-shadow: 0 4px 15px rgba(0,0,0,0.07);
-  --card-shadow-hover: 0 6px 20px rgba(0,0,0,0.1);
-  --input-bg: #FFFFFF;
-  --input-border-color: var(--grey-300);
-  --input-focus-border-color: var(--brand-primary);
-  --input-focus-shadow: 0 0 0 0.2rem var(--brand-primary-glow-color);
+  /* ==========================================================================
+     SHADOWS - Depth and elevation
+     Used by: Cards, dropdowns, modals
+     ========================================================================== */
+  --card-shadow: 0 4px 15px rgba(0,0,0,0.07);         /* Default card shadow */
+  --card-shadow-hover: 0 6px 20px rgba(0,0,0,0.1);    /* Card hover shadow */
+  --dropdown-shadow: var(--card-shadow);              /* Dropdown shadow */
 
-  --link-color: var(--brand-primary);
-  --link-hover-color: var(--brand-primary-dark);
+  /* ==========================================================================
+     INPUTS - Form elements
+     Used by: Search bars, text inputs, textareas
+     ========================================================================== */
+  --input-bg: #FFFFFF;                                 /* Input background */
+  --input-border-color: var(--gray-300);               /* Input border */
+  --input-focus-border-color: var(--brand-primary);    /* Input focus border */
+  --input-focus-shadow: 0 0 0 0.2rem rgba(212, 165, 116, 0.15); /* Input focus ring */
 
-  --button-primary-bg: var(--brand-primary);
-  --button-primary-text: var(--text-on-primary-bg);
-  --button-primary-hover-bg: var(--brand-primary-dark);
+  /* ==========================================================================
+     LINKS - Anchor tag styling
+     Used by: All <a> tags in legacy components
+     ========================================================================== */
+  --link-color: var(--brand-primary);       /* Link color */
+  --link-hover-color: var(--brand-primary-dark); /* Link hover color */
 
-  --button-outline-primary-text: var(--brand-primary);
-  --button-outline-primary-border: var(--brand-primary);
-  --button-outline-primary-hover-bg: var(--brand-primary-glow-color);
-  --button-outline-primary-hover-text: var(--brand-primary-dark);
+  /* ==========================================================================
+     BUTTONS - Primary style (filled)
+     Used by: "View Details" buttons, primary CTAs
+     ========================================================================== */
+  --button-primary-bg: var(--brand-primary);          /* Button background */
+  --button-primary-text: var(--text-on-primary-bg);   /* Button text */
+  --button-primary-hover-bg: var(--brand-primary-dark); /* Button hover background */
 
-  --hero-bg-color: var(--grey-100); /* Light grey, could also be a very light shade of blue/purple */
-  --hero-text-color: var(--text-color-primary);
-  --hero-search-button-bg: var(--brand-primary);
-  --hero-search-button-text: var(--text-on-primary-bg);
-  --hero-search-button-hover-bg: var(--brand-primary-dark);
+  /* ==========================================================================
+     BUTTONS - Outline style (transparent with border)
+     Used by: Secondary actions, "View All" links
+     ========================================================================== */
+  --button-outline-primary-text: var(--brand-primary);  /* Text color */
+  --button-outline-primary-border: var(--brand-primary); /* Border color */
+  --button-outline-primary-hover-bg: rgba(212, 165, 116, 0.15); /* Hover background */
+  --button-outline-primary-hover-text: var(--brand-primary-dark); /* Hover text */
 
-  --popular-tag-bg: var(--grey-200);
-  --popular-tag-text: var(--grey-700);
-  --popular-tag-hover-bg: var(--brand-primary-glow-color);
-  --popular-tag-hover-text: var(--brand-primary-dark);
+  /* ==========================================================================
+     PLACEHOLDERS - Empty states
+     Used by: Image placeholders, empty book covers
+     ========================================================================== */
+  --placeholder-text-color: var(--gray-500);  /* Placeholder text */
+  --placeholder-bg-color: var(--gray-100);    /* Placeholder background */
 
-  --placeholder-text-color: var(--grey-500);
-  --placeholder-bg-color: var(--grey-100);
+  /* ==========================================================================
+     DROPDOWNS - Context menus
+     Used by: Affiliate dropdowns in book.html
+     ========================================================================== */
+  --dropdown-bg: var(--card-bg);                       /* Dropdown background */
+  --dropdown-border-color: var(--border-color);        /* Dropdown border */
+  --dropdown-item-hover-bg: var(--gray-100);           /* Item hover background */
+  --dropdown-item-hover-text: var(--text-color-primary); /* Item hover text */
+  --dropdown-item-active-bg: rgba(212, 165, 116, 0.15); /* Active item background */
+  --dropdown-item-active-text: var(--brand-primary-dark); /* Active item text */
 
-  --text-color: var(--text-color-primary);
-  --popular-tag-border: var(--border-color);
-  --footer-background-color: var(--grey-900); /* Default for light, overridden in dark */
-  --footer-text-color: var(--grey-200); /* Default for light, overridden in dark */
-  --section-bg-color: var(--grey-100); /* Default for light, can be overridden */
-  
-  --dropdown-bg: var(--card-bg);
-  --dropdown-border-color: var(--border-color);
-  --dropdown-item-hover-bg: var(--grey-100);
-  --dropdown-item-hover-text: var(--text-color-primary);
-  --dropdown-item-active-bg: var(--brand-primary-glow-color);
-  --dropdown-item-active-text: var(--brand-primary-dark);
-  --dropdown-shadow: var(--card-shadow);
+  /* ==========================================================================
+     FOOTER - Site footer styling
+     Used by: Footer in layout.html (legacy CSS components)
+     ========================================================================== */
+  --footer-background-color: var(--gray-900);  /* Footer background */
+  --footer-text-color: var(--gray-200);        /* Footer text */
 
-  /* --- Old Variable Mappings (Light Theme) --- */
+  /* ==========================================================================
+     LEGACY ALIASES - Backward compatibility
+     Used by: Older components that haven't been updated yet
+     ========================================================================== */
   --primary-color: var(--brand-primary);
   --primary-dark: var(--brand-primary-dark);
   --primary-rgb: var(--brand-primary-rgb);
   --primary-glow-color: var(--brand-primary-glow-color);
   --secondary-color: var(--brand-secondary);
-  
-  --light-color: var(--grey-100);
-  --dark-color: var(--grey-900); 
-  
+  --light-color: var(--gray-100);
+  --dark-color: var(--gray-900);
   --background-color: var(--bg-color);
-
-  --button-viewall-bg: var(--button-primary-bg);
-  --button-viewall-text: var(--button-primary-text);
-  --button-viewall-hover-bg: var(--button-primary-hover-bg);
-  --button-viewall-outlined-text: var(--button-outline-primary-text);
-  --button-viewall-outlined-border: var(--button-outline-primary-border);
-  --button-viewall-outlined-hover-bg: var(--button-outline-primary-hover-bg);
-  --button-viewall-outlined-hover-text: var(--button-outline-primary-hover-text);
-  
-  --search-button-hero-bg: var(--hero-search-button-bg);
-  --search-button-hero-text: var(--hero-search-button-text);
-  --search-button-hero-hover-bg: var(--hero-search-button-hover-bg);
-
-  --hero-gradient-start: var(--brand-primary-light); 
-  --hero-gradient-end: var(--brand-primary);
-
-  /* Navbar specific background for light theme */
-  --navbar-bg-light: #FFFFFF; /* Or var(--card-bg) if it should always match */
 }
 
-/* DARK THEME OVERRIDES - "BookHub" Inspired High Contrast */
+/* =============================================================================
+   DARK THEME OVERRIDES
+   Used by: All components when [data-theme="dark"] is active
+   Design Philosophy: Cool blacks with blue undertones (Claude/Kindle inspired)
+   ============================================================================= */
 [data-theme="dark"] {
-  /* Core Palette - BookHub Inspired */
-  --bg-color: #0B101B; /* Very Dark Navy/Off-Black */
-  --card-bg: #F0F2F5;  /* Very Light Grey/Off-White for high contrast cards */
-  --border-color: #303950; /* Subtle border for dark elements, or var(--grey-300) for light cards */
+  /* ==========================================================================
+     DARK THEME - Core Palette (Cool blacks with blue undertones)
+     Used by: Page backgrounds, cards, borders in dark mode
+     ========================================================================== */
+  --bg-color: #0F1419;       /* Page background: Deep cool black (slate-900) */
+  --card-bg: #1E293B;        /* Cards: Elevated slate for layering (slate-800) */
+  --border-color: #334155;   /* Borders: Subtle slate-700 */
 
-  --text-color-primary: #FFFFFF; /* Bright White for primary text */
-  --text-color-secondary: #A0AEC0; /* Light Cool Grey for secondary text */
-  --text-color-accent: var(--brand-secondary-light); /* Use light blue as the primary accent now */
-  --text-on-primary-bg: #FFFFFF; /* Text on dark blue/purple buttons */
-  --text-on-light-card-bg: #1A202C; /* Dark text for light cards - NEW */
-  --text-on-light-card-secondary: #4A5568; /* Secondary dark text for light cards - NEW */
+  /* ==========================================================================
+     DARK THEME - Text Colors (High contrast with warmth)
+     Used by: All text elements in dark mode
+     ========================================================================== */
+  --text-color-primary: #F8FAFC;          /* Main text: Near white (slate-50) */
+  --text-color-secondary: #94A3B8;        /* Secondary text: Muted slate-400 */
+  --text-color-accent: #C4B8A0;           /* Accent: Desaturated canvas-500 */
+  --text-on-primary-bg: #F8FAFC;          /* Text on buttons */
+  --text-on-light-card-bg: #0F1419;       /* Dark text on light surfaces */
+  --text-on-light-card-secondary: #475569; /* Secondary dark text (slate-600) */
 
+  /* ==========================================================================
+     DARK THEME - Brand Colors (Muted canvas tones)
+     Used by: Accent colors, highlights in dark mode
+     ========================================================================== */
+  --brand-primary: #A89778;               /* Canvas-600: Muted warm brown */
+  --brand-primary-dark: #8B7355;          /* Canvas-700: Darker for hovers */
+  --brand-primary-light: #C4B8A0;         /* Canvas-500: Lighter variant */
+  --brand-primary-rgb: 168, 151, 120;     /* RGB for rgba() usage */
+  --brand-primary-glow-color: rgba(168, 151, 120, 0.12);
 
-  /* Shadows for dark elements (if any remain) or very subtle for light cards */
-  --card-shadow: 0 2px 8px rgba(0,0,0,0.2); /* Subtle shadow for light cards if needed */
-  --card-shadow-hover: 0 4px 12px rgba(0,0,0,0.25);
-  
-  /* UI Elements */
-  --input-bg: #1A202C; /* Dark input field, similar to inspiration's slightly lighter than page bg */
-  --input-border-color: var(--border-color);
-  --input-focus-border-color: var(--brand-secondary-light); /* Blue focus */
-  --input-focus-shadow: 0 0 0 0.2rem rgba(var(--brand-secondary-rgb), 0.25);
+  /* ==========================================================================
+     DARK THEME - Shadows (Deeper for cool backgrounds)
+     Used by: Cards, dropdowns in dark mode
+     ========================================================================== */
+  --card-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --card-shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.5);
 
-  --link-color: var(--brand-secondary-light); /* Bright blue for links */
-  --link-hover-color: var(--brand-secondary);
+  /* ==========================================================================
+     DARK THEME - Inputs (Elevated surfaces)
+     Used by: Search bars, text inputs in dark mode
+     ========================================================================== */
+  --input-bg: #1E293B;                    /* Matches card elevation (slate-800) */
+  --input-border-color: #334155;          /* Slate-700 */
+  --input-focus-border-color: #A89778;    /* Muted canvas focus (canvas-600) */
+  --input-focus-shadow: 0 0 0 0.2rem rgba(168, 151, 120, 0.15);
 
-  --button-primary-bg: var(--brand-secondary); /* Main action buttons are BLUE */
-  --button-primary-text: #FFFFFF;
-  --button-primary-hover-bg: var(--brand-secondary-dark);
+  /* ==========================================================================
+     DARK THEME - Links (Consistent with accents)
+     Used by: All <a> tags in dark mode
+     ========================================================================== */
+  --link-color: #C4B8A0;                  /* Canvas-500 */
+  --link-hover-color: #D4CAB7;            /* Canvas-400 */
 
-  --button-outline-primary-text: var(--brand-secondary-light); /* Outline buttons are blue text */
-  --button-outline-primary-border: var(--brand-secondary-light);
-  --button-outline-primary-hover-bg: rgba(var(--brand-secondary-rgb), 0.1);
-  --button-outline-primary-hover-text: var(--brand-secondary-light);
+  /* ==========================================================================
+     DARK THEME - Buttons (Muted canvas with proper contrast)
+     Used by: All buttons in dark mode
+     ========================================================================== */
+  --button-primary-bg: #A89778;           /* Canvas-600 */
+  --button-primary-text: #0F1419;         /* Dark text on muted background */
+  --button-primary-hover-bg: #8B7355;     /* Canvas-700 */
 
-  --hero-bg-color: var(--bg-color); /* Hero matches the very dark page background */
-  --hero-text-color: var(--text-color-primary); /* White text on hero */
-  --hero-search-button-bg: var(--brand-secondary); /* BLUE search button */
-  --hero-search-button-text: #FFFFFF;
-  --hero-search-button-hover-bg: var(--brand-secondary-dark);
+  --button-outline-primary-text: #C4B8A0;        /* Canvas-500 */
+  --button-outline-primary-border: #A89778;      /* Canvas-600 */
+  --button-outline-primary-hover-bg: rgba(168, 151, 120, 0.1);
+  --button-outline-primary-hover-text: #D4CAB7;  /* Canvas-400 */
 
-  /* Popular Tags - will need review with light cards */
-  --popular-tag-bg: rgba(var(--brand-secondary-rgb), 0.1); /* Subtle blue bg */
-  --popular-tag-text: var(--brand-secondary-light); /* Light blue text */
-  --popular-tag-hover-bg: rgba(var(--brand-secondary-rgb), 0.2);
-  --popular-tag-hover-text: var(--brand-secondary-light);
+  /* ==========================================================================
+     DARK THEME - Placeholders
+     Used by: Empty states in dark mode
+     ========================================================================== */
+  --placeholder-text-color: #64748B;      /* Slate-500 */
+  --placeholder-bg-color: #1E293B;        /* Slate-800 */
 
-  --placeholder-text-color: var(--text-color-secondary); /* Light grey placeholder in dark inputs */
-  --placeholder-bg-color: var(--card-bg); /* Placeholder for images is now light */
+  /* ==========================================================================
+     DARK THEME - Dropdowns
+     Used by: Affiliate dropdowns in dark mode
+     ========================================================================== */
+  --dropdown-bg: #1E293B;                 /* Slate-800 */
+  --dropdown-border-color: #334155;       /* Slate-700 */
+  --dropdown-item-hover-bg: rgba(168, 151, 120, 0.1);  /* Canvas hover */
+  --dropdown-item-hover-text: #F8FAFC;    /* Slate-50 */
+  --dropdown-item-active-bg: rgba(168, 151, 120, 0.2); /* Canvas active */
+  --dropdown-item-active-text: #C4B8A0;   /* Canvas-500 */
 
-  --dropdown-bg: #1A202C; /* Dark dropdowns */
-  --dropdown-border-color: var(--border-color);
-  --dropdown-item-hover-bg: rgba(var(--brand-secondary-rgb), 0.1);
-  --dropdown-item-hover-text: var(--text-color-primary);
-  --dropdown-item-active-bg: rgba(var(--brand-secondary-rgb), 0.2);
-  --dropdown-item-active-text: var(--brand-secondary-light);
+  /* ==========================================================================
+     DARK THEME - Footer
+     Used by: Footer in dark mode
+     ========================================================================== */
+  --footer-background-color: #0F1419;     /* Slate-900 */
+  --footer-text-color: #94A3B8;           /* Slate-400 */
 
-  --footer-background-color: var(--input-bg); /* Was --grey-900 in light, now uses a dark theme bg */
-  --footer-text-color: var(--text-color-secondary); /* Was --grey-200 in light, now uses a light grey for dark bg */
-  --section-bg-color: var(--input-bg); /* Was --grey-100 in light, now uses a dark theme bg for sections */
-  
-  --navbar-bg-dark: var(--bg-color); /* Navbar matches very dark page background */
-
-  /* --- Old Variable Mappings (Dark Theme) --- */
+  /* ==========================================================================
+     DARK THEME - Legacy Aliases
+     Used by: Older components for backward compatibility
+     ========================================================================== */
   --background-color: var(--bg-color);
-  --text-color-on-accent: #FFFFFF; /* Text on purple/blue buttons */
-  
-  --warm-accent-primary: var(--brand-primary-light); /* Purple is now more of a secondary accent if used */
-  --warm-accent-hover: var(--brand-primary);
-  --warm-accent-secondary: var(--brand-secondary-light); /* Blue is primary */
-
-  /* Hero gradient - update for new dark page bg, or remove if solid like inspiration */
-  --hero-gradient-start: var(--bg-color); 
-  --hero-gradient-end: #101623; /* Slightly lighter variant of bg-color if gradient is kept */
-
-  --button-viewall-bg: var(--button-primary-bg);
-  --button-viewall-text: var(--button-primary-text);
-  --button-viewall-hover-bg: var(--button-primary-hover-bg);
-  --button-viewall-outlined-text: var(--button-outline-primary-text);
-  --button-viewall-outlined-border: var(--button-outline-primary-border);
-  --button-viewall-outlined-hover-bg: var(--button-outline-primary-hover-bg);
-  --button-viewall-outlined-hover-text: var(--button-outline-primary-hover-text);
-
-  --search-button-hero-bg: var(--hero-search-button-bg);
-  --search-button-hero-text: var(--hero-search-button-text);
-  --search-button-hero-hover-bg: var(--hero-search-button-hover-bg);
+  --text-color-on-accent: #F8FAFC;
+  --primary-color: var(--brand-primary);
+  --primary-dark: var(--brand-primary-dark);
+  --primary-rgb: var(--brand-primary-rgb);
+  --primary-glow-color: var(--brand-primary-glow-color);
 }

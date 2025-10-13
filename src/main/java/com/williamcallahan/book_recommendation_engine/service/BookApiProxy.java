@@ -24,6 +24,7 @@ import com.williamcallahan.book_recommendation_engine.util.SearchQueryUtils;
 import com.williamcallahan.book_recommendation_engine.util.BookDomainMapper;
 import com.williamcallahan.book_recommendation_engine.util.UuidUtils;
 import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
+import com.williamcallahan.book_recommendation_engine.util.cover.CoverPrioritizer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
@@ -76,6 +77,7 @@ public class BookApiProxy {
     private final String localCacheDirectory;
     private final boolean logApiCalls;
     private final boolean externalFallbackEnabled;
+    private final boolean cacheEnabled;
 
     /**
      * Constructs the BookApiProxy with necessary dependencies
@@ -91,6 +93,7 @@ public class BookApiProxy {
                        @Value("${app.local-cache.directory:.dev-cache}") String localCacheDirectory,
                        @Value("${app.api-client.log-calls:true}") boolean logApiCalls,
                        @Value("${app.features.external-fallback.enabled:${app.features.google-fallback.enabled:true}}") boolean externalFallbackEnabled,
+                       @Value("${app.cache.book-api.enabled:true}") boolean cacheEnabled,
                        BookSearchService bookSearchService,
                        BookQueryRepository bookQueryRepository,
                        BookIdentifierResolver bookIdentifierResolver,
@@ -102,6 +105,7 @@ public class BookApiProxy {
         this.localCacheDirectory = localCacheDirectory;
         this.logApiCalls = logApiCalls;
         this.externalFallbackEnabled = externalFallbackEnabled;
+        this.cacheEnabled = cacheEnabled;
         this.bookSearchService = bookSearchService;
         this.bookQueryRepository = bookQueryRepository;
         this.bookIdentifierResolver = bookIdentifierResolver;
@@ -117,6 +121,10 @@ public class BookApiProxy {
             }
         }
     }
+
+    public boolean isCacheEnabled() {
+        return cacheEnabled;
+    }
     
     /**
      * Smart book retrieval that minimizes API calls using caching
@@ -126,6 +134,9 @@ public class BookApiProxy {
      */
     @Cacheable(value = "bookRequests", key = "#bookId", condition = "#root.target.cacheEnabled")
     public CompletionStage<Book> getBookById(String bookId) {
+        if (logApiCalls) {
+            log.debug("BookApiProxy#getBookById invoked for {}", bookId);
+        }
         // Use computeIfAbsent for atomic get-or-create to prevent race conditions
         CompletableFuture<Book> future = bookRequestCache.computeIfAbsent(bookId, id -> {
             CompletableFuture<Book> newFuture = new CompletableFuture<>();
@@ -274,6 +285,9 @@ public class BookApiProxy {
     )
     public Mono<List<Book>> searchBooks(String query, String langCode) {
         String normalizedQuery = SearchQueryUtils.normalize(query);
+        if (SearchQueryUtils.isWildcard(normalizedQuery)) {
+            return Mono.just(List.of());
+        }
         String cacheKey = SearchQueryUtils.cacheKey(query, langCode);
 
         // Use computeIfAbsent for atomic get-or-create to prevent race conditions
@@ -374,24 +388,9 @@ public class BookApiProxy {
             return;
         }
 
-        Mono<List<Book>> fallbackMono;
-        final BookDataOrchestrator orchestrator = this.bookDataOrchestrator;
-
-        if (orchestrator != null) {
-            if (logApiCalls) {
-                log.info("Invoking tiered search fallback for query '{}' (lang={})", normalizedQuery, langCode);
-            }
-            fallbackMono = orchestrator
-                .searchBooksTiered(normalizedQuery, langCode, SEARCH_RESULT_LIMIT, null)
-                .defaultIfEmpty(List.of());
-        } else {
-            if (logApiCalls) {
-                log.info("Tiered orchestrator unavailable; falling back to legacy Google search for '{}'", normalizedQuery);
-            }
-            fallbackMono = googleBooksService
-                .searchBooksAsyncReactive(normalizedQuery, langCode, SEARCH_RESULT_LIMIT, null)
-                .defaultIfEmpty(List.of());
-        }
+        Mono<List<Book>> fallbackMono = googleBooksService
+            .searchBooksAsyncReactive(normalizedQuery, langCode, SEARCH_RESULT_LIMIT, null)
+            .defaultIfEmpty(List.of());
 
         fallbackMono
             .map(this::sanitizeSearchResults)
@@ -487,6 +486,8 @@ public class BookApiProxy {
         }
 
         List<Book> ordered = new ArrayList<>(Math.min(limit, booksById.size()));
+        Map<String, Integer> insertionOrder = new LinkedHashMap<>();
+        int position = 0;
 
         for (BookSearchService.SearchResult result : results) {
             UUID bookId = result.bookId();
@@ -496,8 +497,11 @@ public class BookApiProxy {
             Book book = booksById.remove(bookId.toString());
             if (book != null) {
                 ordered.add(book);
+                if (ValidationUtils.hasText(book.getId())) {
+                    insertionOrder.putIfAbsent(book.getId(), position++);
+                }
                 if (ordered.size() == limit) {
-                    return ordered;
+                    break;
                 }
             }
         }
@@ -505,10 +509,17 @@ public class BookApiProxy {
         if (ordered.size() < limit && !booksById.isEmpty()) {
             for (Book remaining : booksById.values()) {
                 ordered.add(remaining);
+                if (ValidationUtils.hasText(remaining.getId())) {
+                    insertionOrder.putIfAbsent(remaining.getId(), position++);
+                }
                 if (ordered.size() == limit) {
                     break;
                 }
             }
+        }
+
+        if (!ordered.isEmpty()) {
+            ordered.sort(CoverPrioritizer.bookComparator(insertionOrder, null));
         }
 
         return ordered;

@@ -22,5 +22,9 @@
     },
     "markdownlint.ignore": [
       "tmp/**"
-    ]
+    ],
+    "css.lint.unknownAtRules": "ignore",
+    "htmlhint.options": {
+      "doctype-first": false
+    }
 }

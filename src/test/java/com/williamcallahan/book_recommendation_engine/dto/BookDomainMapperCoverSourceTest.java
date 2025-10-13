@@ -6,13 +6,12 @@ import com.williamcallahan.book_recommendation_engine.util.BookDomainMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class DtoToBookMapperCoverSourceTest {
+class BookDomainMapperCoverSourceTest {
 
     @Test
     @DisplayName("toBook(BookCard) detects Google Books cover source")
@@ -23,9 +22,11 @@ class DtoToBookMapperCoverSourceTest {
             "Card Title",
             List.of("Author"),
             "https://books.google.com/books/content?id=ABC123&printsec=frontcover",
+            null,
+            "https://books.google.com/books/content?id=ABC123&printsec=frontcover&zoom=1",
             4.2,
             120,
-            Map.of()
+            Map.<String, Object>of()
         );
 
         Book book = BookDomainMapper.fromCard(card);
@@ -38,31 +39,11 @@ class DtoToBookMapperCoverSourceTest {
     @Test
     @DisplayName("toBook(BookDetail) detects Open Library cover source")
     void toBookFromDetail_detectsOpenLibrarySource() {
-        BookDetail detail = new BookDetail(
-            "detail-id",
-            "detail-slug",
-            "Detail Title",
-            "Description",
-            "Publisher",
-            null,
-            "en",
-            350,
-            List.of("Author"),
-            List.of("Category"),
+        BookDetail detail = buildDetail(
             "https://covers.openlibrary.org/b/id/12345-L.jpg",
             null,
-            600,
-            900,
-            Boolean.TRUE,
-            "OPEN_LIBRARY",
-            4.5,
-            340,
-            "isbn10",
-            "isbn13",
-            "preview",
-            "info",
-            Collections.<String, Object>emptyMap(),
-            Collections.<EditionSummary>emptyList()
+            "https://covers.openlibrary.org/b/id/12345-M.jpg",
+            "https://covers.openlibrary.org/b/id/12345-S.jpg"
         );
 
         Book book = BookDomainMapper.fromDetail(detail);
@@ -83,9 +64,14 @@ class DtoToBookMapperCoverSourceTest {
             List.of("Author"),
             List.of("Category"),
             "https://cdn.example.com/covers/item-id.jpg",
+            "s3://covers/item-id.jpg",
+            "https://cdn.example.com/covers/item-id-thumb.jpg",
+            500,
+            750,
+            false,
             3.9,
             80,
-            Map.of()
+            Map.<String, Object>of()
         );
 
         Book book = BookDomainMapper.fromListItem(item);
@@ -93,5 +79,39 @@ class DtoToBookMapperCoverSourceTest {
         assertThat(book).isNotNull();
         assertThat(book.getCoverImages()).isNotNull();
         assertThat(book.getCoverImages().getSource()).isEqualTo(CoverImageSource.UNDEFINED);
+    }
+
+    private static BookDetail buildDetail(String coverUrl,
+                                          String coverS3Key,
+                                          String fallbackUrl,
+                                          String thumbnailUrl) {
+        return new BookDetail(
+            "detail-id",
+            "detail-slug",
+            "Detail Title",
+            "Description",
+            "Publisher",
+            null,
+            "en",
+            350,
+            List.of("Author"),
+            List.of("Category"),
+            coverUrl,
+            coverS3Key,
+            fallbackUrl,
+            thumbnailUrl,
+            Integer.valueOf(600),
+            Integer.valueOf(900),
+            Boolean.TRUE,
+            "OPEN_LIBRARY",
+            Double.valueOf(4.5),
+            Integer.valueOf(340),
+            "isbn10",
+            "isbn13",
+            "preview",
+            "info",
+            Map.<String, Object>of(),
+            List.<EditionSummary>of()
+        );
     }
 }

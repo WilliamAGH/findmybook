@@ -136,42 +136,13 @@ public class Book {
         this.collections.add(assignment);
     }
 
-    @Deprecated // Use getS3ImagePath() or getExternalImageUrl()
-    public String getCoverImageUrl() {
-        return (s3ImagePath != null && !s3ImagePath.isEmpty()) ? s3ImagePath : externalImageUrl;
-    }
-
-    @Deprecated // Use setS3ImagePath() or setExternalImageUrl()
-    public void setCoverImageUrl(String coverImageUrl) {
-        // Don't overwrite existing values with null
-        if (coverImageUrl == null) {
-            return;
-        }
-
-        // Check if it's an S3 URL (amazonaws.com or other S3-compatible services)
-        if (coverImageUrl.contains("s3.amazonaws.com") || coverImageUrl.contains(".digitaloceanspaces.com")) {
-            this.s3ImagePath = coverImageUrl;
-        } else if (coverImageUrl.startsWith("http://") || coverImageUrl.startsWith("https://")) {
-            // External URL (Google Books, Open Library, etc.)
-            this.externalImageUrl = coverImageUrl;
-        } else {
-            // Relative path or S3 key (no protocol)
-            this.s3ImagePath = coverImageUrl;
-        }
-    }
-
-    @Deprecated // Use getExternalImageUrl()
-    public String getImageUrl() {
-        return externalImageUrl;
-    }
-
-    @Deprecated // Use setExternalImageUrl()
-    public void setImageUrl(String imageUrl) {
-        this.externalImageUrl = imageUrl;
-    }
 
     public void setQualifiers(Map<String, Object> qualifiers) {
-        this.qualifiers = qualifiers != null ? qualifiers : new HashMap<>();
+        if (qualifiers == null || qualifiers.isEmpty()) {
+            this.qualifiers = new HashMap<>();
+        } else {
+            this.qualifiers = new HashMap<>(qualifiers);
+        }
     }
 
     public void addQualifier(String key, Object value) {

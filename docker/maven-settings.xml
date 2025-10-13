@@ -1,0 +1,26 @@
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">
+  <mirrors>
+    <mirror>
+      <id>central-google</id>
+      <mirrorOf>central</mirrorOf>
+      <url>https://repo1.maven.org/maven2</url>
+    </mirror>
+  </mirrors>
+
+  <profiles>
+    <profile>
+      <id>docker-defaults</id>
+      <activation>
+        <activeByDefault>true</activeByDefault>
+      </activation>
+      <properties>
+        <maven.wagon.http.retryHandler.count>8</maven.wagon.http.retryHandler.count>
+        <maven.wagon.http.retryHandler.class>standard</maven.wagon.http.retryHandler.class>
+        <maven.wagon.http.retryHandler.requestSentEnabled>true</maven.wagon.http.retryHandler.requestSentEnabled>
+        <maven.wagon.rto>15000</maven.wagon.rto>
+      </properties>
+    </profile>
+  </profiles>
+</settings>

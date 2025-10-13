@@ -22,14 +22,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * Allowed occurrences:
  * - Enum declaration files themselves
- * - Deprecated legacy service: CoverImageService (until removal)
  */
 public class CacheSourceEnumsGuardTest {
 
     private static final Set<String> ALLOWED_PATHS = Set.of(
         normalize("java/com/williamcallahan/book_recommendation_engine/model/image/CoverImageSource.java"),
-        normalize("java/com/williamcallahan/book_recommendation_engine/model/image/ImageSourceName.java"),
-        normalize("java/com/williamcallahan/book_recommendation_engine/service/image/CoverImageService.java")
+        normalize("java/com/williamcallahan/book_recommendation_engine/model/image/ImageSourceName.java")
     );
 
     private static final List<String> FORBIDDEN_PATTERNS = List.of(

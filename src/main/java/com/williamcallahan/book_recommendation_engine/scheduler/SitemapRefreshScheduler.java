@@ -20,7 +20,7 @@ import java.util.Optional;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * Consolidated sitemap refresh job that warms Postgres queries, persists S3 artefacts, and hydrates external data.
+ * Consolidated sitemap refresh job that warms Postgres queries, persists S3 artifacts, and hydrates external data.
  */
 @Component
 @Slf4j
@@ -54,6 +54,7 @@ public class SitemapRefreshScheduler {
                 ? ThreadLocalRandom.current().nextLong(0, maxJitterSeconds + 1L)
                 : 0L;
         if (jitterSeconds > 0) {
+            log.debug("Sitemap refresh applying startup jitter: {}s", jitterSeconds);
             try {
                 Thread.sleep(jitterSeconds * 1000L);
             } catch (InterruptedException ex) {
@@ -117,11 +118,13 @@ public class SitemapRefreshScheduler {
             book.setId(item.bookId());
             book.setTitle(item.title());
             try {
-                coverService.fetchCover(book).exceptionally(ex -> {
+                Optional<?> result = coverService.fetchCover(book).exceptionally(ex -> {
                     log.debug("Cover warmup failed for {}: {}", item.bookId(), ex.getMessage());
                     return Optional.empty();
                 }).join();
-                successes++;
+                if (result != null && result.isPresent()) {
+                    successes++;
+                }
             } catch (Exception e) {
                 log.debug("Cover warmup encountered error for {}: {}", item.bookId(), e.getMessage());
             }

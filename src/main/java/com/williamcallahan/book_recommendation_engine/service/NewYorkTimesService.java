@@ -18,6 +18,8 @@ import com.williamcallahan.book_recommendation_engine.model.Book;
 import com.williamcallahan.book_recommendation_engine.repository.BookQueryRepository;
 import com.williamcallahan.book_recommendation_engine.util.LoggingUtils;
 import com.williamcallahan.book_recommendation_engine.util.PagingUtils;
+import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
+import com.williamcallahan.book_recommendation_engine.util.cover.CoverPrioritizer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -28,12 +30,14 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
-// import java.util.ArrayList; // Unused
+import java.util.ArrayList;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @Slf4j
@@ -125,9 +129,21 @@ public class NewYorkTimesService {
         // Use BookQueryRepository as THE SINGLE SOURCE
         if (bookQueryRepository != null) {
             return Mono.fromCallable(() -> {
-                List<BookCard> cards = bookQueryRepository.fetchBookCardsByProviderListCode(listNameEncoded, effectiveLimit);
+                List<BookCard> cards = new ArrayList<>(bookQueryRepository.fetchBookCardsByProviderListCode(listNameEncoded, effectiveLimit));
                 log.info("BookQueryRepository returned {} book cards for list '{}' (optimized query)", cards.size(), listNameEncoded);
-                return cards; // Return DTOs directly - no conversion needed!
+
+                if (!cards.isEmpty()) {
+                    Map<String, Integer> insertionOrder = new LinkedHashMap<>();
+                    for (int idx = 0; idx < cards.size(); idx++) {
+                        BookCard card = cards.get(idx);
+                        if (card != null && ValidationUtils.hasText(card.id())) {
+                            insertionOrder.putIfAbsent(card.id(), idx);
+                        }
+                    }
+                    cards.sort(CoverPrioritizer.cardComparator(insertionOrder));
+                }
+
+                return cards;
             })
             .timeout(Duration.ofMillis(3000)) // 3s timeout for Postgres query
             .subscribeOn(Schedulers.boundedElastic())

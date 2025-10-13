@@ -30,7 +30,7 @@ public class BookLookupService {
     }
 
     /**
-     * Find a book ID by an arbitrary ISBN string. Handles sanitisation and automatically routes to the
+     * Find a book ID by an arbitrary ISBN string. Handles sanitization and automatically routes to the
      * appropriate ISBN-13 or ISBN-10 lookup.
      */
     public Optional<String> findBookIdByIsbn(String rawIsbn) {
