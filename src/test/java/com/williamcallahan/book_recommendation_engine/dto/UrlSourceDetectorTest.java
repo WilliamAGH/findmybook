@@ -39,6 +39,8 @@ class UrlSourceDetectorTest {
             "Test Book",
             List.of("Test Author"),
             "https://covers.openlibrary.org/b/id/12345-L.jpg",
+            "openlibrary/12345",
+            "https://covers.openlibrary.org/b/id/12345-M.jpg",
             4.5,
             100,
             Map.of()
@@ -56,6 +58,8 @@ class UrlSourceDetectorTest {
             "Test Book",
             List.of("Test Author"),
             "https://books.google.com/books/content?id=ABC123&printsec=frontcover",
+            null,
+            "https://books.google.com/books/content?id=ABC123&printsec=frontcover&zoom=1",
             4.5,
             100,
             Map.of()
@@ -73,6 +77,8 @@ class UrlSourceDetectorTest {
             "Test Book",
             List.of("Test Author"),
             "HTTPS://COVERS.OPENLIBRARY.ORG/B/ID/12345-L.JPG",
+            "openlibrary/12345",
+            "https://covers.openlibrary.org/b/id/12345-M.jpg",
             4.5,
             100,
             Map.of()
@@ -96,6 +102,9 @@ class UrlSourceDetectorTest {
 
     @Test
     void detectSource_supportsOpenLibraryFromBookDetail() {
+        String coverUrl = "https://covers.openlibrary.org/b/isbn/9780596520687-M.jpg";
+        String fallback = "https://covers.openlibrary.org/b/isbn/9780596520687-L.jpg";
+        String thumbnail = "https://covers.openlibrary.org/b/isbn/9780596520687-S.jpg";
         BookDetail detail = new BookDetail(
             "id2",
             "slug2",
@@ -107,8 +116,10 @@ class UrlSourceDetectorTest {
             300,
             List.of("Author"),
             List.of("Category"),
-            "https://covers.openlibrary.org/b/isbn/9780596520687-M.jpg",
-            null,
+            coverUrl,
+            "openlibrary/9780596520687",
+            fallback,
+            thumbnail,
             600,
             900,
             Boolean.TRUE,
@@ -137,6 +148,8 @@ class UrlSourceDetectorTest {
             List.of("Author"),
             List.of("Category"),
             "https://books.googleapis.com/books/content/images/frontcover/ABC?fife=w240-h345",
+            null,
+            "https://books.googleapis.com/books/content/images/frontcover/ABC?fife=w120-h180",
             240,
             345,
             false,

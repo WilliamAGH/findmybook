@@ -73,6 +73,8 @@ class BookCacheWarmingSchedulerTest {
             List.of("Author"),
             List.of("Fiction"),
             "https://example.test/cover.jpg",
+            "s3://covers/test-title.jpg",
+            "https://example.test/cover-fallback.jpg",
             "https://example.test/thumb.jpg",
             600,
             900,

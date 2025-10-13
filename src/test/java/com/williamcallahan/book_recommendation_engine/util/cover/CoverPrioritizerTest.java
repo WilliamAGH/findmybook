@@ -35,6 +35,8 @@ class CoverPrioritizerTest {
             "High Cover",
             List.of("Author A"),
             "https://cdn.test/covers/high.jpg",
+            "covers/high.jpg",
+            "https://cdn.test/covers/high.jpg",
             4.5,
             100,
             Map.of()
@@ -45,6 +47,8 @@ class CoverPrioritizerTest {
             "Medium Cover",
             List.of("Author B"),
             "https://images.test/medium.jpg?w=512&h=768",
+            null,
+            "https://images.test/medium.jpg?w=320&h=480",
             4.2,
             50,
             Map.of()
@@ -55,6 +59,8 @@ class CoverPrioritizerTest {
             "Low Cover",
             List.of("Author C"),
             "https://example.test/low.jpg?w=150&h=200",
+            null,
+            "https://example.test/low.jpg?w=120&h=180",
             4.0,
             10,
             Map.of()
@@ -64,6 +70,8 @@ class CoverPrioritizerTest {
             "placeholder",
             "No Cover",
             List.of("Author D"),
+            ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH,
+            null,
             ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH,
             3.8,
             5,

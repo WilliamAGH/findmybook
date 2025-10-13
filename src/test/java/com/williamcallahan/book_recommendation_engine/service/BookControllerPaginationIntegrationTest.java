@@ -167,6 +167,8 @@ class BookControllerPaginationIntegrationTest {
             List.of("Author"),
             List.of("Category"),
             "https://example.test/" + id + ".jpg",
+            "s3://covers/" + id + ".jpg",
+            "https://fallback.example.test/" + id + ".jpg",
             600,
             900,
             true,

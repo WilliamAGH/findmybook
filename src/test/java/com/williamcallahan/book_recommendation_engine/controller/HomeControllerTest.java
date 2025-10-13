@@ -176,6 +176,9 @@ class HomeControllerTest {
         canonicalBook.setSlug("test-title");
 
         UUID canonicalUuid = UUID.fromString(canonicalBook.getId());
+        String preferredCover = canonicalBook.getCoverImages().getPreferredUrl();
+        String fallbackCover = canonicalBook.getCoverImages().getFallbackUrl();
+        String thumbnail = fallbackCover;
         BookDetail detail = new BookDetail(
             canonicalBook.getId(),
             canonicalBook.getSlug(),
@@ -187,8 +190,10 @@ class HomeControllerTest {
             canonicalBook.getPageCount(),
             canonicalBook.getAuthors(),
             List.of(),
-            canonicalBook.getExternalImageUrl(),
-            canonicalBook.getExternalImageUrl(),
+            preferredCover,
+            canonicalBook.getS3ImagePath(),
+            fallbackCover,
+            thumbnail,
             600,
             900,
             Boolean.TRUE,
@@ -268,6 +273,8 @@ class HomeControllerTest {
             "NYT Bestseller",
             List.of("Author A"),
             "http://example.com/cover/bestseller1.jpg",
+            "s3://covers/bestseller1.jpg",
+            "http://example.com/cover/bestseller1-thumb.jpg",
             4.5,
             100,
             java.util.Map.of()
@@ -289,6 +296,8 @@ class HomeControllerTest {
             "Recent Read",
             List.of("Author B"),
             "http://example.com/cover/recent1.jpg",
+            "s3://covers/" + recentBookUuid + ".jpg",
+            "http://example.com/cover/recent1-thumb.jpg",
             4.0,
             50,
             java.util.Map.of()
