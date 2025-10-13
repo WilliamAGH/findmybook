@@ -37,6 +37,13 @@
 
 /* Base Styles - Minimal fallbacks for legacy pages */
 @layer base {
+    /* Ensure HTML element also gets background color to prevent white gaps */
+    html {
+        background-color: var(--bg-color);
+        margin: 0;
+        padding: 0;
+    }
+    
     body {
         font-family: var(--font-family-body);
         background-color: var(--bg-color);
@@ -46,8 +53,7 @@
         flex-direction: column;
         line-height: 1.6;
         margin: 0;
-        padding-top: 0;
-        border-top: 0;
+        padding: 0;
     }
 }
 
@@ -460,16 +466,31 @@
    These rules override Tailwind and component styles for theme switching
    ============================================================================= */
 @layer theme-overrides {
+    /* HTML and Body - Light mode defaults (ensure no white gaps) */
+    html {
+        background-color: #FAF8F5; /* linen-50 light mode */
+    }
+    
     /* Body and main content - Light mode defaults */
     .theme-body,
+    body,
     main,
     .main-content {
         background-color: #FAF8F5; /* linen-50 light mode */
+    }
+    
+    main,
+    .main-content {
         padding-top: 2rem; /* Add space between navbar and content */
     }
     
     .theme-footer {
         background-color: #FFFFFF; /* white light mode */
+    }
+    
+    /* HTML and Body - Dark mode (ensure no white gaps) */
+    [data-theme="dark"] html {
+        background-color: #1E293B; /* slate-800 - unified with all sections */
     }
     
     /* Body and main content dark mode - slate-800 background to match sections, slate-50 text */
@@ -479,6 +500,10 @@
     [data-theme="dark"] .main-content {
         background-color: #1E293B; /* slate-800 - unified with all sections */
         color: #F8FAFC; /* slate-50 */
+    }
+    
+    [data-theme="dark"] main,
+    [data-theme="dark"] .main-content {
         padding-top: 2rem; /* Add space between navbar and content */
     }
     
@@ -1215,3 +1240,280 @@
     overflow: visible !important;
 }
 /* END Affiliate Buttons & Dropdowns */
+
+/* =============================================================================
+   KEEP - Bootstrap Alert Dark Mode Overrides
+   Bootstrap alerts need explicit dark mode styling to prevent light mode fallback
+   ============================================================================= */
+[data-theme="dark"] .alert {
+    color: var(--text-color-primary);
+    background-color: var(--card-bg);
+    border-color: var(--border-color);
+}
+
+[data-theme="dark"] .alert-warning {
+    background-color: rgba(251, 191, 36, 0.15); /* warning-color with low opacity */
+    border-color: rgba(251, 191, 36, 0.3);
+    color: #FCD34D; /* Brighter yellow for visibility on dark bg */
+}
+
+[data-theme="dark"] .alert-danger {
+    background-color: rgba(239, 68, 68, 0.15); /* danger-color with low opacity */
+    border-color: rgba(239, 68, 68, 0.3);
+    color: #FCA5A5; /* Brighter red for visibility on dark bg */
+}
+
+[data-theme="dark"] .alert-info {
+    background-color: rgba(59, 130, 246, 0.15); /* info-color with low opacity */
+    border-color: rgba(59, 130, 246, 0.3);
+    color: #93C5FD; /* Brighter blue for visibility on dark bg */
+}
+
+[data-theme="dark"] .alert-success {
+    background-color: rgba(16, 185, 129, 0.15); /* success-color with low opacity */
+    border-color: rgba(16, 185, 129, 0.3);
+    color: #6EE7B7; /* Brighter green for visibility on dark bg */
+}
+
+/* Icons inside alerts should maintain proper contrast */
+[data-theme="dark"] .alert i.fas,
+[data-theme="dark"] .alert i.fa {
+    opacity: 0.9;
+}
+
+[data-theme="dark"] .alert-secondary {
+    background-color: rgba(100, 116, 139, 0.15); /* slate-500 with low opacity */
+    border-color: rgba(100, 116, 139, 0.3);
+    color: #94A3B8; /* slate-400 for visibility */
+}
+/* END Bootstrap Alert Dark Mode */
+
+/* =============================================================================
+   KEEP - Bootstrap Badge Dark Mode Overrides
+   Badges need explicit dark mode styling to prevent light mode fallback
+   ============================================================================= */
+[data-theme="dark"] .badge {
+    color: var(--text-color-primary);
+}
+
+[data-theme="dark"] .badge.bg-primary {
+    background-color: var(--brand-primary);
+    color: var(--text-on-primary-bg);
+}
+
+[data-theme="dark"] .badge.bg-light {
+    background-color: rgba(148, 163, 184, 0.2); /* slate-400 with opacity */
+    color: #CBD5E1; /* slate-300 */
+    border-color: rgba(148, 163, 184, 0.3);
+}
+
+[data-theme="dark"] .badge.bg-info {
+    background-color: rgba(59, 130, 246, 0.2); /* info-color with opacity */
+    color: #93C5FD; /* Brighter blue for visibility */
+    border-color: rgba(59, 130, 246, 0.3);
+}
+
+[data-theme="dark"] .badge.bg-secondary {
+    background-color: rgba(100, 116, 139, 0.2); /* slate-500 */
+    color: #94A3B8; /* slate-400 */
+}
+
+[data-theme="dark"] .badge.text-dark {
+    color: #F8FAFC !important; /* Override Bootstrap's text-dark in dark mode */
+}
+/* END Bootstrap Badge Dark Mode */
+
+/* =============================================================================
+   KEEP - Bootstrap Breadcrumb Dark Mode Overrides
+   Breadcrumbs need proper dark mode styling for navigation clarity
+   ============================================================================= */
+[data-theme="dark"] .breadcrumb {
+    background-color: transparent;
+}
+
+[data-theme="dark"] .breadcrumb-item,
+[data-theme="dark"] .breadcrumb-item a {
+    color: var(--text-color-secondary);
+}
+
+[data-theme="dark"] .breadcrumb-item.active {
+    color: var(--text-color-primary);
+}
+
+[data-theme="dark"] .breadcrumb-item + .breadcrumb-item::before {
+    color: var(--text-color-secondary);
+}
+
+[data-theme="dark"] .breadcrumb-item a:hover {
+    color: var(--link-hover-color);
+}
+/* END Bootstrap Breadcrumb Dark Mode */
+
+/* =============================================================================
+   KEEP - Bootstrap Button Dark Mode Overrides (Additional Coverage)
+   Ensure all button variants have proper dark mode styling
+   ============================================================================= */
+[data-theme="dark"] .btn-secondary {
+    background-color: #475569; /* slate-600 */
+    border-color: #475569;
+    color: #F8FAFC;
+}
+
+[data-theme="dark"] .btn-secondary:hover {
+    background-color: #334155; /* slate-700 */
+    border-color: #334155;
+}
+
+[data-theme="dark"] .btn-outline-secondary {
+    color: #94A3B8; /* slate-400 */
+    border-color: #475569; /* slate-600 */
+}
+
+[data-theme="dark"] .btn-outline-secondary:hover {
+    background-color: rgba(71, 85, 105, 0.2);
+    color: #CBD5E1; /* slate-300 */
+    border-color: #64748B; /* slate-500 */
+}
+
+[data-theme="dark"] .btn-info {
+    background-color: var(--info-color);
+    border-color: var(--info-color);
+    color: #FFFFFF;
+}
+
+[data-theme="dark"] .btn-info:hover {
+    background-color: var(--brand-secondary-dark);
+    border-color: var(--brand-secondary-dark);
+}
+/* END Bootstrap Button Dark Mode */
+
+/* =============================================================================
+   KEEP - Bootstrap Form Control Dark Mode Overrides
+   Form inputs need proper dark mode styling to prevent light mode fallback
+   ============================================================================= */
+[data-theme="dark"] .form-control,
+[data-theme="dark"] .form-select {
+    background-color: var(--input-bg);
+    border-color: var(--input-border-color);
+    color: var(--text-color-primary);
+}
+
+[data-theme="dark"] .form-control:focus,
+[data-theme="dark"] .form-select:focus {
+    background-color: var(--input-bg);
+    border-color: var(--input-focus-border-color);
+    color: var(--text-color-primary);
+    box-shadow: var(--input-focus-shadow);
+}
+
+[data-theme="dark"] .form-control::placeholder {
+    color: var(--placeholder-text-color);
+}
+
+[data-theme="dark"] .form-control:disabled,
+[data-theme="dark"] .form-select:disabled {
+    background-color: rgba(51, 65, 85, 0.3); /* slate-700 with opacity */
+    color: var(--text-color-secondary);
+}
+
+/* Input Group styling */
+[data-theme="dark"] .input-group-text {
+    background-color: #334155; /* slate-700 */
+    border-color: var(--input-border-color);
+    color: var(--text-color-secondary);
+}
+
+/* Form labels */
+[data-theme="dark"] .form-label {
+    color: var(--text-color-primary);
+}
+
+/* Form text (help text) */
+[data-theme="dark"] .form-text {
+    color: var(--text-color-secondary);
+}
+/* END Bootstrap Form Control Dark Mode */
+
+/* =============================================================================
+   KEEP - Bootstrap Dropdown Dark Mode Overrides
+   Dropdowns need proper dark mode styling (beyond affiliate dropdown)
+   ============================================================================= */
+[data-theme="dark"] .dropdown-menu {
+    background-color: var(--dropdown-bg);
+    border-color: var(--dropdown-border-color);
+}
+
+[data-theme="dark"] .dropdown-item {
+    color: var(--text-color-primary);
+}
+
+[data-theme="dark"] .dropdown-item:hover,
+[data-theme="dark"] .dropdown-item:focus {
+    background-color: var(--dropdown-item-hover-bg);
+    color: var(--dropdown-item-hover-text);
+}
+
+[data-theme="dark"] .dropdown-item.active,
+[data-theme="dark"] .dropdown-item:active {
+    background-color: var(--dropdown-item-active-bg);
+    color: var(--dropdown-item-active-text);
+}
+
+[data-theme="dark"] .dropdown-divider {
+    border-top-color: var(--border-color);
+}
+
+[data-theme="dark"] .dropdown-header {
+    color: var(--text-color-secondary);
+}
+/* END Bootstrap Dropdown Dark Mode */
+
+/* =============================================================================
+   KEEP - Container and Layout Dark Mode Coverage
+   Ensure all container elements inherit dark background properly
+   ============================================================================= */
+[data-theme="dark"] .container,
+[data-theme="dark"] .container-fluid,
+[data-theme="dark"] div.container,
+[data-theme="dark"] div.container-fluid {
+    background-color: transparent !important; /* Force transparent to let parent background show through */
+}
+
+/* Ensure the main page container areas don't have white backgrounds */
+[data-theme="dark"] main .container,
+[data-theme="dark"] .main-content .container,
+[data-theme="dark"] main div.container,
+[data-theme="dark"] .main-content div.container {
+    background-color: transparent !important;
+}
+
+/* Target Bootstrap padding utility classes that might have backgrounds */
+[data-theme="dark"] .py-1,
+[data-theme="dark"] .py-2,
+[data-theme="dark"] .py-3,
+[data-theme="dark"] .py-4,
+[data-theme="dark"] .py-5 {
+    background-color: transparent !important;
+}
+
+/* Ensure Bootstrap grid system elements are transparent */
+[data-theme="dark"] .row,
+[data-theme="dark"] .col,
+[data-theme="dark"] [class*="col-"] {
+    background-color: transparent !important;
+}
+
+/* Ensure all direct children of main content areas are transparent */
+[data-theme="dark"] main > *,
+[data-theme="dark"] .main-content > *,
+[data-theme="dark"] main > div,
+[data-theme="dark"] .main-content > div {
+    background-color: transparent !important;
+}
+
+/* Nuclear option: Force all divs within main to be transparent unless they're cards/alerts */
+[data-theme="dark"] main div:not(.card):not(.alert):not(.badge):not(.btn),
+[data-theme="dark"] .main-content div:not(.card):not(.alert):not(.badge):not(.btn) {
+    background-color: transparent !important;
+}
+/* END Container Dark Mode */

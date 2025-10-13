@@ -504,6 +504,8 @@ COMMENT ON FUNCTION get_book_editions IS 'Optimized query for book editions - fe
 -- Purpose: Convenience function to fetch book cards for a specific collection
 -- Used by: Homepage for bestseller lists, category browsing
 -- ============================================================================
+DROP FUNCTION IF EXISTS get_book_cards_by_collection(TEXT, INTEGER);
+
 CREATE OR REPLACE FUNCTION get_book_cards_by_collection(
     collection_id_param TEXT,
     limit_param INTEGER DEFAULT 12
@@ -514,10 +516,11 @@ RETURNS TABLE (
     title TEXT,
     authors TEXT[],
     cover_url TEXT,
+    cover_s3_key TEXT,
+    cover_fallback_url TEXT,
     average_rating NUMERIC,
     ratings_count INTEGER,
-    tags JSONB,
-    book_position INTEGER
+    tags JSONB
 ) AS $$
 BEGIN
     RETURN QUERY
@@ -527,10 +530,11 @@ BEGIN
         bc.title,
         bc.authors,
         bc.cover_url,
+        bc.cover_s3_key,
+        bc.cover_fallback_url,
         bc.average_rating,
         bc.ratings_count,
-        bc.tags,
-        bcj.position as book_position
+        bc.tags
     FROM book_collections_join bcj
     CROSS JOIN LATERAL get_book_cards(ARRAY[bcj.book_id]) bc
     WHERE bcj.collection_id = collection_id_param
