@@ -168,37 +168,7 @@ public class BookController {
             }
             return Mono.fromCallable(() -> bookQueryRepository.fetchRecommendationCards(maybeUuid.get(), safeLimit))
                 .subscribeOn(Schedulers.boundedElastic())
-                .map(cards -> {
-                    if (cards.isEmpty()) {
-                        return List.<BookDto>of();
-                    }
-
-                    Map<String, RecommendationCard> cardsById = new LinkedHashMap<>();
-                    Map<String, Integer> insertionOrder = new LinkedHashMap<>();
-                    List<BookCard> sortableCards = new ArrayList<>();
-                    int index = 0;
-                    for (RecommendationCard card : cards) {
-                        if (card == null || card.card() == null || !ValidationUtils.hasText(card.card().id())) {
-                            continue;
-                        }
-                        cardsById.put(card.card().id(), card);
-                        sortableCards.add(card.card());
-                        insertionOrder.putIfAbsent(card.card().id(), index++);
-                    }
-
-                    if (sortableCards.isEmpty()) {
-                        return List.<BookDto>of();
-                    }
-
-                    sortableCards.sort(CoverPrioritizer.cardComparator(insertionOrder));
-
-                    return sortableCards.stream()
-                        .map(bookCard -> cardsById.get(bookCard.id()))
-                        .filter(Objects::nonNull)
-                        .map(this::toRecommendationDto)
-                        .filter(Objects::nonNull)
-                        .toList();
-                });
+                .map(this::mapRecommendationCards);
         });
 
         return ReactiveControllerUtils.withErrorHandling(
@@ -392,6 +362,43 @@ public class BookController {
             extras.put("recommendation.reason", card.reason());
         }
         return BookDtoMapper.fromCard(card.card(), extras);
+    }
+
+    private List<BookDto> mapRecommendationCards(List<RecommendationCard> cards) {
+        if (cards == null || cards.isEmpty()) {
+            return List.of();
+        }
+
+        Map<String, RecommendationCard> cardsById = new LinkedHashMap<>();
+        Map<String, Integer> insertionOrder = new LinkedHashMap<>();
+        List<BookCard> sortableCards = new ArrayList<>();
+        int index = 0;
+
+        for (RecommendationCard card : cards) {
+            if (card == null || card.card() == null || !ValidationUtils.hasText(card.card().id())) {
+                continue;
+            }
+            String id = card.card().id();
+            cardsById.putIfAbsent(id, card);
+            sortableCards.add(card.card());
+            insertionOrder.putIfAbsent(id, index++);
+        }
+
+        if (sortableCards.isEmpty()) {
+            return List.of();
+        }
+
+        sortableCards.sort(CoverPrioritizer.cardComparator(insertionOrder));
+
+        List<BookDto> dtos = new ArrayList<>(sortableCards.size());
+        for (BookCard payload : sortableCards) {
+            RecommendationCard wrapper = cardsById.get(payload.id());
+            BookDto dto = toRecommendationDto(wrapper);
+            if (dto != null) {
+                dtos.add(dto);
+            }
+        }
+        return dtos;
     }
 
     private record SearchResponse(String query,
