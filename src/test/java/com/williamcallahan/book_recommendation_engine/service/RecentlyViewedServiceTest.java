@@ -1,7 +1,6 @@
 package com.williamcallahan.book_recommendation_engine.service;
 
 import com.williamcallahan.book_recommendation_engine.model.Book;
-import com.williamcallahan.book_recommendation_engine.repository.BookQueryRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -17,19 +16,13 @@ import static org.mockito.Mockito.*;
 
 class RecentlyViewedServiceTest {
 
-    private BookSearchService bookSearchService;
     private DuplicateBookService duplicateBookService;
-    private BookDataOrchestrator bookDataOrchestrator;
-    private BookQueryRepository bookQueryRepository;
     private RecentBookViewRepository recentBookViewRepository;
     private RecentlyViewedService recentlyViewedService;
 
     @BeforeEach
     void setUp() {
-        bookSearchService = mock(BookSearchService.class);
         duplicateBookService = mock(DuplicateBookService.class);
-        bookDataOrchestrator = mock(BookDataOrchestrator.class);
-        bookQueryRepository = mock(BookQueryRepository.class);
         recentBookViewRepository = mock(RecentBookViewRepository.class);
 
         when(recentBookViewRepository.isEnabled()).thenReturn(false);
@@ -39,7 +32,7 @@ class RecentlyViewedServiceTest {
     }
 
     private RecentlyViewedService createService() {
-        return new RecentlyViewedService(bookSearchService, duplicateBookService, bookDataOrchestrator, bookQueryRepository, recentBookViewRepository);
+        return new RecentlyViewedService(duplicateBookService, recentBookViewRepository);
     }
 
     @Test

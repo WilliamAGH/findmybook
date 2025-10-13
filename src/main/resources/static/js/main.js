@@ -98,13 +98,21 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         };
 
+        const formatStack = () => {
+            return new Error().stack
+                ?.toString()
+                .split('\n')
+                .slice(1, 6)
+                .map(line => line.trim());
+        };
+
         collapseInstance.hide = function(...args) {
-            logNavEvent('collapseInstance.hide invoked', { stack: new Error().stack });
+            logNavEvent('collapseInstance.hide invoked', { stack: formatStack() });
             return originalHide(...args);
         };
 
         collapseInstance.show = function(...args) {
-            logNavEvent('collapseInstance.show invoked', { stack: new Error().stack });
+            logNavEvent('collapseInstance.show invoked', { stack: formatStack() });
             return originalShow(...args);
         };
 
