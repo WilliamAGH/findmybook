@@ -41,7 +41,7 @@ public final class BookDomainMapper {
             return null;
         }
 
-        Book book = base(detail.id(), detail.slug(), detail.title(), detail.authors(), detail.coverUrl());
+        Book book = base(detail.id(), detail.slug(), detail.title(), detail.authors());
         book.setDescription(detail.description());
         book.setPublisher(detail.publisher());
         book.setPublishedDate(toDate(detail.publishedDate()));
@@ -57,13 +57,16 @@ public final class BookDomainMapper {
         book.setQualifiers(copyMap(detail.tags()));
         book.setOtherEditions(toEditionInfo(detail.editions()));
         CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
-            detail.coverUrl(),
-            detail.thumbnailUrl(),
+            detail.coverS3Key(),
+            detail.coverFallbackUrl(),
             detail.coverWidth(),
             detail.coverHeight(),
             detail.coverHighResolution()
         );
-        setCoverImages(book, resolved, detail.thumbnailUrl());
+        String fallback = ValidationUtils.hasText(detail.coverFallbackUrl())
+            ? detail.coverFallbackUrl()
+            : detail.thumbnailUrl();
+        setCoverImages(book, resolved, fallback);
         applyCoverMetadata(book, resolved.width(), resolved.height(), resolved.highResolution(), false);
         book.setDataSource(detail.dataSource());
         book.setRetrievedFrom("POSTGRES");
@@ -75,12 +78,19 @@ public final class BookDomainMapper {
         if (card == null) {
             return null;
         }
-        Book book = base(card.id(), card.slug(), card.title(), card.authors(), card.coverUrl());
+        Book book = base(card.id(), card.slug(), card.title(), card.authors());
         book.setAverageRating(card.averageRating());
         book.setRatingsCount(card.ratingsCount());
         book.setQualifiers(copyMap(card.tags()));
-        CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(card.coverUrl(), card.coverUrl());
-        setCoverImages(book, resolved, card.coverUrl());
+        CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
+            card.coverS3Key(),
+            card.fallbackCoverUrl()
+        );
+        String fallback = card.fallbackCoverUrl();
+        if (!ValidationUtils.hasText(fallback)) {
+            fallback = card.coverUrl();
+        }
+        setCoverImages(book, resolved, fallback);
         applyCoverMetadata(book, resolved.width(), resolved.height(), resolved.highResolution(), false);
         book.setRetrievedFrom("POSTGRES");
         book.setInPostgres(true);
@@ -101,20 +111,24 @@ public final class BookDomainMapper {
         if (item == null) {
             return null;
         }
-        Book book = base(item.id(), item.slug(), item.title(), item.authors(), item.coverUrl());
+        Book book = base(item.id(), item.slug(), item.title(), item.authors());
         book.setDescription(item.description());
         book.setCategories(item.categories());
         book.setAverageRating(item.averageRating());
         book.setRatingsCount(item.ratingsCount());
         book.setQualifiers(copyMap(item.tags()));
         CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
-            item.coverUrl(),
-            item.coverUrl(),
+            item.coverS3Key(),
+            item.coverFallbackUrl(),
             item.coverWidth(),
             item.coverHeight(),
             item.coverHighResolution()
         );
-        setCoverImages(book, resolved, item.coverUrl());
+        String fallback = item.coverFallbackUrl();
+        if (!ValidationUtils.hasText(fallback)) {
+            fallback = item.coverUrl();
+        }
+        setCoverImages(book, resolved, fallback);
         applyCoverMetadata(book, resolved.width(), resolved.height(), resolved.highResolution(), true);
         book.setRetrievedFrom("POSTGRES");
         book.setInPostgres(true);
@@ -143,8 +157,7 @@ public final class BookDomainMapper {
             identifiers != null ? identifiers.getExternalId() : null,
             aggregate.getSlugBase(),
             aggregate.getTitle(),
-            aggregate.getAuthors(),
-            images.preferred()
+            aggregate.getAuthors()
         );
 
         book.setDescription(aggregate.getDescription());
@@ -189,16 +202,12 @@ public final class BookDomainMapper {
     private static Book base(String id,
                              String slug,
                              String title,
-                             List<String> authors,
-                             String coverUrl) {
+                             List<String> authors) {
         Book book = new Book();
         book.setId(id);
         book.setSlug(ValidationUtils.hasText(slug) ? slug : id);
         book.setTitle(title);
         book.setAuthors(authors);
-        CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(coverUrl, coverUrl);
-        setCoverImages(book, resolved, coverUrl);
-        applyCoverMetadata(book, resolved.width(), resolved.height(), resolved.highResolution(), false);
         return book;
     }
 

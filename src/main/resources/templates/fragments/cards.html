@@ -23,7 +23,7 @@
                      th:title="${book.title != null ? book.title + ' cover' : 'Book cover'}"
                      th:attr="data-book-id=${book.id},
                               data-preferred-url=${book.coverUrl ?: '/images/placeholder-book-cover.svg'},
-                              data-fallback-url='/images/placeholder-book-cover.svg',
+                              data-fallback-url=${book.fallbackCoverUrl != null && !#strings.isEmpty(book.fallbackCoverUrl) ? book.fallbackCoverUrl : '/images/placeholder-book-cover.svg'},
                               data-ultimate-fallback='/images/placeholder-book-cover.svg'">
             </a>
 

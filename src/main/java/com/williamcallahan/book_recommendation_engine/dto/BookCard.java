@@ -1,6 +1,7 @@
 package com.williamcallahan.book_recommendation_engine.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
 import java.util.List;
 import java.util.Map;
 
@@ -20,7 +21,9 @@ import java.util.Map;
  * @param slug URL-friendly book identifier
  * @param title Book title
  * @param authors List of author names in order
- * @param coverUrl Primary cover image URL (S3 or external)
+ * @param coverUrl Primary cover image URL (S3 or resolved CDN)
+ * @param coverS3Key Persisted S3 object key when available
+ * @param fallbackCoverUrl Secondary cover to try when the primary fails (typically external source)
  * @param averageRating Average rating (0.0-5.0)
  * @param ratingsCount Total number of ratings
  * @param tags Qualifier tags as key-value pairs (e.g., {"nyt_bestseller": {"list": "hardcover-fiction"}})
@@ -35,6 +38,12 @@ public record BookCard(
     
     @JsonProperty("cover_url")
     String coverUrl,
+
+    @JsonProperty("cover_s3_key")
+    String coverS3Key,
+
+    @JsonProperty("fallback_cover_url")
+    String fallbackCoverUrl,
     
     @JsonProperty("average_rating")
     Double averageRating,
@@ -56,7 +65,20 @@ public record BookCard(
      */
     public BookCard {
         authors = authors == null ? List.of() : List.copyOf(authors);
+        coverS3Key = ValidationUtils.hasText(coverS3Key) ? coverS3Key : null;
+        fallbackCoverUrl = fallbackCoverUrl == null ? coverUrl : fallbackCoverUrl;
         tags = tags == null ? Map.of() : Map.copyOf(tags);
+    }
+
+    public BookCard(String id,
+                    String slug,
+                    String title,
+                    List<String> authors,
+                    String coverUrl,
+                    Double averageRating,
+                    Integer ratingsCount,
+                    Map<String, Object> tags) {
+        this(id, slug, title, authors, coverUrl, null, coverUrl, averageRating, ratingsCount, tags);
     }
     
     /**

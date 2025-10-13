@@ -35,7 +35,10 @@ public final class CoverPrioritizer {
         if (card == null || !ValidationUtils.hasText(card.coverUrl())) {
             return 0;
         }
-        CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(card.coverUrl(), card.coverUrl());
+        CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
+            ValidationUtils.hasText(card.coverS3Key()) ? card.coverS3Key() : card.coverUrl(),
+            card.fallbackCoverUrl()
+        );
         return CoverQuality.rankFromUrl(
             resolved.url(),
             resolved.width(),

@@ -6,6 +6,7 @@ package com.williamcallahan.book_recommendation_engine.controller;
 import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import com.williamcallahan.book_recommendation_engine.controller.dto.BookDto;
 import com.williamcallahan.book_recommendation_engine.controller.dto.BookDtoMapper;
+import com.williamcallahan.book_recommendation_engine.dto.BookCard;
 import com.williamcallahan.book_recommendation_engine.dto.BookDetail;
 import com.williamcallahan.book_recommendation_engine.dto.RecommendationCard;
 import com.williamcallahan.book_recommendation_engine.model.Book;
@@ -23,6 +24,7 @@ import com.williamcallahan.book_recommendation_engine.util.SearchQueryUtils;
 import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
 import com.williamcallahan.book_recommendation_engine.util.SlugGenerator;
 import com.williamcallahan.book_recommendation_engine.util.EnumParsingUtils;
+import com.williamcallahan.book_recommendation_engine.util.cover.CoverPrioritizer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -35,6 +37,7 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import java.util.Comparator;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -161,14 +164,41 @@ public class BookController {
         Mono<List<BookDto>> similarBooks = Mono.defer(() -> {
             Optional<UUID> maybeUuid = bookIdentifierResolver.resolveToUuid(identifier);
             if (maybeUuid.isEmpty()) {
-                return Mono.empty();
+                return Mono.<List<BookDto>>empty();
             }
             return Mono.fromCallable(() -> bookQueryRepository.fetchRecommendationCards(maybeUuid.get(), safeLimit))
                 .subscribeOn(Schedulers.boundedElastic())
-                .map(cards -> cards.isEmpty() ? List.<BookDto>of() : cards.stream()
-                    .map(this::toRecommendationDto)
-                    .filter(Objects::nonNull)
-                    .toList());
+                .map(cards -> {
+                    if (cards.isEmpty()) {
+                        return List.<BookDto>of();
+                    }
+
+                    Map<String, RecommendationCard> cardsById = new LinkedHashMap<>();
+                    Map<String, Integer> insertionOrder = new LinkedHashMap<>();
+                    List<BookCard> sortableCards = new ArrayList<>();
+                    int index = 0;
+                    for (RecommendationCard card : cards) {
+                        if (card == null || card.card() == null || !ValidationUtils.hasText(card.card().id())) {
+                            continue;
+                        }
+                        cardsById.put(card.card().id(), card);
+                        sortableCards.add(card.card());
+                        insertionOrder.putIfAbsent(card.card().id(), index++);
+                    }
+
+                    if (sortableCards.isEmpty()) {
+                        return List.<BookDto>of();
+                    }
+
+                    sortableCards.sort(CoverPrioritizer.cardComparator(insertionOrder));
+
+                    return sortableCards.stream()
+                        .map(bookCard -> cardsById.get(bookCard.id()))
+                        .filter(Objects::nonNull)
+                        .map(this::toRecommendationDto)
+                        .filter(Objects::nonNull)
+                        .toList();
+                });
         });
 
         return ReactiveControllerUtils.withErrorHandling(

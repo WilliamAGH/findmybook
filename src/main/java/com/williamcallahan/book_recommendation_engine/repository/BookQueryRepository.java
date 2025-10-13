@@ -323,16 +323,27 @@ public class BookQueryRepository {
         @Override
         public BookCard mapRow(@NonNull ResultSet rs, int rowNum) throws SQLException {
             List<String> authors = parseTextArray(rs.getArray("authors"));
-            String rawCover = rs.getString("cover_url");
-            CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(rawCover, rawCover, null, null, null);
-            log.trace("BookCard row: id={}, title={}, authors={}, coverUrl={} -> {}",
-                rs.getString("id"), rs.getString("title"), authors, rawCover, resolved.url());
+            String s3Key = rs.getString("cover_s3_key");
+            String fallbackUrl = rs.getString("cover_fallback_url");
+            CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
+                s3Key,
+                fallbackUrl,
+                null,
+                null,
+                null
+            );
+            String preferredUrl = resolved.url();
+            String effectiveFallback = ValidationUtils.hasText(fallbackUrl) ? fallbackUrl : preferredUrl;
+            log.trace("BookCard row: id={}, title={}, authors={}, s3Key={}, fallback={}, resolved={}",
+                rs.getString("id"), rs.getString("title"), authors, s3Key, fallbackUrl, preferredUrl);
             return new BookCard(
                 rs.getString("id"),
                 rs.getString("slug"),
                 rs.getString("title"),
                 authors,
-                resolved.url(),
+                preferredUrl,
+                resolved.s3Key(),
+                effectiveFallback,
                 getDoubleOrNull(rs, "average_rating"),
                 getIntOrNull(rs, "ratings_count"),
                 parseJsonb(rs.getString("tags"))
@@ -350,12 +361,14 @@ public class BookQueryRepository {
             Integer height = getIntOrNull(rs, "cover_height");
             Boolean highRes = getBooleanOrNull(rs, "cover_is_high_resolution");
             CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
-                rs.getString("cover_url"),
-                rs.getString("cover_url"),
+                rs.getString("cover_s3_key"),
+                rs.getString("cover_fallback_url"),
                 width,
                 height,
                 highRes
             );
+            String fallbackUrl = rs.getString("cover_fallback_url");
+            String effectiveFallback = ValidationUtils.hasText(fallbackUrl) ? fallbackUrl : resolved.url();
             return new BookListItem(
                 rs.getString("id"),
                 rs.getString("slug"),
@@ -364,6 +377,8 @@ public class BookQueryRepository {
                 parseTextArray(rs.getArray("authors")),
                 parseTextArray(rs.getArray("categories")),
                 resolved.url(),
+                resolved.s3Key(),
+                effectiveFallback,
                 resolved.width(),
                 resolved.height(),
                 resolved.highResolution(),
@@ -384,12 +399,14 @@ public class BookQueryRepository {
             Integer height = getIntOrNull(rs, "cover_height");
             Boolean highRes = getBooleanOrNull(rs, "cover_is_high_resolution");
             CoverUrlResolver.ResolvedCover cover = CoverUrlResolver.resolve(
-                rs.getString("cover_url"),
-                rs.getString("thumbnail_url"),
+                rs.getString("cover_s3_key"),
+                rs.getString("cover_fallback_url"),
                 width,
                 height,
                 highRes
             );
+            String fallbackUrl = rs.getString("cover_fallback_url");
+            String effectiveFallback = ValidationUtils.hasText(fallbackUrl) ? fallbackUrl : rs.getString("thumbnail_url");
             CoverUrlResolver.ResolvedCover thumb = CoverUrlResolver.resolve(
                 rs.getString("thumbnail_url"),
                 rs.getString("thumbnail_url"),
@@ -409,6 +426,8 @@ public class BookQueryRepository {
                 parseTextArray(rs.getArray("authors")),
                 parseTextArray(rs.getArray("categories")),
                 cover.url(),
+                cover.s3Key(),
+                effectiveFallback,
                 thumb.url(),
                 cover.width(),
                 cover.height(),
@@ -466,12 +485,20 @@ public class BookQueryRepository {
                 UUID id = UuidUtils.parseUuidOrNull(card.id());
                 CoverUrlResolver.ResolvedCover fallback = id != null ? fallbacks.get(id) : null;
                 String coverUrl = fallback != null ? fallback.url() : card.coverUrl();
+                String fallbackUrl = ValidationUtils.hasText(card.fallbackCoverUrl())
+                    ? card.fallbackCoverUrl()
+                    : (fallback != null ? fallback.url() : coverUrl);
+                String s3Key = fallback != null && ValidationUtils.hasText(fallback.s3Key())
+                    ? fallback.s3Key()
+                    : card.coverS3Key();
                 return new BookCard(
                     card.id(),
                     card.slug(),
                     card.title(),
                     card.authors(),
                     coverUrl,
+                    s3Key,
+                    fallbackUrl,
                     card.averageRating(),
                     card.ratingsCount(),
                     card.tags()
@@ -503,6 +530,12 @@ public class BookQueryRepository {
                 Integer width = fallback != null ? fallback.width() : item.coverWidth();
                 Integer height = fallback != null ? fallback.height() : item.coverHeight();
                 Boolean highRes = fallback != null ? fallback.highResolution() : item.coverHighResolution();
+                String fallbackUrl = ValidationUtils.hasText(item.coverFallbackUrl())
+                    ? item.coverFallbackUrl()
+                    : (fallback != null ? fallback.url() : coverUrl);
+                String s3Key = fallback != null && ValidationUtils.hasText(fallback.s3Key())
+                    ? fallback.s3Key()
+                    : item.coverS3Key();
 
                 return new BookListItem(
                     item.id(),
@@ -512,6 +545,8 @@ public class BookQueryRepository {
                     item.authors(),
                     item.categories(),
                     coverUrl,
+                    s3Key,
+                    fallbackUrl,
                     width,
                     height,
                     highRes,
@@ -546,6 +581,12 @@ public class BookQueryRepository {
                 Integer width = fallback != null ? fallback.width() : detail.coverWidth();
                 Integer height = fallback != null ? fallback.height() : detail.coverHeight();
                 Boolean highRes = fallback != null ? fallback.highResolution() : detail.coverHighResolution();
+                String s3Key = fallback != null && ValidationUtils.hasText(fallback.s3Key())
+                    ? fallback.s3Key()
+                    : detail.coverS3Key();
+                String fallbackUrl = ValidationUtils.hasText(detail.coverFallbackUrl())
+                    ? detail.coverFallbackUrl()
+                    : detail.thumbnailUrl();
 
                 return new BookDetail(
                     detail.id(),
@@ -559,6 +600,8 @@ public class BookQueryRepository {
                     detail.authors(),
                     detail.categories(),
                     coverUrl,
+                    s3Key,
+                    fallbackUrl,
                     detail.thumbnailUrl(),
                     width,
                     height,

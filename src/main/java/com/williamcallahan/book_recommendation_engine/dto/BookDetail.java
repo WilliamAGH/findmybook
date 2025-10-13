@@ -32,6 +32,8 @@ import java.util.Map;
  * @param authors List of author names in order
  * @param categories List of category/genre names
  * @param coverUrl Large cover image URL for detail page
+ * @param coverS3Key Persisted S3 object key when available
+ * @param coverFallbackUrl Fallback cover URL to attempt when the canonical image fails
  * @param thumbnailUrl Thumbnail cover URL for smaller displays
  * @param coverWidth Cover image width in pixels when known
  * @param coverHeight Cover image height in pixels when known
@@ -69,6 +71,12 @@ public record BookDetail(
     
     @JsonProperty("cover_url")
     String coverUrl,
+
+    @JsonProperty("cover_s3_key")
+    String coverS3Key,
+
+    @JsonProperty("cover_fallback_url")
+    String coverFallbackUrl,
 
     @JsonProperty("thumbnail_url")
     String thumbnailUrl,
@@ -114,11 +122,14 @@ public record BookDetail(
      * Compact constructor ensuring defensive copies for immutability
      */
     public BookDetail {
-            authors = authors == null ? List.of() : List.copyOf(authors);
+        authors = authors == null ? List.of() : List.copyOf(authors);
         categories = categories == null ? List.of() : List.copyOf(categories);
+        coverS3Key = coverS3Key != null && !coverS3Key.isBlank() ? coverS3Key : null;
+        coverFallbackUrl = coverFallbackUrl == null ? coverUrl : coverFallbackUrl;
         tags = tags == null ? Map.of() : Map.copyOf(tags);
         editions = editions == null ? List.of() : List.copyOf(editions);
     }
+
     
     /**
      * Create a copy with editions populated
@@ -126,7 +137,7 @@ public record BookDetail(
     public BookDetail withEditions(List<EditionSummary> newEditions) {
         return new BookDetail(
             id, slug, title, description, publisher, publishedDate, language, pageCount,
-            authors, categories, coverUrl, thumbnailUrl, coverWidth, coverHeight,
+            authors, categories, coverUrl, coverS3Key, coverFallbackUrl, thumbnailUrl, coverWidth, coverHeight,
             coverHighResolution, dataSource, averageRating, ratingsCount,
             isbn10, isbn13, previewLink, infoLink, tags, newEditions
         );

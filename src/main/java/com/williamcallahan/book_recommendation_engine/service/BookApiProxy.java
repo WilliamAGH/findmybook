@@ -24,6 +24,7 @@ import com.williamcallahan.book_recommendation_engine.util.SearchQueryUtils;
 import com.williamcallahan.book_recommendation_engine.util.BookDomainMapper;
 import com.williamcallahan.book_recommendation_engine.util.UuidUtils;
 import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
+import com.williamcallahan.book_recommendation_engine.util.cover.CoverPrioritizer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
@@ -485,6 +486,8 @@ public class BookApiProxy {
         }
 
         List<Book> ordered = new ArrayList<>(Math.min(limit, booksById.size()));
+        Map<String, Integer> insertionOrder = new LinkedHashMap<>();
+        int position = 0;
 
         for (BookSearchService.SearchResult result : results) {
             UUID bookId = result.bookId();
@@ -494,8 +497,11 @@ public class BookApiProxy {
             Book book = booksById.remove(bookId.toString());
             if (book != null) {
                 ordered.add(book);
+                if (ValidationUtils.hasText(book.getId())) {
+                    insertionOrder.putIfAbsent(book.getId(), position++);
+                }
                 if (ordered.size() == limit) {
-                    return ordered;
+                    break;
                 }
             }
         }
@@ -503,10 +509,17 @@ public class BookApiProxy {
         if (ordered.size() < limit && !booksById.isEmpty()) {
             for (Book remaining : booksById.values()) {
                 ordered.add(remaining);
+                if (ValidationUtils.hasText(remaining.getId())) {
+                    insertionOrder.putIfAbsent(remaining.getId(), position++);
+                }
                 if (ordered.size() == limit) {
                     break;
                 }
             }
+        }
+
+        if (!ordered.isEmpty()) {
+            ordered.sort(CoverPrioritizer.bookComparator(insertionOrder, null));
         }
 
         return ordered;
