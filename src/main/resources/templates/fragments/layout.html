@@ -359,24 +359,24 @@
 
         <!-- Mobile Navigation Menu -->
         <div class="collapse lg:hidden" id="navbarSupportedContent">
-            <div class="py-3 space-y-0.5 theme-navbar-border border-t border-anthracite-200/60 mt-1">
+            <div class="py-3 space-y-1 theme-navbar-border border-t border-anthracite-200/60 mt-1">
                 <a href="/"
-                   th:class="'nav-btn ' + (${activeTab == 'home' ? 'nav-btn-active' : 'nav-btn-inactive nav-btn-hover'})">
+                   th:class="'nav-btn w-full justify-start ' + (${activeTab == 'home' ? 'nav-btn-active' : 'nav-btn-inactive nav-btn-hover'})">
                     <i class="fas fa-home w-4 text-center text-xs"></i>
                     <span class="tracking-wide">Home</span>
                 </a>
                 <a href="/search"
-                   th:class="'nav-btn ' + (${activeTab == 'search' ? 'nav-btn-active' : 'nav-btn-inactive nav-btn-hover'})">
+                   th:class="'nav-btn w-full justify-start ' + (${activeTab == 'search' ? 'nav-btn-active' : 'nav-btn-inactive nav-btn-hover'})">
                     <i class="fas fa-search w-4 text-center text-xs"></i>
                     <span class="tracking-wide">Search</span>
                 </a>
                 <a th:href="@{/explore}"
-                   th:class="'nav-btn ' + (${activeTab == 'explore' ? 'nav-btn-active' : 'nav-btn-inactive nav-btn-hover'})">
+                   th:class="'nav-btn w-full justify-start ' + (${activeTab == 'explore' ? 'nav-btn-active' : 'nav-btn-inactive nav-btn-hover'})">
                     <i class="fas fa-book w-4 text-center text-xs"></i>
                     <span class="tracking-wide">Explore</span>
                 </a>
                 <a th:href="@{/categories}"
-                   th:class="'nav-btn ' + (${activeTab == 'categories' ? 'nav-btn-active' : 'nav-btn-inactive nav-btn-hover'})">
+                   th:class="'nav-btn w-full justify-start ' + (${activeTab == 'categories' ? 'nav-btn-active' : 'nav-btn-inactive nav-btn-hover'})">
                     <i class="fas fa-list w-4 text-center text-xs"></i>
                     <span class="tracking-wide">Categories</span>
                 </a>
