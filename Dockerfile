@@ -3,13 +3,21 @@ WORKDIR /app
 
 # Copy pom.xml first for better layer caching
 COPY pom.xml .
-RUN mvn dependency:go-offline
+COPY docker/maven-settings.xml /usr/share/maven/ref/settings-docker.xml
+
+ARG MAVEN_CLI_OPTS="-B -s /usr/share/maven/ref/settings-docker.xml \
+  -Dmaven.wagon.http.retryHandler.count=8 \
+  -Dmaven.wagon.http.retryHandler.class=standard \
+  -Dmaven.wagon.http.retryHandler.requestSentEnabled=true"
+
+RUN mvn ${MAVEN_CLI_OPTS} dependency:go-offline \
+  || (sleep 10 && mvn ${MAVEN_CLI_OPTS} dependency:go-offline)
 
 # Copy source code
 COPY src/ /app/src/
 
 # Build the application
-RUN mvn package -DskipTests
+RUN mvn ${MAVEN_CLI_OPTS} package -DskipTests
 
 # Use JRE for smaller runtime image
 FROM eclipse-temurin:21-jre-alpine
