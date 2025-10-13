@@ -13,6 +13,8 @@
  */
 package com.williamcallahan.book_recommendation_engine.config;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Condition;
 import org.springframework.context.annotation.ConditionContext;
 import org.springframework.core.type.AnnotatedTypeMetadata;
@@ -20,6 +22,7 @@ import org.springframework.lang.NonNull;
 
 public class S3EnvironmentCondition implements Condition {
 
+    private static final Logger logger = LoggerFactory.getLogger(S3EnvironmentCondition.class);
     private static volatile boolean messageLogged = false;
 
     @Override
@@ -35,9 +38,18 @@ public class S3EnvironmentCondition implements Condition {
         // Only log the message once to avoid spam during startup
         if (!messageLogged) {
             if (hasRequiredVars) {
-                System.out.println("S3 environment variables detected - enabling S3 services");
+                logger.info("✅ S3 environment variables detected - enabling S3 services (bucket: {})", bucket);
+                System.out.println("✅ S3 environment variables detected - enabling S3 services");
             } else {
-                System.out.println("S3 environment variables not found - S3 services will be disabled");
+                logger.error("❌ CRITICAL: S3 environment variables MISSING - S3 services DISABLED");
+                logger.error("❌ Required environment variables: S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_BUCKET");
+                logger.error("❌ Current status: S3_ACCESS_KEY_ID={}, S3_SECRET_ACCESS_KEY={}, S3_BUCKET={}",
+                    (accessKeyId != null && !accessKeyId.trim().isEmpty() ? "SET" : "MISSING"),
+                    (secretAccessKey != null && !secretAccessKey.trim().isEmpty() ? "SET" : "MISSING"),
+                    (bucket != null && !bucket.trim().isEmpty() ? "SET" : "MISSING"));
+                logger.error("❌ ALL COVER UPLOADS TO S3 WILL FAIL SILENTLY");
+                System.err.println("❌ CRITICAL: S3 environment variables MISSING - S3 services DISABLED");
+                System.err.println("❌ Required: S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_BUCKET");
             }
             messageLogged = true;
         }

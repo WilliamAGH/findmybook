@@ -101,18 +101,33 @@ public class S3BookCoverService implements ExternalCoverService {
             .build();
         
         if (this.s3Client == null && this.s3EnabledCheck) {
-            logger.warn("S3 is configured as enabled, but S3Client bean was not injected (likely due to missing credentials/config). S3 functionality will be disabled.");
+            logger.error("❌ CRITICAL: S3Client bean is NULL despite s3.enabled=true");
+            logger.error("❌ This indicates S3 configuration is incomplete or S3Config bean creation failed");
+            logger.error("❌ Check: S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_SERVER_URL are all set");
+            logger.error("❌ ALL S3 UPLOADS WILL BE DISABLED - books will persist without cover images");
             this.s3EnabledCheck = false;
         } else if (this.s3Client != null && this.s3EnabledCheck) {
-             logger.info("S3BookCoverService initialized with injected S3Client. Bucket: {}, CDN URL: {}", s3BucketName, s3CdnUrl);
+             logger.info("✅ S3BookCoverService initialized successfully with S3Client. Bucket: {}, CDN URL: {}", s3BucketName, s3CdnUrl);
         } else {
-            logger.info("S3BookCoverService: S3 is disabled by configuration.");
+            logger.info("S3BookCoverService: S3 is disabled by configuration (s3.enabled=false or no credentials).");
         }
     }
 
     @PostConstruct
     void configureCdnResolver() {
         resolveCdnBase().ifPresent(CoverUrlResolver::setCdnBase);
+    }
+
+    @PostConstruct
+    void validateS3WriteConfiguration() {
+        if (!s3WriteEnabled) {
+            logger.error("❌ CRITICAL: S3_WRITE_ENABLED=false - All cover uploads are DISABLED");
+            logger.error("❌ This is correct for dev/test but CRITICAL ERROR for production");
+            logger.error("❌ Set environment variable S3_WRITE_ENABLED=true to enable uploads");
+            logger.error("❌ Current configuration: s3.write-enabled={}, profile may be misconfigured", s3WriteEnabled);
+        } else if (s3EnabledCheck && s3Client != null) {
+            logger.info("✅ S3 uploads are ENABLED (bucket: {}, write-enabled: {})", s3BucketName, s3WriteEnabled);
+        }
     }
 
     /**
