@@ -178,7 +178,7 @@ public class GoogleBooksMockService {
                     .forEach(path -> {
                         try {
                             String filename = path.getFileName().toString();
-                            String searchQuery = filename.substring(0, filename.lastIndexOf('.'));
+                            String cacheKey = filename;
                             JsonNode searchNode = objectMapper.readTree(path.toFile());
                             
                             // Convert to Book objects
@@ -194,8 +194,8 @@ public class GoogleBooksMockService {
                                 });
                             }
                             
-                            mockSearchResults.put(searchQuery, books);
-                            logger.debug("Loaded mock search results for query: {}", searchQuery);
+                            mockSearchResults.put(cacheKey, books);
+                            logger.debug("Loaded mock search results for cacheKey: {}", cacheKey);
                         } catch (IOException e) {
                             logger.warn("Could not load mock search from {}: {}", path, e.getMessage());
                         }
@@ -249,14 +249,14 @@ public class GoogleBooksMockService {
      * 
      * @param searchQuery The search query string
      * @param books List of {@link Book} objects matching the search to be saved as a mock response
+     * @implNote Persists the results under the {@link SearchQueryUtils#cacheKey(String)} value so
+     * both memory and filesystem caches share identical lookups.
      */
     public void saveSearchResults(String searchQuery, List<Book> books) {
         if (!mockEnabled || searchQuery == null || books == null) return;
         
-        // Normalize the query for consistent caching
-        String normalizedQuery = normalizeQuery(searchQuery); // Use helper
-        
-        mockSearchResults.put(normalizedQuery, books);
+        String key = SearchQueryUtils.cacheKey(searchQuery);
+        mockSearchResults.put(key, books);
         
         // Create a JSON representation of the search results
         try {
@@ -271,7 +271,7 @@ public class GoogleBooksMockService {
             Path searchFile = Paths.get(
                     mockResponseDirectory,
                     "searches",
-                    SearchQueryUtils.cacheKey(searchQuery)
+                    key
             );
             
             // Ensure directory exists
@@ -281,9 +281,9 @@ public class GoogleBooksMockService {
             objectMapper.writerWithDefaultPrettyPrinter()
                 .writeValue(searchFile.toFile(), searchNode);
             
-            logger.info("Saved mock search results for query: {} to {}", normalizedQuery, searchFile);
+            logger.info("Saved mock search results for cacheKey: {} to {}", key, searchFile);
         } catch (IOException e) {
-            logger.warn("Could not save mock search results for query {}: {}", normalizedQuery, e.getMessage());
+            logger.warn("Could not save mock search results for cacheKey {}: {}", key, e.getMessage());
         }
     }
     
@@ -319,21 +319,20 @@ public class GoogleBooksMockService {
      * 
      * @param searchQuery The search query
      * @return List of {@link Book} objects if found in mock data, an empty list otherwise
+     * @implNote Uses the {@link SearchQueryUtils#cacheKey(String)} for cache alignment with the filesystem store.
      */
     @Cacheable(
         value = "mockSearches", 
-        key = "T(com.williamcallahan.book_recommendation_engine.service.GoogleBooksMockService).normalizeQuery(#searchQuery)", 
+        key = "T(com.williamcallahan.book_recommendation_engine.util.SearchQueryUtils).cacheKey(#searchQuery)", 
         condition = "#root.target.mockEnabled"
     )
     public List<Book> searchBooks(String searchQuery) {
         if (!mockEnabled || searchQuery == null) return Collections.emptyList();
-        
-        // Normalize the query for consistent caching
-        String normalizedQuery = normalizeQuery(searchQuery); // Use helper
-        
-        List<Book> results = mockSearchResults.get(normalizedQuery);
+
+        String key = SearchQueryUtils.cacheKey(searchQuery);
+        List<Book> results = mockSearchResults.get(key);
         if (results != null && !results.isEmpty()) {
-            logger.debug("Retrieved mock search results for: {}", normalizedQuery);
+            logger.debug("Retrieved mock search results for cacheKey: {}", key);
             return new ArrayList<>(results); // Return a copy to prevent modification
         }
         
@@ -359,8 +358,8 @@ public class GoogleBooksMockService {
      */
     public boolean hasMockDataForSearch(String searchQuery) {
         if (!mockEnabled || searchQuery == null) return false;
-        
-        String normalizedQuery = normalizeQuery(searchQuery); // Use helper
-        return mockSearchResults.containsKey(normalizedQuery);
+
+        String key = SearchQueryUtils.cacheKey(searchQuery);
+        return mockSearchResults.containsKey(key);
     }
 }

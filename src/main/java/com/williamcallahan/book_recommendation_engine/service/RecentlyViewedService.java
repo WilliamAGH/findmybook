@@ -17,14 +17,17 @@ package com.williamcallahan.book_recommendation_engine.service;
 
 import com.williamcallahan.book_recommendation_engine.model.Book;
 import com.williamcallahan.book_recommendation_engine.util.ApplicationConstants;
+import com.williamcallahan.book_recommendation_engine.util.UuidUtils;
 import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
+import org.springframework.dao.DataAccessException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import lombok.extern.slf4j.Slf4j;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.stream.Collectors;
 
@@ -42,7 +45,7 @@ import java.util.stream.Collectors;
 @Slf4j
 public class RecentlyViewedService {
 
-    private final DuplicateBookService duplicateBookService;
+    private final JdbcTemplate jdbcTemplate;
     private final RecentBookViewRepository recentBookViewRepository;
 
     // In-memory storage for recently viewed books (lock-free for better concurrency)
@@ -50,29 +53,26 @@ public class RecentlyViewedService {
     private static final int MAX_RECENT_BOOKS = ApplicationConstants.Paging.DEFAULT_TIERED_LIMIT / 2;
 
     /**
-     * Constructs a RecentlyViewedService with required dependencies
-     * 
-     * @param googleBooksService Service for fetching book data from Google Books API
-     * @param duplicateBookService Service for handling duplicate book detection and canonical ID resolution
-     * 
-     * @implNote Initializes the in-memory linked list for storing recently viewed books
+     * Constructs a RecentlyViewedService with required dependencies.
+     *
+     * @param jdbcTemplate JDBC helper used to resolve canonical book IDs within a work cluster
+     * @param recentBookViewRepository repository for persisting and retrieving view statistics
+     *
+     * @implNote Initializes the in-memory linked list for storing recently viewed books.
      */
-    public RecentlyViewedService(DuplicateBookService duplicateBookService,
+    public RecentlyViewedService(JdbcTemplate jdbcTemplate,
                                  RecentBookViewRepository recentBookViewRepository) {
-        this.duplicateBookService = duplicateBookService;
+        this.jdbcTemplate = jdbcTemplate;
         this.recentBookViewRepository = recentBookViewRepository;
     }
 
     /**
-     * Adds a book to the recently viewed list, ensuring canonical ID is used
+     * Adds a book to the recently viewed list, ensuring canonical ID is used.
      *
-     * @param book The book to add to recently viewed history
-     * 
-     * @implNote Uses DuplicateBookService to find canonical representation of the book
-     * Creates a new Book instance with the canonical ID if needed to avoid modifying the original
-     * Removes any existing entry for the same book before adding it to the front of the list
-     * Maintains a maximum size limit by removing oldest entries when necessary
-     * Thread-safe implementation with synchronized blocks
+     * @param book the book to add to recently viewed history
+     *
+     * @implNote Resolves the canonical identifier through {@link #resolveCanonicalBookId(String)},
+     * creates a defensive copy when necessary, and maintains the max-size deque without locks.
      */
     public void addToRecentlyViewed(Book book) {
         if (book == null) {
@@ -83,18 +83,10 @@ public class RecentlyViewedService {
         String originalBookId = book.getId();
         log.info("RECENT_VIEWS_DEBUG: Attempting to add book. Original ID: '{}', Title: '{}'", originalBookId, book.getTitle());
 
-        String canonicalId = originalBookId; // Default to original
-
-        // Attempt to find a canonical representation (currently disabled)
-        Optional<Book> canonicalBookOpt = duplicateBookService.findPrimaryCanonicalBook(book);
-        if (canonicalBookOpt.isPresent()) {
-            Book canonicalBook = canonicalBookOpt.get();
-            if (ValidationUtils.hasText(canonicalBook.getId())) {
-                canonicalId = canonicalBook.getId();
-            }
-            log.info("RECENT_VIEWS_DEBUG: Resolved original ID '{}' to canonical ID '{}' for book title '{}'", originalBookId, canonicalId, book.getTitle());
-        } else {
-            log.info("RECENT_VIEWS_DEBUG: No canonical book found for book ID '{}', Title '{}'. Using original ID as canonical.", originalBookId, book.getTitle());
+        String canonicalId = resolveCanonicalBookId(originalBookId);
+        if (!Objects.equals(originalBookId, canonicalId)) {
+            log.info("RECENT_VIEWS_DEBUG: Resolved original ID '{}' to canonical ID '{}' for book title '{}'",
+                originalBookId, canonicalId, book.getTitle());
         }
         
         if (!ValidationUtils.hasText(canonicalId)) {
@@ -187,8 +179,51 @@ public class RecentlyViewedService {
             .limit(limit)
             .collect(Collectors.toList());
     }
-    
 
+    /**
+     * Resolves the canonical work-cluster book identifier when possible.
+     *
+     * @param originalBookId identifier submitted by a caller
+     * @return canonical book ID when the cluster lookup succeeds; otherwise the original ID
+     */
+    private String resolveCanonicalBookId(String originalBookId) {
+        if (!ValidationUtils.hasText(originalBookId) || jdbcTemplate == null) {
+            return originalBookId;
+        }
+
+        UUID uuid = UuidUtils.parseUuidOrNull(originalBookId);
+        if (uuid == null) {
+            return originalBookId;
+        }
+
+        try {
+            String canonical = jdbcTemplate.query(
+                """
+                SELECT primary_wcm.book_id::text
+                FROM work_cluster_members wcm
+                JOIN work_cluster_members primary_wcm
+                    ON primary_wcm.cluster_id = wcm.cluster_id
+                   AND primary_wcm.is_primary = true
+                WHERE wcm.book_id = ?
+                LIMIT 1
+                """,
+                ps -> ps.setObject(1, uuid),
+                rs -> rs.next() ? rs.getString(1) : null
+            );
+            return ValidationUtils.hasText(canonical) ? canonical : originalBookId;
+        } catch (DataAccessException ex) {
+            log.debug("RECENT_VIEWS_DEBUG: Failed to resolve canonical ID for {}: {}", originalBookId, ex.getMessage());
+            return originalBookId;
+        }
+    }
+
+
+    /**
+     * Applies persisted view statistics to the supplied book.
+     *
+     * @param book target book instance to enrich
+     * @param stats view statistics retrieved from the repository
+     */
     private void applyViewStats(Book book, RecentBookViewRepository.ViewStats stats) {
         if (book == null || stats == null) {
             return;

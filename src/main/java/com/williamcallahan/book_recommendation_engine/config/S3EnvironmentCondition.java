@@ -9,9 +9,11 @@
  * - Validates presence of S3_SECRET_ACCESS_KEY environment variable
  * - Validates presence of S3_BUCKET environment variable
  * - Enables S3-dependent beans only when all required variables are present
- * - Provides console output indicating S3 availability status (only once)
+ * - Logs S3 availability status once during startup
  */
 package com.williamcallahan.book_recommendation_engine.config;
+
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,7 +25,7 @@ import org.springframework.lang.NonNull;
 public class S3EnvironmentCondition implements Condition {
 
     private static final Logger logger = LoggerFactory.getLogger(S3EnvironmentCondition.class);
-    private static volatile boolean messageLogged = false;
+    private static final AtomicBoolean messageLogged = new AtomicBoolean(false);
 
     @Override
     public boolean matches(@NonNull ConditionContext context, @NonNull AnnotatedTypeMetadata metadata) {
@@ -36,10 +38,9 @@ public class S3EnvironmentCondition implements Condition {
                                  bucket != null && !bucket.trim().isEmpty();
         
         // Only log the message once to avoid spam during startup
-        if (!messageLogged) {
+        if (messageLogged.compareAndSet(false, true)) {
             if (hasRequiredVars) {
                 logger.info("✅ S3 environment variables detected - enabling S3 services (bucket: {})", bucket);
-                System.out.println("✅ S3 environment variables detected - enabling S3 services");
             } else {
                 logger.error("❌ CRITICAL: S3 environment variables MISSING - S3 services DISABLED");
                 logger.error("❌ Required environment variables: S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_BUCKET");
@@ -48,10 +49,7 @@ public class S3EnvironmentCondition implements Condition {
                     (secretAccessKey != null && !secretAccessKey.trim().isEmpty() ? "SET" : "MISSING"),
                     (bucket != null && !bucket.trim().isEmpty() ? "SET" : "MISSING"));
                 logger.error("❌ ALL COVER UPLOADS TO S3 WILL FAIL SILENTLY");
-                System.err.println("❌ CRITICAL: S3 environment variables MISSING - S3 services DISABLED");
-                System.err.println("❌ Required: S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_BUCKET");
             }
-            messageLogged = true;
         }
         
         return hasRequiredVars;

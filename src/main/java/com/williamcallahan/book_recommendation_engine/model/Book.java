@@ -66,7 +66,6 @@ public class Book {
     private Double weightGrams;
     private CoverImages coverImages;
     private Integer editionNumber;
-    private String editionGroupKey;
     private List<EditionInfo> otherEditions;
     private String asin;
     private Map<String, Object> qualifiers;

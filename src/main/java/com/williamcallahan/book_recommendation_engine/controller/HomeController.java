@@ -10,7 +10,6 @@ import com.williamcallahan.book_recommendation_engine.model.image.ImageResolutio
 import com.williamcallahan.book_recommendation_engine.service.AffiliateLinkService;
 import com.williamcallahan.book_recommendation_engine.service.BookIdentifierResolver;
 import com.williamcallahan.book_recommendation_engine.service.SearchPaginationService;
-import com.williamcallahan.book_recommendation_engine.service.DuplicateBookService;
 import com.williamcallahan.book_recommendation_engine.service.EnvironmentService;
 import com.williamcallahan.book_recommendation_engine.service.NewYorkTimesService;
 import com.williamcallahan.book_recommendation_engine.service.RecentlyViewedService;
@@ -60,7 +59,6 @@ public class HomeController {
 
     private final RecentlyViewedService recentlyViewedService;
     private final EnvironmentService environmentService;
-    private final DuplicateBookService duplicateBookService;
     private final LocalDiskCoverCacheService localDiskCoverCacheService;
     private final NewYorkTimesService newYorkTimesService;
     private final AffiliateLinkService affiliateLinkService;
@@ -90,13 +88,11 @@ public class HomeController {
      *
      * @param recentlyViewedService Service for tracking user book view history
      * @param environmentService Service providing environment configuration information
-     * @param duplicateBookService Service for handling duplicate book editions
      * @param searchPaginationService Service coordinating paginated search
      * @param bookIdentifierResolver Resolver for canonical identifiers
      */
     public HomeController(RecentlyViewedService recentlyViewedService,
                           EnvironmentService environmentService,
-                          DuplicateBookService duplicateBookService,
                           LocalDiskCoverCacheService localDiskCoverCacheService,
                           @Value("${app.feature.year-filtering.enabled:false}") boolean isYearFilteringEnabled,
                           NewYorkTimesService newYorkTimesService,
@@ -106,7 +102,6 @@ public class HomeController {
                           BookIdentifierResolver bookIdentifierResolver) {
         this.recentlyViewedService = recentlyViewedService;
         this.environmentService = environmentService;
-        this.duplicateBookService = duplicateBookService;
         this.localDiskCoverCacheService = localDiskCoverCacheService;
         this.isYearFilteringEnabled = isYearFilteringEnabled;
         this.newYorkTimesService = newYorkTimesService;
@@ -380,14 +375,6 @@ public class HomeController {
 
     private void applyBookMetadata(Book book, Model model) {
         model.addAttribute("book", book);
-        
-        // Load duplicate editions asynchronously after setting model attribute
-        // This prevents blocking the render path
-        try {
-            duplicateBookService.populateDuplicateEditions(book);
-        } catch (Exception ex) {
-            log.warn("Failed to populate duplicate editions for book {}: {}", book.getId(), ex.getMessage());
-        }
 
         String title = ValidationUtils.hasText(book.getTitle()) ? book.getTitle() : "Book Details";
         String description = SeoUtils.truncateDescription(book.getDescription(), maxDescriptionLength);

@@ -80,8 +80,8 @@ public class GoogleApiFetcher {
     }
 
     private Mono<JsonNode> fetchVolumeByIdInternal(String bookId, boolean authenticated) {
-        if (!googleFallbackEnabled) {
-            log.debug("Google fallback disabled - skipping {} fetch for {}", authenticated ? "authenticated" : "unauthenticated", bookId);
+        if (!authenticated && !googleFallbackEnabled) {
+            log.debug("Google fallback disabled - skipping unauthenticated fetch for {}", bookId);
             return Mono.empty();
         }
         if (authenticated) {
@@ -175,13 +175,19 @@ public class GoogleApiFetcher {
                             } else {
                                 circuitBreakerService.recordGeneralFailure();
                             }
-                        } else if (wcre.getStatusCode().value() == 429) {
-                            circuitBreakerService.recordFallbackRateLimitFailure();
+                        } else {
+                            if (wcre.getStatusCode().value() == 429) {
+                                circuitBreakerService.recordFallbackRateLimitFailure();
+                            } else {
+                                circuitBreakerService.recordFallbackGeneralFailure();
+                            }
                         }
                     } else {
                         LoggingUtils.error(log, e, "Error fetching from Google API after retries");
                         if (authenticated) {
                             circuitBreakerService.recordGeneralFailure();
+                        } else {
+                            circuitBreakerService.recordFallbackGeneralFailure();
                         }
                     }
                     ExternalApiLogger.logApiCallFailure(log, "GoogleBooks", "FETCH_VOLUME", url, e.getMessage());
@@ -204,10 +210,6 @@ public class GoogleApiFetcher {
     }
 
     public Mono<JsonNode> searchVolumesAuthenticated(String query, int startIndex, String orderBy, String langCode, int pageSize) {
-        if (!googleFallbackEnabled) {
-            log.debug("Google fallback disabled - skipping authenticated search for query '{}'", query);
-            return Mono.empty();
-        }
         // Check circuit breaker first
         if (!circuitBreakerService.isApiCallAllowed()) {
             log.info("Circuit breaker is OPEN - skipping authenticated search for query '{}'. Caller should try unauthenticated fallback.", query);
@@ -347,7 +349,7 @@ public class GoogleApiFetcher {
             builder.queryParam("langRestrict", langCode);
         }
 
-        String url = builder.build(false).toUriString();
+        String url = builder.encode().build().toUriString();
         String authStatus = authenticated ? "authenticated" : "unauthenticated";
         String endpoint = "volumes/search/" + getQueryTypeForMonitoring(query) + "/" + authStatus;
 
@@ -423,8 +425,12 @@ public class GoogleApiFetcher {
                             } else {
                                 circuitBreakerService.recordGeneralFailure();
                             }
-                        } else if (wcre.getStatusCode().value() == 429) {
-                            circuitBreakerService.recordFallbackRateLimitFailure();
+                        } else {
+                            if (wcre.getStatusCode().value() == 429) {
+                                circuitBreakerService.recordFallbackRateLimitFailure();
+                            } else {
+                                circuitBreakerService.recordFallbackGeneralFailure();
+                            }
                         }
                     } else {
                         LoggingUtils.error(log, e,
@@ -432,6 +438,8 @@ public class GoogleApiFetcher {
                             authStatus, query, startIndex);
                         if (authenticated) {
                             circuitBreakerService.recordGeneralFailure();
+                        } else {
+                            circuitBreakerService.recordFallbackGeneralFailure();
                         }
                     }
                     apiRequestMonitor.recordFailedRequest(endpoint, e.getMessage());
