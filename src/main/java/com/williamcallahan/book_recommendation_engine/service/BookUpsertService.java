@@ -2,6 +2,7 @@ package com.williamcallahan.book_recommendation_engine.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.williamcallahan.book_recommendation_engine.dto.BookAggregate;
+import com.williamcallahan.book_recommendation_engine.service.event.BookUpsertEvent;
 import com.williamcallahan.book_recommendation_engine.service.image.CoverPersistenceService;
 import com.williamcallahan.book_recommendation_engine.util.CategoryNormalizer;
 import com.williamcallahan.book_recommendation_engine.util.DimensionParser;
@@ -10,11 +11,14 @@ import com.williamcallahan.book_recommendation_engine.util.UrlUtils;
 import lombok.Builder;
 import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Date;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -56,17 +60,20 @@ public class BookUpsertService {
     
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
+    private final ApplicationEventPublisher eventPublisher;
     private final BookCollectionPersistenceService collectionPersistenceService;
     private final CoverPersistenceService coverPersistenceService;
-    
+
     public BookUpsertService(
         JdbcTemplate jdbcTemplate,
         ObjectMapper objectMapper,
-            BookCollectionPersistenceService collectionPersistenceService,
-            CoverPersistenceService coverPersistenceService
+        ApplicationEventPublisher eventPublisher,
+        BookCollectionPersistenceService collectionPersistenceService,
+        CoverPersistenceService coverPersistenceService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
+        this.eventPublisher = eventPublisher;
         this.collectionPersistenceService = collectionPersistenceService;
         this.coverPersistenceService = coverPersistenceService;
     }
@@ -150,8 +157,14 @@ public class BookUpsertService {
             upsertDimensions(bookId, aggregate.getDimensions());
         }
         
-        // 9. Emit outbox event (transactional)
-        emitOutboxEvent(bookId, slug, aggregate.getTitle(), isNew);
+        Map<String, String> normalizedImageLinks = collectNormalizedImageLinks(aggregate);
+        String source = aggregate.getIdentifiers() != null ? aggregate.getIdentifiers().getSource() : null;
+        String context = source != null ? source : "POSTGRES_UPSERT";
+        String canonicalImageUrl = selectPreferredImageUrl(normalizedImageLinks);
+
+        // 9. Emit outbox event (transactional) and publish in-process event
+        emitOutboxEvent(bookId, slug, aggregate.getTitle(), isNew, context, canonicalImageUrl, normalizedImageLinks, source);
+        publishBookUpsertEvent(bookId, slug, aggregate.getTitle(), isNew, context, canonicalImageUrl, normalizedImageLinks, source);
         
         log.info("Successfully upserted book: id={}, slug='{}', isNew={}", bookId, slug, isNew);
         
@@ -638,21 +651,39 @@ public class BookUpsertService {
     }
     
     /**
-     * Emit event to outbox table (transactional).
-     * WebSocket relay will poll this table and publish to clients.
+     * Emit event to the transactional outbox. The payload now includes optional context
+     * and image metadata so consumers (WebSocket relay, dashboards) have everything needed
+     * without additional lookups.
      */
-    private void emitOutboxEvent(UUID bookId, String slug, String title, boolean isNew) {
+    private void emitOutboxEvent(UUID bookId,
+                                 String slug,
+                                 String title,
+                                 boolean isNew,
+                                 String context,
+                                 String canonicalImageUrl,
+                                 Map<String, String> imageLinks,
+                                 String source) {
         try {
             String topic = "/topic/book." + bookId;
-            
-            Map<String, Object> payload = Map.of(
-                "bookId", bookId.toString(),
-                "slug", slug != null ? slug : "",
-                "title", title != null ? title : "",
-                "isNew", isNew,
-                "timestamp", System.currentTimeMillis()
-            );
-            
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("bookId", bookId.toString());
+            payload.put("slug", slug != null ? slug : "");
+            payload.put("title", title != null ? title : "");
+            payload.put("isNew", isNew);
+            payload.put("timestamp", System.currentTimeMillis());
+            if (context != null && !context.isBlank()) {
+                payload.put("context", context);
+            }
+            if (canonicalImageUrl != null && !canonicalImageUrl.isBlank()) {
+                payload.put("canonicalImageUrl", canonicalImageUrl);
+            }
+            if (imageLinks != null && !imageLinks.isEmpty()) {
+                payload.put("imageLinks", imageLinks);
+            }
+            if (source != null && !source.isBlank()) {
+                payload.put("source", source);
+            }
+
             String payloadJson = objectMapper.writeValueAsString(payload);
             
             jdbcTemplate.update(
@@ -667,9 +698,82 @@ public class BookUpsertService {
             // Don't fail the transaction - event is optional
         }
     }
-    
+
+    /**
+     * Publish the in-process application event so components that do not read from the
+     * outbox (e.g., S3 orchestration) can react immediately after the transaction commits.
+     */
+    private void publishBookUpsertEvent(UUID bookId,
+                                        String slug,
+                                        String title,
+                                        boolean isNew,
+                                        String context,
+                                        String canonicalImageUrl,
+                                        Map<String, String> imageLinks,
+                                        String source) {
+        try {
+            eventPublisher.publishEvent(new BookUpsertEvent(
+                bookId.toString(),
+                slug,
+                title,
+                isNew,
+                context,
+                imageLinks,
+                canonicalImageUrl,
+                source
+            ));
+        } catch (Exception ex) {
+            log.warn("Failed to publish BookUpsertEvent for book {}: {}", bookId, ex.getMessage());
+        }
+    }
+
     // Helper methods
-    
+
+    /**
+     * Normalizes the image link map from the aggregate to HTTPS URLs while preserving insertion
+     * order so downstream consumers receive deterministic priority.
+     */
+    private Map<String, String> collectNormalizedImageLinks(BookAggregate aggregate) {
+        if (aggregate.getIdentifiers() == null || aggregate.getIdentifiers().getImageLinks() == null) {
+            return Map.of();
+        }
+        Map<String, String> sanitized = new LinkedHashMap<>();
+        aggregate.getIdentifiers().getImageLinks().forEach((key, value) -> {
+            if (key != null && value != null && !value.isBlank()) {
+                sanitized.put(key, normalizeToHttps(value));
+            }
+        });
+        return sanitized.isEmpty() ? Map.of() : Map.copyOf(sanitized);
+    }
+
+    /**
+     * Selects the best candidate URL for upstream S3 upload based on known provider keys.
+     */
+    private String selectPreferredImageUrl(Map<String, String> imageLinks) {
+        if (imageLinks == null || imageLinks.isEmpty()) {
+            return null;
+        }
+        List<String> priorityOrder = List.of(
+            "canonical",
+            "extraLarge",
+            "large",
+            "medium",
+            "small",
+            "thumbnail",
+            "smallThumbnail"
+        );
+        for (String key : priorityOrder) {
+            String candidate = imageLinks.get(key);
+            if (candidate != null && !candidate.isBlank()) {
+                return candidate;
+            }
+        }
+        return imageLinks.values().stream()
+            .filter(url -> url != null && !url.isBlank())
+            .findFirst()
+            .orElse(null);
+    }
+
     private String nullIfBlank(String value) {
         return (value != null && !value.isBlank()) ? value : null;
     }
