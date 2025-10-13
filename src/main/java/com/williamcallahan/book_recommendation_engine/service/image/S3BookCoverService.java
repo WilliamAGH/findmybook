@@ -594,7 +594,7 @@ public class S3BookCoverService implements ExternalCoverService {
 
     private Mono<com.williamcallahan.book_recommendation_engine.model.image.ImageDetails> uploadToS3Internal(String s3Key, byte[] imageBytesForS3, String mimeTypeForS3, String bookId, String fileExtensionForS3, String s3Source, ProcessedImage processedImage, ImageProvenanceData provenanceData) {
         if (!s3WriteEnabled) {
-            logger.debug("S3 write disabled; skipping upload for book {} (key {}).", bookId, s3Key);
+            logger.warn("S3 write disabled; skipping upload for book {} (key {}). Enable with S3_WRITE_ENABLED=true.", bookId, s3Key);
             com.williamcallahan.book_recommendation_engine.model.image.ImageDetails details =
                 new com.williamcallahan.book_recommendation_engine.model.image.ImageDetails(
                     null,

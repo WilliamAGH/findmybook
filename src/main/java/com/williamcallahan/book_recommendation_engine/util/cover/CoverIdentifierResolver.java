@@ -8,7 +8,7 @@ import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
  * 
  * Consolidates logic from:
  * - Legacy cache helper getIdentifierKey()
- * - ValidationUtils.BookValidator.getPreferredIsbn()
+ * - Historic ValidationUtils.BookValidator utilities for preferred ISBN selection
  * 
  * Priority order:
  * 1. ISBN-13 (most specific, internationally standardized)
