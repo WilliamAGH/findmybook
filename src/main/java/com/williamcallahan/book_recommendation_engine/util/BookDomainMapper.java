@@ -187,7 +187,7 @@ public final class BookDomainMapper {
         applyCoverMetadata(book, resolved.width(), resolved.height(), resolved.highResolution(), false);
 
         book.setEditionNumber(aggregate.getEditionNumber());
-        book.setEditionGroupKey(aggregate.getEditionGroupKey());
+        // Task #6: editionGroupKey removed - replaced by work_clusters system
         book.setInPostgres(false);
         String source = identifiers != null ? identifiers.getSource() : null;
         if (ValidationUtils.hasText(source)) {

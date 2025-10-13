@@ -19,8 +19,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.williamcallahan.book_recommendation_engine.dto.BookAggregate;
 import com.williamcallahan.book_recommendation_engine.model.Book;
 import com.williamcallahan.book_recommendation_engine.util.ExternalApiLogger;
+import com.williamcallahan.book_recommendation_engine.util.IsbnUtils;
 import com.williamcallahan.book_recommendation_engine.util.SlugGenerator;
 import com.williamcallahan.book_recommendation_engine.util.UrlUtils;
+import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.lang.Nullable;
@@ -29,10 +31,14 @@ import reactor.core.scheduler.Schedulers;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 
@@ -157,7 +163,9 @@ public class BookDataOrchestrator {
     /**
      * Persists books that were fetched from external APIs during search/recommendations.
      * This ensures opportunistic upsert: books returned from API calls get saved to Postgres.
-     * 
+     *
+     * Task #8: Deduplicates books by ID before persistence to avoid redundant operations.
+     *
      * @param books List of books to persist
      * @param context Context string for logging (e.g., "SEARCH", "RECOMMENDATION")
      */
@@ -166,16 +174,38 @@ public class BookDataOrchestrator {
             logger.info("[EXTERNAL-API] [{}] persistBooksAsync called but books list is null or empty", context);
             return;
         }
-        
-        logger.info("[EXTERNAL-API] [{}] persistBooksAsync INVOKED with {} books", context, books.size());
-        
+
+        int originalSize = books.size();
+        logger.info("[EXTERNAL-API] [{}] persistBooksAsync INVOKED with {} books", context, originalSize);
+
+        // Task #8: Deduplicate books to prevent redundant persistence operations
+        List<Book> uniqueBooks = filterDuplicatesById(books);
+        int duplicateCount = originalSize - uniqueBooks.size();
+        if (duplicateCount > 0) {
+            logger.info("[EXTERNAL-API] [{}] Filtered {} duplicate book(s) by ID, {} candidates remain",
+                context, duplicateCount, uniqueBooks.size());
+        }
+
+        if (uniqueBooks.isEmpty()) {
+            logger.warn("[EXTERNAL-API] [{}] No valid books to persist after deduplication", context);
+            return;
+        }
+
+        List<Book> dedupedByIdentifiers = deduplicateByIdentifiers(uniqueBooks);
+        int identifierDuplicateCount = uniqueBooks.size() - dedupedByIdentifiers.size();
+        if (identifierDuplicateCount > 0) {
+            logger.info("[EXTERNAL-API] [{}] Removed {} duplicate book(s) by ISBN/title after ID filtering (final count={})",
+                context, identifierDuplicateCount, dedupedByIdentifiers.size());
+        }
+
         Mono.fromRunnable(() -> {
-            logger.info("[EXTERNAL-API] [{}] Persisting {} books to Postgres - RUNNABLE EXECUTING", context, books.size());
+            logger.info("[EXTERNAL-API] [{}] Persisting {} unique books to Postgres - RUNNABLE EXECUTING",
+                context, dedupedByIdentifiers.size());
             long start = System.currentTimeMillis();
             int successCount = 0;
             int failureCount = 0;
-            
-            for (Book book : books) {
+
+            for (Book book : dedupedByIdentifiers) {
                 if (book == null) {
                     logger.warn("[EXTERNAL-API] [{}] Skipping null book in persistence", context);
                     continue;
@@ -228,6 +258,60 @@ public class BookDataOrchestrator {
         );
         
         logger.info("[EXTERNAL-API] [{}] persistBooksAsync setup complete, async execution scheduled", context);
+    }
+
+    private List<Book> filterDuplicatesById(List<Book> books) {
+        if (books == null || books.isEmpty()) {
+            return List.of();
+        }
+        Set<String> seenIds = ConcurrentHashMap.newKeySet();
+        List<Book> unique = new ArrayList<>(books.size());
+        for (Book book : books) {
+            if (book == null || !ValidationUtils.hasText(book.getId())) {
+                continue;
+            }
+            if (seenIds.add(book.getId())) {
+                unique.add(book);
+            }
+        }
+        return unique;
+    }
+
+    private List<Book> deduplicateByIdentifiers(List<Book> books) {
+        if (books == null || books.isEmpty()) {
+            return List.of();
+        }
+        Map<String, Book> deduped = new LinkedHashMap<>();
+        for (Book book : books) {
+            if (book == null) {
+                continue;
+            }
+            String isbn13 = IsbnUtils.sanitize(book.getIsbn13());
+            if (ValidationUtils.hasText(isbn13)) {
+                deduped.putIfAbsent("ISBN13:" + isbn13, book);
+                continue;
+            }
+            String isbn10 = IsbnUtils.sanitize(book.getIsbn10());
+            if (ValidationUtils.hasText(isbn10)) {
+                deduped.putIfAbsent("ISBN10:" + isbn10, book);
+                continue;
+            }
+            String normalizedTitle = normalizeTitleForDedupe(book.getTitle());
+            if (normalizedTitle != null) {
+                deduped.putIfAbsent("TITLE:" + normalizedTitle, book);
+                continue;
+            }
+            // Fallback: preserve remaining entries without identifiers
+            deduped.putIfAbsent("FALLBACK:" + book.getId(), book);
+        }
+        return new ArrayList<>(deduped.values());
+    }
+
+    private String normalizeTitleForDedupe(String title) {
+        if (!ValidationUtils.hasText(title)) {
+            return null;
+        }
+        return title.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
     }
 
     private void triggerSearchViewRefresh(boolean force) {
@@ -286,6 +370,10 @@ public class BookDataOrchestrator {
         }
     }
 
+    /**
+     * Builds a fallback BookAggregate from a Book model object.
+     * <p>Task #9: Sanitizes ISBNs to ensure consistent formatting before persistence.</p>
+     */
     private BookAggregate buildFallbackAggregate(Book book) {
         if (book == null || book.getTitle() == null || book.getTitle().isBlank()) {
             return null;
@@ -324,11 +412,16 @@ public class BookDataOrchestrator {
             .imageLinks(immutableImageLinks)
             .build();
 
+        // Task #9: Sanitize ISBNs before building aggregate to prevent duplicate books
+        // from formatting differences (e.g., "978-0-545-01022-1" vs "9780545010221")
+        String sanitizedIsbn13 = IsbnUtils.sanitize(book.getIsbn13());
+        String sanitizedIsbn10 = IsbnUtils.sanitize(book.getIsbn10());
+
         return BookAggregate.builder()
             .title(book.getTitle())
             .description(book.getDescription())
-            .isbn13(book.getIsbn13())
-            .isbn10(book.getIsbn10())
+            .isbn13(sanitizedIsbn13)
+            .isbn10(sanitizedIsbn10)
             .publishedDate(publishedDate)
             .language(book.getLanguage())
             .publisher(book.getPublisher())
@@ -338,7 +431,7 @@ public class BookDataOrchestrator {
             .identifiers(identifiers)
             .slugBase(SlugGenerator.generateBookSlug(book.getTitle(), book.getAuthors()))
             .editionNumber(book.getEditionNumber())
-            .editionGroupKey(book.getEditionGroupKey())
+            // Task #6: editionGroupKey removed - replaced by work_clusters system
             .build();
     }
 

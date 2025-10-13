@@ -104,7 +104,7 @@ public class GoogleBooksMapper implements ExternalBookMapper {
             .slugBase(slugBase)
             .dimensions(dimensions)
             .editionNumber(null)  // TODO: Derive from title/subtitle/contentVersion
-            .editionGroupKey(null)  // TODO: Build from normalized title + first author
+            // Task #6: editionGroupKey removed - replaced by work_clusters system
             .build();
     }
     
