@@ -68,7 +68,7 @@ public class SitemapService {
     private final AtomicReference<DatasetFingerprint> authorFingerprintRef = new AtomicReference<>();
     private final Optional<SitemapFallbackProvider> fallbackProvider;
     private final AtomicReference<FallbackSnapshot> fallbackSnapshotRef = new AtomicReference<>();
-    private final ThreadLocal<Boolean> fallbackMarker = ThreadLocal.withInitial(() -> Boolean.FALSE);
+    private final ThreadLocal<FallbackContext> fallbackContext = ThreadLocal.withInitial(FallbackContext::new);
 
     public SitemapService(SitemapRepository sitemapRepository,
                           SitemapProperties properties,
@@ -412,7 +412,12 @@ public class SitemapService {
     }
 
     private <T> T cached(Cache cache, Object key, Supplier<T> loader) {
-        fallbackMarker.set(Boolean.FALSE);
+        FallbackContext context = fallbackContext.get();
+        boolean outermost = context.depth == 0;
+        context.depth++;
+        if (outermost) {
+            context.fallbackInvoked = false;
+        }
         try {
             T value = cache.get(key, () -> {
                 T loaded = loader.get();
@@ -421,12 +426,15 @@ public class SitemapService {
                 }
                 return loaded;
             });
-            if (Boolean.TRUE.equals(fallbackMarker.get())) {
+            if (outermost && context.fallbackInvoked) {
                 cache.evict(key);
             }
             return value;
         } finally {
-            fallbackMarker.remove();
+            context.depth--;
+            if (context.depth == 0) {
+                fallbackContext.remove();
+            }
         }
     }
 
@@ -472,7 +480,12 @@ public class SitemapService {
     }
 
     private void markFallbackInvoked() {
-        fallbackMarker.set(Boolean.TRUE);
+        fallbackContext.get().fallbackInvoked = true;
+    }
+
+    private static final class FallbackContext {
+        int depth;
+        boolean fallbackInvoked;
     }
 
     private Map<String, Integer> emptyLetterCounts() {

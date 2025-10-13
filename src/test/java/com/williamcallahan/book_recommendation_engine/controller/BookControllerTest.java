@@ -112,9 +112,9 @@ class BookControllerTest {
             1,
             List.of(fixtureBook),
             List.of(fixtureBook),
-            true,
-            5,
-            1,
+            false,
+            0,
+            0,
             "newest",
             CoverImageSource.ANY,
             ImageResolutionPreference.ANY

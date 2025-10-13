@@ -15,21 +15,19 @@ package com.williamcallahan.book_recommendation_engine.service.image;
 import com.williamcallahan.book_recommendation_engine.model.Book;
 import com.williamcallahan.book_recommendation_engine.model.image.CoverImageSource;
 import com.williamcallahan.book_recommendation_engine.model.image.ImageDetails;
-import com.williamcallahan.book_recommendation_engine.model.image.ImageProvenanceData;
 import com.williamcallahan.book_recommendation_engine.model.image.ImageResolutionPreference;
-import com.williamcallahan.book_recommendation_engine.model.image.ImageSourceName;
 import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
 import com.williamcallahan.book_recommendation_engine.util.cover.CoverIdentifierResolver;
 // LongitoodService is in the same package; explicit import not required
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
-import org.springframework.web.reactive.function.client.WebClient;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import io.github.resilience4j.timelimiter.annotation.TimeLimiter;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
 import java.util.Map;
@@ -43,20 +41,8 @@ public class LongitoodServiceImpl implements LongitoodService {
     private static final String LONGITOOD_SOURCE_NAME = "Longitood";
 
     private final WebClient webClient;
-    private final CoverCacheManager coverCacheManager;
-    private final ExternalCoverFetchHelper externalCoverFetchHelper;
-
-    /**
-     * Constructs a new LongitoodServiceImpl with the specified WebClient
-     *
-     * @param webClient The WebClient for making HTTP requests to the Longitood API
-     */
-    public LongitoodServiceImpl(WebClient webClient,
-                                ExternalCoverFetchHelper externalCoverFetchHelper,
-                                CoverCacheManager coverCacheManager) {
-        this.webClient = webClient;
-        this.externalCoverFetchHelper = externalCoverFetchHelper;
-        this.coverCacheManager = coverCacheManager;
+    public LongitoodServiceImpl(WebClient.Builder webClientBuilder) {
+        this.webClient = webClientBuilder.build();
     }
 
     /**
@@ -116,40 +102,6 @@ public class LongitoodServiceImpl implements LongitoodService {
             .map(Optional::of) // Map ImageDetails to Optional<ImageDetails>
             .defaultIfEmpty(Optional.empty()) // If Mono is empty, provide Optional.empty()
             .toFuture(); // Convert to CompletableFuture
-    }
-
-    public CompletableFuture<ImageDetails> fetchAndCacheCover(Book book, String bookIdForLog, ImageProvenanceData provenanceData) {
-        String isbn = CoverIdentifierResolver.resolve(book);
-        if (!ValidationUtils.hasText(isbn)) {
-            logger.warn("Longitood requires ISBN, not found for Book ID for log: {}", bookIdForLog);
-            return externalCoverFetchHelper.fetchAndCache(
-                null,
-                null,
-                null,
-                () -> CompletableFuture.completedFuture(Optional.empty()),
-                "Longitood ISBN: missing",
-                ImageSourceName.LONGITOOD,
-                "Longitood",
-                "longitood-no-isbn",
-                provenanceData,
-                bookIdForLog,
-                null
-            );
-        }
-
-        return externalCoverFetchHelper.fetchAndCache(
-            isbn,
-            coverCacheManager::isKnownBadLongitoodIsbn,
-            coverCacheManager::addKnownBadLongitoodIsbn,
-            () -> fetchCover(book),
-            "Longitood ISBN: " + isbn,
-            ImageSourceName.LONGITOOD,
-            "Longitood",
-            "longitood",
-            provenanceData,
-            bookIdForLog,
-            null
-        );
     }
 
     /**

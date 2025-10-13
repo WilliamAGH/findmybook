@@ -17,6 +17,7 @@ import com.williamcallahan.book_recommendation_engine.service.BookDataOrchestrat
 import com.williamcallahan.book_recommendation_engine.service.BookIdentifierResolver;
 import com.williamcallahan.book_recommendation_engine.service.BookSearchService;
 import com.williamcallahan.book_recommendation_engine.service.SearchPaginationService;
+import com.williamcallahan.book_recommendation_engine.service.BookSearchService.AuthorResult;
 import com.williamcallahan.book_recommendation_engine.util.ApplicationConstants;
 import com.williamcallahan.book_recommendation_engine.util.PagingUtils;
 import com.williamcallahan.book_recommendation_engine.util.ReactiveControllerUtils;
@@ -122,7 +123,7 @@ public class BookController {
 
         Mono<AuthorSearchResponse> responseMono = Mono.fromCallable(() -> bookSearchService.searchAuthors(normalizedQuery, safeLimit))
             .subscribeOn(Schedulers.boundedElastic())
-            .map(results -> results == null ? List.<BookSearchService.AuthorResult>of() : results)
+            .map(results -> results == null ? List.<AuthorResult>of() : results)
             .map(results -> buildAuthorResponse(normalizedQuery, safeLimit, results));
 
         return withEmptyFallback(
@@ -179,17 +180,17 @@ public class BookController {
 
     private AuthorSearchResponse buildAuthorResponse(String query,
                                                      int limit,
-                                                     List<BookSearchService.AuthorResult> results) {
-        List<BookSearchService.AuthorResult> safeResults = results == null ? List.of() : results;
+                                                     List<AuthorResult> results) {
+        List<AuthorResult> safeResults = results == null ? List.of() : results;
         List<AuthorHitDto> hits = safeResults.stream()
-                .sorted(Comparator.comparingDouble(BookSearchService.AuthorResult::relevanceScore).reversed())
+                .sorted(Comparator.comparingDouble(AuthorResult::relevanceScore).reversed())
                 .limit(Math.max(0, limit))
                 .map(this::toAuthorHit)
                 .toList();
         return new AuthorSearchResponse(query, limit, hits);
     }
 
-    private AuthorHitDto toAuthorHit(BookSearchService.AuthorResult authorResult) {
+    private AuthorHitDto toAuthorHit(AuthorResult authorResult) {
         String effectiveId = authorResult.authorId();
         if (!ValidationUtils.hasText(effectiveId)) {
             String slug = SlugGenerator.slugify(authorResult.authorName());
@@ -212,23 +213,14 @@ public class BookController {
             .filter(Objects::nonNull)
             .toList();
 
-        int knownResults = page.uniqueResults() == null
-            ? Math.max(page.startIndex() + hits.size(), 0)
-            : Math.max(page.uniqueResults().size(), page.startIndex() + hits.size());
-
-        int consumed = page.startIndex() + hits.size();
-        boolean hasMore = knownResults > consumed;
-        int nextStartIndex = hasMore ? consumed : page.startIndex();
-        int prefetched = Math.max(knownResults - consumed, 0);
-
         return new SearchResponse(
             page.query(),
             page.startIndex(),
             page.maxResults(),
-            knownResults,
-            hasMore,
-            nextStartIndex,
-            prefetched,
+            page.totalUnique(),
+            page.hasMore(),
+            page.nextStartIndex(),
+            page.prefetchedCount(),
             page.orderBy(),
             page.coverSource() != null ? page.coverSource().name() : CoverImageSource.ANY.name(),
             page.resolutionPreference() != null ? page.resolutionPreference().name() : ImageResolutionPreference.ANY.name(),

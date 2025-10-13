@@ -22,6 +22,7 @@ import org.springframework.stereotype.Repository;
 import java.sql.Date;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.ResultSetMetaData;
 import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.List;
@@ -45,10 +46,12 @@ public class BookQueryRepository {
     private final ObjectMapper objectMapper;
     public BookQueryRepository(JdbcTemplate jdbcTemplate,
                                ObjectMapper objectMapper,
-                               @Value("${s3.enabled:true}") boolean ignored,
-                               @Value("${s3.cdn-url:}") String ignoredCdn) {
+                               @Value("${s3.enabled:true}") boolean s3Enabled,
+                               @Value("${s3.cdn-url:}") String cdnBase) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
+        String normalizedCdn = (cdnBase == null || cdnBase.isBlank()) ? null : cdnBase.trim();
+        CoverUrlResolver.setCdnBase(s3Enabled ? normalizedCdn : null);
     }
 
     // ==================== Book Cards ====================
@@ -361,13 +364,13 @@ public class BookQueryRepository {
             Integer height = getIntOrNull(rs, "cover_height");
             Boolean highRes = getBooleanOrNull(rs, "cover_is_high_resolution");
             CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
-                rs.getString("cover_s3_key"),
-                rs.getString("cover_fallback_url"),
+                getStringOrNull(rs, "cover_s3_key"),
+                getStringOrNull(rs, "cover_fallback_url"),
                 width,
                 height,
                 highRes
             );
-            String fallbackUrl = rs.getString("cover_fallback_url");
+            String fallbackUrl = getStringOrNull(rs, "cover_fallback_url");
             String effectiveFallback = ValidationUtils.hasText(fallbackUrl) ? fallbackUrl : resolved.url();
             return new BookListItem(
                 rs.getString("id"),
@@ -399,17 +402,18 @@ public class BookQueryRepository {
             Integer height = getIntOrNull(rs, "cover_height");
             Boolean highRes = getBooleanOrNull(rs, "cover_is_high_resolution");
             CoverUrlResolver.ResolvedCover cover = CoverUrlResolver.resolve(
-                rs.getString("cover_s3_key"),
-                rs.getString("cover_fallback_url"),
+                getStringOrNull(rs, "cover_s3_key"),
+                getStringOrNull(rs, "cover_fallback_url"),
                 width,
                 height,
                 highRes
             );
-            String fallbackUrl = rs.getString("cover_fallback_url");
-            String effectiveFallback = ValidationUtils.hasText(fallbackUrl) ? fallbackUrl : rs.getString("thumbnail_url");
+            String thumbnailUrl = getStringOrNull(rs, "thumbnail_url");
+            String fallbackUrl = getStringOrNull(rs, "cover_fallback_url");
+            String effectiveFallback = ValidationUtils.hasText(fallbackUrl) ? fallbackUrl : thumbnailUrl;
             CoverUrlResolver.ResolvedCover thumb = CoverUrlResolver.resolve(
-                rs.getString("thumbnail_url"),
-                rs.getString("thumbnail_url"),
+                thumbnailUrl,
+                thumbnailUrl,
                 null,
                 null,
                 null
@@ -437,8 +441,8 @@ public class BookQueryRepository {
                 getIntOrNull(rs, "ratings_count"),
                 rs.getString("isbn_10"),
                 rs.getString("isbn_13"),
-                rs.getString("preview_link"),
-                rs.getString("info_link"),
+                getStringOrNull(rs, "preview_link"),
+                getStringOrNull(rs, "info_link"),
                 parseJsonb(rs.getString("tags")),
                 List.of()
             );
@@ -738,6 +742,9 @@ public class BookQueryRepository {
      * Safely get nullable Double from ResultSet.
      */
     private Double getDoubleOrNull(ResultSet rs, String columnName) throws SQLException {
+        if (!hasColumn(rs, columnName)) {
+            return null;
+        }
         double value = rs.getDouble(columnName);
         return rs.wasNull() ? null : value;
     }
@@ -746,6 +753,9 @@ public class BookQueryRepository {
      * Safely get nullable Integer from ResultSet.
      */
     private Integer getIntOrNull(ResultSet rs, String columnName) throws SQLException {
+        if (!hasColumn(rs, columnName)) {
+            return null;
+        }
         int value = rs.getInt(columnName);
         return rs.wasNull() ? null : value;
     }
@@ -754,6 +764,9 @@ public class BookQueryRepository {
      * Safely get nullable Boolean from ResultSet.
      */
     private Boolean getBooleanOrNull(ResultSet rs, String columnName) throws SQLException {
+        if (!hasColumn(rs, columnName)) {
+            return null;
+        }
         boolean value = rs.getBoolean(columnName);
         return rs.wasNull() ? null : value;
     }
@@ -762,7 +775,25 @@ public class BookQueryRepository {
      * Safely get nullable LocalDate from ResultSet.
      */
     private LocalDate getLocalDateOrNull(ResultSet rs, String columnName) throws SQLException {
+        if (!hasColumn(rs, columnName)) {
+            return null;
+        }
         Date date = rs.getDate(columnName);
         return date == null ? null : date.toLocalDate();
+    }
+
+    private String getStringOrNull(ResultSet rs, String columnName) throws SQLException {
+        return hasColumn(rs, columnName) ? rs.getString(columnName) : null;
+    }
+
+    private boolean hasColumn(ResultSet rs, String columnName) throws SQLException {
+        ResultSetMetaData metaData = rs.getMetaData();
+        int columnCount = metaData.getColumnCount();
+        for (int i = 1; i <= columnCount; i++) {
+            if (columnName.equalsIgnoreCase(metaData.getColumnLabel(i))) {
+                return true;
+            }
+        }
+        return false;
     }
 }

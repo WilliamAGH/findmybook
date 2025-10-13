@@ -15,9 +15,7 @@ package com.williamcallahan.book_recommendation_engine.service.image;
 import com.williamcallahan.book_recommendation_engine.model.Book;
 import com.williamcallahan.book_recommendation_engine.model.image.CoverImageSource;
 import com.williamcallahan.book_recommendation_engine.model.image.ImageDetails;
-import com.williamcallahan.book_recommendation_engine.model.image.ImageProvenanceData;
 import com.williamcallahan.book_recommendation_engine.model.image.ImageResolutionPreference;
-import com.williamcallahan.book_recommendation_engine.model.image.ImageSourceName;
 import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
 import com.williamcallahan.book_recommendation_engine.util.cover.CoverIdentifierResolver;
 import org.slf4j.Logger;
@@ -32,15 +30,6 @@ public class OpenLibraryServiceImpl implements OpenLibraryService {
 
     private static final Logger logger = LoggerFactory.getLogger(OpenLibraryServiceImpl.class);
     private static final String OPEN_LIBRARY_SOURCE_NAME = "OpenLibrary";
-
-    private final CoverCacheManager coverCacheManager;
-    private final ExternalCoverFetchHelper externalCoverFetchHelper;
-
-    public OpenLibraryServiceImpl(ExternalCoverFetchHelper externalCoverFetchHelper,
-                                  CoverCacheManager coverCacheManager) {
-        this.externalCoverFetchHelper = externalCoverFetchHelper;
-        this.coverCacheManager = coverCacheManager;
-    }
 
     /**
      * Fetches book cover image from Open Library
@@ -122,22 +111,6 @@ public class OpenLibraryServiceImpl implements OpenLibraryService {
         return CompletableFuture.completedFuture(Optional.of(details));
     }
 
-    public CompletableFuture<ImageDetails> fetchAndCacheCover(String isbn, String bookIdForLog, String sizeSuffix, ImageProvenanceData provenanceData) {
-        return externalCoverFetchHelper.fetchAndCache(
-            isbn,
-            coverCacheManager::isKnownBadOpenLibraryIsbn,
-            coverCacheManager::addKnownBadOpenLibraryIsbn,
-            () -> fetchOpenLibraryCoverDetails(isbn, sizeSuffix),
-            "OpenLibrary ISBN: " + isbn + ", size: " + sizeSuffix,
-            ImageSourceName.OPEN_LIBRARY,
-            "OpenLibrary-" + sizeSuffix,
-            "ol-" + sizeSuffix,
-            provenanceData,
-            bookIdForLog,
-            null
-        );
-    }
-    
     /**
      * Fallback method for rate limiting in fetchCover
      * - Called when the rate limit for OpenLibrary API is exceeded
