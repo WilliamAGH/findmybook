@@ -15,6 +15,11 @@
  */
 package com.williamcallahan.book_recommendation_engine.service;
 
+import com.williamcallahan.book_recommendation_engine.exception.CoverDownloadException;
+import com.williamcallahan.book_recommendation_engine.exception.CoverProcessingException;
+import com.williamcallahan.book_recommendation_engine.exception.CoverTooLargeException;
+import com.williamcallahan.book_recommendation_engine.exception.S3CoverUploadException;
+import com.williamcallahan.book_recommendation_engine.exception.UnsafeUrlException;
 import com.williamcallahan.book_recommendation_engine.model.image.CoverImageSource;
 import com.williamcallahan.book_recommendation_engine.model.image.ImageDetails;
 import com.williamcallahan.book_recommendation_engine.service.event.BookCoverUpdatedEvent;
@@ -41,7 +46,6 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import reactor.util.retry.Retry;
 
-import java.io.IOException;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
@@ -305,11 +309,29 @@ public class CoverUpdateNotifierService {
             s3BookCoverService.uploadCoverToS3Async(canonicalImageUrl, event.getBookId(), source)
                 .retryWhen(Retry.backoff(3, Duration.ofSeconds(2))
                     .maxBackoff(Duration.ofSeconds(10))
-                    .filter(this::isRetryableError)
-                    .doBeforeRetry(retrySignal -> {
+                    .filter(throwable -> {
+                        if (throwable instanceof S3CoverUploadException ex) {
+                            boolean shouldRetry = ex.isRetryable();
+                            if (shouldRetry) {
+                                s3UploadRetriesTotal.increment();
+                                logger.warn("Retrying S3 upload for book {} (retryable: {}): {}",
+                                           event.getBookId(), ex.getClass().getSimpleName(), ex.getMessage());
+                            } else {
+                                logger.warn("NOT retrying S3 upload for book {} (non-retryable: {}): {}",
+                                           event.getBookId(), ex.getClass().getSimpleName(), ex.getMessage());
+                            }
+                            return shouldRetry;
+                        }
+                        // Retry unknown exceptions (defensive)
+                        logger.warn("Retrying S3 upload for book {} (unknown error): {}", event.getBookId(), throwable.getMessage());
                         s3UploadRetriesTotal.increment();
-                        logger.warn("Retrying S3 upload for book {} (attempt {}/3) after error: {}",
-                            event.getBookId(), retrySignal.totalRetries() + 1, retrySignal.failure().getMessage());
+                        return true;
+                    })
+                    .doBeforeRetry(retrySignal -> {
+                        logger.info("Retry attempt {} for book {} after error: {}",
+                                   retrySignal.totalRetries() + 1,
+                                   event.getBookId(),
+                                   retrySignal.failure().getMessage());
                     })
                 )
                 .subscribe(
@@ -321,47 +343,36 @@ public class CoverUpdateNotifierService {
                     error -> {
                         sample.stop(s3UploadDuration);
                         s3UploadFailures.increment();
-                        logger.error("S3 upload PERMANENTLY FAILED for book {} ({}) after 3 retry attempts: {}. " +
-                            "Book persisted to database but cover image will NOT be available in S3. " +
-                            "Manual intervention may be required. " +
-                            "Metrics: attempts={}, successes={}, failures={}",
-                            event.getBookId(), canonicalImageUrl, error.getMessage(),
-                            s3UploadAttempts.count(), s3UploadSuccesses.count(), s3UploadFailures.count(), error);
+
+                        // Structured error handling with exception types
+                        if (error instanceof CoverDownloadException ex) {
+                            logger.error("S3 upload PERMANENTLY FAILED for book {} after retries: " +
+                                       "Download failed from {}. Cause: {}",
+                                       event.getBookId(), ex.getImageUrl(), ex.getCause().getMessage());
+                        } else if (error instanceof CoverProcessingException ex) {
+                            logger.error("S3 upload FAILED for book {} (non-retryable): " +
+                                       "Processing failed: {}",
+                                       event.getBookId(), ex.getMessage());
+                        } else if (error instanceof CoverTooLargeException ex) {
+                            logger.error("S3 upload FAILED for book {} (non-retryable): " +
+                                       "Image too large: {} bytes (max: {} bytes)",
+                                       event.getBookId(), ex.getActualSize(), ex.getMaxSize());
+                        } else if (error instanceof UnsafeUrlException ex) {
+                            logger.error("S3 upload FAILED for book {} (non-retryable): " +
+                                       "Unsafe URL blocked: {}",
+                                       event.getBookId(), ex.getImageUrl());
+                        } else {
+                            logger.error("S3 upload FAILED for book {} after retries: {}. " +
+                                       "Book persisted to database but cover image will NOT be available in S3. " +
+                                       "Metrics: attempts={}, successes={}, failures={}",
+                                       event.getBookId(), error.getMessage(),
+                                       s3UploadAttempts.count(), s3UploadSuccesses.count(), s3UploadFailures.count(), error);
+                        }
                     }
                 );
         } catch (IllegalArgumentException ex) {
             logger.warn("Received BookUpsertEvent with non-UUID bookId '{}'; skipping S3 upload.", event.getBookId());
         }
-    }
-
-    /**
-     * Determines if an error is retryable for S3 upload operations.
-     * Retryable errors include network issues and temporary service failures.
-     * Non-retryable errors include validation failures and permanent errors.
-     */
-    private boolean isRetryableError(Throwable error) {
-        // Network and I/O errors are retryable
-        if (error instanceof IOException ||
-            error instanceof org.springframework.web.reactive.function.client.WebClientRequestException) {
-            return true;
-        }
-
-        // S3 throttling errors are retryable (503 Service Unavailable, 429 Too Many Requests)
-        if (error instanceof software.amazon.awssdk.services.s3.model.S3Exception s3Exception) {
-            int statusCode = s3Exception.statusCode();
-            return statusCode == 503 || statusCode == 429 || statusCode >= 500;
-        }
-
-        // WebClient errors may be retryable based on status code
-        String errorMessage = error.getMessage();
-        if (errorMessage != null) {
-            return errorMessage.contains("503") ||
-                   errorMessage.contains("429") ||
-                   errorMessage.contains("timeout") ||
-                   errorMessage.contains("connection");
-        }
-
-        return false;
     }
 
     /**
@@ -382,21 +393,6 @@ public class CoverUpdateNotifierService {
         String storageKey = details.getStorageKey();
         if (storageKey == null || storageKey.isBlank()) {
             logger.debug("S3 upload for book {} yielded no storage key; metadata unchanged.", bookId);
-            return;
-        }
-
-        // Validate that storageKey is not a placeholder error string
-        if (storageKey.startsWith("processing-failed-") ||
-            storageKey.startsWith("download-failed-") ||
-            storageKey.startsWith("blocked-unsafe-url-") ||
-            storageKey.startsWith("upload-process-exception-") ||
-            storageKey.startsWith("processed-image-too-large-") ||
-            storageKey.startsWith("processed-upload-skipped-") ||
-            storageKey.startsWith("processed-upload-setup-exception-") ||
-            storageKey.startsWith("processed-image-too-large-for-s3-")) {
-            logger.error("S3 upload FAILED for book {}: storageKey indicates error condition: {}. " +
-                "Will NOT persist invalid placeholder to database. Check S3BookCoverService logs for root cause.",
-                bookId, storageKey);
             return;
         }
 

@@ -13,6 +13,11 @@
  */
 package com.williamcallahan.book_recommendation_engine.service.image;
 
+import com.williamcallahan.book_recommendation_engine.exception.CoverDownloadException;
+import com.williamcallahan.book_recommendation_engine.exception.CoverProcessingException;
+import com.williamcallahan.book_recommendation_engine.exception.CoverTooLargeException;
+import com.williamcallahan.book_recommendation_engine.exception.S3UploadException;
+import com.williamcallahan.book_recommendation_engine.exception.UnsafeUrlException;
 import com.williamcallahan.book_recommendation_engine.model.Book;
 import com.williamcallahan.book_recommendation_engine.model.image.CoverImageSource;
 import com.williamcallahan.book_recommendation_engine.model.image.ImageDetails;
@@ -536,18 +541,22 @@ public class S3BookCoverService implements ExternalCoverService {
     public Mono<ImageDetails> uploadCoverToS3Async(String imageUrl, String bookId, String source, ImageProvenanceData provenanceData) {
         if (!s3EnabledCheck || s3Client == null || imageUrl == null || imageUrl.isEmpty() || bookId == null || bookId.isEmpty()) {
             logger.debug("S3 upload skipped: S3 disabled/S3Client not available, or imageUrl/bookId is null/empty. ImageUrl: {}, BookId: {}", imageUrl, bookId);
-            return Mono.just(new com.williamcallahan.book_recommendation_engine.model.image.ImageDetails(imageUrl, source, imageUrl, CoverImageSource.ANY, ImageResolutionPreference.ORIGINAL));
+            return Mono.empty();
         }
         final String s3Source = (source != null && !source.isEmpty()) ? source : "unknown";
 
         // SSRF protection: validate URL before downloading
         if (!isAllowedImageUrl(imageUrl)) {
             logger.warn("Blocked non-allowed or potentially unsafe image URL for book {}: {}", bookId, imageUrl);
-            return Mono.just(new com.williamcallahan.book_recommendation_engine.model.image.ImageDetails(imageUrl, source, "blocked-unsafe-url-" + bookId, CoverImageSource.ANY, ImageResolutionPreference.ORIGINAL));
+            return Mono.error(new UnsafeUrlException(bookId, imageUrl));
         }
 
         return webClient.get().uri(imageUrl).retrieve().bodyToMono(byte[].class)
             .timeout(Duration.ofSeconds(10))
+            .onErrorMap(e -> {
+                logger.error("Error downloading image for book {}: {}", bookId, e.getMessage());
+                return new CoverDownloadException(bookId, imageUrl, e);
+            })
             .flatMap(rawImageBytes -> {
                 logger.debug("Book ID {}: Downloaded {} bytes from {}. Starting image processing.", bookId, rawImageBytes.length, imageUrl);
                 // Convert CompletableFuture to Mono and continue reactive chain
@@ -555,8 +564,9 @@ public class S3BookCoverService implements ExternalCoverService {
                     .subscribeOn(Schedulers.boundedElastic())
                     .flatMap(processedImage -> {
                         if (!processedImage.isProcessingSuccessful()) {
-                            logger.warn("Book ID {}: Image processing failed. Reason: {}. Will not upload to S3.", bookId, processedImage.getProcessingError());
-                            return Mono.just(new com.williamcallahan.book_recommendation_engine.model.image.ImageDetails(imageUrl, source, "processing-failed-" + bookId, CoverImageSource.ANY, ImageResolutionPreference.ORIGINAL));
+                            String reason = processedImage.getProcessingError();
+                            logger.warn("Book ID {}: Image processing failed: {}. Will not upload to S3.", bookId, reason);
+                            return Mono.error(new CoverProcessingException(bookId, imageUrl, reason));
                         }
                         logger.debug("Book ID {}: Image processing successful. New size: {}x{}, Extension: {}, MimeType: {}.",
                                      bookId, processedImage.getWidth(), processedImage.getHeight(), processedImage.getNewFileExtension(), processedImage.getNewMimeType());
@@ -568,7 +578,7 @@ public class S3BookCoverService implements ExternalCoverService {
                         if (imageBytesForS3.length > this.maxFileSizeBytes) {
                             logger.warn("Book ID {}: Processed image too large (size: {} bytes, max: {} bytes). URL: {}. Will not upload to S3.",
                                         bookId, imageBytesForS3.length, this.maxFileSizeBytes, imageUrl);
-                            return Mono.just(new com.williamcallahan.book_recommendation_engine.model.image.ImageDetails(imageUrl, source, "processed-image-too-large-" + bookId, CoverImageSource.ANY, ImageResolutionPreference.ORIGINAL));
+                            return Mono.error(new CoverTooLargeException(bookId, imageUrl, imageBytesForS3.length, this.maxFileSizeBytes));
                         }
 
                         String canonicalKey = generateS3Key(bookId, fileExtensionForS3, s3Source);
@@ -596,14 +606,14 @@ public class S3BookCoverService implements ExternalCoverService {
                                 provenanceData
                             ));
                     })
-                    .onErrorResume(e -> { // Catches exceptions from imageProcessingService.processImageForS3 or subsequent reactive chain
-                        logger.error("Unexpected exception during S3 upload (image processing or subsequent steps) for book {}: {}. URL: {}", bookId, e.getMessage(), imageUrl, e);
-                        return Mono.just(new com.williamcallahan.book_recommendation_engine.model.image.ImageDetails(imageUrl, source, "upload-process-exception-" + bookId, CoverImageSource.ANY, ImageResolutionPreference.ORIGINAL));
+                    .onErrorMap(e -> {
+                        // Wrap unexpected errors in S3UploadException if not already a known exception
+                        if (e instanceof com.williamcallahan.book_recommendation_engine.exception.S3CoverUploadException) {
+                            return e;
+                        }
+                        logger.error("Unexpected exception during S3 upload for book {}: {}. URL: {}", bookId, e.getMessage(), imageUrl, e);
+                        return new S3UploadException(bookId, imageUrl, e);
                     });
-            })
-            .onErrorResume(e -> {
-                logger.error("Error downloading image for S3 upload for book {}: {}. URL: {}", bookId, e.getMessage(), imageUrl, e);
-                return Mono.just(new com.williamcallahan.book_recommendation_engine.model.image.ImageDetails(imageUrl, source, "download-failed-" + bookId, CoverImageSource.ANY, ImageResolutionPreference.ORIGINAL));
             });
     }
 
