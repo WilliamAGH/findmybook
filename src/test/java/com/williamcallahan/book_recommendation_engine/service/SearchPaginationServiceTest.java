@@ -17,7 +17,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Flux;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -278,8 +277,7 @@ class SearchPaginationServiceTest {
     }
 
     private BookListItem buildListItem(UUID id, String title) {
-        Map<String, Object> tags = new HashMap<>();
-        tags.put("nytBestseller", Map.of("rank", 1));
+        Map<String, Object> tags = Map.<String, Object>of("nytBestseller", Map.<String, Object>of("rank", 1));
         return new BookListItem(
             id.toString(),
             "slug-" + id,
@@ -305,7 +303,7 @@ class SearchPaginationServiceTest {
                                        int height,
                                        boolean highResolution,
                                        String coverUrl) {
-        Map<String, Object> tags = new HashMap<>();
+        Map<String, Object> tags = Map.<String, Object>of();
         return new BookListItem(
             id.toString(),
             "slug-" + id,

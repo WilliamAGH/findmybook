@@ -30,7 +30,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
-// import java.util.ArrayList; // Unused
+import java.util.ArrayList;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -129,7 +129,7 @@ public class NewYorkTimesService {
         // Use BookQueryRepository as THE SINGLE SOURCE
         if (bookQueryRepository != null) {
             return Mono.fromCallable(() -> {
-                List<BookCard> cards = bookQueryRepository.fetchBookCardsByProviderListCode(listNameEncoded, effectiveLimit);
+                List<BookCard> cards = new ArrayList<>(bookQueryRepository.fetchBookCardsByProviderListCode(listNameEncoded, effectiveLimit));
                 log.info("BookQueryRepository returned {} book cards for list '{}' (optimized query)", cards.size(), listNameEncoded);
 
                 if (!cards.isEmpty()) {

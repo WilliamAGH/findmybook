@@ -12,6 +12,7 @@ import org.springframework.context.ApplicationContext;
 import java.lang.reflect.Field;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -86,8 +87,8 @@ class BookCacheWarmingSchedulerTest {
             "1234567890123",
             "https://example.test/preview",
             "https://example.test/info",
-            java.util.Collections.<String, Object>emptyMap(),
-            java.util.Collections.<com.williamcallahan.book_recommendation_engine.dto.EditionSummary>emptyList()
+            Map.<String, Object>of(),
+            List.<com.williamcallahan.book_recommendation_engine.dto.EditionSummary>of()
         );
 
         when(recentlyViewedService.getRecentlyViewedBookIds(anyInt())).thenReturn(List.of("slug-123"));

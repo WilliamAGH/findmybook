@@ -43,7 +43,7 @@ class UrlSourceDetectorTest {
             "https://covers.openlibrary.org/b/id/12345-M.jpg",
             4.5,
             100,
-            Map.of()
+            Map.<String, Object>of()
         );
 
         assertThat(UrlSourceDetector.detectSource(card.coverUrl()))
@@ -62,7 +62,7 @@ class UrlSourceDetectorTest {
             "https://books.google.com/books/content?id=ABC123&printsec=frontcover&zoom=1",
             4.5,
             100,
-            Map.of()
+            Map.<String, Object>of()
         );
 
         assertThat(UrlSourceDetector.detectSource(card.coverUrl()))
@@ -81,7 +81,7 @@ class UrlSourceDetectorTest {
             "https://covers.openlibrary.org/b/id/12345-M.jpg",
             4.5,
             100,
-            Map.of()
+            Map.<String, Object>of()
         );
 
         assertThat(UrlSourceDetector.detectSource(card.coverUrl()))
@@ -102,36 +102,11 @@ class UrlSourceDetectorTest {
 
     @Test
     void detectSource_supportsOpenLibraryFromBookDetail() {
-        String coverUrl = "https://covers.openlibrary.org/b/isbn/9780596520687-M.jpg";
-        String fallback = "https://covers.openlibrary.org/b/isbn/9780596520687-L.jpg";
-        String thumbnail = "https://covers.openlibrary.org/b/isbn/9780596520687-S.jpg";
-        BookDetail detail = new BookDetail(
-            "id2",
-            "slug2",
-            "Title 2",
-            "Description",
-            "Publisher",
-            null,
-            "en",
-            300,
-            List.of("Author"),
-            List.of("Category"),
-            coverUrl,
+        BookDetail detail = buildDetail(
+            "https://covers.openlibrary.org/b/isbn/9780596520687-M.jpg",
             "openlibrary/9780596520687",
-            fallback,
-            thumbnail,
-            600,
-            900,
-            Boolean.TRUE,
-            "OPEN_LIBRARY",
-            4.0,
-            50,
-            null,
-            null,
-            "preview",
-            "info",
-            java.util.Collections.<String, Object>emptyMap(),
-            java.util.Collections.<EditionSummary>emptyList()
+            "https://covers.openlibrary.org/b/isbn/9780596520687-L.jpg",
+            "https://covers.openlibrary.org/b/isbn/9780596520687-S.jpg"
         );
 
         assertThat(UrlSourceDetector.detectSource(detail.coverUrl()))
@@ -155,10 +130,44 @@ class UrlSourceDetectorTest {
             false,
             4.5,
             100,
-            Map.of()
+            Map.<String, Object>of()
         );
 
         assertThat(UrlSourceDetector.detectSource(item.coverUrl()))
             .isEqualTo(CoverImageSource.GOOGLE_BOOKS);
+    }
+
+    private static BookDetail buildDetail(String coverUrl,
+                                          String coverS3Key,
+                                          String fallbackUrl,
+                                          String thumbnailUrl) {
+        return new BookDetail(
+            "id2",
+            "slug2",
+            "Title 2",
+            "Description",
+            "Publisher",
+            null,
+            "en",
+            300,
+            List.of("Author"),
+            List.of("Category"),
+            coverUrl,
+            coverS3Key,
+            fallbackUrl,
+            thumbnailUrl,
+            Integer.valueOf(600),
+            Integer.valueOf(900),
+            Boolean.TRUE,
+            "OPEN_LIBRARY",
+            Double.valueOf(4.0),
+            Integer.valueOf(50),
+            null,
+            null,
+            "preview",
+            "info",
+            Map.<String, Object>of(),
+            List.<EditionSummary>of()
+        );
     }
 }

@@ -35,7 +35,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Collections;
+import java.util.Map;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.anyString; // For mocking getSimilarBooks
 import static org.mockito.ArgumentMatchers.anyInt; // For mocking getSimilarBooks
@@ -189,7 +189,7 @@ class HomeControllerTest {
             "en",
             canonicalBook.getPageCount(),
             canonicalBook.getAuthors(),
-            List.of(),
+            List.<String>of(),
             preferredCover,
             canonicalBook.getS3ImagePath(),
             fallbackCover,
@@ -204,8 +204,8 @@ class HomeControllerTest {
             sanitizedIsbn,
             "https://preview",
             "https://info",
-            Collections.<String, Object>emptyMap(),
-            Collections.<com.williamcallahan.book_recommendation_engine.dto.EditionSummary>emptyList()
+            Map.<String, Object>of(),
+            List.<com.williamcallahan.book_recommendation_engine.dto.EditionSummary>of()
         );
 
         when(bookIdentifierResolver.resolveToUuid(eq(sanitizedIsbn))).thenReturn(Optional.of(canonicalUuid));
@@ -261,23 +261,41 @@ class HomeControllerTest {
         book.setCoverImages(coverImages);
         return book;
     }
+
+    private BookCard createBookCard(String id,
+                                    String slug,
+                                    String title,
+                                    String coverUrl,
+                                    String s3Key,
+                                    double averageRating,
+                                    int ratingsCount) {
+        return new BookCard(
+            id,
+            slug,
+            title,
+            List.of("Author"),
+            coverUrl,
+            s3Key,
+            coverUrl,
+            averageRating,
+            ratingsCount,
+            Map.<String, Object>of()
+        );
+    }
     /**
      * Tests home page with successful recommendations
      */
     @Test
     void shouldReturnHomeViewWithBestsellersAndRecentBooks() {
         // Arrange - use BookCard DTOs (THE NEW WAY)
-        BookCard bestsellerCard = new BookCard(
+        BookCard bestsellerCard = createBookCard(
             "bestseller1",
             "nyt-bestseller-slug",
             "NYT Bestseller",
-            List.of("Author A"),
             "http://example.com/cover/bestseller1.jpg",
             "s3://covers/bestseller1.jpg",
-            "http://example.com/cover/bestseller1-thumb.jpg",
             4.5,
-            100,
-            java.util.Map.of()
+            100
         );
         List<BookCard> bestsellerCards = List.of(bestsellerCard);
         
@@ -290,17 +308,14 @@ class HomeControllerTest {
             .thenReturn(List.of(recentBookUuid));
         
         // Create recent card with same UUID
-        BookCard recentCardWithUuid = new BookCard(
+        BookCard recentCardWithUuid = createBookCard(
             recentBookUuid,
             "recent-read-slug",
             "Recent Read",
-            List.of("Author B"),
             "http://example.com/cover/recent1.jpg",
             "s3://covers/" + recentBookUuid + ".jpg",
-            "http://example.com/cover/recent1-thumb.jpg",
             4.0,
-            50,
-            java.util.Map.of()
+            50
         );
         
         // Mock BookQueryRepository to return recent cards

@@ -158,7 +158,7 @@ class BookControllerPaginationIntegrationTest {
 
     private BookListItem buildListItem(UUID id, String title) {
         Map<String, Object> tags = new HashMap<>();
-        tags.put("nytBestseller", Map.of("rank", 1));
+        tags.put("nytBestseller", Map.<String, Object>of("rank", 1));
         return new BookListItem(
             id.toString(),
             "slug-" + id,

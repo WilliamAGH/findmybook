@@ -39,7 +39,7 @@ class CoverPrioritizerTest {
             "https://cdn.test/covers/high.jpg",
             4.5,
             100,
-            Map.of()
+            Map.<String, Object>of()
         );
         BookCard medium = new BookCard(
             "2",
@@ -51,7 +51,7 @@ class CoverPrioritizerTest {
             "https://images.test/medium.jpg?w=320&h=480",
             4.2,
             50,
-            Map.of()
+            Map.<String, Object>of()
         );
         BookCard low = new BookCard(
             "3",
@@ -63,7 +63,7 @@ class CoverPrioritizerTest {
             "https://example.test/low.jpg?w=120&h=180",
             4.0,
             10,
-            Map.of()
+            Map.<String, Object>of()
         );
         BookCard placeholder = new BookCard(
             "4",
@@ -75,7 +75,7 @@ class CoverPrioritizerTest {
             ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH,
             3.8,
             5,
-            Map.of()
+            Map.<String, Object>of()
         );
 
         List<BookCard> cards = new ArrayList<>(List.of(low, placeholder, medium, high));

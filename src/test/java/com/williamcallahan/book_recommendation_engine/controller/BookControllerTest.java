@@ -264,7 +264,7 @@ class BookControllerTest {
             fixtureBook.getCoverImages().getFallbackUrl(),
             4.7,
             321,
-            Map.of("reason", Map.of("type", "AUTHOR"))
+            Map.<String, Object>of("reason", Map.<String, Object>of("type", "AUTHOR"))
         );
         List<RecommendationCard> cards = List.of(new RecommendationCard(card, 0.9, "AUTHOR"));
         when(bookQueryRepository.fetchRecommendationCards(bookUuid, 3)).thenReturn(cards);
@@ -371,7 +371,10 @@ class BookControllerTest {
             "https://cdn.test/preferred/" + id + ".jpg",
             "https://cdn.test/fallback/" + id + ".jpg",
             CoverImageSource.GOOGLE_BOOKS));
-        book.setQualifiers(new java.util.HashMap<>(Map.of("nytBestseller", Map.of("rank", 1))));
+        book.setQualifiers(new java.util.HashMap<>(Map.<String, Object>of(
+            "nytBestseller",
+            Map.<String, Object>of("rank", 1)
+        )));
         book.setCachedRecommendationIds(List.of("rec-1", "rec-2"));
         book.setPublishedDate(Date.from(Instant.parse("2020-01-01T00:00:00Z")));
         book.setDataSource("POSTGRES");
@@ -379,7 +382,10 @@ class BookControllerTest {
     }
 
     private BookDetail buildDetailFromBook(Book book) {
-        Map<String, Object> tags = Map.of("nytBestseller", Map.of("rank", 1));
+        Map<String, Object> tags = Map.<String, Object>of(
+            "nytBestseller",
+            Map.<String, Object>of("rank", 1)
+        );
 
         String preferredCover = book.getCoverImages().getPreferredUrl();
         String fallbackCover = book.getCoverImages().getFallbackUrl();
