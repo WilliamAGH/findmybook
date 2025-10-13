@@ -89,6 +89,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const mobileNav = document.getElementById('navbarSupportedContent');
     if (mobileNav && typeof bootstrap !== 'undefined' && bootstrap.Collapse) {
         const collapseInstance = bootstrap.Collapse.getOrCreateInstance(mobileNav, { toggle: false });
+        let allowHide = false;
         const originalHide = collapseInstance.hide.bind(collapseInstance);
         const originalShow = collapseInstance.show.bind(collapseInstance);
         const logNavEvent = (label, extra = {}) => {
@@ -107,11 +108,18 @@ document.addEventListener('DOMContentLoaded', function() {
         };
 
         collapseInstance.hide = function(...args) {
-            logNavEvent('collapseInstance.hide invoked', { stack: formatStack() });
+            const stack = formatStack();
+            logNavEvent('collapseInstance.hide invoked', { stack, allowHide });
+            if (!allowHide) {
+                logNavEvent('collapseInstance.hide blocked', { stack });
+                return;
+            }
+            allowHide = false;
             return originalHide(...args);
         };
 
         collapseInstance.show = function(...args) {
+            allowHide = false;
             logNavEvent('collapseInstance.show invoked', { stack: formatStack() });
             return originalShow(...args);
         };
@@ -129,7 +137,41 @@ document.addEventListener('DOMContentLoaded', function() {
         });
 
         mobileNav.addEventListener('hidden.bs.collapse', (event) => {
+            allowHide = false;
             logNavEvent('hidden.bs.collapse', { isTrusted: event.isTrusted, defaultPrevented: event.defaultPrevented });
+        });
+
+        const togglerButtons = document.querySelectorAll('[data-bs-toggle="collapse"][data-bs-target="#navbarSupportedContent"]');
+        togglerButtons.forEach(button => {
+            const markAllowHide = (source) => {
+                if (!mobileNav.classList.contains('show')) {
+                    return;
+                }
+                allowHide = true;
+                logNavEvent('allowHide enabled', { source });
+            };
+
+            ['pointerdown', 'pointerup', 'click'].forEach(evtName => {
+                button.addEventListener(evtName, (event) => {
+                    logNavEvent(`toggler ${evtName}`, {
+                        isTrusted: event.isTrusted,
+                        pointerType: event.pointerType,
+                        timeStamp: event.timeStamp
+                    });
+                    if (event.isTrusted && (evtName === 'click' || evtName === 'pointerdown')) {
+                        markAllowHide(evtName);
+                    }
+                });
+            });
+        });
+
+        mobileNav.querySelectorAll('a[href]:not([data-bs-toggle])').forEach(link => {
+            link.addEventListener('click', (event) => {
+                if (event.isTrusted) {
+                    allowHide = true;
+                    logNavEvent('allowHide enabled via link', { href: link.href });
+                }
+            });
         });
     }
 
