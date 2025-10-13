@@ -29,7 +29,6 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -73,7 +72,9 @@ class BookDataOrchestratorPersistenceScenariosTest {
         lenient().when(bookSearchService.searchAuthors(anyString(), any())).thenReturn(List.of());
         lenient().doNothing().when(bookSearchService).refreshMaterializedView();
 
-        lenient().when(jdbcTemplate.queryForObject(anyString(), eq(String.class), ArgumentMatchers.<Object[]>any()))
+        lenient().when(jdbcTemplate.queryForObject(anyString(), eq(String.class), any()))
+                .thenThrow(new EmptyResultDataAccessException(1));
+        lenient().when(jdbcTemplate.queryForObject(anyString(), eq(String.class), any(), any()))
                 .thenThrow(new EmptyResultDataAccessException(1));
     }
 
@@ -97,18 +98,6 @@ class BookDataOrchestratorPersistenceScenariosTest {
         );
 
         assertThat(resolved).isEqualTo("existing-book-id");
-    }
-
-    @Test
-    @Disabled("Method synchronizeEditionRelationships was moved to CanonicalBookPersistenceService and is now disabled. Edition relationships are handled by work_cluster_members table.")
-    void synchronizeEditionRelationships_linksHighestEditionAsPrimary() {
-        Book book = new Book();
-        book.setEditionGroupKey("group-key");
-        book.setEditionNumber(2);
-
-        ReflectionTestUtils.invokeMethod(orchestrator, "synchronizeEditionRelationships", "primary-id", book);
-
-        verifyNoInteractions(jdbcTemplate);
     }
 
     @Test
