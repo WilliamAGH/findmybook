@@ -163,8 +163,9 @@
         /* Logo visibility: show appropriate logo based on theme */
         .navbar-brand .logo-light-mode {
             display: inline;
-            height: 120px;
+            height: 140px;
             width: auto;
+            margin-left: -16px;
         }
         .navbar-brand .logo-dark-mode {
             display: none;
@@ -290,7 +291,7 @@
             </div>
 
             <!-- Spacer (pushes nav to center) -->
-            <div class="hidden lg:flex flex-grow"></div>
+            <div class="hidden lg:flex flex-grow min-w-[1rem]"></div>
 
             <!-- Desktop Navigation (CENTER - perfectly centered via equal flex spacers) -->
             <div class="hidden lg:flex items-center gap-1 flex-shrink-0">
@@ -317,7 +318,7 @@
             </div>
 
             <!-- Spacer (balances left spacer for perfect centering) -->
-            <div class="hidden lg:flex flex-grow"></div>
+            <div class="hidden lg:flex flex-grow min-w-[1rem]"></div>
 
             <!-- Theme Toggle (RIGHT) -->
             <div class="hidden lg:flex flex-shrink-0">

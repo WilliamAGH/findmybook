@@ -93,7 +93,7 @@
 }
 
 .navbar-brand img {
-    height: 50px;
+    height: auto;
     width: auto;
     -webkit-user-drag: none;
     pointer-events: auto; /* Ensures clickability */

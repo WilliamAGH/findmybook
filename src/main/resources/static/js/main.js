@@ -86,41 +86,42 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Handle mobile navigation menu behavior
     const mobileNav = document.getElementById('navbarSupportedContent');
-    if (mobileNav) {
-        // Get all navigation links inside the mobile menu
-        const navLinks = mobileNav.querySelectorAll('a:not([data-bs-toggle])');
-        
-        // Add click handler to each nav link
-        navLinks.forEach(link => {
-            link.addEventListener('click', function(e) {
-                // Only close the menu if we're navigating to a different page
-                const currentPath = window.location.pathname;
-                const linkPath = new URL(this.href, window.location.origin).pathname;
-                
-                // If clicking on the current page link, just close the menu
-                if (currentPath === linkPath) {
-                    e.preventDefault();
-                    const bsCollapse = bootstrap.Collapse.getInstance(mobileNav) || new bootstrap.Collapse(mobileNav, { toggle: false });
-                    bsCollapse.hide();
-                    return;
-                }
-                
-                // For navigation to other pages, close menu after a short delay to show visual feedback
-                setTimeout(() => {
-                    const bsCollapse = bootstrap.Collapse.getInstance(mobileNav) || new bootstrap.Collapse(mobileNav, { toggle: false });
-                    bsCollapse.hide();
-                }, 150);
+    if (mobileNav && typeof bootstrap !== 'undefined' && bootstrap.Collapse) {
+        const collapseInstance = bootstrap.Collapse.getOrCreateInstance(mobileNav, { toggle: false });
+        const originalHide = collapseInstance.hide.bind(collapseInstance);
+        const originalShow = collapseInstance.show.bind(collapseInstance);
+        const logNavEvent = (label, extra = {}) => {
+            console.log(`[mobile-nav] ${label}`, {
+                time: performance.now().toFixed(2),
+                ...extra
             });
+        };
+
+        collapseInstance.hide = function(...args) {
+            logNavEvent('collapseInstance.hide invoked', { stack: new Error().stack });
+            return originalHide(...args);
+        };
+
+        collapseInstance.show = function(...args) {
+            logNavEvent('collapseInstance.show invoked', { stack: new Error().stack });
+            return originalShow(...args);
+        };
+
+        mobileNav.addEventListener('show.bs.collapse', (event) => {
+            logNavEvent('show.bs.collapse', { isTrusted: event.isTrusted, defaultPrevented: event.defaultPrevented });
         });
-        
-        // Prevent the collapse from closing when clicking inside (but not on links)
-        mobileNav.addEventListener('click', function(e) {
-            // Only prevent default if clicking on the container itself, not links
-            if (e.target === this) {
-                e.stopPropagation();
-            }
+
+        mobileNav.addEventListener('shown.bs.collapse', (event) => {
+            logNavEvent('shown.bs.collapse', { isTrusted: event.isTrusted, defaultPrevented: event.defaultPrevented });
+        });
+
+        mobileNav.addEventListener('hide.bs.collapse', (event) => {
+            logNavEvent('hide.bs.collapse', { isTrusted: event.isTrusted, defaultPrevented: event.defaultPrevented });
+        });
+
+        mobileNav.addEventListener('hidden.bs.collapse', (event) => {
+            logNavEvent('hidden.bs.collapse', { isTrusted: event.isTrusted, defaultPrevented: event.defaultPrevented });
         });
     }
 
@@ -182,8 +183,10 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    const debugNamespace = window.BookFinderDebug || {};
+
     // Add a global function to help with debugging cover issues
-    window.debugBookCovers = function() {
+    debugNamespace.debugBookCovers = function() {
         const covers = document.querySelectorAll('img.book-cover');
         console.log('Found ' + covers.length + ' book covers on page');
         covers.forEach((img, index) => {
@@ -202,7 +205,7 @@ document.addEventListener('DOMContentLoaded', function() {
     };
     
     // Add a global function to retry loading all book covers
-    window.retryAllBookCovers = function() {
+    debugNamespace.retryAllBookCovers = function() {
         const covers = document.querySelectorAll('img.book-cover[data-original-src]');
         console.log('Attempting to reload ' + covers.length + ' book covers');
         covers.forEach(img => {
@@ -216,7 +219,7 @@ document.addEventListener('DOMContentLoaded', function() {
     };
     
     // Add a global function to test and debug theme switching
-    window.testThemeDetection = function() {
+    debugNamespace.testThemeDetection = function() {
         const results = {
             documentTheme: document.documentElement.getAttribute('data-theme'),
             localStorageTheme: localStorage.getItem('theme'),
@@ -237,6 +240,7 @@ document.addEventListener('DOMContentLoaded', function() {
                '- Navbar classes: ' + results.navbarClasses + '\n' +
                '- Theme icons: ' + results.iconClasses;
     };
+    window.BookFinderDebug = debugNamespace;
 
     // Dynamic text truncation for long descriptions
     document.querySelectorAll('.description-text').forEach(desc => {
