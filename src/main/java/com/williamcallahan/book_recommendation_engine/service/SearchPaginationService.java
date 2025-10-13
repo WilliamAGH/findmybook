@@ -110,6 +110,10 @@ public class SearchPaginationService {
             }
             book.addQualifier("search.matchType", result.matchTypeNormalized());
             book.addQualifier("search.relevanceScore", result.relevanceScore());
+            book.addQualifier("search.editionCount", result.editionCount());
+            if (result.clusterId() != null) {
+                book.addQualifier("search.clusterId", result.clusterId().toString());
+            }
             ordered.add(book);
         }
         return ordered;

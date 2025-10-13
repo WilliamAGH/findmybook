@@ -89,6 +89,7 @@ public class OutboxRelay {
             }
             
             log.debug("Relaying {} outbox events to WebSocket", events.size());
+            int clusterEventsRelayed = 0;
             
             for (OutboxEvent event : events) {
                 try {
@@ -98,6 +99,9 @@ public class OutboxRelay {
                     // Mark as sent
                     markSent(event.getEventId());
                     
+                    if (event.getTopic() != null && event.getTopic().startsWith("/topic/cluster.")) {
+                        clusterEventsRelayed++;
+                    }
                     log.debug("Relayed event {} to topic {}", event.getEventId(), event.getTopic());
                 } catch (Exception e) {
                     log.warn("Failed to relay event {} to topic {}: {}",
@@ -109,6 +113,10 @@ public class OutboxRelay {
                     // Increment retry count
                     incrementRetryCount(event.getEventId());
                 }
+            }
+
+            if (clusterEventsRelayed > 0) {
+                log.info("Relayed {} work-cluster primary change event(s) this cycle", clusterEventsRelayed);
             }
         } catch (Exception e) {
             log.error("Error in outbox relay processor", e);
@@ -182,19 +190,23 @@ public class OutboxRelay {
                 SELECT
                     COUNT(*) FILTER (WHERE sent_at IS NULL) as unsent,
                     COUNT(*) FILTER (WHERE sent_at IS NOT NULL) as sent,
-                    COUNT(*) FILTER (WHERE sent_at IS NULL AND retry_count > 5) as stuck
+                    COUNT(*) FILTER (WHERE sent_at IS NULL AND retry_count > 5) as stuck,
+                    COUNT(*) FILTER (WHERE sent_at IS NULL AND topic LIKE '/topic/cluster.%') as cluster_unsent,
+                    COUNT(*) FILTER (WHERE sent_at IS NOT NULL AND topic LIKE '/topic/cluster.%') as cluster_sent
                 FROM events_outbox
                 WHERE created_at > NOW() - INTERVAL '1 hour'
                 """,
                 (rs, rowNum) -> new OutboxStats(
                     rs.getInt("unsent"),
                     rs.getInt("sent"),
-                    rs.getInt("stuck")
+                    rs.getInt("stuck"),
+                    rs.getInt("cluster_unsent"),
+                    rs.getInt("cluster_sent")
                 )
             );
         } catch (Exception e) {
             log.error("Error fetching outbox stats", e);
-            return new OutboxStats(0, 0, 0);
+            return new OutboxStats(0, 0, 0, 0, 0);
         }
     }
     
@@ -246,6 +258,8 @@ public class OutboxRelay {
     public record OutboxStats(
         int unsent,
         int sent,
-        int stuck
+        int stuck,
+        int clusterUnsent,
+        int clusterSent
     ) {}
 }

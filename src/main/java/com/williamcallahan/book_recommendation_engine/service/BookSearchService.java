@@ -217,7 +217,8 @@ public class BookSearchService {
             ClusterMapping mapping = clusterMappings.get(editionId);
             UUID canonicalId = mapping != null ? mapping.primaryId() : editionId;
             int editionCount = mapping != null ? mapping.editionCount() : Math.max(result.editionCount(), 1);
-            ordered.putIfAbsent(canonicalId, new SearchResult(canonicalId, result.relevanceScore(), result.matchType(), editionCount));
+            UUID clusterId = mapping != null ? mapping.clusterId() : result.clusterId();
+            ordered.putIfAbsent(canonicalId, new SearchResult(canonicalId, result.relevanceScore(), result.matchType(), editionCount, clusterId));
         }
 
         return List.copyOf(ordered.values());
@@ -295,14 +296,22 @@ public class BookSearchService {
      * @param matchType indicates which tsvector matched (title, author, etc.)
      * @param editionCount number of editions in the resolved work cluster
      */
-    public record SearchResult(UUID bookId, double relevanceScore, String matchType, int editionCount) {
+    public record SearchResult(UUID bookId,
+                               double relevanceScore,
+                               String matchType,
+                               int editionCount,
+                               UUID clusterId) {
         public SearchResult {
             Objects.requireNonNull(bookId, "bookId");
             editionCount = editionCount < 1 ? 1 : editionCount;
         }
 
         public SearchResult(UUID bookId, double relevanceScore, String matchType) {
-            this(bookId, relevanceScore, matchType, 1);
+            this(bookId, relevanceScore, matchType, 1, null);
+        }
+
+        public SearchResult(UUID bookId, double relevanceScore, String matchType, int editionCount) {
+            this(bookId, relevanceScore, matchType, editionCount, null);
         }
 
         public String matchTypeNormalized() {

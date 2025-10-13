@@ -1,15 +1,15 @@
 package com.williamcallahan.book_recommendation_engine.service;
 
 import com.williamcallahan.book_recommendation_engine.model.Book;
-import com.williamcallahan.book_recommendation_engine.testutil.BookTestData;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.Date;
+import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -56,10 +56,7 @@ class RecentlyViewedServiceTest {
     void getRecentlyViewedBookIds_fallsBackToCacheWhenRepositoryDisabled() {
         when(recentBookViewRepository.isEnabled()).thenReturn(false);
 
-        Book cached = BookTestData.aBook()
-            .id("uuid-cache")
-            .s3ImagePath("https://cdn.example/uuid-cache.jpg")
-            .build();
+        Book cached = sampleBook("uuid-cache");
         cached.setSlug("uuid-cache");
 
         recentlyViewedService.addToRecentlyViewed(cached);
@@ -87,11 +84,7 @@ class RecentlyViewedServiceTest {
         when(recentBookViewRepository.fetchStatsForBook("uuid-2"))
             .thenReturn(Optional.of(new RecentBookViewRepository.ViewStats("uuid-2", now, 5L, 12L, 20L)));
 
-        Book book = BookTestData.aBook()
-            .id("uuid-2")
-            .publishedDate(Date.from(Instant.parse("2020-01-01T00:00:00Z")))
-            .s3ImagePath("https://cdn.example/uuid-2.jpg")
-            .build();
+        Book book = sampleBook("uuid-2");
         book.setSlug("slug-uuid-2");
 
         recentlyViewedService.addToRecentlyViewed(book);
@@ -108,19 +101,32 @@ class RecentlyViewedServiceTest {
     void addToRecentlyViewed_resolvesCanonicalIdViaWorkCluster() {
         String originalId = "11111111-1111-1111-1111-111111111111";
         String canonicalId = "22222222-2222-2222-2222-222222222222";
-        when(jdbcTemplate.query(anyString(), any(), any()))
+        when(jdbcTemplate.queryForObject(
+                anyString(),
+                eq(String.class),
+                any(UUID.class)))
             .thenReturn(canonicalId);
 
-        Book book = BookTestData.aBook()
-            .id(originalId)
-            .s3ImagePath("https://cdn.example/original.jpg")
-            .build();
+        Book book = sampleBook(originalId);
         book.setSlug("slug-" + originalId);
 
         recentlyViewedService.addToRecentlyViewed(book);
 
         List<String> ids = recentlyViewedService.getRecentlyViewedBookIds(3);
         assertEquals(List.of(canonicalId), ids);
-        verify(jdbcTemplate).query(anyString(), any(), any());
+        verify(jdbcTemplate).queryForObject(
+            anyString(),
+            eq(String.class),
+            any(UUID.class));
+    }
+
+    private Book sampleBook(String id) {
+        Book book = new Book();
+        book.setId(id);
+        book.setTitle("Test Book");
+        book.setAuthors(List.of("Author"));
+        book.setPublishedDate(Date.from(Instant.parse("2020-01-01T00:00:00Z")));
+        book.setS3ImagePath("https://cdn.example/" + id + ".jpg");
+        return book;
     }
 }

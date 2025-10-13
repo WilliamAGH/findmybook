@@ -20,6 +20,7 @@ import com.williamcallahan.book_recommendation_engine.util.ApplicationConstants;
 import com.williamcallahan.book_recommendation_engine.util.UuidUtils;
 import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import lombok.extern.slf4j.Slf4j;
@@ -197,7 +198,7 @@ public class RecentlyViewedService {
         }
 
         try {
-            String canonical = jdbcTemplate.query(
+            String canonical = jdbcTemplate.queryForObject(
                 """
                 SELECT primary_wcm.book_id::text
                 FROM work_cluster_members wcm
@@ -207,10 +208,12 @@ public class RecentlyViewedService {
                 WHERE wcm.book_id = ?
                 LIMIT 1
                 """,
-                ps -> ps.setObject(1, uuid),
-                rs -> rs.next() ? rs.getString(1) : null
+                String.class,
+                uuid
             );
             return ValidationUtils.hasText(canonical) ? canonical : originalBookId;
+        } catch (EmptyResultDataAccessException ignore) {
+            return originalBookId;
         } catch (DataAccessException ex) {
             log.debug("RECENT_VIEWS_DEBUG: Failed to resolve canonical ID for {}: {}", originalBookId, ex.getMessage());
             return originalBookId;
