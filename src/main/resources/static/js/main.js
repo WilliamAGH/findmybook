@@ -86,6 +86,44 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // Handle mobile navigation menu behavior
+    const mobileNav = document.getElementById('navbarSupportedContent');
+    if (mobileNav) {
+        // Get all navigation links inside the mobile menu
+        const navLinks = mobileNav.querySelectorAll('a:not([data-bs-toggle])');
+        
+        // Add click handler to each nav link
+        navLinks.forEach(link => {
+            link.addEventListener('click', function(e) {
+                // Only close the menu if we're navigating to a different page
+                const currentPath = window.location.pathname;
+                const linkPath = new URL(this.href, window.location.origin).pathname;
+                
+                // If clicking on the current page link, just close the menu
+                if (currentPath === linkPath) {
+                    e.preventDefault();
+                    const bsCollapse = bootstrap.Collapse.getInstance(mobileNav) || new bootstrap.Collapse(mobileNav, { toggle: false });
+                    bsCollapse.hide();
+                    return;
+                }
+                
+                // For navigation to other pages, close menu after a short delay to show visual feedback
+                setTimeout(() => {
+                    const bsCollapse = bootstrap.Collapse.getInstance(mobileNav) || new bootstrap.Collapse(mobileNav, { toggle: false });
+                    bsCollapse.hide();
+                }, 150);
+            });
+        });
+        
+        // Prevent the collapse from closing when clicking inside (but not on links)
+        mobileNav.addEventListener('click', function(e) {
+            // Only prevent default if clicking on the container itself, not links
+            if (e.target === this) {
+                e.stopPropagation();
+            }
+        });
+    }
+
     // Handle search form submissions
     const searchForms = document.querySelectorAll('form.search-form');
     searchForms.forEach(form => {
