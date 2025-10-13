@@ -41,6 +41,13 @@ public class LongitoodServiceImpl implements LongitoodService {
     private static final String LONGITOOD_SOURCE_NAME = "Longitood";
 
     private final WebClient webClient;
+
+    /**
+     * Builds a {@link WebClient} using the shared builder configured in {@link com.williamcallahan.book_recommendation_engine.config.WebClientConfig}.
+     * Individual services can still customize the client before executing requests while inheriting the standard timeouts and codecs.
+     *
+     * @param webClientBuilder pre-configured builder supplied by the application context
+     */
     public LongitoodServiceImpl(WebClient.Builder webClientBuilder) {
         this.webClient = webClientBuilder.build();
     }
