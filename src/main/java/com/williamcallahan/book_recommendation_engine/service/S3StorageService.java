@@ -245,7 +245,12 @@ public CompletableFuture<Void> uploadGenericJsonAsync(String keyName, String jso
 
     /**
      * Asynchronously fetches a UTF-8 text payload from the given S3 key, transparently handling optional GZIP compression.
-     * Primarily used by sitemap fallback logic which expects JSON content.
+     * This method can retrieve any UTF-8 encoded content (JSON, XML, plain text, etc.) and is primarily used for sitemap
+     * fallback logic and other text-based S3 objects.
+     *
+     * @param keyName the S3 key of the object to fetch
+     * @return a {@link CompletableFuture} containing the {@link S3FetchResult} with the decoded string payload when
+     *         successful, or an error status if the object is missing or a failure occurs
      */
     public CompletableFuture<S3FetchResult<String>> fetchUtf8ObjectAsync(String keyName) {
         if (s3Client == null) {
