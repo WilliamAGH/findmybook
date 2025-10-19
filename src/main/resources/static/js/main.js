@@ -15,12 +15,20 @@ function applyConsistentDimensions(imgElement, naturalWidth, naturalHeight) {
     imgElement.setAttribute('data-natural-width', naturalWidth);
     imgElement.setAttribute('data-natural-height', naturalHeight);
     
-    // Calculate aspect ratio
-    const _aspectRatio = naturalWidth / naturalHeight;
-    
-    // The image will now rely on its container and its own CSS rules
-    // (e.g., object-fit: contain and max-width/max-height: 100%)
-    // to size itself appropriately
+    // Normalize cover classes so CSS centering rules always apply
+    imgElement.classList.add('normalized-cover');
+    imgElement.classList.remove('cover-landscape', 'cover-portrait', 'cover-square');
+
+    if (naturalWidth > 0 && naturalHeight > 0) {
+        const aspectRatio = naturalWidth / naturalHeight;
+        if (aspectRatio > 1.1) {
+            imgElement.classList.add('cover-landscape');
+        } else if (aspectRatio < 0.9) {
+            imgElement.classList.add('cover-portrait');
+        } else {
+            imgElement.classList.add('cover-square');
+        }
+    }
 }
 
 /**

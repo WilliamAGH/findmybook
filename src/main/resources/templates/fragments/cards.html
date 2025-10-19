@@ -57,17 +57,17 @@
                  th:unless="${book.tags['recent.views.24h'] == null && book.tags['recent.views.7d'] == null && book.tags['recent.views.30d'] == null}"
                  class="flex flex-wrap gap-1.5 mb-2 mt-auto">
                 <span th:if="${book.tags['recent.views.24h'] != null && book.tags['recent.views.24h'] > 0}"
-                      class="px-2 py-0.5 text-xs theme-badge text-anthracite-700 dark:text-slate-300 rounded-full"
+                      class="px-2 py-0.5 text-xs theme-badge rounded-full"
                       th:text="${#numbers.formatInteger(book.tags['recent.views.24h'], 0)} + ' in 24h'">
                     0 in 24h
                 </span>
                 <span th:if="${book.tags['recent.views.7d'] != null && book.tags['recent.views.7d'] > 0}"
-                      class="px-2 py-0.5 text-xs theme-badge text-anthracite-700 dark:text-slate-300 rounded-full"
+                      class="px-2 py-0.5 text-xs theme-badge rounded-full"
                       th:text="${#numbers.formatInteger(book.tags['recent.views.7d'], 0)} + ' in 7d'">
                     0 in 7d
                 </span>
                 <span th:if="${book.tags['recent.views.30d'] != null && book.tags['recent.views.30d'] > 0}"
-                      class="px-2 py-0.5 text-xs theme-badge text-anthracite-700 dark:text-slate-300 rounded-full"
+                      class="px-2 py-0.5 text-xs theme-badge rounded-full"
                       th:text="${#numbers.formatInteger(book.tags['recent.views.30d'], 0)} + ' in 30d'">
                     0 in 30d
                 </span>

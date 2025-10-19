@@ -39,7 +39,7 @@
             <!-- Search Filters -->
             <div class="d-flex flex-wrap align-items-center gap-2" id="searchFilters">
                 <div class="me-auto">
-                    <span th:if="${query}" class="text-muted">
+                    <span th:if="${query}" class="theme-search-results-text">
                         Results for: <span class="fw-bold" th:text="${query}"></span>
                     </span>
                 </div>
@@ -149,7 +149,7 @@
             </div>
             <div class="card-body">
                 <h5 class="card-title text-truncate book-title">Book Title</h5>
-                <p class="card-text small text-muted text-truncate book-author">Author Name</p>
+                <p class="card-text small text-truncate book-author">Author Name</p>
             </div>
             <div class="card-footer bg-white border-top-0">
                 <a href="#" class="btn btn-sm btn-outline-primary d-block book-link">View Details</a>
@@ -186,7 +186,7 @@
                         <div class="d-flex justify-content-between align-items-start">
                             <div>
                                 <h5 class="card-title book-title">Book Title</h5>
-                                <p class="card-text text-muted book-author">Author Name</p>
+                                <p class="card-text book-author">Author Name</p>
                             </div>
                             <a href="#" class="btn btn-sm btn-outline-primary book-link">View Details</a>
                         </div>
@@ -583,7 +583,7 @@
             window.lastSearchResults = data;
 
             if (context.year) {
-                const resultsText = document.querySelector('.search-header .text-muted');
+                const resultsText = document.querySelector('.search-header .theme-search-results-text');
                 if (resultsText) {
                     resultsText.innerHTML = `Results for: <span class="fw-bold">${context.query}</span> <span class="badge bg-info ms-2">Published in ${context.year} <i class="fas fa-calendar-alt ms-1"></i></span>`;
                 }
@@ -844,6 +844,7 @@
             if (imgContainer) {
                 const imgLink = document.createElement('a');
                 imgLink.href = bookUrl;
+                imgLink.classList.add('d-flex', 'align-items-center', 'justify-content-center', 'w-100', 'h-100');
                 
                 imgElementForCard.parentNode.removeChild(imgElementForCard);
                 imgLink.appendChild(imgElementForCard);
@@ -898,7 +899,7 @@
             if (titleElement) {
                 const titleLink = document.createElement('a');
                 titleLink.href = bookUrl;
-                titleLink.className = 'text-decoration-none text-dark';
+                titleLink.className = 'text-decoration-none';
                 titleLink.textContent = book.title;
                 titleElement.innerHTML = '';
                 titleElement.appendChild(titleLink);
@@ -959,6 +960,7 @@
             if (imgWrapper) {
                 const imgLink = document.createElement('a');
                 imgLink.href = bookUrl;
+                imgLink.classList.add('d-flex', 'align-items-center', 'justify-content-center', 'w-100', 'h-100');
 
                 imgElementForListItem.parentNode.removeChild(imgElementForListItem);
                 imgLink.appendChild(imgElementForListItem);
@@ -1012,7 +1014,7 @@
             if (titleElement) {
                 const titleLink = document.createElement('a');
                 titleLink.href = bookUrl;
-                titleLink.className = 'text-decoration-none text-dark';
+                titleLink.className = 'text-decoration-none';
                 titleLink.textContent = book.title;
                 titleElement.innerHTML = '';
                 titleElement.appendChild(titleLink);
@@ -1275,38 +1277,8 @@
         border-bottom: 1px solid #dee2e6;
     }
 
-    /* Enhancements for book cover display */
-    .book-cover-container, .book-cover-wrapper {
-        position: relative; /* Needed for absolute positioning of rating badge */
-        background-color: #f8f9fa; /* Light background for the image area */
-        display: flex; /* Enable flex for centering */
-        align-items: center; /* Vertical centering */
-        justify-content: center; /* Horizontal centering */
-        overflow: hidden; /* Ensure image doesn't spill out */
-    }
-
-    /* Grid View Specific Container Styling */
-    .book-cover-container {
-        width: 100%;
-        height: 350px; /* Fixed height for consistent card appearance */
-        padding: 10px; /* Add padding to prevent images from touching container edges */
-    }
-
-    /* List View Specific Container Styling */
-    .book-cover-wrapper {
-        width: 100%;
-        height: 100%; /* Ensure it fills the md-2 column height */
-        /* min-height: 150px; */ /* Or a min-height */
-    }
-
-    .book-cover {
-        max-width: 100%;
-        max-height: 100%;
-        width: auto; /* Let it scale based on height */
-        height: auto; /* Let it scale based on width */
-        object-fit: contain; /* Scales down, doesn't scale up, maintains aspect ratio */
-        display: block; /* Remove extra space below image */
-    }
+    /* Book cover display - using Option 3 Responsive System from main.css */
+    /* Core book cover styles now defined in main.css - only page-specific overrides here */
 
     .rating-badge {
         font-size: 0.75rem;
