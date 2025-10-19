@@ -957,6 +957,23 @@
     color: var(--text-color-secondary);
 }
 
+/* Search results card text visibility fixes - override Bootstrap text-dark class */
+[data-theme="dark"] .card .book-title,
+[data-theme="dark"] .card .book-title a,
+[data-theme="dark"] .card .book-title .text-dark,
+[data-theme="dark"] .card-title .text-decoration-none.text-dark {
+    color: var(--text-color-primary);
+}
+
+[data-theme="dark"] .card .book-author,
+[data-theme="dark"] .card-text.book-author {
+    color: var(--text-color-secondary);
+}
+
+[data-theme="dark"] .card .book-description {
+    color: var(--text-color-secondary);
+}
+
 /* Card footer using CSS variables */
 [data-theme="dark"] .card-footer {
     background-color: var(--card-bg);
@@ -1055,6 +1072,51 @@
 /* Ensure tab content has proper backgrounds in dark mode */
 [data-theme="dark"] .tab-content {
     background-color: transparent;
+}
+
+/* Tab pane text visibility in dark mode */
+[data-theme="dark"] .tab-pane h5,
+[data-theme="dark"] .tab-pane .card-text {
+    color: var(--text-color-primary);
+}
+
+[data-theme="dark"] .tab-pane .text-muted,
+[data-theme="dark"] .tab-pane p.text-muted {
+    color: var(--text-color-secondary);
+}
+
+/* Categories section text visibility in dark mode */
+[data-theme="dark"] .categories-section h5,
+[data-theme="dark"] .categories-section .card-text {
+    color: var(--text-color-primary);
+}
+
+[data-theme="dark"] .categories-section .text-muted,
+[data-theme="dark"] .categories-section p.text-muted {
+    color: var(--text-color-secondary);
+}
+
+/* Details section text visibility in dark mode */
+[data-theme="dark"] .details-section h5,
+[data-theme="dark"] .details-section .card-text,
+[data-theme="dark"] .details-section .metadata-value {
+    color: var(--text-color-primary);
+}
+
+[data-theme="dark"] .details-section .text-muted,
+[data-theme="dark"] .details-section .metadata-label {
+    color: var(--text-color-secondary);
+}
+
+/* Other editions section text visibility in dark mode */
+[data-theme="dark"] .other-editions-section h5,
+[data-theme="dark"] .other-editions-section .list-group-item-heading {
+    color: var(--text-color-primary);
+}
+
+[data-theme="dark"] .other-editions-section .text-muted,
+[data-theme="dark"] .other-editions-section .list-group-item-text {
+    color: var(--text-color-secondary);
 }
 
 /* Ensure breadcrumb links have proper styling */
