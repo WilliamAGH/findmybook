@@ -435,7 +435,7 @@
             <p class="small text-muted mb-0" th:if="${showStats && book.qualifiers != null && book.qualifiers['recent.views.lastViewedAt'] != null}"
                th:text="${'Last viewed ' + #temporals.format(book.qualifiers['recent.views.lastViewedAt'], 'MMM d, h:mm a')}"></p>
         </div>
-        <div class="card-footer bg-white border-top-0">
+        <div class="card-footer border-top-0">
             <a th:href="@{'/book/' + ${bookSlug}}" class="btn btn-sm btn-outline-primary d-block">View Details</a>
         </div>
     </div>

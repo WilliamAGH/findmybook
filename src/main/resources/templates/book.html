@@ -564,7 +564,7 @@
                                 <p class="card-text small text-truncate similar-book-author"
                                    th:text="${rec.authors != null && !rec.authors.empty} ? ${rec.authors[0]} : 'Unknown Author'">Author Name</p>
                             </div>
-                            <div class="card-footer bg-white border-top-0">
+                            <div class="card-footer border-top-0">
                                 <a th:href="@{'/book/' + ${rec.id}}" class="btn btn-sm btn-outline-primary d-block">
                                     View Details
                                 </a>

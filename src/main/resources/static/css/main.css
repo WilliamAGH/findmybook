@@ -2014,6 +2014,16 @@ p.card-text.book-author {
     color: #94A3B8;
 }
 
+/* Card footer - proper dark mode background */
+.card-footer {
+    background-color: #ffffff;
+}
+
+[data-theme="dark"] .card-footer {
+    background-color: #1E293B;
+    border-color: #334155;
+}
+
 /* =============================================================================
    BOOTSTRAP UTILITY CLASS OVERRIDES FOR DARK MODE
    These MUST come last to override Bootstrap's built-in declarations
