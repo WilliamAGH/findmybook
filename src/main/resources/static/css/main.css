@@ -270,7 +270,7 @@
    KEEP - Search Results Page (not yet migrated)
    ============================================================================= */
 .search-header {
-    background-color: white;
+    background-color: #FFFFFF;
     border-radius: 10px;
     padding: 1.5rem;
     margin-bottom: 2rem;
@@ -490,15 +490,15 @@
     
     /* HTML and Body - Dark mode (ensure no white gaps) */
     [data-theme="dark"] html {
-        background-color: #1E293B; /* slate-800 - unified with all sections */
+        background-color: #0F1419; /* slate-900 - page background color */
     }
     
-    /* Body and main content dark mode - slate-800 background to match sections, slate-50 text */
+    /* Body and main content dark mode - slate-900 page background, slate-50 text */
     [data-theme="dark"] body,
     [data-theme="dark"] .theme-body,
     [data-theme="dark"] main,
     [data-theme="dark"] .main-content {
-        background-color: #1E293B; /* slate-800 - unified with all sections */
+        background-color: #0F1419; /* slate-900 - page background color */
         color: #F8FAFC; /* slate-50 */
     }
     
@@ -614,7 +614,7 @@
     [data-theme="dark"] section.bg-white,
     [data-theme="dark"] .py-12.theme-section,
     [data-theme="dark"] .py-16.theme-section {
-        background-color: #1E293B; /* slate-800 - unified dark background */
+        background-color: #0F1419; /* slate-900 - unified page background */
     }
     
     /* Card Components - Light mode defaults and dark mode overrides */
@@ -685,7 +685,8 @@
     }
     
     [data-theme="dark"] .theme-search-header {
-        background-color: #1E293B; /* slate-800 */
+        background-color: #1E293B; /* slate-800 - elevated card surface */
+        border-color: #334155; /* slate-700 */
     }
 }
 

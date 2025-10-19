@@ -13,10 +13,10 @@
                 shadow-soft hover:shadow-book transition-all duration-300 hover:-translate-y-1 overflow-hidden flex flex-col">
 
         <!-- Book Cover Section -->
-        <div class="relative h-64 theme-card-cover-bg overflow-hidden flex items-center justify-center">
+        <div class="relative h-64 theme-card-cover-bg overflow-hidden flex items-center justify-center book-cover-container">
             <a th:href="@{'/book/' + ${bookSlug}}" class="block w-full h-full flex items-center justify-center p-4">
                 <img th:src="${book.coverUrl != null ? book.coverUrl : '/images/placeholder-book-cover.svg'}"
-                     class="max-h-full w-auto object-contain transition-transform duration-300 group-hover:scale-105"
+                     class="max-h-full w-auto object-contain transition-transform duration-300 group-hover:scale-105 book-cover"
                      loading="lazy"
                      alt="Book cover"
                      th:alt="${book.title != null ? book.title + ' cover' : 'Book cover'}"
