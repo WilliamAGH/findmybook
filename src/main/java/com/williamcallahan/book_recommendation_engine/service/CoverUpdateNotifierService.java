@@ -44,6 +44,7 @@ import jakarta.annotation.PostConstruct;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
 
 import java.time.Duration;
@@ -313,7 +314,6 @@ public class CoverUpdateNotifierService {
                         if (throwable instanceof S3CoverUploadException ex) {
                             boolean shouldRetry = ex.isRetryable();
                             if (shouldRetry) {
-                                s3UploadRetriesTotal.increment();
                                 logger.warn("Retrying S3 upload for book {} (retryable: {}): {}",
                                            event.getBookId(), ex.getClass().getSimpleName(), ex.getMessage());
                             } else {
@@ -322,18 +322,22 @@ public class CoverUpdateNotifierService {
                             }
                             return shouldRetry;
                         }
-                        // Retry unknown exceptions (defensive)
+                        // Retry unknown exceptions (defensive) - but let retry config handle limits
                         logger.warn("Retrying S3 upload for book {} (unknown error): {}", event.getBookId(), throwable.getMessage());
-                        s3UploadRetriesTotal.increment();
-                        return true;
+                        return true; // Allow retry but respect maxRetries=3 configuration
                     })
                     .doBeforeRetry(retrySignal -> {
+                        s3UploadRetriesTotal.increment(); // Increment metric for actual retry attempt
                         logger.info("Retry attempt {} for book {} after error: {}",
                                    retrySignal.totalRetries() + 1,
                                    event.getBookId(),
                                    retrySignal.failure().getMessage());
                     })
                 )
+                .switchIfEmpty(Mono.defer(() -> {
+                    logger.error("S3 upload pipeline returned no image details for book {} after retries. Canonical URL: {}", event.getBookId(), canonicalImageUrl);
+                    return Mono.error(new IllegalStateException("S3 upload pipeline completed without emitting ImageDetails"));
+                }))
                 .subscribe(
                     details -> {
                         sample.stop(s3UploadDuration);
@@ -346,9 +350,10 @@ public class CoverUpdateNotifierService {
 
                         // Structured error handling with exception types
                         if (error instanceof CoverDownloadException ex) {
+                            String causeMessage = ex.getCause() != null ? ex.getCause().getMessage() : "Unknown cause";
                             logger.error("S3 upload PERMANENTLY FAILED for book {} after retries: " +
                                        "Download failed from {}. Cause: {}",
-                                       event.getBookId(), ex.getImageUrl(), ex.getCause().getMessage());
+                                       event.getBookId(), ex.getImageUrl(), causeMessage);
                         } else if (error instanceof CoverProcessingException ex) {
                             logger.error("S3 upload FAILED for book {} (non-retryable): " +
                                        "Processing failed: {}",

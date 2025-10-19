@@ -62,12 +62,18 @@ public class BookSearchService {
                     ps.setString(1, sanitizedQuery);
                     ps.setInt(2, safeLimit);
                 },
-                (rs, rowNum) -> new SearchResult(
-                    rs.getObject("book_id", UUID.class),
-                    rs.getDouble("relevance_score"),
-                    rs.getString("match_type"))
+                (rs, rowNum) -> {
+                    UUID bookId = rs.getObject("book_id", UUID.class);
+                    if (bookId == null) {
+                        return null; // Skip null book IDs
+                    }
+                    return new SearchResult(
+                        bookId,
+                        rs.getDouble("relevance_score"),
+                        rs.getString("match_type"));
+                }
             ).stream()
-             .filter(result -> result.bookId() != null)
+             .filter(result -> result != null)
              .toList();
 
             List<SearchResult> deduplicated = deduplicateSearchResults(rawResults);
