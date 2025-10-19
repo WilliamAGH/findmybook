@@ -22,6 +22,10 @@ public final class ImageDimensionUtils {
     public static final int MIN_SEARCH_RESULT_HEIGHT = 280; // Minimum height for displaying covers in search results
     public static final int MIN_SEARCH_RESULT_WIDTH = 180; // Minimum width for displaying covers in search results
     
+    // Aspect ratio validation (book covers are typically portrait, taller than wide)
+    public static final double MIN_ASPECT_RATIO = 1.2; // height / width (e.g., 360x300 = 1.2)
+    public static final double MAX_ASPECT_RATIO = 2.0; // height / width (e.g., 600x300 = 2.0)
+    
     // High-resolution threshold (total pixels)
     public static final int HIGH_RES_PIXEL_THRESHOLD = 320_000; // ~640x500 or 512x625
     
@@ -187,6 +191,35 @@ public final class ImageDimensionUtils {
      */
     public static boolean isBelowSearchMinimum(Integer height) {
         return height != null && height < MIN_SEARCH_RESULT_HEIGHT;
+    }
+    
+    /**
+     * Validates that an image has an acceptable aspect ratio for book covers.
+     * Book covers should be portrait-oriented (taller than wide).
+     * 
+     * @param width Image width in pixels
+     * @param height Image height in pixels
+     * @return true if aspect ratio is within acceptable range for book covers
+     */
+    public static boolean hasValidAspectRatio(Integer width, Integer height) {
+        if (width == null || height == null || width <= 0 || height <= 0) {
+            return false;
+        }
+        
+        double aspectRatio = (double) height / width;
+        return aspectRatio >= MIN_ASPECT_RATIO && aspectRatio <= MAX_ASPECT_RATIO;
+    }
+    
+    /**
+     * Comprehensive validation for display-ready book covers.
+     * Checks minimum dimensions AND aspect ratio.
+     * 
+     * @param width Image width in pixels
+     * @param height Image height in pixels
+     * @return true if image meets all display requirements (dimensions + aspect ratio)
+     */
+    public static boolean meetsDisplayRequirements(Integer width, Integer height) {
+        return meetsSearchDisplayThreshold(width, height) && hasValidAspectRatio(width, height);
     }
     
     /**
