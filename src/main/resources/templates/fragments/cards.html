@@ -9,7 +9,7 @@
      th:with="bookSlug=${book != null && book.slug != null ? book.slug : (book != null ? book.id : 'unknown')}">
 
     <!-- Sophisticated Card Container -->
-    <div class="group h-full theme-card rounded-xl border border-linen-300
+    <div class="group h-full theme-card rounded-xl border border-linen-300 dark:border-slate-700
                 shadow-soft hover:shadow-book transition-all duration-300 hover:-translate-y-1 overflow-hidden flex flex-col">
 
         <!-- Book Cover Section -->
@@ -38,16 +38,16 @@
         <!-- Card Content -->
         <div class="p-4 flex-grow flex flex-col">
             <!-- Title -->
-            <h5 class="text-base font-semibold theme-card-title text-anthracite-900 mb-1.5 line-clamp-2 leading-snug">
+            <h5 class="text-base font-semibold theme-card-title text-anthracite-900 dark:text-slate-50 mb-1.5 line-clamp-2 leading-snug">
                 <a th:href="@{'/book/' + ${bookSlug}}"
                    th:text="${book.title}"
-                   class="theme-card-title hover:text-canvas-600 transition-colors duration-200">
+                   class="theme-card-title hover:text-canvas-600 dark:hover:text-canvas-400 transition-colors duration-200">
                     Book Title
                 </a>
             </h5>
 
             <!-- Author -->
-            <p class="text-sm theme-card-text text-anthracite-600 mb-3 truncate font-light"
+            <p class="text-sm theme-card-text text-anthracite-600 dark:text-slate-400 mb-3 truncate font-light"
                th:text="${book.authors != null && !#lists.isEmpty(book.authors) ? book.authors[0] : 'Unknown Author'}">
                 Author Name
             </p>
@@ -57,17 +57,17 @@
                  th:unless="${book.tags['recent.views.24h'] == null && book.tags['recent.views.7d'] == null && book.tags['recent.views.30d'] == null}"
                  class="flex flex-wrap gap-1.5 mb-2 mt-auto">
                 <span th:if="${book.tags['recent.views.24h'] != null && book.tags['recent.views.24h'] > 0}"
-                      class="px-2 py-0.5 text-xs theme-badge text-anthracite-700 rounded-full"
+                      class="px-2 py-0.5 text-xs theme-badge text-anthracite-700 dark:text-slate-300 rounded-full"
                       th:text="${#numbers.formatInteger(book.tags['recent.views.24h'], 0)} + ' in 24h'">
                     0 in 24h
                 </span>
                 <span th:if="${book.tags['recent.views.7d'] != null && book.tags['recent.views.7d'] > 0}"
-                      class="px-2 py-0.5 text-xs theme-badge text-anthracite-700 rounded-full"
+                      class="px-2 py-0.5 text-xs theme-badge text-anthracite-700 dark:text-slate-300 rounded-full"
                       th:text="${#numbers.formatInteger(book.tags['recent.views.7d'], 0)} + ' in 7d'">
                     0 in 7d
                 </span>
                 <span th:if="${book.tags['recent.views.30d'] != null && book.tags['recent.views.30d'] > 0}"
-                      class="px-2 py-0.5 text-xs theme-badge text-anthracite-700 rounded-full"
+                      class="px-2 py-0.5 text-xs theme-badge text-anthracite-700 dark:text-slate-300 rounded-full"
                       th:text="${#numbers.formatInteger(book.tags['recent.views.30d'], 0)} + ' in 30d'">
                     0 in 30d
                 </span>
