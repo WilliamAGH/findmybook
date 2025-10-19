@@ -117,6 +117,7 @@
 - ❌ **NEVER change git branches** without explicit User permission
 - ❌ **NEVER commit changes** unless the User explicitly asks you to commit
 - ❌ **NEVER update git config** (user.name, user.email, etc.)
+- ❌ **NEVER perform destructive git actions simply because code differs from your own changes; treat all existing work as intentional unless the User directs otherwise**
 - ❌ **NEVER run destructive/irreversible commands** without explicit User request:
   - `git push --force` (or `-f`)
   - `git reset --hard`
