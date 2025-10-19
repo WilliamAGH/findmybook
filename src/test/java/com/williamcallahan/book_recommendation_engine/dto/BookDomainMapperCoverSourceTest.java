@@ -37,6 +37,33 @@ class BookDomainMapperCoverSourceTest {
     }
 
     @Test
+    @DisplayName("toBook(BookCard) suppresses covers that do not meet display requirements")
+    void toBookFromCard_suppressesUndersizedCover() {
+        BookCard card = new BookCard(
+            "undersized-card",
+            "undersized-slug",
+            "Undersized Cover Title",
+            List.of("Author"),
+            "https://cdn.example.com/covers/undersized.jpg?w=120&h=160",
+            null,
+            "https://cdn.example.com/covers/undersized-fallback.jpg?w=120&h=160",
+            4.5,
+            42,
+            Map.<String, Object>of()
+        );
+
+        Book book = BookDomainMapper.fromCard(card);
+
+        assertThat(book).isNotNull();
+        assertThat(book.getCoverImages()).isNull();
+        assertThat(book.getExternalImageUrl()).isNull();
+        assertThat(book.getS3ImagePath()).isNull();
+        assertThat(book.getQualifiers())
+            .containsEntry("cover.suppressed", true)
+            .containsEntry("cover.suppressed.reason", "image-below-search-display-threshold");
+    }
+
+    @Test
     @DisplayName("toBook(BookDetail) detects Open Library cover source")
     void toBookFromDetail_detectsOpenLibrarySource() {
         BookDetail detail = buildDetail(

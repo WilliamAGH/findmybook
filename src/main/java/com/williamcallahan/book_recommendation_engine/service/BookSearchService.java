@@ -70,7 +70,9 @@ public class BookSearchService {
                     return new SearchResult(
                         bookId,
                         rs.getDouble("relevance_score"),
-                        rs.getString("match_type"));
+                        rs.getString("match_type"),
+                        rs.getInt("edition_count"),
+                        rs.getObject("cluster_id", UUID.class));
                 }
             ).stream()
              .filter(result -> result != null)
@@ -222,7 +224,8 @@ public class BookSearchService {
             }
             ClusterMapping mapping = clusterMappings.get(editionId);
             UUID canonicalId = mapping != null ? mapping.primaryId() : editionId;
-            int editionCount = mapping != null ? mapping.editionCount() : Math.max(result.editionCount(), 1);
+            // Use actual edition count from database (already in SearchResult from search_books function)
+            int editionCount = mapping != null ? mapping.editionCount() : result.editionCount();
             UUID clusterId = mapping != null ? mapping.clusterId() : result.clusterId();
             ordered.putIfAbsent(canonicalId, new SearchResult(canonicalId, result.relevanceScore(), result.matchType(), editionCount, clusterId));
         }
@@ -300,7 +303,8 @@ public class BookSearchService {
      * @param bookId canonical (primary) book identifier to hydrate downstream
      * @param relevanceScore ts_rank / lexical relevance score returned by the search function
      * @param matchType indicates which tsvector matched (title, author, etc.)
-     * @param editionCount number of editions in the resolved work cluster
+     * @param editionCount actual number of editions from work cluster (or 1 if not clustered)
+     * @param clusterId work cluster identifier (null if book is not in a cluster)
      */
     public record SearchResult(UUID bookId,
                                double relevanceScore,

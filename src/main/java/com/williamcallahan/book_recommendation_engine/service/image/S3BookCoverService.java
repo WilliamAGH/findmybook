@@ -24,6 +24,7 @@ import com.williamcallahan.book_recommendation_engine.model.image.ImageDetails;
 import com.williamcallahan.book_recommendation_engine.model.image.ImageProvenanceData;
 import com.williamcallahan.book_recommendation_engine.model.image.ImageResolutionPreference;
 import com.williamcallahan.book_recommendation_engine.model.image.ProcessedImage;
+import com.williamcallahan.book_recommendation_engine.util.ApplicationConstants;
 import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
 import com.williamcallahan.book_recommendation_engine.util.cover.CoverIdentifierResolver;
 import com.williamcallahan.book_recommendation_engine.util.cover.CoverUrlResolver;
@@ -372,6 +373,25 @@ public class S3BookCoverService implements ExternalCoverService {
         return details;
     }
 
+    private ImageDetails buildPlaceholderImageDetails(String bookId, String reasonSuffix) {
+        String normalizedReason = ValidationUtils.hasText(reasonSuffix)
+            ? reasonSuffix.replaceAll("[^a-zA-Z0-9-]", "_")
+            : "unknown";
+        String effectiveBookId = ValidationUtils.hasText(bookId) ? bookId : "unknown";
+        String placeholderPath = ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH;
+
+        ImageDetails details = new ImageDetails(
+            placeholderPath,
+            "SYSTEM_PLACEHOLDER",
+            "placeholder-" + normalizedReason + "-" + effectiveBookId,
+            CoverImageSource.NONE,
+            ImageResolutionPreference.UNKNOWN
+        );
+        details.setStorageLocation(ImageDetails.STORAGE_LOCAL);
+        details.setStorageKey(placeholderPath);
+        return details;
+    }
+
     private Optional<String> buildCdnUrl(String s3Key) {
         return resolveCdnBase()
             .map(base -> appendPath(base, s3Key))
@@ -539,10 +559,16 @@ public class S3BookCoverService implements ExternalCoverService {
     }
 
     public Mono<ImageDetails> uploadCoverToS3Async(String imageUrl, String bookId, String source, ImageProvenanceData provenanceData) {
-        if (!s3EnabledCheck || s3Client == null || imageUrl == null || imageUrl.isEmpty() || bookId == null || bookId.isEmpty()) {
-            logger.debug("S3 upload skipped: S3 disabled/S3Client not available, or imageUrl/bookId is null/empty. ImageUrl: {}, BookId: {}", imageUrl, bookId);
-            return Mono.empty();
+        if (!s3EnabledCheck || s3Client == null) {
+            logger.debug("S3 upload skipped: S3 disabled or S3Client not available. ImageUrl: {}, BookId: {}", imageUrl, bookId);
+            return Mono.just(buildPlaceholderImageDetails(bookId, "s3-disabled"));
         }
+
+        if (!ValidationUtils.hasText(imageUrl) || !ValidationUtils.hasText(bookId)) {
+            logger.debug("S3 upload skipped: imageUrl or bookId is null/empty. ImageUrl: {}, BookId: {}", imageUrl, bookId);
+            return Mono.just(buildPlaceholderImageDetails(bookId, "missing-input"));
+        }
+
         final String s3Source = (source != null && !source.isEmpty()) ? source : "unknown";
 
         // SSRF protection: validate URL before downloading
@@ -659,7 +685,9 @@ public class S3BookCoverService implements ExternalCoverService {
      */
     public com.williamcallahan.book_recommendation_engine.model.image.ImageDetails uploadCoverToS3(String imageUrl, String bookId, String source) {
         try {
-            return uploadCoverToS3Async(imageUrl, bookId, source).block(Duration.ofSeconds(15));
+            return uploadCoverToS3Async(imageUrl, bookId, source)
+                .defaultIfEmpty(buildPlaceholderImageDetails(bookId, "async-empty"))
+                .block(Duration.ofSeconds(15));
         } catch (Exception e) {
             logger.error("Error or timeout uploading cover to S3 for book {} from URL {}: {}", bookId, imageUrl, e.getMessage());
             return new com.williamcallahan.book_recommendation_engine.model.image.ImageDetails(imageUrl, source, imageUrl, CoverImageSource.ANY, ImageResolutionPreference.ORIGINAL);

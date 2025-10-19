@@ -91,7 +91,7 @@ public final class BookDomainMapper {
             fallback = card.coverUrl();
         }
         setCoverImages(book, resolved, fallback);
-        applyCoverMetadata(book, resolved.width(), resolved.height(), resolved.highResolution(), false);
+        applyCoverMetadata(book, resolved.width(), resolved.height(), resolved.highResolution(), true);
         book.setRetrievedFrom("POSTGRES");
         book.setInPostgres(true);
         return book;
@@ -252,7 +252,7 @@ public final class BookDomainMapper {
         book.setIsCoverHighResolution(derivedHighRes);
 
         if (enforceSearchThreshold
-            && !ImageDimensionUtils.meetsSearchDisplayThreshold(width, height)) {
+            && !ImageDimensionUtils.meetsDisplayRequirements(width, height)) {
             suppressCover(book, "image-below-search-display-threshold");
         }
     }

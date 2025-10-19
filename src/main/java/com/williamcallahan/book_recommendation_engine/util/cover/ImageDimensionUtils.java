@@ -223,6 +223,30 @@ public final class ImageDimensionUtils {
     }
     
     /**
+     * Comprehensive validation for display-ready covers including URL quality checks.
+     * Validates dimensions, aspect ratio, AND URL patterns to exclude title pages.
+     * 
+     * <p>This is the most complete validation combining:</p>
+     * <ul>
+     *   <li>Minimum dimensions (180x280)</li>
+     *   <li>Valid aspect ratio (1.2-2.0)</li>
+     *   <li>URL pattern validation (no title pages, requires edge=curl for Google Books)</li>
+     * </ul>
+     * 
+     * @param width Image width in pixels
+     * @param height Image height in pixels
+     * @param url Image URL to validate
+     * @return true if image meets all quality requirements for display
+     * 
+     * @see CoverUrlValidator#isLikelyCoverImage(String)
+     * @see #meetsDisplayRequirements(Integer, Integer)
+     */
+    public static boolean meetsDisplayQualityRequirements(Integer width, Integer height, String url) {
+        return meetsDisplayRequirements(width, height) 
+            && CoverUrlValidator.isLikelyCoverImage(url);
+    }
+    
+    /**
      * Record for dimension estimates with high-resolution flag.
      * 
      * @param width Estimated width in pixels

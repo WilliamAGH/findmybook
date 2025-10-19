@@ -367,9 +367,9 @@ public class PostgresBookRepository {
                        wcm.confidence,
                        bei.external_id as google_books_id,
                        bil.s3_image_path,
-                       -- Task #14: Calculate cover quality score for sorting
-                       COALESCE(bil.is_high_resolution::int, 0) * 1000 +
-                       COALESCE(bil.width * bil.height, 0) as cover_score
+                       -- Task #14: Quality facets for deterministic sorting
+                       COALESCE(bil.is_high_resolution, false) AS has_high_res,
+                       COALESCE((bil.width::bigint * bil.height::bigint), 0) AS cover_area
                 FROM work_cluster_members wcm1
                 JOIN work_cluster_members wcm ON wcm.cluster_id = wcm1.cluster_id
                 JOIN books b ON b.id = wcm.book_id
@@ -381,14 +381,15 @@ public class PostgresBookRepository {
                        FROM book_image_links
                        WHERE book_id = b.id
                        ORDER BY COALESCE(is_high_resolution, false) DESC,
-                                COALESCE(width, 0) DESC,
+                                COALESCE((width::bigint * height::bigint), 0) DESC,
                                 created_at DESC
                        LIMIT 1
                 ) bil ON TRUE
                 WHERE wcm1.book_id = ?
                   AND wcm.book_id <> ?
                 ORDER BY wcm.is_primary DESC,
-                         cover_score DESC,  -- Task #14: Sort by cover quality
+                         has_high_res DESC,  -- Task #14: Sort by cover quality
+                         cover_area DESC,
                          wcm.confidence DESC NULLS LAST,
                          b.published_date DESC NULLS LAST,
                          lower(b.title)
