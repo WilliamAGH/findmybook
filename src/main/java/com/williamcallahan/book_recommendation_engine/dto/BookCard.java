@@ -66,7 +66,9 @@ public record BookCard(
     public BookCard {
         authors = authors == null ? List.of() : List.copyOf(authors);
         coverS3Key = ValidationUtils.hasText(coverS3Key) ? coverS3Key : null;
-        fallbackCoverUrl = fallbackCoverUrl == null ? coverUrl : fallbackCoverUrl;
+        // Keep fallbackCoverUrl as-is (null if not provided) to enable proper fallback cascade
+        // Do NOT default to coverUrl - that breaks the fallback chain
+        fallbackCoverUrl = ValidationUtils.hasText(fallbackCoverUrl) ? fallbackCoverUrl : null;
         tags = tags == null ? Map.of() : Map.copyOf(tags);
     }
 
