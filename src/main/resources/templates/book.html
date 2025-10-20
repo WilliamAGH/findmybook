@@ -238,12 +238,14 @@
                                 <h1 class="card-title mb-2" th:text="${book.title != null ? book.title : 'Book Details'}">Book Title</h1>
                                 
                                 <!-- Authors -->
-                                <h5 class="card-subtitle mb-4 text-muted">
-                                    By 
-<span th:if="${book.authors == null or #lists.isEmpty(book.authors)}">Unknown Author</span>
-                                    <span th:if="${book.authors != null and not #lists.isEmpty(book.authors)}">
-                                        <span th:each="author, authorStat : ${book.authors}">
-                                            <a th:href="@{/search(query=${author})}" class="text-decoration-none" th:text="${author}">Author Name</a><span th:if="${!authorStat.last}">, </span>
+                                <h5 class="card-subtitle mb-4 flex flex-wrap items-center gap-1 text-base text-anthracite-600 dark:text-slate-200">
+                                    <span class="font-medium">By</span>
+                                    <span th:if="${book.authors == null or #lists.isEmpty(book.authors)}">Unknown Author</span>
+                                    <span th:if="${book.authors != null and not #lists.isEmpty(book.authors)}" class="flex flex-wrap items-center">
+                                        <span th:each="author, authorStat : ${book.authors}" class="flex items-center">
+                                            <a th:href="@{/search(query=${author})}"
+                                               class="text-decoration-none text-canvas-600 dark:text-canvas-400 hover:text-canvas-700 dark:hover:text-canvas-300 font-medium transition-colors duration-200"
+                                               th:text="${author}">Author Name</a><span th:if="${!authorStat.last}">,&nbsp;</span>
                                         </span>
                                     </span>
                                 </h5>
@@ -475,7 +477,7 @@
                                     <div class="tab-pane fade" id="categories" role="tabpanel" aria-labelledby="categories-tab" th:if="${book.categories != null and not #lists.isEmpty(book.categories)}">
                                         <div class="categories-section mb-4">
                                             <h5 class="mb-4">Book Categories</h5>
-                                            <p class="categories-description mb-3">
+                                            <p class="categories-description mb-3 text-anthracite-600 dark:text-slate-200 leading-relaxed">
                                                 This book is categorized under the following genres and topics. 
                                                 Click any category to discover similar books.
                                             </p>
