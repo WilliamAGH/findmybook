@@ -1022,6 +1022,12 @@
     margin: 0 auto;
 }
 
+/* Detail page: allow larger covers while preserving a consistent border */
+.book-cover-section .book-cover {
+    max-width: clamp(320px, 88%, 540px);
+    max-height: clamp(420px, 75vh, 560px);
+}
+
 /* List view: constrain width more */
 .list-view .book-cover {
     display: block;
