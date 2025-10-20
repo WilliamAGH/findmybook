@@ -93,8 +93,8 @@ public final class ImageUrlEnhancer {
      * Determines optimal zoom level using modern pattern matching.
      * <p>
      * Rules:
-     * - High quality (large, extraLarge): zoom=2 or remove if >2 (prevents pixelation)
-     * - Medium/low quality: zoom=1 (best quality)
+     * - Preserve zoom when Google already specifies it to avoid downgrading quality.
+     * - When no zoom is present, seed sensible defaults per Google size tier so larger assets stay large.
      * 
      * @param quality Size qualifier
      * @param currentUrl Current URL (to check existing zoom)
@@ -102,41 +102,37 @@ public final class ImageUrlEnhancer {
      */
     @Nullable
     private static Integer determineOptimalZoom(@Nullable String quality, String currentUrl) {
-        boolean isHighQuality = quality != null && 
-            (quality.equalsIgnoreCase("large") || 
-             quality.equalsIgnoreCase("extraLarge") ||
-             quality.equalsIgnoreCase("high"));
-        
-        if (isHighQuality) {
-            // For high quality, check if current zoom is too high
-            if (currentUrl.contains("zoom=")) {
-                try {
-                    int currentZoom = extractZoomValue(currentUrl);
-                    // Only change if zoom > 2 (prevents pixelation)
-                    return currentZoom > 2 ? 2 : null; // null = don't modify
-                } catch (NumberFormatException e) {
-                    return 1; // Fallback to safe value
-                }
-            }
-            // No zoom present - don't add one for high quality
+        Integer existingZoom = extractZoomValue(currentUrl);
+        if (existingZoom != null) {
+            // Preserve the provider's chosen zoom level to avoid downgrading quality.
             return null;
-        } else {
-            // For medium/low, always use zoom=1 for best quality
-            return 1;
         }
+
+        if (quality == null) {
+            return null;
+        }
+
+        return switch (quality.toLowerCase()) {
+            case "smallthumbnail" -> 5;
+            case "thumbnail" -> 1;
+            case "small" -> 2;
+            case "medium" -> 3;
+            case "large", "high" -> 4;
+            case "extralarge" -> 6;
+            default -> null;
+        };
     }
     
     /**
      * Extracts zoom value from URL using Java 21 pattern matching.
      * 
      * @param url URL containing zoom parameter
-     * @return Zoom value
-     * @throws NumberFormatException if zoom value is invalid
+     * @return Zoom value or null if not present/invalid
      */
-    private static int extractZoomValue(String url) throws NumberFormatException {
+    private static Integer extractZoomValue(String url) {
         int zoomIndex = url.indexOf("zoom=");
         if (zoomIndex == -1) {
-            throw new NumberFormatException("No zoom parameter found");
+            return null;
         }
         
         String remaining = url.substring(zoomIndex + 5);
@@ -144,8 +140,12 @@ public final class ImageUrlEnhancer {
         String zoomValue = ampIndex != -1 
             ? remaining.substring(0, ampIndex) 
             : remaining;
-            
-        return Integer.parseInt(zoomValue);
+
+        try {
+            return Integer.parseInt(zoomValue);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
     }
     
     /**
