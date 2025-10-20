@@ -513,14 +513,19 @@ public class BookQueryRepository {
             Integer width = getIntOrNull(rs, "cover_width");
             Integer height = getIntOrNull(rs, "cover_height");
             Boolean highRes = getBooleanOrNull(rs, "cover_is_high_resolution");
+            String s3Key = getStringOrNull(rs, "cover_s3_key");
+            String fallbackUrl = getStringOrNull(rs, "cover_fallback_url");
+            
+            // For external URLs (non-S3), let CoverUrlResolver estimate dimensions from URL
+            // This prevents suppression due to incorrectly stored dimensions
+            boolean isExternalUrl = !ValidationUtils.hasText(s3Key) && ValidationUtils.hasText(fallbackUrl);
             CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
-                getStringOrNull(rs, "cover_s3_key"),
-                getStringOrNull(rs, "cover_fallback_url"),
-                width,
-                height,
+                s3Key,
+                fallbackUrl,
+                isExternalUrl ? null : width,
+                isExternalUrl ? null : height,
                 highRes
             );
-            String fallbackUrl = getStringOrNull(rs, "cover_fallback_url");
             String effectiveFallback = ValidationUtils.hasText(fallbackUrl) ? fallbackUrl : resolved.url();
             return new BookListItem(
                 rs.getString("id"),
