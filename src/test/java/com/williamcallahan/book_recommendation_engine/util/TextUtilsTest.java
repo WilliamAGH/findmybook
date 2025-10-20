@@ -88,12 +88,18 @@ public class TextUtilsTest {
     @CsvSource(delimiter = '|', value = {
         "JOHN DOE|John Doe",
         "STEPHEN KING|Stephen King",
+        "stephen king|Stephen King",
+        "j.k. rowling|J.k. Rowling",
         "J.K. ROWLING|J.k. Rowling",
         "PATRICK MCDONALD|Patrick McDonald",
+        "patrick mcdonald|Patrick McDonald",
         "SEAN MACDONALD|Sean MacDonald",
         "CONNOR O'BRIEN|Connor O'Brien",
+        "connor o'brien|Connor O'Brien",
         "LUDWIG VON BEETHOVEN|Ludwig von Beethoven",
+        "ludwig von beethoven|Ludwig von Beethoven",
         "VINCENT VAN GOGH|Vincent van Gogh",
+        "vincent van gogh|Vincent van Gogh",
         "LEONARDO DA VINCI|Leonardo Da Vinci",
         "Stephen King|Stephen King",
         "J.K. Rowling|J.K. Rowling"

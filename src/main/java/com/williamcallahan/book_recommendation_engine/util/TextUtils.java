@@ -236,9 +236,10 @@ public class TextUtils {
             return "";
         }
 
-        // If already mixed case, preserve it after punctuation cleanup
+        // Preserve intentional mixed case; normalize ALL-UPPER and all-lower
         boolean isAllUppercase = cleaned.equals(cleaned.toUpperCase()) && !cleaned.equals(cleaned.toLowerCase());
-        if (!isAllUppercase) {
+        boolean isAllLowercase = cleaned.equals(cleaned.toLowerCase()) && !cleaned.equals(cleaned.toUpperCase());
+        if (!(isAllUppercase || isAllLowercase)) {
             return cleaned;
         }
 
