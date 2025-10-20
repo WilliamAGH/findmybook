@@ -7,6 +7,8 @@ import com.williamcallahan.book_recommendation_engine.util.DateParsingUtils;
 import com.williamcallahan.book_recommendation_engine.util.ImageUrlEnhancer;
 import com.williamcallahan.book_recommendation_engine.util.IsbnUtils;
 import com.williamcallahan.book_recommendation_engine.util.SlugGenerator;
+import com.williamcallahan.book_recommendation_engine.util.TextUtils;
+import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -152,12 +154,12 @@ public class GoogleBooksMapper implements ExternalBookMapper {
         
         JsonNode authorsNode = volumeInfo.get("authors");
         for (JsonNode authorNode : authorsNode) {
-            String author = authorNode.asText();
-            if (author != null && !author.isBlank()) {
-                authors.add(author.trim());
+            String normalized = TextUtils.normalizeAuthorName(authorNode.asText(null));
+            if (ValidationUtils.hasText(normalized)) {
+                authors.add(normalized);
             }
         }
-        
+
         return authors;
     }
     

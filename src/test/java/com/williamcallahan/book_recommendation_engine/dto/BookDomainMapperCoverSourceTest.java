@@ -22,9 +22,9 @@ class BookDomainMapperCoverSourceTest {
             "card-slug",
             "Card Title",
             List.of("Author"),
-            "https://books.google.com/books/content?id=ABC123&printsec=frontcover",
+            "https://books.google.com/books/content?id=ABC123&printsec=frontcover&edge=curl",
             null,
-            "https://books.google.com/books/content?id=ABC123&printsec=frontcover&zoom=1",
+            "https://books.google.com/books/content?id=ABC123&printsec=frontcover&zoom=1&edge=curl",
             4.2,
             120,
             Map.<String, Object>of()
@@ -61,7 +61,7 @@ class BookDomainMapperCoverSourceTest {
         assertThat(book.getS3ImagePath()).isNull();
         assertThat(book.getQualifiers())
             .containsEntry("cover.suppressed", true)
-            .containsEntry("cover.suppressed.reason", "image-below-search-display-threshold")
+            .containsEntry("cover.suppressed.reason", "image-below-display-requirements")
             .containsEntry("cover.suppressed.minHeight", ImageDimensionUtils.MIN_SEARCH_RESULT_HEIGHT);
     }
 
@@ -108,6 +108,32 @@ class BookDomainMapperCoverSourceTest {
         assertThat(book).isNotNull();
         assertThat(book.getCoverImages()).isNotNull();
         assertThat(book.getCoverImages().getSource()).isEqualTo(CoverImageSource.UNDEFINED);
+    }
+
+    @Test
+    @DisplayName("fromAggregate suppresses invalid aspect ratio covers")
+    void fromAggregate_suppressesInvalidAspectRatio() {
+        BookAggregate aggregate = BookAggregate.builder()
+            .title("Agg Title")
+            .authors(List.of("Author"))
+            .slugBase("agg-title")
+            .identifiers(BookAggregate.ExternalIdentifiers.builder()
+                .source("GOOGLE_BOOKS")
+                .externalId("agg-id")
+                .imageLinks(Map.of(
+                    "thumbnail",
+                    "https://example.test/wide-cover.jpg?w=1200&h=120"
+                ))
+                .build())
+            .build();
+
+        Book book = BookDomainMapper.fromAggregate(aggregate);
+
+        assertThat(book).isNotNull();
+        assertThat(book.getCoverImages()).isNull();
+        assertThat(book.getExternalImageUrl()).isNull();
+        assertThat(book.getQualifiers())
+            .containsEntry("cover.suppressed", true);
     }
 
     private static BookDetail buildDetail(String coverUrl,

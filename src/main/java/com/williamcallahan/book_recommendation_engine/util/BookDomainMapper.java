@@ -8,6 +8,7 @@ import com.williamcallahan.book_recommendation_engine.dto.EditionSummary;
 import com.williamcallahan.book_recommendation_engine.model.Book;
 import com.williamcallahan.book_recommendation_engine.model.Book.EditionInfo;
 import com.williamcallahan.book_recommendation_engine.model.image.CoverImages;
+import com.williamcallahan.book_recommendation_engine.util.ApplicationConstants;
 import com.williamcallahan.book_recommendation_engine.util.cover.CoverUrlResolver;
 import com.williamcallahan.book_recommendation_engine.util.cover.CoverUrlValidator;
 import com.williamcallahan.book_recommendation_engine.util.cover.ImageDimensionUtils;
@@ -185,7 +186,10 @@ public final class BookDomainMapper {
 
         CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(images.preferred(), images.fallback());
         setCoverImages(book, resolved, images.fallback());
-        applyCoverMetadata(book, resolved.width(), resolved.height(), resolved.highResolution(), false);
+        // External fallback results must honor the same display requirements as
+        // postgres-backed search items so we never render obviously invalid
+        // aspect ratios (e.g., 10:1 landscape thumbnails masquerading as covers).
+        applyCoverMetadata(book, resolved.width(), resolved.height(), resolved.highResolution(), true);
 
         book.setEditionNumber(aggregate.getEditionNumber());
         // Task #6: editionGroupKey removed - replaced by work_clusters system
@@ -234,6 +238,7 @@ public final class BookDomainMapper {
         );
         book.setExternalImageUrl(effectiveFallback);
         book.setCoverImages(images);
+        sanitizeFallback(images);
     }
 
     private static void applyCoverMetadata(Book book,
@@ -288,6 +293,16 @@ public final class BookDomainMapper {
         book.addQualifier(SUPPRESSED_FLAG_KEY, true);
         book.addQualifier(SUPPRESSED_REASON_KEY, reason);
         book.addQualifier(SUPPRESSED_MIN_HEIGHT_KEY, ImageDimensionUtils.MIN_SEARCH_RESULT_HEIGHT);
+    }
+
+    private static void sanitizeFallback(CoverImages images) {
+        if (images == null) {
+            return;
+        }
+        String fallback = images.getFallbackUrl();
+        if (!CoverUrlValidator.isLikelyCoverImage(fallback)) {
+            images.setFallbackUrl(ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH);
+        }
     }
 
     private static Date toDate(LocalDate value) {

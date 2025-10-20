@@ -118,6 +118,24 @@ public class TextUtilsTest {
         assertEquals(author2, TextUtils.normalizeAuthorName(author2));
     }
 
+    @Test
+    void testNormalizeAuthorName_StripsTrailingComma() {
+        String input = "Dr. R.K. Jain, ";
+        assertEquals("Dr. R.K. Jain", TextUtils.normalizeAuthorName(input));
+    }
+
+    @Test
+    void testNormalizeAuthorName_RemovesWrappingQuotes() {
+        String input = "\"JANE DOE\"";
+        assertEquals("Jane Doe", TextUtils.normalizeAuthorName(input));
+    }
+
+    @Test
+    void testNormalizeAuthorName_StripsSmartQuotes() {
+        String input = "\u201CJOHN SMITH\u201D";
+        assertEquals("John Smith", TextUtils.normalizeAuthorName(input));
+    }
+
     /** Tests colon-separated subtitle capitalization. */
     @Test
     void testTitleCaseWithSubtitle() {

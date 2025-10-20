@@ -10,6 +10,7 @@ import com.williamcallahan.book_recommendation_engine.model.image.CoverImageSour
 import com.williamcallahan.book_recommendation_engine.util.ApplicationConstants;
 import com.williamcallahan.book_recommendation_engine.util.SlugGenerator;
 import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
+import com.williamcallahan.book_recommendation_engine.util.cover.CoverUrlValidator;
 import com.williamcallahan.book_recommendation_engine.util.cover.CoverUrlResolver;
 import com.williamcallahan.book_recommendation_engine.util.cover.UrlSourceDetector;
 
@@ -294,39 +295,69 @@ public final class BookDtoMapper {
 
         String placeholder = ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH;
         String fallbackUrl = firstNonBlank(fallbackCandidate, alternateCandidate, primaryCandidate, placeholder);
+        boolean fallbackLikely = CoverUrlValidator.isLikelyCoverImage(fallbackUrl);
+        if (!fallbackLikely) {
+            fallbackUrl = placeholder;
+        }
+
+        boolean preferredLikely = CoverUrlValidator.isLikelyCoverImage(resolved.url());
         String preferredUrl = ValidationUtils.hasText(resolved.url()) ? resolved.url() : fallbackUrl;
         if (!ValidationUtils.hasText(preferredUrl)) {
-            preferredUrl = placeholder;
+            preferredUrl = fallbackUrl;
         }
 
         String s3Key = resolved.fromS3() ? resolved.s3Key() : null;
+        Integer effectiveWidth = resolved.width();
+        Integer effectiveHeight = resolved.height();
+        boolean effectiveHighResolution = resolved.highResolution();
 
         String externalUrl = resolved.fromS3()
             ? firstNonBlank(fallbackCandidate, alternateCandidate)
             : preferredUrl;
+
+        if (preferredLikely) {
+            if (placeholder.equals(fallbackUrl)) {
+                externalUrl = null;
+            } else if (!resolved.fromS3()) {
+                externalUrl = preferredUrl;
+            }
+        } else {
+            s3Key = null;
+            if (fallbackLikely && !placeholder.equals(fallbackUrl)) {
+                preferredUrl = fallbackUrl;
+                externalUrl = fallbackUrl;
+            } else {
+                preferredUrl = placeholder;
+                externalUrl = null;
+                effectiveWidth = null;
+                effectiveHeight = null;
+                effectiveHighResolution = false;
+            }
+        }
+
         if (ValidationUtils.hasText(externalUrl) && externalUrl.contains("placeholder-book-cover.svg")) {
             externalUrl = null;
         }
 
         String source = declaredSource;
         if (!ValidationUtils.hasText(source)) {
-            if (resolved.fromS3()) {
+            if (resolved.fromS3() && preferredLikely) {
                 source = "S3_CACHE";
             } else {
                 CoverImageSource detected = UrlSourceDetector.detectSource(preferredUrl);
                 source = detected != null ? detected.name() : CoverImageSource.UNDEFINED.name();
             }
         }
-        if (preferredUrl.contains("placeholder-book-cover.svg")) {
+        if (preferredUrl.contains("placeholder-book-cover.svg") || placeholder.equals(fallbackUrl)) {
             source = CoverImageSource.NONE.name();
         }
 
         return new CoverDto(
             s3Key,
             externalUrl,
-            resolved.width(),
-            resolved.height(),
-            resolved.highResolution(),
+            effectiveWidth,
+            effectiveHeight,
+            effectiveHighResolution,
             preferredUrl,
             fallbackUrl,
             source
