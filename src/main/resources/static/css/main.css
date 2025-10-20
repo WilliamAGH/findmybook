@@ -101,12 +101,12 @@
     -moz-user-select: none;
     -ms-user-select: none;
     user-select: none; /* Cross-browser alternative to prevent selection */
-    pointer-events: auto !important;
+    pointer-events: auto;
 }
 
 .navbar-brand,
 .navbar-brand * {
-    pointer-events: auto !important;
+    pointer-events: auto;
     -webkit-user-select: none;
     user-select: none;
 }
@@ -149,21 +149,21 @@
 /* Commenting out the problematic .badge.bg-light to avoid conflicts with the more specific .hero-section .badge styling */
 /*
 .badge.bg-light {
-    background-color: var(--popular-tag-bg) !important;
-    color: var(--popular-tag-text) !important;
+    background-color: var(--popular-tag-bg);
+    color: var(--popular-tag-text);
     border: 1px solid var(--border-color);
 }
 
 .badge.bg-light:hover {
-    background-color: var(--popular-tag-hover-bg) !important;
-    color: var(--popular-tag-hover-text) !important;
+    background-color: var(--popular-tag-hover-bg);
+    color: var(--popular-tag-hover-text);
 }
 */
 
 /* KEEP - Still used for ratings badges */
 .badge.bg-warning {
-    background-color: var(--warning-color) !important;
-    color: var(--dark-color) !important;
+    background-color: var(--warning-color);
+    color: var(--dark-color);
 }
 
 /* =============================================================================
@@ -193,7 +193,7 @@
     max-width: 100%;
     width: auto;
     height: auto;
-    object-fit: contain;
+    object-fit: scale-down;
     box-shadow: 0 10px 20px rgba(0,0,0,0.2);
     border-radius: 5px;
 }
@@ -270,7 +270,7 @@
    KEEP - Search Results Page (not yet migrated)
    ============================================================================= */
 .search-header {
-    background-color: white;
+    background-color: var(--card-bg);
     border-radius: 10px;
     padding: 1.5rem;
     margin-bottom: 2rem;
@@ -278,7 +278,7 @@
 
 .list-view .book-cover {
     max-height: 200px;
-    object-fit: cover;
+    object-fit: scale-down;
 }
 /* END Search Results */
 
@@ -335,16 +335,16 @@
    KEEP - Utility Classes (still used across app)
    ============================================================================= */
 .text-primary {
-    color: var(--primary-color) !important;
+    color: var(--primary-color);
 }
 
 .bg-primary {
-    background-color: var(--primary-color) !important;
+    background-color: var(--primary-color);
 }
 
 /* Loading Indicators */
 .spinner-border.text-primary {
-    color: var(--primary-color) !important;
+    color: var(--primary-color);
 }
 /* END Utility Classes */
 
@@ -364,7 +364,7 @@
 
     /* Remove margin after icon when text is hidden */
     .search-form .btn .fa-search {
-        margin-right: 0 !important;
+        margin-right: 0;
     }
     .book-cover-section {
         border-radius: 0.375rem 0.375rem 0 0;
@@ -373,6 +373,7 @@
 
     .book-cover {
         max-height: 350px;
+        object-fit: scale-down;
     }
 
     .hero-section {
@@ -408,8 +409,8 @@
 [data-theme="dark"] .hero-section {
     /* Transparent so modern-hero gradient (via variables) shows, for seamless dark blending */
     background: transparent;
-    border-radius: 0 !important;
-    margin-bottom: 0 !important;
+    border-radius: 0;
+    margin-bottom: 0;
 }
 
 /* Dark Mode Styles */
@@ -490,15 +491,15 @@
     
     /* HTML and Body - Dark mode (ensure no white gaps) */
     [data-theme="dark"] html {
-        background-color: #1E293B; /* slate-800 - unified with all sections */
+        background-color: #0F1419; /* slate-900 - page background color */
     }
     
-    /* Body and main content dark mode - slate-800 background to match sections, slate-50 text */
+    /* Body and main content dark mode - slate-900 page background, slate-50 text */
     [data-theme="dark"] body,
     [data-theme="dark"] .theme-body,
     [data-theme="dark"] main,
     [data-theme="dark"] .main-content {
-        background-color: #1E293B; /* slate-800 - unified with all sections */
+        background-color: #0F1419; /* slate-900 - page background color */
         color: #F8FAFC; /* slate-50 */
     }
     
@@ -558,11 +559,35 @@
         color: #94A3B8; /* slate-400 */
     }
     
-    /* Search Input */
-    [data-theme="dark"] .theme-search-input {
+    /* Search Input - Light mode */
+    input.theme-search-input[type="text"] {
+        background-color: #FFFFFF; /* white */
+        color: #1C1917; /* anthracite-900 */
+        border-color: #EDE6D9; /* linen-300 */
+    }
+    
+    input.theme-search-input[type="text"]::placeholder {
+        color: #78716C; /* anthracite-400 */
+    }
+    
+    /* Search Input - Dark mode */
+    [data-theme="dark"] input.theme-search-input[type="text"] {
         background-color: #1E293B; /* slate-800 */
         color: #F8FAFC; /* slate-50 */
         border-color: #334155; /* slate-700 */
+    }
+    
+    [data-theme="dark"] input.theme-search-input[type="text"]::placeholder {
+        color: #64748B; /* slate-500 */
+    }
+    
+    /* Search Results Text */
+    .theme-search-results-text {
+        color: #57534E; /* gray-600 */
+    }
+    
+    [data-theme="dark"] .theme-search-results-text {
+        color: #94A3B8; /* slate-400 */
     }
     
     [data-theme="dark"] .theme-search-button {
@@ -574,22 +599,46 @@
         background-color: #2563EB; /* canvas-700 */
     }
     
-    /* Tags/Badges */
-    [data-theme="dark"] .theme-tag {
-        background-color: #1E293B; /* slate-800 */
-        color: #CBD5E1; /* slate-200 */
-        border-color: #334155; /* slate-700 */
+    /* Tags/Badges - Light mode defaults */
+    a.theme-tag,
+    span.theme-badge {
+        background-color: #FFFFFF; /* white */
+        color: #4B4640; /* anthracite-700 */
+        border: 1px solid #EDE6D9; /* linen-300 */
     }
     
-    [data-theme="dark"] .theme-tag:hover {
+    a.theme-tag:hover {
+        background-color: #F7F5F2; /* linen-50 */
+        border-color: #D4A574; /* canvas-400 */
+        color: #B17B45; /* canvas-700 */
+    }
+    
+    /* Tags/Badges - Dark mode */
+    [data-theme="dark"] a.theme-tag,
+    [data-theme="dark"] span.theme-badge {
+        background-color: #1E293B; /* slate-800 */
+        color: #CBD5E1; /* slate-200 */
+        border: 1px solid #475569; /* slate-600 - visible outline in dark mode */
+    }
+    
+    [data-theme="dark"] a.theme-tag:hover {
         background-color: #334155; /* slate-700 */
         border-color: #3B82F6; /* canvas-600 */
         color: #60A5FA; /* canvas-400 */
     }
     
-    [data-theme="dark"] .theme-badge {
+    /* Badges (stats/metrics) - Specific for card badges */
+    span.theme-badge {
+        background-color: #EAE6E1; /* gray-200 */
+        color: #4B4640; /* anthracite-700 */
+        border: 1px solid #D8D2CC; /* gray-300 - visible outline */
+    }
+    
+    /* Badges (stats/metrics) - Dark mode */
+    [data-theme="dark"] span.theme-badge {
         background-color: #334155; /* slate-700 */
         color: #CBD5E1; /* slate-300 */
+        border: 1px solid #475569; /* slate-600 - visible outline in dark mode */
     }
     
     /* Section Backgrounds - Light mode defaults and dark mode overrides */
@@ -614,7 +663,7 @@
     [data-theme="dark"] section.bg-white,
     [data-theme="dark"] .py-12.theme-section,
     [data-theme="dark"] .py-16.theme-section {
-        background-color: #1E293B; /* slate-800 - unified dark background */
+        background-color: #0F1419; /* slate-900 - unified page background */
     }
     
     /* Card Components - Light mode defaults and dark mode overrides */
@@ -624,10 +673,6 @@
     
     .theme-card-cover-bg {
         background-color: #FAF8F5; /* linen-100 light mode */
-    }
-    
-    .theme-badge {
-        background-color: #EDE6D9; /* linen-200 light mode */
     }
     
     [data-theme="dark"] .theme-card {
@@ -685,7 +730,8 @@
     }
     
     [data-theme="dark"] .theme-search-header {
-        background-color: #1E293B; /* slate-800 */
+        background-color: #1E293B; /* slate-800 - elevated card surface */
+        border-color: #334155; /* slate-700 */
     }
 }
 
@@ -807,38 +853,196 @@
    KEEP - Normalized Book Covers (still functional)
    ============================================================================= */
 .normalized-cover {
-    height: auto !important;
-    width: auto !important;
-    max-height: 85% !important;
-    max-width: 85% !important;
-    object-fit: contain !important;
-    transform: none !important;
-    margin: auto !important;
-    padding: 5px !important;
+    height: auto;
+    width: auto;
+    max-height: 85%;
+    max-width: 85%;
+    object-fit: scale-down;
+    transform: none;
+    margin: auto;
+    padding: 5px;
 }
 
 /* Specific grid view settings */
 .book-cover-container .normalized-cover {
-    max-height: 80% !important;
-    max-width: 80% !important;
+    max-height: 80%;
+    max-width: 80%;
 }
 
 /* Specific list view settings */
 .book-cover-wrapper .normalized-cover {
-    max-height: 180px !important;
-    object-fit: contain !important;
+    max-height: 180px;
+    object-fit: scale-down;
+}
+
+.cover-landscape {
+    max-width: 90%;
+}
+
+.cover-portrait {
+    max-height: 90%;
+}
+
+.cover-square {
+    max-width: 85%;
+    max-height: 85%;
 }
 
 /* Special handling for high-resolution images */
 .high-res-cover {
-    transform: scale(0.88) !important;
-    max-height: 85% !important;
+    transform: scale(0.88);
+    max-height: 85%;
 }
 
 [data-theme="dark"] .book-cover-section {
-    background-color: transparent !important;
+    background-color: transparent;
 }
 /* END Normalized Covers */
+
+/* =============================================================================
+   Responsive Book Cover System - Simple & Bulletproof
+   Pure CSS solution - no JavaScript required
+   ============================================================================= */
+
+/* Grid View Container */
+.book-cover-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    background: linear-gradient(135deg, #faf9f8 0%, #f5f4f3 100%);
+    height: clamp(280px, 60vw, 400px);
+}
+
+/* Ensure anchors inside book-cover-container also center properly */
+.book-cover-container a {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+}
+
+[data-theme="dark"] .book-cover-container {
+    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+}
+
+/* Mobile: Force centering for all book cover containers */
+@media (max-width: 767px) {
+    .book-cover-container {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .book-cover-container a {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 100%;
+    }
+}
+
+/* List View Container */
+.list-view .book-cover-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 200px;
+    padding: 1rem;
+    background: linear-gradient(135deg, #faf9f8 0%, #f5f4f3 100%);
+}
+
+/* Ensure anchors inside book-cover-wrapper also center properly */
+.list-view .book-cover-wrapper a {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+}
+
+[data-theme="dark"] .list-view .book-cover-wrapper {
+    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+}
+
+@media (max-width: 767px) {
+    .list-view .book-cover-wrapper {
+        min-height: 160px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    /* Ensure column itself is centered on mobile */
+    .list-view .col-md-2 {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+}
+
+/* Book Cover Images - Universal Styling */
+.book-cover {
+    max-width: min(85%, 280px);
+    max-height: 100%;
+    width: auto;
+    height: auto;
+    object-fit: scale-down;
+    object-position: center;
+    transition: transform 0.3s ease;
+    display: block;
+    margin: 0 auto;
+}
+
+/* List view: constrain width more */
+.list-view .book-cover {
+    display: block;
+    max-width: min(100%, 180px);
+    max-height: 240px;
+    margin: 0 auto;
+    object-fit: scale-down;
+}
+
+@media (max-width: 767px) {
+    .book-cover {
+        display: block;
+        margin: 0 auto;
+        object-fit: scale-down;
+    }
+    
+    .list-view .book-cover {
+        display: block;
+        max-width: 120px;
+        max-height: 180px;
+        margin: 0 auto;
+        object-fit: scale-down;
+    }
+    
+    .book-cover-container {
+        min-height: 250px;
+    }
+}
+
+/* Hover effect */
+.card:hover .book-cover,
+.theme-card:hover .book-cover {
+    transform: scale(1.03);
+}
+
+/* Accessibility: Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+    .book-cover {
+        transition: none;
+    }
+    .card:hover .book-cover,
+    .theme-card:hover .book-cover {
+        transform: none;
+    }
+}
+
+/* END Responsive Book Cover System */
 
 /* =============================================================================
    KEEP - Tab Styling (not yet migrated)
@@ -866,6 +1070,184 @@
 [data-theme="dark"] .book-metadata .metadata-label,
 [data-theme="dark"] .tab-content h5 {
     color: var(--text-color-secondary);
+}
+
+/* =============================================================================
+   BOOK DETAIL PAGE - Dark Mode Text Visibility Fixes
+   Ensures all text elements are visible in dark mode
+   Uses theme-overrides layer for highest priority
+   ============================================================================= */
+
+@layer theme-overrides {
+    /* Override Bootstrap utility classes for dark mode */
+    [data-theme="dark"] .text-muted {
+        color: var(--text-color-secondary);
+    }
+    
+    [data-theme="dark"] .text-dark {
+        color: var(--text-color-primary);
+    }
+    
+    /* Main book title */
+    [data-theme="dark"] .card-title,
+    [data-theme="dark"] h1.card-title,
+    [data-theme="dark"] h5.card-title {
+        color: var(--text-color-primary);
+    }
+}
+
+/* Authors subtitle */
+[data-theme="dark"] .card-subtitle {
+    color: var(--text-color-secondary);
+}
+
+/* All headings in book detail sections */
+[data-theme="dark"] .book-details h3,
+[data-theme="dark"] .book-details h4,
+[data-theme="dark"] .book-details h5 {
+    color: var(--text-color-primary);
+}
+
+/* Metadata values (bold text) */
+[data-theme="dark"] .fw-bold,
+[data-theme="dark"] .metadata-value {
+    color: var(--text-color-primary);
+}
+
+/* Small muted text (labels) - proper specificity without !important */
+[data-theme="dark"] .small.text-muted,
+[data-theme="dark"] small.text-muted,
+[data-theme="dark"] div.small.text-muted,
+[data-theme="dark"] .text-muted.small {
+    color: var(--text-color-secondary);
+}
+
+@layer theme-overrides {
+    /* Details tab - metadata labels like "Page Count", "ISBN-13", etc. */
+    [data-theme="dark"] .tab-pane#details .card .card-body .row .col-md-6 .d-flex div .small.text-muted,
+    [data-theme="dark"] #details .book-details-section .card .row.g-3 .col-md-6 .d-flex.align-items-center div div.small.text-muted,
+    [data-theme="dark"] .tab-pane.fade#details .card-body .row .d-flex div .small.text-muted {
+        color: var(--text-color-secondary);
+    }
+}
+
+@layer theme-overrides {
+    /* Similar books section - book titles */
+    [data-theme="dark"] .similar-books-section .row .col-sm-6 .card .card-body h5.card-title.text-truncate a.text-decoration-none.text-dark,
+    [data-theme="dark"] div.similar-books-section .card .card-body h5.card-title a.text-dark {
+        color: var(--text-color-primary);
+    }
+
+    /* Similar books - author text */
+    [data-theme="dark"] .similar-books-section .row .col-sm-6 .card .card-body p.card-text.small.text-muted.text-truncate,
+    [data-theme="dark"] div.similar-books-section .card .card-body p.card-text.small.text-muted {
+        color: var(--text-color-secondary);
+    }
+}
+
+@layer theme-overrides {
+    /* Categories section description text */
+    [data-theme="dark"] .tab-pane#categories .categories-section p.text-muted,
+    [data-theme="dark"] .tab-pane#categories p.text-muted.mb-3,
+    [data-theme="dark"] #categories .categories-section .text-muted {
+        color: var(--text-color-secondary);
+    }
+}
+
+/* Other editions section */
+[data-theme="dark"] .other-editions-section .card-title,
+[data-theme="dark"] .other-editions-section h5 {
+    color: var(--text-color-primary);
+}
+
+[data-theme="dark"] .other-editions-section small,
+[data-theme="dark"] .other-editions-section .small {
+    color: var(--text-color-secondary);
+}
+
+/* Purchase options and view on headings */
+[data-theme="dark"] .book-links + h5,
+[data-theme="dark"] .book-details-section h5 {
+    color: var(--text-color-primary);
+}
+
+/* Card body text */
+[data-theme="dark"] .card-body p,
+[data-theme="dark"] .card-body h5,
+[data-theme="dark"] .card-body h4,
+[data-theme="dark"] .card-body h3 {
+    color: var(--text-color-primary);
+}
+
+/* Description text */
+[data-theme="dark"] .description-text,
+[data-theme="dark"] .book-description h5 {
+    color: var(--text-color-primary);
+}
+
+/* Tab content paragraph text */
+[data-theme="dark"] .tab-pane p {
+    color: var(--text-color-secondary);
+}
+
+/* Book detail cards - ensure proper backgrounds */
+[data-theme="dark"] .book-details .card,
+[data-theme="dark"] .book-details-section .card {
+    background-color: var(--card-bg);
+    border-color: var(--border-color);
+}
+
+[data-theme="dark"] .book-details .card-body,
+[data-theme="dark"] .other-editions-section .card-body {
+    background-color: var(--card-bg);
+}
+
+/* Similar books cards */
+[data-theme="dark"] .similar-books-section .card {
+    background-color: var(--card-bg);
+    border-color: var(--border-color);
+}
+
+[data-theme="dark"] .similar-books-section .card-body {
+    background-color: var(--card-bg);
+}
+
+[data-theme="dark"] .similar-books-section .card-footer {
+    background-color: var(--card-bg);
+    border-color: var(--border-color);
+}
+
+/* Breadcrumbs */
+[data-theme="dark"] .breadcrumb {
+    background-color: transparent;
+}
+
+[data-theme="dark"] .breadcrumb-item,
+[data-theme="dark"] .breadcrumb-item a {
+    color: var(--text-color-secondary);
+}
+
+[data-theme="dark"] .breadcrumb-item.active {
+    color: var(--text-color-primary);
+}
+
+[data-theme="dark"] .breadcrumb-item + .breadcrumb-item::before {
+    color: var(--text-color-secondary);
+}
+
+/* Ensure all links in book detail page are visible */
+[data-theme="dark"] .book-details a:not(.btn) {
+    color: var(--link-color);
+}
+
+[data-theme="dark"] .book-details a:not(.btn):hover {
+    color: var(--link-hover-color);
+}
+
+/* Book detail main card */
+[data-theme="dark"] .book-details > .card {
+    background-color: var(--card-bg);
+    border-color: var(--border-color);
 }
 /* END Tab Styling */
 
@@ -953,6 +1335,32 @@
 [data-theme="dark"] .card .card-text.small,
 [data-theme="dark"] .card .card-text.small a,
 [data-theme="dark"] .card .text-muted {
+    color: var(--text-color-secondary);
+}
+
+/* Search results card text visibility fixes - override Bootstrap text-dark class */
+[data-theme="dark"] .card .book-title,
+[data-theme="dark"] .card .book-title a,
+[data-theme="dark"] .card .book-title .text-dark,
+[data-theme="dark"] .card-title .text-decoration-none.text-dark {
+    color: var(--text-color-primary);
+}
+
+/* Book Author - Light mode */
+.book-author,
+.card-text.book-author,
+p.card-text.book-author {
+    color: #57534E; /* gray-600 */
+}
+
+/* Book Author - Dark mode */
+[data-theme="dark"] .card .book-author,
+[data-theme="dark"] .card-text.book-author,
+[data-theme="dark"] p.card-text.book-author {
+    color: var(--text-color-secondary);
+}
+
+[data-theme="dark"] .card .book-description {
     color: var(--text-color-secondary);
 }
 
@@ -1056,6 +1464,51 @@
     background-color: transparent;
 }
 
+/* Tab pane text visibility in dark mode */
+[data-theme="dark"] .tab-pane h5,
+[data-theme="dark"] .tab-pane .card-text {
+    color: var(--text-color-primary);
+}
+
+[data-theme="dark"] .tab-pane .text-muted,
+[data-theme="dark"] .tab-pane p.text-muted {
+    color: var(--text-color-secondary);
+}
+
+/* Categories section text visibility in dark mode */
+[data-theme="dark"] .categories-section h5,
+[data-theme="dark"] .categories-section .card-text {
+    color: var(--text-color-primary);
+}
+
+[data-theme="dark"] .categories-section .text-muted,
+[data-theme="dark"] .categories-section p.text-muted {
+    color: var(--text-color-secondary);
+}
+
+/* Details section text visibility in dark mode */
+[data-theme="dark"] .details-section h5,
+[data-theme="dark"] .details-section .card-text,
+[data-theme="dark"] .details-section .metadata-value {
+    color: var(--text-color-primary);
+}
+
+[data-theme="dark"] .details-section .text-muted,
+[data-theme="dark"] .details-section .metadata-label {
+    color: var(--text-color-secondary);
+}
+
+/* Other editions section text visibility in dark mode */
+[data-theme="dark"] .other-editions-section h5,
+[data-theme="dark"] .other-editions-section .list-group-item-heading {
+    color: var(--text-color-primary);
+}
+
+[data-theme="dark"] .other-editions-section .text-muted,
+[data-theme="dark"] .other-editions-section .list-group-item-text {
+    color: var(--text-color-secondary);
+}
+
 /* Ensure breadcrumb links have proper styling */
 [data-theme="dark"] .breadcrumb-item a:hover {
     color: var(--link-hover-color);
@@ -1104,42 +1557,42 @@
 
 /* Uniform height & centering for affiliate buttons & dropdown */
 .btn-affiliate {
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    height: 2.5rem !important;
-    padding: 0 1.25rem !important;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 2.5rem;
+    padding: 0 1.25rem;
 }
 
 .btn.btn-barnesandnoble {
-    background-color: #00563f !important;
-    border-color: #00563f !important;
-    color: #ffffff !important;
+    background-color: var(--affiliate-barnesandnoble-bg);
+    border-color: var(--affiliate-barnesandnoble-border);
+    color: var(--affiliate-barnesandnoble-text);
 }
 .btn.btn-barnesandnoble:hover {
-    background-color: #00402f !important;
-    border-color: #003526 !important;
+    background-color: var(--affiliate-barnesandnoble-hover-bg);
+    border-color: var(--affiliate-barnesandnoble-hover-border);
 }
 
 .btn.btn-bookshop {
-    background-color: #4C32C0 !important;
-    border-color: #4C32C0 !important;
-    color: #ffffff !important;
+    background-color: var(--affiliate-bookshop-bg);
+    border-color: var(--affiliate-bookshop-border);
+    color: var(--affiliate-bookshop-text);
 }
 .btn.btn-bookshop:hover {
-    background-color: #3c28a0 !important;
-    border-color: #302080 !important;
+    background-color: var(--affiliate-bookshop-hover-bg);
+    border-color: var(--affiliate-bookshop-hover-border);
 }
 
 .btn.btn-audible {
-    background-color: #ff9900 !important;
-    border-color: #ff9900 !important;
-    color: #000000 !important;
+    background-color: var(--affiliate-audible-bg);
+    border-color: var(--affiliate-audible-border);
+    color: var(--affiliate-audible-text);
 }
 .btn.btn-audible:hover {
-    background-color: #e68a00 !important;
-    border-color: #cc7a00 !important;
-    color: #000000 !important;
+    background-color: var(--affiliate-audible-hover-bg);
+    border-color: var(--affiliate-audible-hover-border);
+    color: var(--affiliate-audible-text);
 }
 /* End Custom Affiliate Button Styles */
 
@@ -1152,12 +1605,12 @@
     margin-left: .5rem;
 }
 .affiliate-dropdown .dropdown-menu {
-    background-color: #fff;
-    border: 1px solid rgba(0,0,0,0.1);
-    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    background-color: var(--dropdown-overlay-bg);
+    border: 1px solid var(--dropdown-overlay-border);
+    box-shadow: var(--dropdown-elevated-shadow);
     border-radius: .5rem;
     transition: none;
-    transform: none !important;
+    transform: none;
     margin-top: .25rem;
     -webkit-backdrop-filter: blur(8px);
     backdrop-filter: blur(8px);
@@ -1167,15 +1620,13 @@
     transition: background-color 0.2s ease, color 0.2s ease;
 }
 .affiliate-dropdown .dropdown-item:hover {
-    background-color: #f8f9fa;
+    background-color: var(--dropdown-item-highlight-bg);
+    color: var(--dropdown-item-highlight-text);
 }
 /* Dark mode overrides for affiliate dropdown */
 [data-theme="dark"] .affiliate-dropdown .dropdown-menu {
-    background-color: #2d2d2d;
-    border-color: rgba(255,255,255,0.1);
-}
-[data-theme="dark"] .affiliate-dropdown .dropdown-item:hover {
-    background-color: rgba(255,255,255,0.1);
+    background-color: var(--dropdown-overlay-bg);
+    border-color: var(--dropdown-overlay-border);
 }
 
 /* Improved Affiliate Dropdown Positioning and Width */
@@ -1185,16 +1636,16 @@
     overflow: visible;
 }
 .affiliate-dropdown .dropdown-menu {
-    min-width: 200px !important;
-    width: auto !important;
-    max-width: 300px !important;
-    left: 0 !important;
-    right: auto !important;
-    z-index: 1050 !important;
+    min-width: 200px;
+    width: auto;
+    max-width: 300px;
+    left: 0;
+    right: auto;
+    z-index: 1050;
     -webkit-backdrop-filter: blur(8px);
     backdrop-filter: blur(8px);
-    background-color: rgba(255,255,255,0.85);
-    border: 1px solid rgba(0,0,0,0.1);
+    background-color: var(--dropdown-overlay-bg);
+    border: 1px solid var(--dropdown-overlay-border);
     border-radius: .5rem;
     white-space: nowrap;
 }
@@ -1202,42 +1653,42 @@
 /* Responsive sizing for dropdown on mobile */
 @media (max-width: 767.98px) {
     .affiliate-dropdown .dropdown-menu {
-        min-width: 180px !important;
-        max-width: calc(100vw - 2rem) !important;
+        min-width: 180px;
+        max-width: calc(100vw - 2rem);
     }
 }
 
 /* Dark mode reinterpretation */
 [data-theme="dark"] .affiliate-dropdown .dropdown-menu {
-    background-color: rgba(20,20,30,0.85) !important;
-    border-color: rgba(255,255,255,0.1) !important;
+    background-color: var(--dropdown-overlay-bg);
+    border-color: var(--dropdown-overlay-border);
 }
 
 /* Consistent colors for dropdown items */
 .affiliate-dropdown .dropdown-item {
-    color: var(--text-color-primary) !important;
+    color: var(--text-color-primary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 .affiliate-dropdown .dropdown-item:hover,
 .affiliate-dropdown .dropdown-item:focus {
-    background-color: #D4A574 !important; /* Canvas-400 */
-    color: #ffffff !important;
+    background-color: var(--dropdown-item-highlight-bg);
+    color: var(--dropdown-item-highlight-text);
 }
 .affiliate-dropdown .dropdown-item.active {
-    background-color: #D4A574 !important;
-    color: #ffffff !important;
+    background-color: var(--dropdown-item-highlight-bg);
+    color: var(--dropdown-item-highlight-text);
 }
 
 /* Allow affiliate dropdown menu to overflow main book card */
 .book-details > .card.shadow.border-0.mb-5 {
-    overflow: visible !important;
+    overflow: visible;
 }
 
 /* Ensure tab content allows dropdown overflow */
 .tab-content {
-    overflow: visible !important;
+    overflow: visible;
 }
 /* END Affiliate Buttons & Dropdowns */
 
@@ -1319,7 +1770,7 @@
 }
 
 [data-theme="dark"] .badge.text-dark {
-    color: #F8FAFC !important; /* Override Bootstrap's text-dark in dark mode */
+    color: #F8FAFC; /* Override Bootstrap's text-dark in dark mode */
 }
 /* END Bootstrap Badge Dark Mode */
 
@@ -1476,7 +1927,7 @@
 [data-theme="dark"] .container-fluid,
 [data-theme="dark"] div.container,
 [data-theme="dark"] div.container-fluid {
-    background-color: transparent !important; /* Force transparent to let parent background show through */
+    background-color: transparent; /* Force transparent to let parent background show through */
 }
 
 /* Ensure the main page container areas don't have white backgrounds */
@@ -1484,7 +1935,7 @@
 [data-theme="dark"] .main-content .container,
 [data-theme="dark"] main div.container,
 [data-theme="dark"] .main-content div.container {
-    background-color: transparent !important;
+    background-color: transparent;
 }
 
 /* Target Bootstrap padding utility classes that might have backgrounds */
@@ -1493,14 +1944,14 @@
 [data-theme="dark"] .py-3,
 [data-theme="dark"] .py-4,
 [data-theme="dark"] .py-5 {
-    background-color: transparent !important;
+    background-color: transparent;
 }
 
 /* Ensure Bootstrap grid system elements are transparent */
 [data-theme="dark"] .row,
 [data-theme="dark"] .col,
 [data-theme="dark"] [class*="col-"] {
-    background-color: transparent !important;
+    background-color: transparent;
 }
 
 /* Ensure all direct children of main content areas are transparent */
@@ -1508,12 +1959,126 @@
 [data-theme="dark"] .main-content > *,
 [data-theme="dark"] main > div,
 [data-theme="dark"] .main-content > div {
-    background-color: transparent !important;
+    background-color: transparent;
 }
 
 /* Nuclear option: Force all divs within main to be transparent unless they're cards/alerts */
 [data-theme="dark"] main div:not(.card):not(.alert):not(.badge):not(.btn),
 [data-theme="dark"] .main-content div:not(.card):not(.alert):not(.badge):not(.btn) {
-    background-color: transparent !important;
+    background-color: transparent;
 }
 /* END Container Dark Mode */
+
+/* =============================================================================
+   CUSTOM TEXT CLASSES - Replace Bootstrap utilities
+   These don't use !important, so they work in both light and dark modes
+   ============================================================================= */
+
+/* Detail labels (replaces .small.text-muted) */
+.detail-label {
+    font-size: 0.875rem;
+    color: #6c757d;
+}
+
+.detail-label-inline {
+    font-size: 0.875rem;
+    color: #6c757d;
+}
+
+[data-theme="dark"] .detail-label,
+[data-theme="dark"] .detail-label-inline {
+    color: #94A3B8;
+}
+
+/* Similar book titles (replaces .text-dark) */
+.similar-book-title {
+    color: #212529;
+}
+
+[data-theme="dark"] .similar-book-title {
+    color: #F8FAFC;
+}
+
+/* Similar book authors (replaces .small.text-muted) */
+.similar-book-author {
+    font-size: 0.875rem;
+    color: #6c757d;
+}
+
+[data-theme="dark"] .similar-book-author {
+    color: #94A3B8;
+}
+
+/* Categories description (replaces .text-muted) */
+.categories-description {
+    color: #6c757d;
+}
+
+[data-theme="dark"] .categories-description {
+    color: #94A3B8;
+}
+
+/* Card footer - proper dark mode background */
+.card-footer {
+    background-color: #ffffff;
+}
+
+[data-theme="dark"] .card-footer {
+    background-color: #1E293B;
+    border-color: #334155;
+}
+
+/* =============================================================================
+   BOOTSTRAP UTILITY CLASS OVERRIDES FOR DARK MODE
+   These MUST come last to override Bootstrap's built-in declarations
+   Using explicit colors to ensure visibility
+   ============================================================================= */
+
+/* Override Bootstrap .text-muted utility for dark mode - CRITICAL FIX */
+[data-theme="dark"] .text-muted,
+[data-theme="dark"] .small.text-muted,
+[data-theme="dark"] small.text-muted,
+[data-theme="dark"] div.text-muted,
+[data-theme="dark"] span.text-muted,
+[data-theme="dark"] p.text-muted {
+    color: #94A3B8;
+}
+
+/* Override Bootstrap .text-dark utility for dark mode - CRITICAL FIX */
+[data-theme="dark"] .text-dark,
+[data-theme="dark"] a.text-dark,
+[data-theme="dark"] span.text-dark,
+[data-theme="dark"] div.text-dark,
+[data-theme="dark"] h1.text-dark,
+[data-theme="dark"] h2.text-dark,
+[data-theme="dark"] h3.text-dark,
+[data-theme="dark"] h4.text-dark,
+[data-theme="dark"] h5.text-dark,
+[data-theme="dark"] h6.text-dark {
+    color: #F8FAFC;
+}
+
+/* Ensure link colors work in dark mode */
+[data-theme="dark"] a.text-dark:hover {
+    color: #C4B8A0;
+}
+
+/* Force all card titles and text to be visible */
+[data-theme="dark"] .card-title,
+[data-theme="dark"] .card-body .card-title,
+[data-theme="dark"] .card-text {
+    color: #F8FAFC;
+}
+
+/* Force similar books section text to be visible */
+[data-theme="dark"] .similar-books-section .card-title,
+[data-theme="dark"] .similar-books-section .card-title a,
+[data-theme="dark"] .similar-books-section a.text-dark {
+    color: #F8FAFC;
+}
+
+[data-theme="dark"] .similar-books-section .card-text,
+[data-theme="dark"] .similar-books-section p.text-muted {
+    color: #94A3B8;
+}
+/* END Bootstrap Utility Overrides */

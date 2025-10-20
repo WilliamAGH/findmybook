@@ -104,7 +104,7 @@ public class GoogleBooksMapper implements ExternalBookMapper {
             .slugBase(slugBase)
             .dimensions(dimensions)
             .editionNumber(null)  // TODO: Derive from title/subtitle/contentVersion
-            .editionGroupKey(null)  // TODO: Build from normalized title + first author
+            // Task #6: editionGroupKey removed - replaced by work_clusters system
             .build();
     }
     
@@ -356,6 +356,10 @@ public class GoogleBooksMapper implements ExternalBookMapper {
      * Extract image links map from volumeInfo.imageLinks.
      * Enhances URLs for better quality following the same heuristics used by {@link #toBookAggregate(JsonNode)}.
      * Per official API: thumbnail (~128px), small (~300px), medium (~575px), large (~800px), extraLarge (~1280px)
+     * 
+     * <p>Filters out URLs that are likely title pages or interior content rather than actual covers.</p>
+     * 
+     * @see com.williamcallahan.book_recommendation_engine.util.cover.CoverUrlValidator
      */
     private Map<String, String> extractImageLinks(JsonNode volumeInfo) {
         Map<String, String> imageLinks = new HashMap<>();
@@ -377,6 +381,14 @@ public class GoogleBooksMapper implements ExternalBookMapper {
                 if (url != null && !url.isBlank()) {
                     // Enhance URL for better quality (HTTP->HTTPS, optimize zoom parameter)
                     String enhancedUrl = enhanceGoogleImageUrl(url, key);
+                    
+                    // Filter out title pages and interior content
+                    // This prevents Google Books API from returning non-cover images
+                    if (!com.williamcallahan.book_recommendation_engine.util.cover.CoverUrlValidator.isLikelyCoverImage(enhancedUrl)) {
+                        log.debug("Filtered out suspected title page/interior image: {} for size {}", enhancedUrl, key);
+                        continue; // Skip this URL
+                    }
+                    
                     imageLinks.put(key, enhancedUrl);
                 }
             }

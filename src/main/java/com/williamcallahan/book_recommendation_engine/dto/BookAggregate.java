@@ -50,7 +50,7 @@ public class BookAggregate {
     
     // Edition information (derived from various sources)
     Integer editionNumber;
-    String editionGroupKey;  // For clustering different editions of same work
+    // Task #6: editionGroupKey removed - replaced by work_clusters system in PostgreSQL
     
     /**
      * External provider identifiers and metadata.

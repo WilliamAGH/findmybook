@@ -136,9 +136,9 @@ public final class BookDtoMapper {
         }
 
         CoverDto cover = buildCoverDto(
-            card.coverUrl(),
-            card.coverUrl(),
-            card.coverUrl(),
+            card.coverUrl(),                                                    // Primary cover URL (S3 or best available)
+            card.fallbackCoverUrl(),                                            // Fallback URL (external source)
+            card.fallbackCoverUrl(),                                            // External image URL (same as fallback)
             null,
             null,
             null,
@@ -176,9 +176,9 @@ public final class BookDtoMapper {
         PublicationDto publication = new PublicationDto(null, null, null, null);
 
         CoverDto cover = buildCoverDto(
-            item.coverUrl(),
-            item.coverUrl(),
-            item.coverUrl(),
+            item.coverUrl(),                                                    // Primary cover URL (S3 or best available)
+            item.coverFallbackUrl(),                                            // Fallback URL (external source)
+            item.coverFallbackUrl(),                                            // External image URL (same as fallback)
             item.coverWidth(),
             item.coverHeight(),
             item.coverHighResolution(),

@@ -25,10 +25,10 @@
         <div class="container mx-auto px-4 max-w-4xl">
             <!-- Refined Typography -->
             <div class="text-center mb-10">
-                <h1 class="font-heading text-4xl md:text-5xl lg:text-6xl font-bold theme-hero-title text-anthracite-900 mb-4 tracking-tight">
+                <h1 class="font-heading text-4xl md:text-5xl lg:text-6xl font-bold theme-hero-title text-anthracite-900 dark:text-slate-50 mb-4 tracking-tight">
                     Discover Your Next Great Read
                 </h1>
-                <p class="text-lg md:text-xl theme-hero-text text-anthracite-600 max-w-2xl mx-auto font-light leading-relaxed">
+                <p class="text-lg md:text-xl theme-hero-text text-anthracite-600 dark:text-slate-400 max-w-2xl mx-auto font-light leading-relaxed">
                     Curated book recommendations with a touch of elegance. Search millions of titles and find your perfect match.
                 </p>
             </div>
@@ -39,12 +39,11 @@
                     <input
                         type="text"
                         name="query"
-                        class="w-full px-6 py-4 pr-14 text-base md:text-lg theme-search-input bg-white
-                               text-anthracite-900 border border-linen-300
-                               rounded-xl shadow-soft focus:shadow-soft-lg
+                        class="w-full px-6 py-4 pr-14 text-base md:text-lg
+                               border border-gray-300 dark:border-slate-700
+                               theme-search-input rounded-xl shadow-soft focus:shadow-soft-lg
                                focus:outline-none focus:ring-2 focus:ring-canvas-400
-                               focus:border-transparent transition-all duration-200
-                               placeholder:text-anthracite-400"
+                               focus:border-transparent transition-all duration-200"
                         placeholder="Search by title, author, or ISBN..."
                         aria-label="Search books"
                         required>
@@ -67,43 +66,23 @@
                 </p>
                 <div class="flex flex-wrap justify-center gap-2">
                     <a href="/search?query=fiction"
-                       class="px-4 py-2 text-sm font-medium theme-tag bg-white
-                              text-anthracite-700 border border-linen-300
-                              rounded-full hover:border-canvas-400
-                              hover:bg-linen-50 hover:text-canvas-700
-                              transition-all duration-200 shadow-sm hover:shadow-md">
+                       class="px-4 py-2 text-sm font-medium theme-tag rounded-full transition-all duration-200 shadow-sm hover:shadow-md border border-gray-300">
                         Fiction
                     </a>
                     <a href="/search?query=mystery"
-                       class="px-4 py-2 text-sm font-medium theme-tag bg-white
-                              text-anthracite-700 border border-linen-300
-                              rounded-full hover:border-canvas-400
-                              hover:bg-linen-50 hover:text-canvas-700
-                              transition-all duration-200 shadow-sm hover:shadow-md">
+                       class="px-4 py-2 text-sm font-medium theme-tag rounded-full transition-all duration-200 shadow-sm hover:shadow-md border border-gray-300">
                         Mystery
                     </a>
                     <a href="/search?query=sci-fi"
-                       class="px-4 py-2 text-sm font-medium theme-tag bg-white
-                              text-anthracite-700 border border-linen-300
-                              rounded-full hover:border-canvas-400
-                              hover:bg-linen-50 hover:text-canvas-700
-                              transition-all duration-200 shadow-sm hover:shadow-md">
+                       class="px-4 py-2 text-sm font-medium theme-tag rounded-full transition-all duration-200 shadow-sm hover:shadow-md border border-gray-300">
                         Science Fiction
                     </a>
                     <a href="/search?query=fantasy"
-                       class="px-4 py-2 text-sm font-medium theme-tag bg-white
-                              text-anthracite-700 border border-linen-300
-                              rounded-full hover:border-canvas-400
-                              hover:bg-linen-50 hover:text-canvas-700
-                              transition-all duration-200 shadow-sm hover:shadow-md">
+                       class="px-4 py-2 text-sm font-medium theme-tag rounded-full transition-all duration-200 shadow-sm hover:shadow-md border border-gray-300">
                         Fantasy
                     </a>
                     <a href="/search?query=biography"
-                       class="px-4 py-2 text-sm font-medium theme-tag bg-white
-                              text-anthracite-700 border border-linen-300
-                              rounded-full hover:border-canvas-400
-                              hover:bg-linen-50 hover:text-canvas-700
-                              transition-all duration-200 shadow-sm hover:shadow-md">
+                       class="px-4 py-2 text-sm font-medium theme-tag rounded-full transition-all duration-200 shadow-sm hover:shadow-md border border-gray-300">
                         Biography
                     </a>
                 </div>
@@ -115,13 +94,13 @@
     <section class="py-12 md:py-16 theme-section transition-colors duration-300">
         <div class="container mx-auto px-4">
             <div class="flex justify-between items-center mb-8">
-                <h2 class="text-2xl md:text-3xl font-heading font-bold theme-section-title text-anthracite-900">
+                <h2 class="text-2xl md:text-3xl font-heading font-bold theme-section-title text-anthracite-900 dark:text-slate-50">
                     NYT Bestsellers
                 </h2>
                 <a th:href="@{/search(query='new york times', year=${T(java.time.Year).now().getValue()})}"
-                   class="px-6 py-2.5 text-sm font-medium theme-section-link text-canvas-600
-                          border border-canvas-400 rounded-lg
-                          hover:bg-canvas-50 hover:text-canvas-700
+                   class="px-6 py-2.5 text-sm font-medium theme-section-link text-canvas-600 dark:text-canvas-400
+                          border border-canvas-400 dark:border-canvas-600 rounded-lg
+                          hover:bg-canvas-50 dark:hover:bg-slate-700 hover:text-canvas-700 dark:hover:text-canvas-300
                           transition-all duration-200">
                     View All
                 </a>
@@ -147,13 +126,13 @@
     <section class="py-12 md:py-16 theme-section-alt transition-colors duration-300">
         <div class="container mx-auto px-4">
             <div class="flex justify-between items-center mb-8">
-                <h2 class="text-2xl md:text-3xl font-heading font-bold theme-section-title text-anthracite-900">
+                <h2 class="text-2xl md:text-3xl font-heading font-bold theme-section-title text-anthracite-900 dark:text-slate-50">
                     Recent Views
                 </h2>
                 <a href="/search?query=explore"
-                   class="px-6 py-2.5 text-sm font-medium theme-section-link text-canvas-600
-                          border border-canvas-400 rounded-lg
-                          hover:bg-canvas-50 hover:text-canvas-700
+                   class="px-6 py-2.5 text-sm font-medium theme-section-link text-canvas-600 dark:text-canvas-400
+                          border border-canvas-400 dark:border-canvas-600 rounded-lg
+                          hover:bg-canvas-50 dark:hover:bg-slate-700 hover:text-canvas-700 dark:hover:text-canvas-300
                           transition-all duration-200">
                     Explore More
                 </a>

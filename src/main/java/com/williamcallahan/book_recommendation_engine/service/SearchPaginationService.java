@@ -110,6 +110,10 @@ public class SearchPaginationService {
             }
             book.addQualifier("search.matchType", result.matchTypeNormalized());
             book.addQualifier("search.relevanceScore", result.relevanceScore());
+            book.addQualifier("search.editionCount", result.editionCount());
+            if (result.clusterId() != null) {
+                book.addQualifier("search.clusterId", result.clusterId().toString());
+            }
             ordered.add(book);
         }
         return ordered;
@@ -269,9 +273,24 @@ public class SearchPaginationService {
             : resolutionPreference;
 
         return books.stream()
+            .filter(book -> !isCoverSuppressed(book))
             .filter(book -> matchesSourcePreference(book, effectiveSource))
             .filter(book -> matchesResolutionPreference(book, effectiveResolution))
             .collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    private boolean isCoverSuppressed(Book book) {
+        if (book == null || book.getQualifiers() == null) {
+            return false;
+        }
+        Object suppressed = book.getQualifiers().get("cover.suppressed");
+        if (suppressed instanceof Boolean booleanValue) {
+            return booleanValue;
+        }
+        if (suppressed instanceof String stringValue) {
+            return Boolean.parseBoolean(stringValue);
+        }
+        return false;
     }
 
     private boolean matchesSourcePreference(Book book, CoverImageSource preference) {

@@ -137,6 +137,28 @@
   --button-outline-primary-hover-text: var(--brand-primary-dark); /* Hover text */
 
   /* ==========================================================================
+     AFFILIATE BUTTONS - Brand tokens
+     Used by: Outbound retailer buttons and hover states
+     ========================================================================== */
+  --affiliate-barnesandnoble-bg: #00563F;
+  --affiliate-barnesandnoble-border: #00563F;
+  --affiliate-barnesandnoble-hover-bg: #00402F;
+  --affiliate-barnesandnoble-hover-border: #003526;
+  --affiliate-barnesandnoble-text: var(--text-on-primary-bg);
+
+  --affiliate-bookshop-bg: #4C32C0;
+  --affiliate-bookshop-border: #4C32C0;
+  --affiliate-bookshop-hover-bg: #3C28A0;
+  --affiliate-bookshop-hover-border: #302080;
+  --affiliate-bookshop-text: var(--text-on-primary-bg);
+
+  --affiliate-audible-bg: #FF9900;
+  --affiliate-audible-border: #FF9900;
+  --affiliate-audible-hover-bg: #E68A00;
+  --affiliate-audible-hover-border: #CC7A00;
+  --affiliate-audible-text: #000000;
+
+  /* ==========================================================================
      PLACEHOLDERS - Empty states
      Used by: Image placeholders, empty book covers
      ========================================================================== */
@@ -153,6 +175,11 @@
   --dropdown-item-hover-text: var(--text-color-primary); /* Item hover text */
   --dropdown-item-active-bg: rgba(212, 165, 116, 0.15); /* Active item background */
   --dropdown-item-active-text: var(--brand-primary-dark); /* Active item text */
+  --dropdown-overlay-bg: rgba(255, 255, 255, 0.85);    /* Elevated dropdown background */
+  --dropdown-overlay-border: rgba(0, 0, 0, 0.1);       /* Elevated dropdown border */
+  --dropdown-elevated-shadow: 0 4px 20px rgba(0, 0, 0, 0.15); /* Elevated dropdown shadow */
+  --dropdown-item-highlight-bg: var(--brand-primary);  /* Highlighted item background */
+  --dropdown-item-highlight-text: var(--text-on-primary-bg); /* Highlighted item text */
 
   /* ==========================================================================
      FOOTER - Site footer styling
@@ -247,6 +274,27 @@
   --button-outline-primary-hover-text: #D4CAB7;  /* Canvas-400 */
 
   /* ==========================================================================
+     AFFILIATE BUTTONS - Brand tokens (dark theme parity)
+     ========================================================================== */
+  --affiliate-barnesandnoble-bg: #00563F;
+  --affiliate-barnesandnoble-border: #00563F;
+  --affiliate-barnesandnoble-hover-bg: #00402F;
+  --affiliate-barnesandnoble-hover-border: #003526;
+  --affiliate-barnesandnoble-text: #F8FAFC;
+
+  --affiliate-bookshop-bg: #4C32C0;
+  --affiliate-bookshop-border: #4C32C0;
+  --affiliate-bookshop-hover-bg: #3C28A0;
+  --affiliate-bookshop-hover-border: #302080;
+  --affiliate-bookshop-text: #F8FAFC;
+
+  --affiliate-audible-bg: #FF9900;
+  --affiliate-audible-border: #FF9900;
+  --affiliate-audible-hover-bg: #E68A00;
+  --affiliate-audible-hover-border: #CC7A00;
+  --affiliate-audible-text: #0F1419;
+
+  /* ==========================================================================
      DARK THEME - Placeholders
      Used by: Empty states in dark mode
      ========================================================================== */
@@ -263,6 +311,11 @@
   --dropdown-item-hover-text: #F8FAFC;    /* Slate-50 */
   --dropdown-item-active-bg: rgba(168, 151, 120, 0.2); /* Canvas active */
   --dropdown-item-active-text: #C4B8A0;   /* Canvas-500 */
+  --dropdown-overlay-bg: rgba(20, 20, 30, 0.85);       /* Elevated dropdown background */
+  --dropdown-overlay-border: rgba(148, 163, 184, 0.25); /* Elevated dropdown border */
+  --dropdown-elevated-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); /* Elevated dropdown shadow */
+  --dropdown-item-highlight-bg: rgba(168, 151, 120, 0.2);    /* Highlighted item background */
+  --dropdown-item-highlight-text: #F8FAFC; /* Highlight text */
 
   /* ==========================================================================
      DARK THEME - Footer

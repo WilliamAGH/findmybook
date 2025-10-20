@@ -7,7 +7,10 @@ import com.williamcallahan.book_recommendation_engine.service.image.CoverPersist
 import com.williamcallahan.book_recommendation_engine.util.CategoryNormalizer;
 import com.williamcallahan.book_recommendation_engine.util.DimensionParser;
 import com.williamcallahan.book_recommendation_engine.util.IdGenerator;
+import com.williamcallahan.book_recommendation_engine.util.IsbnUtils;
 import com.williamcallahan.book_recommendation_engine.util.UrlUtils;
+import com.williamcallahan.book_recommendation_engine.util.cover.CoverQuality;
+import com.williamcallahan.book_recommendation_engine.util.cover.ImageDimensionUtils;
 import lombok.Builder;
 import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
@@ -162,6 +165,10 @@ public class BookUpsertService {
         String context = source != null ? source : "POSTGRES_UPSERT";
         String canonicalImageUrl = selectPreferredImageUrl(normalizedImageLinks);
 
+        if (isNew) {
+            clusterNewBook(bookId, aggregate);
+        }
+
         // 9. Emit outbox event (transactional) and publish in-process event
         emitOutboxEvent(bookId, slug, aggregate.getTitle(), isNew, context, canonicalImageUrl, normalizedImageLinks, source);
         publishBookUpsertEvent(bookId, slug, aggregate.getTitle(), isNew, context, canonicalImageUrl, normalizedImageLinks, source);
@@ -177,41 +184,143 @@ public class BookUpsertService {
     
     /**
      * Find existing book ID or return null for new book.
+     * Uses PostgreSQL advisory locks to prevent race conditions during concurrent upserts.
+     *
      * Lookup strategy (in order):
-     * 1. External ID (source + externalId)
-     * 2. ISBN-13
-     * 3. ISBN-10
+     * Task #9: Prioritize universal identifiers (ISBN) over source-specific ones
+     * 1. ISBN-13 (universal identifier)
+     * 2. ISBN-10 (universal identifier)
+     * 3. External ID (source-specific identifier)
+     *
+     * For books WITH identifiers: Acquires advisory lock based on stable hash of identifiers
+     * to prevent duplicate inserts from concurrent requests.
+     *
+     * For books WITHOUT identifiers: Falls back to unsafe path (no lock protection).
      */
     private UUID findOrCreateBookId(BookAggregate aggregate) {
-        // Try external ID first
+        // Compute lock key from book identifiers
+        Long lockKey = computeBookLockKey(aggregate);
+
+        if (lockKey == null) {
+            // No identifiers available - fall back to unsafe path
+            log.warn("Book has no identifiers (ISBN/externalId) - cannot use advisory lock. Race condition possible.");
+            return findOrCreateBookIdUnsafe(aggregate);
+        }
+
+        // Acquire PostgreSQL advisory lock for this book
+        // Lock is automatically released when transaction commits/rolls back
+        try {
+            jdbcTemplate.execute("SELECT pg_advisory_xact_lock(" + lockKey + ")");
+            log.debug("Acquired advisory lock {} for book lookup", lockKey);
+        } catch (Exception e) {
+            log.warn("Failed to acquire advisory lock {}, proceeding without lock: {}", lockKey, e.getMessage());
+            return findOrCreateBookIdUnsafe(aggregate);
+        }
+
+        // Now safely query within locked section
+        return findOrCreateBookIdUnsafe(aggregate);
+    }
+
+    /**
+     * Computes a stable numeric lock key from book identifiers.
+     * Priority order: ISBN-13 > ISBN-10 > External ID
+     *
+     * <p>Task #9: ISBNs are normalized using IsbnUtils.sanitize() to remove hyphens, spaces,
+     * and other formatting characters. This ensures that "978-0-545-01022-1" and "9780545010221"
+     * generate the SAME lock key, preventing race conditions and duplicate book creation when
+     * different sources format ISBNs differently.</p>
+     *
+     * Returns null if book has no identifiers (title-only books).
+     *
+     * Uses Java's String.hashCode() which is stable across JVM instances
+     * and deterministic for the same input string.
+     */
+    private Long computeBookLockKey(BookAggregate aggregate) {
+        String lockString = null;
+
+        // Priority 1: ISBN-13 (most stable, globally unique)
+        // Sanitize to ensure "978-0-545-01022-1" and "9780545010221" produce same lock
+        String sanitizedIsbn13 = IsbnUtils.sanitize(aggregate.getIsbn13());
+        if (sanitizedIsbn13 != null) {
+            lockString = "ISBN13:" + sanitizedIsbn13;
+        }
+        // Priority 2: ISBN-10 (stable, globally unique)
+        // Sanitize to ensure "0-545-01022-6" and "0545010226" produce same lock
+        else {
+            String sanitizedIsbn10 = IsbnUtils.sanitize(aggregate.getIsbn10());
+            if (sanitizedIsbn10 != null) {
+                lockString = "ISBN10:" + sanitizedIsbn10;
+            }
+        }
+
+        // Priority 3: External ID (source-specific unique identifier)
+        if (lockString == null && aggregate.getIdentifiers() != null) {
+            String source = aggregate.getIdentifiers().getSource();
+            String externalId = aggregate.getIdentifiers().getExternalId();
+            if (source != null && externalId != null && !externalId.isBlank()) {
+                lockString = source + ":" + externalId.trim();
+            }
+        }
+
+        if (lockString == null) {
+            return null; // No identifiers available
+        }
+
+        // Convert string to stable 64-bit integer for pg_advisory_xact_lock
+        // Use hashCode() which is deterministic for same input
+        long hash = (long) lockString.hashCode();
+
+        // Ensure positive value (pg_advisory_xact_lock accepts bigint)
+        return Math.abs(hash);
+    }
+
+    /**
+     * Unsafe book ID lookup without advisory lock protection.
+     * Used as fallback for books without identifiers or when lock acquisition fails.
+     *
+     * Task #9: Prioritizes universal identifiers (ISBN) over source-specific ones to prevent
+     * duplicate book creation when same ISBN comes from different sources with different external IDs.
+     *
+     * RACE CONDITION POSSIBLE: Two concurrent requests may create duplicate books.
+     */
+    private UUID findOrCreateBookIdUnsafe(BookAggregate aggregate) {
+        String sanitizedIsbn13 = IsbnUtils.sanitize(aggregate.getIsbn13());
+        if (sanitizedIsbn13 != null) {
+            UUID existing = findBookByIsbn13(sanitizedIsbn13);
+            if (existing != null) {
+                log.debug("Found existing book {} by ISBN-13 {}", existing, sanitizedIsbn13);
+                return existing;
+            }
+        }
+
+        String sanitizedIsbn10 = IsbnUtils.sanitize(aggregate.getIsbn10());
+        if (sanitizedIsbn10 != null) {
+            UUID existing = findBookByIsbn10(sanitizedIsbn10);
+            if (existing != null) {
+                log.debug("Found existing book {} by ISBN-10 {}", existing, sanitizedIsbn10);
+                return existing;
+            }
+        }
+
         if (aggregate.getIdentifiers() != null) {
             String source = aggregate.getIdentifiers().getSource();
             String externalId = aggregate.getIdentifiers().getExternalId();
-            
+
             if (source != null && externalId != null) {
                 UUID existing = findBookByExternalId(source, externalId);
                 if (existing != null) {
+                    log.debug("Found existing book {} by external identifier {}/{}", existing, source, externalId);
                     return existing;
                 }
             }
         }
-        
-        // Try ISBN-13
-        if (aggregate.getIsbn13() != null) {
-            UUID existing = findBookByIsbn13(aggregate.getIsbn13());
-            if (existing != null) {
-                return existing;
-            }
+
+        UUID clusteredMatch = findBookByWorkCluster(sanitizedIsbn13);
+        if (clusteredMatch != null) {
+            log.debug("Found existing book {} via work cluster lookup", clusteredMatch);
+            return clusteredMatch;
         }
-        
-        // Try ISBN-10
-        if (aggregate.getIsbn10() != null) {
-            UUID existing = findBookByIsbn10(aggregate.getIsbn10());
-            if (existing != null) {
-                return existing;
-            }
-        }
-        
+
         return null; // Book doesn't exist
     }
     
@@ -233,33 +342,120 @@ public class BookUpsertService {
     
     /**
      * Find book by ISBN-13.
+     * <p>Task #9: Sanitizes ISBN before lookup to match normalized storage format.
+     * Ensures "978-0-545-01022-1" finds books stored as "9780545010221".</p>
      */
     private UUID findBookByIsbn13(String isbn13) {
+        String sanitized = IsbnUtils.sanitize(isbn13);
+        if (sanitized == null) {
+            return null;
+        }
+
         try {
             return jdbcTemplate.query(
                 "SELECT id FROM books WHERE isbn13 = ? LIMIT 1",
                 rs -> rs.next() ? (UUID) rs.getObject("id") : null,
-                isbn13
+                sanitized
             );
         } catch (Exception e) {
             log.debug("Error finding book by ISBN-13: {}", e.getMessage());
             return null;
         }
     }
-    
+
     /**
      * Find book by ISBN-10.
+     * <p>Task #9: Sanitizes ISBN before lookup to match normalized storage format.
+     * Ensures "0-545-01022-6" finds books stored as "0545010226".</p>
      */
     private UUID findBookByIsbn10(String isbn10) {
+        String sanitized = IsbnUtils.sanitize(isbn10);
+        if (sanitized == null) {
+            return null;
+        }
+
         try {
             return jdbcTemplate.query(
                 "SELECT id FROM books WHERE isbn10 = ? LIMIT 1",
                 rs -> rs.next() ? (UUID) rs.getObject("id") : null,
-                isbn10
+                sanitized
             );
         } catch (Exception e) {
             log.debug("Error finding book by ISBN-10: {}", e.getMessage());
             return null;
+        }
+    }
+
+    private UUID findBookByWorkCluster(String sanitizedIsbn13) {
+        if (sanitizedIsbn13 == null) {
+            return null;
+        }
+
+        String isbnPrefix = extractIsbnPrefix(sanitizedIsbn13);
+        if (isbnPrefix == null) {
+            return null;
+        }
+
+        try {
+            return jdbcTemplate.query(
+                """
+                SELECT wcm.book_id
+                FROM work_clusters wc
+                JOIN work_cluster_members wcm ON wcm.cluster_id = wc.id
+                WHERE wc.isbn_prefix = ?
+                  AND wcm.is_primary = true
+                LIMIT 1
+                """,
+                rs -> rs.next() ? (UUID) rs.getObject("book_id") : null,
+                isbnPrefix
+            );
+        } catch (Exception e) {
+            log.debug("Error finding book by work cluster prefix {}: {}", isbnPrefix, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Performs immediate work-cluster maintenance for a freshly persisted book.
+     * <p>
+     * This mirrors the scheduled {@link com.williamcallahan.book_recommendation_engine.scheduler.WorkClusterScheduler}
+     * but runs in-line so that new editions join their work family within the same transaction.
+     *
+     * @param bookId   canonical book identifier generated during the upsert
+     * @param aggregate normalized payload used to determine ISBN and provider identifiers
+     */
+    private void clusterNewBook(UUID bookId, BookAggregate aggregate) {
+        if (bookId == null) {
+            return;
+        }
+
+        String sanitizedIsbn13 = IsbnUtils.sanitize(aggregate.getIsbn13());
+        if (sanitizedIsbn13 != null) {
+            try {
+                jdbcTemplate.query(
+                    "SELECT cluster_single_book_by_isbn(?)",
+                    ps -> ps.setObject(1, bookId),
+                    rs -> null
+                );
+                log.debug("Triggered ISBN-based clustering for book {}", bookId);
+            } catch (Exception ex) {
+                log.warn("Failed to run cluster_single_book_by_isbn for book {}: {}", bookId, ex.getMessage());
+            }
+        }
+
+        if (aggregate.getIdentifiers() != null
+            && aggregate.getIdentifiers().getGoogleCanonicalId() != null
+            && !aggregate.getIdentifiers().getGoogleCanonicalId().isBlank()) {
+            try {
+                jdbcTemplate.query(
+                    "SELECT cluster_single_book_by_google_id(?)",
+                    ps -> ps.setObject(1, bookId),
+                    rs -> null
+                );
+                log.debug("Triggered Google canonical clustering for book {}", bookId);
+            } catch (Exception ex) {
+                log.warn("Failed to run cluster_single_book_by_google_id for book {}: {}", bookId, ex.getMessage());
+            }
         }
     }
     
@@ -306,15 +502,17 @@ public class BookUpsertService {
     /**
      * UPSERT books table with COALESCE guards.
      * Only updates if new data is present (COALESCE keeps existing if new is null).
+     * <p>Task #9: Sanitizes ISBNs before persistence to ensure consistent formatting.
+     * All ISBNs are stored without hyphens or spaces.</p>
      */
     private void upsertBookRecord(UUID bookId, BookAggregate aggregate, String slug) {
-        Date sqlDate = aggregate.getPublishedDate() != null 
-            ? Date.valueOf(aggregate.getPublishedDate()) 
+        Date sqlDate = aggregate.getPublishedDate() != null
+            ? Date.valueOf(aggregate.getPublishedDate())
             : null;
-        
-        // Convert empty strings to null for unique constraints
-        String isbn10 = nullIfBlank(aggregate.getIsbn10());
-        String isbn13 = nullIfBlank(aggregate.getIsbn13());
+
+        // Task #9: Sanitize ISBNs to remove hyphens/spaces, then convert empty to null
+        String isbn10 = nullIfBlank(IsbnUtils.sanitize(aggregate.getIsbn10()));
+        String isbn13 = nullIfBlank(IsbnUtils.sanitize(aggregate.getIsbn13()));
         
         jdbcTemplate.update(
             """
@@ -417,19 +615,20 @@ public class BookUpsertService {
     /**
      * UPSERT book_external_ids table.
      * Links book to external provider identifiers and metadata.
+     * <p>Task #9: Sanitizes provider ISBNs before persistence to match canonical ISBN format.</p>
      */
     private void upsertExternalIds(UUID bookId, BookAggregate.ExternalIdentifiers identifiers) {
         String source = identifiers.getSource();
         String externalId = identifiers.getExternalId();
-        
+
         if (source == null || externalId == null) {
             log.warn("Cannot upsert external ID without source and externalId");
             return;
         }
-        
-        // Convert empty strings to null
-        String providerIsbn10 = nullIfBlank(identifiers.getProviderIsbn10());
-        String providerIsbn13 = nullIfBlank(identifiers.getProviderIsbn13());
+
+        // Task #9: Sanitize provider ISBNs to remove hyphens/spaces, then convert empty to null
+        String providerIsbn10 = nullIfBlank(IsbnUtils.sanitize(identifiers.getProviderIsbn10()));
+        String providerIsbn13 = nullIfBlank(IsbnUtils.sanitize(identifiers.getProviderIsbn13()));
         
         jdbcTemplate.update(
             """
@@ -534,6 +733,30 @@ public class BookUpsertService {
     private void upsertImageLinksEnhanced(UUID bookId, BookAggregate.ExternalIdentifiers identifiers) {
         Map<String, String> imageLinks = identifiers.getImageLinks();
         String source = identifiers.getSource() != null ? identifiers.getSource() : "GOOGLE_BOOKS";
+
+        if (imageLinks == null || imageLinks.isEmpty()) {
+            log.debug("Skipping cover persistence for book {} because no image links were provided", bookId);
+            return;
+        }
+
+        CoverQualitySnapshot incomingQuality = computeIncomingCoverQuality(imageLinks);
+        if (!incomingQuality.hasData()) {
+            log.debug("Skipping cover persistence for book {} because incoming image links contain no renderable covers", bookId);
+            return;
+        }
+
+        CoverQualitySnapshot existingQuality = fetchExistingCoverQuality(bookId);
+        if (existingQuality.isStrictlyBetterThan(incomingQuality)) {
+            log.debug(
+                "Existing cover quality for book {} (score={}, pixels={}) outranks incoming (score={}, pixels={}), skipping update",
+                bookId,
+                existingQuality.score(),
+                existingQuality.pixelArea(),
+                incomingQuality.score(),
+                incomingQuality.pixelArea()
+            );
+            return;
+        }
         
         try {
             CoverPersistenceService.PersistenceResult result = coverPersistenceService.persistFromGoogleImageLinks(
@@ -730,6 +953,115 @@ public class BookUpsertService {
     // Helper methods
 
     /**
+     * Reads the best existing cover for a book from Postgres.
+     *
+     * @param bookId canonical book identifier
+     * @return snapshot describing the strongest persisted cover quality, or empty when none exists
+     */
+    private CoverQualitySnapshot fetchExistingCoverQuality(UUID bookId) {
+        try {
+            return jdbcTemplate.query(
+                """
+                SELECT s3_image_path, url, width, height, is_high_resolution
+                FROM book_image_links
+                WHERE book_id = ?
+                ORDER BY COALESCE(is_high_resolution, false) DESC,
+                         COALESCE(width * height, 0) DESC,
+                         created_at DESC
+                LIMIT 1
+                """,
+                rs -> {
+                    if (!rs.next()) {
+                        return CoverQualitySnapshot.absent();
+                    }
+                    String s3Path = rs.getString("s3_image_path");
+                    String url = rs.getString("url");
+                    Integer width = rs.getObject("width", Integer.class);
+                    Integer height = rs.getObject("height", Integer.class);
+                    Boolean highRes = rs.getObject("is_high_resolution", Boolean.class);
+                    int score = CoverQuality.rank(s3Path, url, width, height, highRes);
+                    long pixels = ImageDimensionUtils.totalPixels(width, height);
+                    boolean resolvedHighRes = Boolean.TRUE.equals(highRes) || ImageDimensionUtils.isHighResolution(width, height);
+                    return new CoverQualitySnapshot(score, pixels, resolvedHighRes, true);
+                },
+                bookId
+            );
+        } catch (Exception ex) {
+            log.debug("Unable to evaluate existing cover quality for {}: {}", bookId, ex.getMessage());
+            return CoverQualitySnapshot.absent();
+        }
+    }
+
+    /**
+     * Scores the incoming Google Books image links so we can compare against persisted covers.
+     *
+     * @param imageLinks raw provider image links keyed by image type
+     * @return snapshot describing the best candidate derived from the payload
+     */
+    private CoverQualitySnapshot computeIncomingCoverQuality(Map<String, String> imageLinks) {
+        if (imageLinks == null || imageLinks.isEmpty()) {
+            return CoverQualitySnapshot.absent();
+        }
+
+        CoverQualitySnapshot best = CoverQualitySnapshot.absent();
+        for (Map.Entry<String, String> entry : imageLinks.entrySet()) {
+            String url = entry.getValue();
+            if (url == null || url.isBlank()) {
+                continue;
+            }
+            ImageDimensionUtils.DimensionEstimate estimate = ImageDimensionUtils.estimateFromGoogleType(entry.getKey());
+            String normalizedUrl = normalizeToHttps(url);
+            int score = CoverQuality.rank(null, normalizedUrl, estimate.width(), estimate.height(), estimate.highRes());
+            long pixels = ImageDimensionUtils.totalPixels(estimate.width(), estimate.height());
+            boolean highRes = estimate.highRes() || ImageDimensionUtils.isHighResolution(estimate.width(), estimate.height());
+            CoverQualitySnapshot candidate = new CoverQualitySnapshot(score, pixels, highRes, true);
+            if (candidate.isStrictlyBetterThan(best)) {
+                best = candidate;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * Lightweight holder describing cover quality characteristics for comparison.
+     */
+    private record CoverQualitySnapshot(int score,
+                                        long pixelArea,
+                                        boolean highRes,
+                                        boolean present) {
+
+        static CoverQualitySnapshot absent() {
+            return new CoverQualitySnapshot(0, 0, false, false);
+        }
+
+        boolean hasData() {
+            return present;
+        }
+
+        boolean isStrictlyBetterThan(CoverQualitySnapshot other) {
+            if (!present) {
+                return false;
+            }
+            if (other == null || !other.present) {
+                return true;
+            }
+            if (score > other.score) {
+                return true;
+            }
+            if (score < other.score) {
+                return false;
+            }
+            if (pixelArea > other.pixelArea) {
+                return true;
+            }
+            if (pixelArea < other.pixelArea) {
+                return false;
+            }
+            return highRes && !other.highRes;
+        }
+    }
+
+    /**
      * Normalizes the image link map from the aggregate to HTTPS URLs while preserving insertion
      * order so downstream consumers receive deterministic priority.
      */
@@ -772,6 +1104,23 @@ public class BookUpsertService {
             .filter(url -> url != null && !url.isBlank())
             .findFirst()
             .orElse(null);
+    }
+
+    private String extractIsbnPrefix(String isbn13) {
+        if (isbn13 == null || isbn13.isBlank()) {
+            return null;
+        }
+
+        String digits = isbn13.chars()
+            .filter(Character::isDigit)
+            .collect(StringBuilder::new, StringBuilder::appendCodePoint, StringBuilder::append)
+            .toString();
+
+        if (digits.length() != 13) {
+            return null;
+        }
+
+        return digits.substring(0, 11);
     }
 
     private String nullIfBlank(String value) {

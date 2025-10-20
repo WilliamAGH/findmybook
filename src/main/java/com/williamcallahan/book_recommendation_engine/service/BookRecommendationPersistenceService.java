@@ -33,11 +33,14 @@ public class BookRecommendationPersistenceService {
 
     private final JdbcTemplate jdbcTemplate;
     private final BookLookupService bookLookupService;
+    private final BookIdentifierResolver bookIdentifierResolver;
 
     public BookRecommendationPersistenceService(JdbcTemplate jdbcTemplate,
-                                                BookLookupService bookLookupService) {
+                                                BookLookupService bookLookupService,
+                                                Optional<BookIdentifierResolver> bookIdentifierResolver) {
         this.jdbcTemplate = jdbcTemplate;
         this.bookLookupService = bookLookupService;
+        this.bookIdentifierResolver = bookIdentifierResolver != null ? bookIdentifierResolver.orElse(null) : null;
     }
 
     public Mono<Void> persistPipelineRecommendations(Book sourceBook, List<RecommendationRecord> recommendations) {
@@ -110,10 +113,14 @@ public class BookRecommendationPersistenceService {
 
         UUID uuid = UuidUtils.parseUuidOrNull(identifier);
         if (uuid != null) {
-            return Mono.just(uuid);
+            return Mono.fromCallable(() -> resolvePrimaryUuid(uuid))
+                .subscribeOn(Schedulers.boundedElastic())
+                .flatMap(optional -> optional.map(Mono::just).orElseGet(Mono::empty));
         }
 
-        return Mono.fromCallable(() -> resolveCanonicalUuidSync(book))
+        return Mono.fromCallable(() -> resolveCanonicalUuidSync(book)
+                .flatMap(resolved -> resolvePrimaryUuid(resolved))
+        )
             .subscribeOn(Schedulers.boundedElastic())
             .flatMap(optional -> optional.map(Mono::just).orElseGet(Mono::empty))
             .onErrorResume(err -> {
@@ -141,7 +148,48 @@ public class BookRecommendationPersistenceService {
 
         return resolved
             .map(UuidUtils::parseUuidOrNull)
-            .filter(Objects::nonNull);
+            .filter(Objects::nonNull)
+            .flatMap(this::resolvePrimaryUuid);
+    }
+
+    private Optional<UUID> resolvePrimaryUuid(UUID uuid) {
+        if (uuid == null) {
+            return Optional.empty();
+        }
+
+        if (bookIdentifierResolver != null) {
+            Optional<String> resolved = bookIdentifierResolver.resolveCanonicalId(uuid.toString());
+            if (resolved.isPresent()) {
+                UUID primary = UuidUtils.parseUuidOrNull(resolved.get());
+                if (primary != null) {
+                    return Optional.of(primary);
+                }
+            }
+        }
+
+        if (jdbcTemplate == null) {
+            return Optional.of(uuid);
+        }
+
+        try {
+            UUID primary = jdbcTemplate.query(
+                """
+                SELECT primary_wcm.book_id
+                FROM work_cluster_members wcm
+                JOIN work_cluster_members primary_wcm
+                  ON primary_wcm.cluster_id = wcm.cluster_id
+                 AND primary_wcm.is_primary = true
+                WHERE wcm.book_id = ?
+                LIMIT 1
+                """,
+                rs -> rs.next() ? (UUID) rs.getObject(1) : null,
+                uuid
+            );
+            return Optional.ofNullable(primary != null ? primary : uuid);
+        } catch (Exception ex) {
+            log.debug("Failed to resolve primary edition for {}: {}", uuid, ex.getMessage());
+            return Optional.of(uuid);
+        }
     }
 
     private String formatReasons(List<String> reasons) {

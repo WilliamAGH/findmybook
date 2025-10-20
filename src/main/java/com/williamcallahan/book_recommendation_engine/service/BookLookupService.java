@@ -217,9 +217,13 @@ public class BookLookupService {
                 return findBookById(trimmed);
                 
             case SLUG:
-                // Slugs require a different lookup path - log and return empty
-                log.debug("Identifier '{}' is a slug - should use slug-specific lookup, not external IDs", trimmed);
-                return Optional.empty();
+                // Task #13: Query books.slug directly
+                log.debug("Identifier '{}' is a slug - performing slug lookup", trimmed);
+                return JdbcUtils.optionalString(
+                    jdbcTemplate,
+                    "SELECT id FROM books WHERE slug = ? LIMIT 1",
+                    ex -> log.debug("Query failed for slug {}: {}", trimmed, ex.getMessage()),
+                    trimmed);
                 
             case UNKNOWN:
             default:

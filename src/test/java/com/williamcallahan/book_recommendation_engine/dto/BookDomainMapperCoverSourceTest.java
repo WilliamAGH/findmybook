@@ -3,6 +3,7 @@ package com.williamcallahan.book_recommendation_engine.dto;
 import com.williamcallahan.book_recommendation_engine.model.Book;
 import com.williamcallahan.book_recommendation_engine.model.image.CoverImageSource;
 import com.williamcallahan.book_recommendation_engine.util.BookDomainMapper;
+import com.williamcallahan.book_recommendation_engine.util.cover.ImageDimensionUtils;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -34,6 +35,34 @@ class BookDomainMapperCoverSourceTest {
         assertThat(book).isNotNull();
         assertThat(book.getCoverImages()).isNotNull();
         assertThat(book.getCoverImages().getSource()).isEqualTo(CoverImageSource.GOOGLE_BOOKS);
+    }
+
+    @Test
+    @DisplayName("toBook(BookCard) suppresses covers that do not meet display requirements")
+    void toBookFromCard_suppressesUndersizedCover() {
+        BookCard card = new BookCard(
+            "undersized-card",
+            "undersized-slug",
+            "Undersized Cover Title",
+            List.of("Author"),
+            "https://cdn.example.com/covers/undersized.jpg?w=120&h=160",
+            null,
+            "https://cdn.example.com/covers/undersized-fallback.jpg?w=120&h=160",
+            4.5,
+            42,
+            Map.<String, Object>of()
+        );
+
+        Book book = BookDomainMapper.fromCard(card);
+
+        assertThat(book).isNotNull();
+        assertThat(book.getCoverImages()).isNull();
+        assertThat(book.getExternalImageUrl()).isNull();
+        assertThat(book.getS3ImagePath()).isNull();
+        assertThat(book.getQualifiers())
+            .containsEntry("cover.suppressed", true)
+            .containsEntry("cover.suppressed.reason", "image-below-search-display-threshold")
+            .containsEntry("cover.suppressed.minHeight", ImageDimensionUtils.MIN_SEARCH_RESULT_HEIGHT);
     }
 
     @Test

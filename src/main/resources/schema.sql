@@ -1188,45 +1188,65 @@ declare
   clusters_count integer := 0;
   books_count integer := 0;
   book_uuid uuid;
-  existing_cluster uuid;
+  primary_title text;
 begin
   for rec in
     select
-      extract_isbn_work_prefix(isbn13) as prefix,
-      array_agg(id order by published_date desc nulls last) as book_ids,
-      min(title) as canonical_title,
+      prefix,
+      array_agg(book_id order by cover_score desc, published_date desc nulls last, lower(title)) as book_ids,
       count(*) as book_count
-    from books
-    where isbn13 is not null
-    group by extract_isbn_work_prefix(isbn13)
-    having count(*) > 1 and extract_isbn_work_prefix(isbn13) is not null
+    from (
+      select
+        extract_isbn_work_prefix(b.isbn13) as prefix,
+        b.id as book_id,
+        b.title,
+        b.published_date,
+        coalesce(
+          (
+            select
+              (case when bil.is_high_resolution then 1000 else 0 end) +
+              coalesce(bil.width * bil.height, 0)
+            from book_image_links bil
+            where bil.book_id = b.id
+            order by coalesce(bil.is_high_resolution, false) desc,
+                     coalesce(bil.width * bil.height, 0) desc,
+                     bil.created_at desc
+            limit 1
+          ),
+          0
+        ) as cover_score
+      from books b
+      where b.isbn13 is not null
+    ) candidate
+    where prefix is not null
+    group by prefix
+    having count(*) > 1
   loop
-    -- Check if cluster exists
-    select id into existing_cluster
+    if rec.book_ids is null or array_length(rec.book_ids, 1) = 0 then
+      continue;
+    end if;
+
+    select title into primary_title
+    from books
+    where id = rec.book_ids[1];
+
+    select id into cluster_uuid
     from work_clusters
     where isbn_prefix = rec.prefix;
 
-    if existing_cluster is null then
-      -- Create new cluster
+    if cluster_uuid is null then
       insert into work_clusters (isbn_prefix, canonical_title, confidence_score, cluster_method, member_count)
-      values (rec.prefix, rec.canonical_title, 0.9, 'ISBN_PREFIX', rec.book_count)
+      values (rec.prefix, primary_title, 0.9, 'ISBN_PREFIX', rec.book_count)
       returning id into cluster_uuid;
-
       clusters_count := clusters_count + 1;
     else
-      -- Update existing cluster
       update work_clusters
-      set canonical_title = rec.canonical_title,
+      set canonical_title = primary_title,
           member_count = rec.book_count,
           updated_at = now()
-      where id = existing_cluster
-      returning id into cluster_uuid;
+      where id = cluster_uuid;
     end if;
 
-    -- Clear existing members for this cluster
-    delete from work_cluster_members where cluster_id = cluster_uuid;
-
-    -- Add members (first one is primary)
     for i in 1..array_length(rec.book_ids, 1) loop
       book_uuid := rec.book_ids[i];
 
@@ -1235,7 +1255,8 @@ begin
       on conflict (cluster_id, book_id) do update set
         is_primary = excluded.is_primary,
         confidence = excluded.confidence,
-        join_reason = excluded.join_reason;
+        join_reason = excluded.join_reason,
+        updated_at = now();
 
       books_count := books_count + 1;
     end loop;
@@ -1244,6 +1265,223 @@ begin
   return query select clusters_count, books_count;
 end;
 $$ language plpgsql;
+
+create or replace function cluster_single_book_by_isbn(target_book_id uuid)
+returns void as $$
+declare
+  prefix text;
+  cluster_uuid uuid;
+  book_ids uuid[];
+  primary_title text;
+  book_count integer;
+  i integer;
+  current_book uuid;
+begin
+  select extract_isbn_work_prefix(isbn13) into prefix
+  from books
+  where id = target_book_id;
+
+  if prefix is null then
+    return;
+  end if;
+
+  select
+    array_agg(book_id order by cover_score desc, published_date desc nulls last, lower(title)) as ordered_ids,
+    count(*) as total_books
+  into book_ids, book_count
+  from (
+    select
+      b.id as book_id,
+      b.title,
+      b.published_date,
+      coalesce(
+        (
+          select
+            (case when bil.is_high_resolution then 1000 else 0 end) +
+            coalesce(bil.width * bil.height, 0)
+          from book_image_links bil
+          where bil.book_id = b.id
+          order by coalesce(bil.is_high_resolution, false) desc,
+                   coalesce(bil.width * bil.height, 0) desc,
+                   bil.created_at desc
+          limit 1
+        ),
+        0
+      ) as cover_score
+    from books b
+    where extract_isbn_work_prefix(b.isbn13) = prefix
+  ) ranked;
+
+  if book_count is null or book_count < 2 then
+    return;
+  end if;
+
+  select title into primary_title
+  from books
+  where id = book_ids[1];
+
+  select id into cluster_uuid
+  from work_clusters
+  where isbn_prefix = prefix;
+
+  if cluster_uuid is null then
+    insert into work_clusters (isbn_prefix, canonical_title, confidence_score, cluster_method, member_count)
+    values (prefix, primary_title, 0.9, 'ISBN_PREFIX', book_count)
+    returning id into cluster_uuid;
+  else
+    update work_clusters
+    set canonical_title = primary_title,
+        member_count = book_count,
+        updated_at = now()
+    where id = cluster_uuid;
+  end if;
+
+  for i in 1..array_length(book_ids, 1) loop
+    current_book := book_ids[i];
+
+    insert into work_cluster_members (cluster_id, book_id, is_primary, confidence, join_reason)
+    values (cluster_uuid, current_book, (i = 1), 0.9, 'ISBN_PREFIX')
+    on conflict (cluster_id, book_id) do update set
+      is_primary = excluded.is_primary,
+      confidence = excluded.confidence,
+      join_reason = excluded.join_reason,
+      updated_at = now();
+  end loop;
+end;
+$$ language plpgsql;
+
+create or replace function cluster_single_book_by_google_id(target_book_id uuid)
+returns void as $$
+declare
+  canonical_id text;
+  cluster_uuid uuid;
+  book_ids uuid[];
+  book_count integer;
+  primary_title text;
+  i integer;
+  current_book uuid;
+begin
+  select google_canonical_id into canonical_id
+  from book_external_ids
+  where book_id = target_book_id
+    and google_canonical_id is not null
+    and source = 'GOOGLE_BOOKS'
+  limit 1;
+
+  if canonical_id is null then
+    select canonical_volume_link into canonical_id
+    from book_external_ids
+    where book_id = target_book_id
+      and canonical_volume_link is not null
+      and source = 'GOOGLE_BOOKS'
+    limit 1;
+
+    if canonical_id is not null then
+      canonical_id := regexp_replace(canonical_id, '.*[?&]id=([^&]+).*', '\1');
+    end if;
+  end if;
+
+  if canonical_id is null then
+    return;
+  end if;
+
+  select
+    array_agg(distinct b.id order by b.published_date desc nulls last, lower(b.title)) as ordered_ids,
+    count(distinct b.id) as total_books
+  into book_ids, book_count
+  from book_external_ids bei
+  join books b on b.id = bei.book_id
+  where bei.source = 'GOOGLE_BOOKS'
+    and (
+      bei.google_canonical_id = canonical_id
+      or (
+        bei.canonical_volume_link is not null
+        and regexp_replace(bei.canonical_volume_link, '.*[?&]id=([^&]+).*', '\1') = canonical_id
+      )
+    );
+
+  if book_count is null or book_count < 2 then
+    return;
+  end if;
+
+  select title into primary_title
+  from books
+  where id = book_ids[1];
+
+  select id into cluster_uuid
+  from work_clusters
+  where google_canonical_id = canonical_id;
+
+  if cluster_uuid is null then
+    insert into work_clusters (google_canonical_id, canonical_title, confidence_score, cluster_method, member_count)
+    values (canonical_id, primary_title, 0.85, 'GOOGLE_CANONICAL', book_count)
+    returning id into cluster_uuid;
+  else
+    update work_clusters
+    set canonical_title = coalesce(primary_title, work_clusters.canonical_title),
+        member_count = book_count,
+        updated_at = now()
+    where id = cluster_uuid;
+  end if;
+
+  for i in 1..array_length(book_ids, 1) loop
+    current_book := book_ids[i];
+
+    insert into work_cluster_members (cluster_id, book_id, is_primary, confidence, join_reason)
+    values (cluster_uuid, current_book, (i = 1), 0.85, 'GOOGLE_CANONICAL')
+    on conflict (cluster_id, book_id) do update set
+      is_primary = excluded.is_primary,
+      confidence = excluded.confidence,
+      join_reason = excluded.join_reason,
+      updated_at = now();
+  end loop;
+end;
+$$ language plpgsql;
+
+create or replace function notify_primary_edition_change()
+returns trigger as $$
+begin
+  if OLD.is_primary is true
+     and (NEW.is_primary is distinct from OLD.is_primary)
+     and (NEW.is_primary is null or NEW.is_primary = false) then
+    insert into events_outbox (topic, payload, created_at)
+    values (
+      '/topic/cluster.' || OLD.cluster_id,
+      jsonb_build_object(
+        'event', 'primary_changed',
+        'old_primary_book_id', OLD.book_id::text,
+        'cluster_id', OLD.cluster_id::text,
+        'timestamp', floor(extract(epoch from now()) * 1000)
+      ),
+      now()
+    );
+  end if;
+
+  if NEW.is_primary is true
+     and (NEW.is_primary is distinct from OLD.is_primary) then
+    insert into events_outbox (topic, payload, created_at)
+    values (
+      '/topic/cluster.' || NEW.cluster_id,
+      jsonb_build_object(
+        'event', 'primary_changed',
+        'new_primary_book_id', NEW.book_id::text,
+        'cluster_id', NEW.cluster_id::text,
+        'timestamp', floor(extract(epoch from now()) * 1000)
+      ),
+      now()
+    );
+  end if;
+
+  return NEW;
+end;
+$$ language plpgsql;
+
+drop trigger if exists work_cluster_primary_change on work_cluster_members;
+create trigger work_cluster_primary_change
+  after update on work_cluster_members
+  for each row
+  when (OLD.is_primary is distinct from NEW.is_primary)
+  execute function notify_primary_edition_change();
 
 -- Get all editions of a book
 create or replace function get_book_editions(target_book_id uuid)
@@ -1332,10 +1570,8 @@ begin
         returning id into cluster_uuid;
       end if;
 
-      -- Clear existing members for this cluster
-      delete from work_cluster_members where cluster_id = cluster_uuid;
-
-      -- Add members
+      -- Add members using ON CONFLICT for idempotent upserts
+      -- This preserves manual overrides and prevents data loss during re-clustering
       for i in 1..array_length(rec.book_ids, 1) loop
         insert into work_cluster_members (cluster_id, book_id, is_primary, confidence, join_reason)
         values (cluster_uuid, rec.book_ids[i], (i = 1), 0.85, 'GOOGLE_CANONICAL')

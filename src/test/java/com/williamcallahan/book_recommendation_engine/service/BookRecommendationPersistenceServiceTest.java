@@ -27,17 +27,22 @@ class BookRecommendationPersistenceServiceTest {
     @Mock
     private BookLookupService bookLookupService;
 
+    @Mock
+    private BookIdentifierResolver bookIdentifierResolver;
+
     private BookRecommendationPersistenceService service;
 
     @BeforeEach
     void setUp() {
-        service = new BookRecommendationPersistenceService(jdbcTemplate, bookLookupService);
+        service = new BookRecommendationPersistenceService(jdbcTemplate, bookLookupService, Optional.of(bookIdentifierResolver));
         lenient().when(jdbcTemplate.update(anyString(), ArgumentMatchers.<Object>any()))
             .thenReturn(1);
         lenient().when(jdbcTemplate.update(anyString(), ArgumentMatchers.<Object>any(), ArgumentMatchers.<Object>any()))
             .thenReturn(1);
         lenient().when(jdbcTemplate.update(anyString(), ArgumentMatchers.<Object>any(), ArgumentMatchers.<Object>any(), ArgumentMatchers.<Object>any(), ArgumentMatchers.<Object>any(), ArgumentMatchers.<Object>any(), ArgumentMatchers.<Object>any()))
             .thenReturn(1);
+        lenient().when(bookIdentifierResolver.resolveCanonicalId(anyString()))
+            .thenAnswer(invocation -> Optional.ofNullable(invocation.getArgument(0)));
     }
 
     @Test

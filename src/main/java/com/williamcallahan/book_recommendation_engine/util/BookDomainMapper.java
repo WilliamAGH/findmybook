@@ -91,7 +91,7 @@ public final class BookDomainMapper {
             fallback = card.coverUrl();
         }
         setCoverImages(book, resolved, fallback);
-        applyCoverMetadata(book, resolved.width(), resolved.height(), resolved.highResolution(), false);
+        applyCoverMetadata(book, resolved.width(), resolved.height(), resolved.highResolution(), true);
         book.setRetrievedFrom("POSTGRES");
         book.setInPostgres(true);
         return book;
@@ -187,7 +187,7 @@ public final class BookDomainMapper {
         applyCoverMetadata(book, resolved.width(), resolved.height(), resolved.highResolution(), false);
 
         book.setEditionNumber(aggregate.getEditionNumber());
-        book.setEditionGroupKey(aggregate.getEditionGroupKey());
+        // Task #6: editionGroupKey removed - replaced by work_clusters system
         book.setInPostgres(false);
         String source = identifiers != null ? identifiers.getSource() : null;
         if (ValidationUtils.hasText(source)) {
@@ -252,8 +252,8 @@ public final class BookDomainMapper {
         book.setIsCoverHighResolution(derivedHighRes);
 
         if (enforceSearchThreshold
-            && !ImageDimensionUtils.meetsSearchDisplayThreshold(width, height)) {
-            suppressCover(book, "image-below-search-display-threshold");
+            && !ImageDimensionUtils.meetsDisplayRequirements(width, height)) {
+            suppressCover(book, "image-below-display-requirements");
         }
     }
 

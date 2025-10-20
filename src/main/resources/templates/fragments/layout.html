@@ -272,7 +272,7 @@
     </style>
 
 </head>
-<body class="modern-layout theme-body text-anthracite-900 transition-colors duration-300">
+<body class="modern-layout theme-body text-anthracite-900 dark:text-slate-50 transition-colors duration-300">
 
 <!-- Navbar - ShadCN/Claude UI Inspired Sophisticated Navigation -->
 <nav th:fragment="navbar" id="main-navbar"
@@ -280,8 +280,8 @@
             border-b transition-all duration-300">
     <div class="container mx-auto px-4">
         <div class="flex items-center h-14">
-            <!-- Logo (LEFT) -->
-            <div class="flex-shrink-0">
+            <!-- Logo (LEFT) - Fixed width container for symmetry -->
+            <div class="flex-shrink-0" style="width: 200px;">
                 <a th:href="@{/}" class="flex items-center group navbar-brand">
                     <!-- Light mode logo (dark text on white/transparent background) -->
                     <img th:src="@{/images/findmybook-logo-white-bg.png}"
@@ -324,8 +324,8 @@
             <!-- Spacer (balances left spacer for perfect centering) -->
             <div class="hidden lg:flex flex-grow min-w-[1rem]"></div>
 
-            <!-- Theme Toggle (RIGHT) -->
-            <div class="hidden lg:flex flex-shrink-0">
+            <!-- Theme Toggle (RIGHT) - Fixed width container matching logo for symmetry -->
+            <div class="hidden lg:flex flex-shrink-0 justify-end" style="width: 200px;">
                 <button type="button"
                         id="theme-toggle-list"
                         class="theme-toggle nav-btn nav-btn-icon nav-btn-inactive nav-btn-hover"
@@ -435,7 +435,7 @@
             <p class="small text-muted mb-0" th:if="${showStats && book.qualifiers != null && book.qualifiers['recent.views.lastViewedAt'] != null}"
                th:text="${'Last viewed ' + #temporals.format(book.qualifiers['recent.views.lastViewedAt'], 'MMM d, h:mm a')}"></p>
         </div>
-        <div class="card-footer bg-white border-top-0">
+        <div class="card-footer border-top-0">
             <a th:href="@{'/book/' + ${bookSlug}}" class="btn btn-sm btn-outline-primary d-block">View Details</a>
         </div>
     </div>
@@ -446,23 +446,23 @@
         class="mt-auto py-8 theme-footer theme-footer-border border-t transition-colors duration-300">
     <div class="container mx-auto px-4">
         <div class="flex flex-col md:flex-row justify-between items-center gap-4 text-sm">
-            <p class="theme-footer-text text-anthracite-600 mb-0">
+            <p class="theme-footer-text text-anthracite-600 dark:text-slate-400 mb-0">
                 By <a href="https://williamcallahan.com"
                       target="_blank"
                       rel="noopener"
-                      class="theme-footer-link text-canvas-600 hover:text-canvas-700 font-medium transition-colors duration-200">
+                      class="theme-footer-link text-canvas-600 dark:text-canvas-400 hover:text-canvas-700 dark:hover:text-canvas-300 font-medium transition-colors duration-200">
                     William Callahan
                 </a>
             </p>
-            <p class="theme-footer-text text-anthracite-600 mb-0">
+            <p class="theme-footer-text text-anthracite-600 dark:text-slate-400 mb-0">
                 <a href="https://github.com/WilliamAGH/book-finder"
                    target="_blank"
                    rel="noopener"
-                   class="theme-footer-link text-canvas-600 hover:text-canvas-700 font-medium transition-colors duration-200">
+                   class="theme-footer-link text-canvas-600 dark:text-canvas-400 hover:text-canvas-700 dark:hover:text-canvas-300 font-medium transition-colors duration-200">
                     Open Source
                 </a>
                 <span class="mx-2">•</span>
-                Made with <span class="text-red-500">❤️</span> in California
+                Made with <span class="text-red-500 dark:text-red-400">❤️</span> in California
             </p>
         </div>
     </div>

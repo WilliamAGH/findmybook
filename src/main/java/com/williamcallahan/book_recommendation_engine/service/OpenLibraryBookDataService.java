@@ -15,6 +15,7 @@ package com.williamcallahan.book_recommendation_engine.service;
 
 import com.williamcallahan.book_recommendation_engine.model.Book;
 import com.williamcallahan.book_recommendation_engine.util.CategoryNormalizer;
+import com.williamcallahan.book_recommendation_engine.util.IsbnUtils;
 import com.williamcallahan.book_recommendation_engine.util.LoggingUtils;
 import com.williamcallahan.book_recommendation_engine.util.ExternalApiLogger;
 import com.williamcallahan.book_recommendation_engine.util.DateParsingUtils;
@@ -301,23 +302,33 @@ public class OpenLibraryBookDataService {
         // Description is often not in the 'data' view, might be in 'details' view.
         // book.setDescription(bookDataNode.path("description").path("value").asText(null));
 
+        // Task #9: Extract and sanitize ISBNs to prevent duplicate books from formatting differences
+        // OpenLibrary may send "978-0-545-01022-1" while Google sends "9780545010221"
         String isbn10 = null;
         String isbn13 = null;
         if (bookDataNode.has("identifiers")) {
             JsonNode identifiers = bookDataNode.path("identifiers");
             if (identifiers.has("isbn_10") && identifiers.path("isbn_10").isArray() && identifiers.path("isbn_10").size() > 0) {
-                isbn10 = identifiers.path("isbn_10").get(0).asText(null);
+                isbn10 = IsbnUtils.sanitize(identifiers.path("isbn_10").get(0).asText(null));
             }
             if (identifiers.has("isbn_13") && identifiers.path("isbn_13").isArray() && identifiers.path("isbn_13").size() > 0) {
-                isbn13 = identifiers.path("isbn_13").get(0).asText(null);
+                isbn13 = IsbnUtils.sanitize(identifiers.path("isbn_13").get(0).asText(null));
             }
         }
          // Fallback to original ISBN if not found in identifiers
-        if (isbn10 == null && originalIsbn != null && originalIsbn.length() == 10) {
-            isbn10 = originalIsbn;
+        if (isbn10 == null && originalIsbn != null) {
+            isbn10 = IsbnUtils.sanitize(originalIsbn);
+            // Only use if it's actually valid ISBN-10 length after sanitization
+            if (isbn10 != null && isbn10.length() != 10) {
+                isbn10 = null;
+            }
         }
-        if (isbn13 == null && originalIsbn != null && originalIsbn.length() == 13) {
-            isbn13 = originalIsbn;
+        if (isbn13 == null && originalIsbn != null) {
+            isbn13 = IsbnUtils.sanitize(originalIsbn);
+            // Only use if it's actually valid ISBN-13 length after sanitization
+            if (isbn13 != null && isbn13.length() != 13) {
+                isbn13 = null;
+            }
         }
         book.setIsbn10(isbn10);
         book.setIsbn13(isbn13);
@@ -413,27 +424,29 @@ public class OpenLibraryBookDataService {
         // book.setPublisher(docNode.path("publisher").get(0).asText(null)); // Example if available
         // book.setPublishedDate(parsePublishedDate(docNode.path("first_publish_year").asText(null))); // Example
 
-        List<String> isbnList = new ArrayList<>();
+        // Task #9: Sanitize ISBNs during search result parsing to prevent duplicates
+        List<String> sanitizedIsbnList = new ArrayList<>();
         if (docNode.has("isbn") && docNode.get("isbn").isArray()) {
             for (JsonNode isbnNode : docNode.get("isbn")) {
-                String currentIsbn = isbnNode.asText(null);
-                if (currentIsbn != null) {
-                    isbnList.add(currentIsbn);
-                    if (currentIsbn.length() == 13 && book.getIsbn13() == null) {
-                        book.setIsbn13(currentIsbn);
-                    } else if (currentIsbn.length() == 10 && book.getIsbn10() == null) {
-                        book.setIsbn10(currentIsbn);
+                String rawIsbn = isbnNode.asText(null);
+                String sanitized = IsbnUtils.sanitize(rawIsbn);
+                if (sanitized != null) {
+                    sanitizedIsbnList.add(sanitized);
+                    if (sanitized.length() == 13 && book.getIsbn13() == null) {
+                        book.setIsbn13(sanitized);
+                    } else if (sanitized.length() == 10 && book.getIsbn10() == null) {
+                        book.setIsbn10(sanitized);
                     }
                 }
             }
         }
         // If specific ISBNs not set, try to pick first valid ones from the list
-        if (book.getIsbn13() == null && book.getIsbn10() == null && !isbnList.isEmpty()) {
-            for (String currentIsbn : isbnList) {
-                 if (currentIsbn.length() == 13) { book.setIsbn13(currentIsbn); break; }
+        if (book.getIsbn13() == null && book.getIsbn10() == null && !sanitizedIsbnList.isEmpty()) {
+            for (String sanitized : sanitizedIsbnList) {
+                 if (sanitized.length() == 13) { book.setIsbn13(sanitized); break; }
             }
-            for (String currentIsbn : isbnList) {
-                 if (currentIsbn.length() == 10) { book.setIsbn10(currentIsbn); break; }
+            for (String sanitized : sanitizedIsbnList) {
+                 if (sanitized.length() == 10) { book.setIsbn10(sanitized); break; }
             }
         }
 

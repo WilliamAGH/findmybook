@@ -345,7 +345,7 @@
                                                             <div class="d-flex align-items-center">
                                                                 <i class="fas fa-file-alt text-primary me-3 fa-2x"></i>
                                                                 <div>
-                                                                    <div class="small text-muted">Page Count</div>
+                                                                    <div class="detail-label">Page Count</div>
                                                                     <div class="fw-bold" th:text="${book.pageCount}">300</div>
                                                                 </div>
                                                             </div>
@@ -356,10 +356,10 @@
                                                             <div class="d-flex align-items-center">
                                                                 <i class="fas fa-star text-warning me-3 fa-2x"></i>
                                                                 <div>
-                                                                    <div class="small text-muted">Average Rating</div>
+                                                                    <div class="detail-label">Average Rating</div>
                                                                     <div class="fw-bold">
                                                                         <span th:text="${book.averageRating}">4.5</span>/5 
-                                                                        <span th:if="${book.ratingsCount != null}" class="small text-muted">
+                                                                        <span th:if="${book.ratingsCount != null}" class="detail-label-inline">
                                                                             (<span th:text="${book.ratingsCount}">100</span> ratings)
                                                                         </span>
                                                                     </div>
@@ -372,7 +372,7 @@
                                                             <div class="d-flex align-items-center">
                                                                 <i class="fas fa-barcode text-primary me-3 fa-2x"></i>
                                                                 <div>
-                                                                    <div class="small text-muted">ISBN-13</div>
+                                                                    <div class="detail-label">ISBN-13</div>
                                                                     <div class="fw-bold" th:text="${book.isbn13}">9781234567890</div>
                                                                 </div>
                                                             </div>
@@ -383,7 +383,7 @@
                                                             <div class="d-flex align-items-center">
                                                                 <i class="fas fa-barcode text-primary me-3 fa-2x"></i>
                                                                 <div>
-                                                                    <div class="small text-muted">ISBN-10</div>
+                                                                    <div class="detail-label">ISBN-10</div>
                                                                     <div class="fw-bold" th:text="${book.isbn10}">1234567890</div>
                                                                 </div>
                                                             </div>
@@ -394,7 +394,7 @@
                                                             <div class="d-flex align-items-center">
                                                                 <i class="fas fa-building text-primary me-3 fa-2x"></i>
                                                                 <div>
-                                                                    <div class="small text-muted">Publisher</div>
+                                                                    <div class="detail-label">Publisher</div>
                                                                     <div class="fw-bold" th:text="${book.publisher}">Publisher Name</div>
                                                                 </div>
                                                             </div>
@@ -405,7 +405,7 @@
                                                             <div class="d-flex align-items-center">
                                                                 <i class="fas fa-calendar-alt text-primary me-3 fa-2x"></i>
                                                                 <div>
-                                                                    <div class="small text-muted">Published Date</div>
+                                                                    <div class="detail-label">Published Date</div>
                                                                     <div class="fw-bold" th:text="${#dates.format(book.publishedDate, 'yyyy-MM-dd')}">2023-01-01</div>
                                                                 </div>
                                                             </div>
@@ -416,7 +416,7 @@
                                                             <div class="d-flex align-items-center">
                                                                 <i class="fas fa-globe text-primary me-3 fa-2x"></i>
                                                                 <div>
-                                                                    <div class="small text-muted">Language</div>
+                                                                    <div class="detail-label">Language</div>
                                                                     <div class="fw-bold" th:text="${#strings.toUpperCase(book.language)}">EN</div>
                                                                 </div>
                                                             </div>
@@ -427,7 +427,7 @@
                                                             <div class="d-flex align-items-center">
                                                                 <i class="fas fa-file-pdf text-danger me-3 fa-2x"></i>
                                                                 <div>
-                                                                    <div class="small text-muted">PDF Available</div>
+                                                                    <div class="detail-label">PDF Available</div>
                                                                     <div class="fw-bold" th:text="${book.pdfAvailable ? 'Yes' : 'No'}">Yes</div>
                                                                 </div>
                                                             </div>
@@ -438,7 +438,7 @@
                                                             <div class="d-flex align-items-center">
                                                                 <i class="fas fa-book text-success me-3 fa-2x"></i>
                                                                 <div>
-                                                                    <div class="small text-muted">EPUB Available</div>
+                                                                    <div class="detail-label">EPUB Available</div>
                                                                     <div class="fw-bold" th:text="${book.epubAvailable ? 'Yes' : 'No'}">Yes</div>
                                                                 </div>
                                                             </div>
@@ -474,7 +474,7 @@
                                     <div class="tab-pane fade" id="categories" role="tabpanel" aria-labelledby="categories-tab" th:if="${book.categories != null and not #lists.isEmpty(book.categories)}">
                                         <div class="categories-section mb-4">
                                             <h5 class="mb-4">Book Categories</h5>
-                                            <p class="text-muted mb-3">
+                                            <p class="categories-description mb-3">
                                                 This book is categorized under the following genres and topics. 
                                                 Click any category to discover similar books.
                                             </p>
@@ -541,7 +541,7 @@
                     <div th:each="rec : ${similarBooks}" class="col-sm-6 col-md-4 col-lg-3">
                         <div class="card h-100">
                             <div class="position-relative book-cover-container">
-                                <a th:href="@{'/book/' + ${rec.id}}" class="d-block h-100">
+                                <a th:href="@{'/book/' + ${rec.id}}" class="d-flex align-items-center justify-content-center w-100 h-100">
                                     <img th:src="${rec.coverImages != null && rec.coverImages.preferredUrl != null ? rec.coverImages.preferredUrl : (rec.s3ImagePath != null ? rec.s3ImagePath : (rec.externalImageUrl != null ? rec.externalImageUrl : '/images/placeholder-book-cover.svg'))}"
                                          th:attr="data-book-id=${rec.id},
                                                   data-preferred-url=${rec.coverImages != null && rec.coverImages.preferredUrl != null ? rec.coverImages.preferredUrl : (rec.s3ImagePath != null ? rec.s3ImagePath : rec.externalImageUrl)},
@@ -559,12 +559,12 @@
                             </div>
                             <div class="card-body">
                                 <h5 class="card-title text-truncate">
-                                    <a th:href="@{'/book/' + ${rec.id}}" th:text="${rec.title}" class="text-decoration-none text-dark">Book Title</a>
+                                    <a th:href="@{'/book/' + ${rec.id}}" th:text="${rec.title}" class="text-decoration-none similar-book-title">Book Title</a>
                                 </h5>
-                                <p class="card-text small text-muted text-truncate"
+                                <p class="card-text small text-truncate similar-book-author"
                                    th:text="${rec.authors != null && !rec.authors.empty} ? ${rec.authors[0]} : 'Unknown Author'">Author Name</p>
                             </div>
-                            <div class="card-footer bg-white border-top-0">
+                            <div class="card-footer border-top-0">
                                 <a th:href="@{'/book/' + ${rec.id}}" class="btn btn-sm btn-outline-primary d-block">
                                     View Details
                                 </a>

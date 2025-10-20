@@ -18,7 +18,6 @@
  */
 package com.williamcallahan.book_recommendation_engine.service;
 
-import com.williamcallahan.book_recommendation_engine.util.LoggingUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -156,13 +155,12 @@ public class ApiCircuitBreakerService {
             // Immediately open the circuit for the rest of the UTC day
             if (circuitState.compareAndSet(CircuitState.CLOSED, CircuitState.OPEN)) {
                 circuitOpenDate.set(nowUtcDate);
-                LoggingUtils.error(log, null,
-                    "Circuit breaker OPENED due to rate limit (429) - blocking ALL authenticated API calls until next UTC day (quota reset). Date: {}",
+                log.error("Circuit breaker OPENED due to rate limit (429) - blocking ALL authenticated API calls until next UTC day (quota reset). Date: {}",
                     nowUtcDate);
             }
         }
     }
-
+    
     /**
      * Records a rate limit failure for the unauthenticated Google Books tier.
      *
@@ -182,8 +180,7 @@ public class ApiCircuitBreakerService {
         if (currentState == CircuitState.CLOSED && currentFailures >= FAILURE_THRESHOLD) {
             if (fallbackCircuitState.compareAndSet(CircuitState.CLOSED, CircuitState.OPEN)) {
                 fallbackOpenDate.set(nowUtcDate);
-                LoggingUtils.error(log, null,
-                    "Fallback circuit OPENED due to rate limit (429) - blocking ALL unauthenticated API calls until next UTC day. Date: {}",
+                log.error("Fallback circuit OPENED due to rate limit (429) - blocking ALL unauthenticated API calls until next UTC day. Date: {}",
                     nowUtcDate);
             }
         }
@@ -200,6 +197,19 @@ public class ApiCircuitBreakerService {
         
         // Log but don't open circuit - only 429 errors should trigger the breaker
         log.debug("Recorded general API failure at {} (does not affect circuit breaker)", now);
+    }
+
+    /**
+     * Record a general failure for the unauthenticated fallback tier.
+     *
+     * <p>This keeps telemetry for the fallback path in sync without opening the circuit,
+     * mirroring {@link #recordGeneralFailure()} for paid-key traffic.</p>
+     */
+    public void recordFallbackGeneralFailure() {
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        fallbackLastFailureTime.set(now);
+
+        log.debug("Recorded fallback general API failure at {} (does not affect fallback circuit breaker)", now);
     }
     
     /**

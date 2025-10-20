@@ -366,7 +366,10 @@ public class PostgresBookRepository {
                        wc.cluster_method,
                        wcm.confidence,
                        bei.external_id as google_books_id,
-                       bil.s3_image_path
+                       bil.s3_image_path,
+                       -- Task #14: Quality facets for deterministic sorting
+                       COALESCE(bil.is_high_resolution, false) AS has_high_res,
+                       COALESCE((bil.width::bigint * bil.height::bigint), 0) AS cover_area
                 FROM work_cluster_members wcm1
                 JOIN work_cluster_members wcm ON wcm.cluster_id = wcm1.cluster_id
                 JOIN books b ON b.id = wcm.book_id
@@ -378,13 +381,15 @@ public class PostgresBookRepository {
                        FROM book_image_links
                        WHERE book_id = b.id
                        ORDER BY COALESCE(is_high_resolution, false) DESC,
-                                COALESCE(width, 0) DESC,
+                                COALESCE((width::bigint * height::bigint), 0) DESC,
                                 created_at DESC
                        LIMIT 1
                 ) bil ON TRUE
                 WHERE wcm1.book_id = ?
                   AND wcm.book_id <> ?
                 ORDER BY wcm.is_primary DESC,
+                         has_high_res DESC,  -- Task #14: Sort by cover quality
+                         cover_area DESC,
                          wcm.confidence DESC NULLS LAST,
                          b.published_date DESC NULLS LAST,
                          lower(b.title)
@@ -422,15 +427,21 @@ public class PostgresBookRepository {
                 SELECT image_type, url, source, s3_image_path, width, height, is_high_resolution
                 FROM book_image_links
                 WHERE book_id = ?
-                ORDER BY CASE image_type
-                    WHEN 'extraLarge' THEN 1
-                    WHEN 'large' THEN 2
-                    WHEN 'medium' THEN 3
-                    WHEN 'small' THEN 4
-                    WHEN 'thumbnail' THEN 5
-                    WHEN 'smallThumbnail' THEN 6
-                    ELSE 7
-                END, created_at DESC
+                ORDER BY
+                    -- Prioritize actual quality metrics (Task #5)
+                    COALESCE(is_high_resolution, false) DESC,
+                    COALESCE((width::bigint * height::bigint), 0) DESC,
+                    -- Fall back to image type as tiebreaker
+                    CASE image_type
+                        WHEN 'extraLarge' THEN 1
+                        WHEN 'large' THEN 2
+                        WHEN 'medium' THEN 3
+                        WHEN 'small' THEN 4
+                        WHEN 'thumbnail' THEN 5
+                        WHEN 'smallThumbnail' THEN 6
+                        ELSE 7
+                    END,
+                    created_at DESC
                 LIMIT 2
                 """;
         try {

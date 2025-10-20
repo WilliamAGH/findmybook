@@ -23,7 +23,7 @@
 - ❌ **NEVER** use Flyway, Liquibase, or any automated migration tools
 - ❌ **NEVER** enable automatic migrations on boot
 - ❌ **NEVER** use `@SuppressWarnings` annotations (fix the underlying issue)
-- ❌ **NEVER** use CSS `!important` declarations
+- ❌ **NEVER** use CSS `!important` declarations - **100% DISALLOWED** in this repository
 - ❌ **NEVER** create inline styles in templates
 - ❌ **NEVER** exceed 500 lines per file (split immediately at ~400 lines)
 - ❌ **NEVER** create new files without explicit user permission
@@ -117,6 +117,7 @@
 - ❌ **NEVER change git branches** without explicit User permission
 - ❌ **NEVER commit changes** unless the User explicitly asks you to commit
 - ❌ **NEVER update git config** (user.name, user.email, etc.)
+- ❌ **NEVER perform destructive git actions simply because code differs from your own changes; treat all existing work as intentional unless the User directs otherwise**
 - ❌ **NEVER run destructive/irreversible commands** without explicit User request:
   - `git push --force` (or `-f`)
   - `git reset --hard`
@@ -147,7 +148,7 @@
 
 ### 8.2 Absolute CSS Prohibitions
 
-❌ **NEVER use `!important` declarations** - Fix specificity issues properly
+❌ **NEVER use `!important` declarations** - **100% DISALLOWED** - Fix specificity issues properly
 ❌ **NEVER use inline styles** in HTML/Thymeleaf templates - Use Tailwind classes
 ❌ **NEVER duplicate CSS** - Use Tailwind utilities or extract to components
 ❌ **NEVER use arbitrary values** without justification - Use theme values first
@@ -227,12 +228,12 @@ img {
 2. **Second**: Restructure HTML to avoid conflicts
 3. **Third**: Use CSS cascade (order matters)
 4. **Last Resort**: Custom CSS with proper scoping
-5. **NEVER**: Use `!important`
+5. **NEVER**: Use `!important` - **100% DISALLOWED** in this repository
 
 **Example - Fixing Specificity:**
 
 ```html
-<!-- ❌ BAD: Using !important in custom CSS -->
+<!-- ❌ BAD: Using !important - 100% DISALLOWED in this repository -->
 <style>.override { color: red !important; }</style>
 
 <!-- ✅ GOOD: Use more specific Tailwind class -->
