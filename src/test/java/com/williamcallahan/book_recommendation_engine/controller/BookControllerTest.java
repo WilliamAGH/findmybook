@@ -266,7 +266,7 @@ class BookControllerTest {
             321,
             Map.<String, Object>of("reason", Map.<String, Object>of("type", "AUTHOR"))
         );
-        List<RecommendationCard> cards = List.of(new RecommendationCard(card, 0.9, "AUTHOR"));
+        List<RecommendationCard> cards = List.of(new RecommendationCard(card, 0.9, "AUTHOR", "SAME_AUTHOR"));
         when(bookQueryRepository.fetchRecommendationCards(bookUuid, 3)).thenReturn(cards);
 
         performAsync(get("/api/books/" + fixtureBook.getSlug() + "/similar")

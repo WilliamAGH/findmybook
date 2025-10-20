@@ -353,6 +353,9 @@ public class BookController {
         if (ValidationUtils.hasText(card.reason())) {
             extras.put("recommendation.reason", card.reason());
         }
+        if (ValidationUtils.hasText(card.source())) {
+            extras.put("recommendation.source", card.source());
+        }
         return BookDtoMapper.fromCard(card.card(), extras);
     }
 

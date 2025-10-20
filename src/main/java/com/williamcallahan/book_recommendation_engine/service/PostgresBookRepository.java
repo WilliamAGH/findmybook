@@ -430,7 +430,7 @@ public class PostgresBookRepository {
                 ORDER BY
                     -- Prioritize actual quality metrics (Task #5)
                     COALESCE(is_high_resolution, false) DESC,
-                    COALESCE(width * height, 0) DESC,
+                    COALESCE((width::bigint * height::bigint), 0) DESC,
                     -- Fall back to image type as tiebreaker
                     CASE image_type
                         WHEN 'extraLarge' THEN 1

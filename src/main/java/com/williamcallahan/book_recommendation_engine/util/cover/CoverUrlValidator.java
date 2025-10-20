@@ -81,7 +81,7 @@ public final class CoverUrlValidator {
         // Google Books specific validation:
         // The "edge=curl" parameter indicates a cover image showing the book's spine/edge
         // Images without this parameter are often interior pages
-        if (lowerUrl.contains("books.google.com")) {
+        if (isGoogleBooksHost(lowerUrl)) {
             // Require edge=curl for Google Books URLs
             // Exception: Some very old books or special editions may not have edge=curl
             // but we prefer to be strict and use S3 covers when available
@@ -102,7 +102,7 @@ public final class CoverUrlValidator {
         if (!ValidationUtils.hasText(url)) {
             return false;
         }
-        return url.toLowerCase().contains("books.google.com");
+        return isGoogleBooksHost(url.toLowerCase());
     }
     
     /**
@@ -126,11 +126,14 @@ public final class CoverUrlValidator {
         }
         
         // Check for missing edge=curl on Google Books
-        if (lowerUrl.contains("books.google.com") && !lowerUrl.contains("edge=curl")) {
+        if (isGoogleBooksHost(lowerUrl) && !lowerUrl.contains("edge=curl")) {
             return "Google Books URL missing edge=curl parameter (likely interior page)";
         }
-        
+
         return null; // Would be accepted
     }
-}
 
+    private static boolean isGoogleBooksHost(String lowerUrl) {
+        return lowerUrl.contains("books.google.com") || lowerUrl.contains("books.googleusercontent.com");
+    }
+}

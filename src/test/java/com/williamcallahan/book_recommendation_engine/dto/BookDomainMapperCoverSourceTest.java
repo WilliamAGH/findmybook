@@ -3,6 +3,7 @@ package com.williamcallahan.book_recommendation_engine.dto;
 import com.williamcallahan.book_recommendation_engine.model.Book;
 import com.williamcallahan.book_recommendation_engine.model.image.CoverImageSource;
 import com.williamcallahan.book_recommendation_engine.util.BookDomainMapper;
+import com.williamcallahan.book_recommendation_engine.util.cover.ImageDimensionUtils;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -60,7 +61,8 @@ class BookDomainMapperCoverSourceTest {
         assertThat(book.getS3ImagePath()).isNull();
         assertThat(book.getQualifiers())
             .containsEntry("cover.suppressed", true)
-            .containsEntry("cover.suppressed.reason", "image-below-search-display-threshold");
+            .containsEntry("cover.suppressed.reason", "image-below-search-display-threshold")
+            .containsEntry("cover.suppressed.minHeight", ImageDimensionUtils.MIN_SEARCH_RESULT_HEIGHT);
     }
 
     @Test
