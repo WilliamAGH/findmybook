@@ -251,9 +251,13 @@ public final class BookDomainMapper {
             : ImageDimensionUtils.isHighResolution(width, height);
         book.setIsCoverHighResolution(derivedHighRes);
 
-        if (enforceSearchThreshold
-            && !ImageDimensionUtils.meetsDisplayRequirements(width, height)) {
-            suppressCover(book, "image-below-search-display-threshold");
+        if (enforceSearchThreshold) {
+            // Suppress if below dimension threshold OR bad aspect ratio
+            if (!ImageDimensionUtils.meetsDisplayRequirements(width, height)) {
+                suppressCover(book, "image-below-search-display-threshold");
+            } else if (!ImageDimensionUtils.hasValidAspectRatio(width, height)) {
+                suppressCover(book, "image-bad-aspect-ratio");
+            }
         }
     }
 
