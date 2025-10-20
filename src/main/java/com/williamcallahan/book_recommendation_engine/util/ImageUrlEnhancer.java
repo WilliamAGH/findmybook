@@ -93,8 +93,8 @@ public final class ImageUrlEnhancer {
      * Determines optimal zoom level using modern pattern matching.
      * <p>
      * Rules:
-     * - Preserve zoom when Google already specifies it to avoid downgrading quality.
-     * - When no zoom is present, seed sensible defaults per Google size tier so larger assets stay large.
+     * - Establish minimum zoom levels per Google size tier.
+     * - Preserve or upgrade (never downgrade) any existing zoom parameter.
      * 
      * @param quality Size qualifier
      * @param currentUrl Current URL (to check existing zoom)
@@ -102,25 +102,34 @@ public final class ImageUrlEnhancer {
      */
     @Nullable
     private static Integer determineOptimalZoom(@Nullable String quality, String currentUrl) {
-        Integer existingZoom = extractZoomValue(currentUrl);
-        if (existingZoom != null) {
-            // Preserve the provider's chosen zoom level to avoid downgrading quality.
-            return null;
-        }
-
         if (quality == null) {
             return null;
         }
 
-        return switch (quality.toLowerCase()) {
+        int desiredZoom = switch (quality.toLowerCase()) {
             case "smallthumbnail" -> 5;
             case "thumbnail" -> 1;
             case "small" -> 2;
             case "medium" -> 3;
             case "large", "high" -> 4;
             case "extralarge" -> 6;
-            default -> null;
+            default -> -1;
         };
+
+        if (desiredZoom < 0) {
+            return null;
+        }
+
+        Integer existingZoom = extractZoomValue(currentUrl);
+        if (existingZoom == null) {
+            return desiredZoom;
+        }
+
+        if (existingZoom < desiredZoom) {
+            return desiredZoom;
+        }
+
+        return null;
     }
     
     /**

@@ -1,6 +1,7 @@
 package com.williamcallahan.book_recommendation_engine.service.image;
 
 import com.williamcallahan.book_recommendation_engine.model.image.ProcessedImage;
+import com.williamcallahan.book_recommendation_engine.util.cover.ImageDimensionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Async;
@@ -84,6 +85,13 @@ public class ImageProcessingService {
 
             int originalWidth = originalImage.getWidth();
             int originalHeight = originalImage.getHeight();
+            double aspectRatio = originalWidth == 0 ? 0.0 : (double) originalHeight / originalWidth;
+
+            if (!ImageDimensionUtils.hasValidAspectRatio(originalWidth, originalHeight)) {
+                logger.warn("Book ID {}: Image dimensions {}x{} yield aspect ratio {} (outside acceptable range). Likely not a cover. REJECTED.",
+                    bookIdForLog, originalWidth, originalHeight, String.format("%.2f", aspectRatio));
+                return CompletableFuture.completedFuture(ProcessedImage.failure("InvalidAspectRatio"));
+            }
 
             // Reject obviously invalid images (1x1 placeholders from OpenLibrary, etc.)
             if (originalWidth <= 5 || originalHeight <= 5) {

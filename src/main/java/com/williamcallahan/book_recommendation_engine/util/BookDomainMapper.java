@@ -9,6 +9,7 @@ import com.williamcallahan.book_recommendation_engine.model.Book;
 import com.williamcallahan.book_recommendation_engine.model.Book.EditionInfo;
 import com.williamcallahan.book_recommendation_engine.model.image.CoverImages;
 import com.williamcallahan.book_recommendation_engine.util.cover.CoverUrlResolver;
+import com.williamcallahan.book_recommendation_engine.util.cover.CoverUrlValidator;
 import com.williamcallahan.book_recommendation_engine.util.cover.ImageDimensionUtils;
 import com.williamcallahan.book_recommendation_engine.util.cover.UrlSourceDetector;
 
@@ -241,6 +242,15 @@ public final class BookDomainMapper {
                                            Boolean highResolution,
                                            boolean enforceSearchThreshold) {
         if (book == null) {
+            return;
+        }
+
+        String preferredUrl = book.getCoverImages() != null
+            ? book.getCoverImages().getPreferredUrl()
+            : null;
+
+        if (!CoverUrlValidator.isLikelyCoverImage(preferredUrl)) {
+            suppressCover(book, "cover-url-failed-validation");
             return;
         }
 
