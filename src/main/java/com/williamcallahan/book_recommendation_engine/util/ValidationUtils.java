@@ -83,30 +83,6 @@ public final class ValidationUtils {
     public static class BookValidator {
 
         /**
-         * Get a non-null identifier for a book (ISBN13, ISBN10, or ID).
-         * 
-         * @deprecated Use {@link com.williamcallahan.book_recommendation_engine.util.cover.CoverIdentifierResolver#resolve(Book)} instead.
-         * This method duplicates identifier resolution logic. CoverIdentifierResolver is the canonical
-         * implementation that provides consistent identifier prioritization across the application.
-         * Will be removed in version 1.0.0.
-         * 
-         * <p><b>Migration Example:</b></p>
-         * <pre>{@code
-         * // Old:
-         * String identifier = ValidationUtils.BookValidator.getIdentifier(book);
-         * if (!identifier.equals("unknown")) {
-         *     processIdentifier(identifier);
-         * }
-         * 
-         * // New:
-         * String identifier = CoverIdentifierResolver.resolve(book);
-         * if (ValidationUtils.hasText(identifier)) {
-         *     processIdentifier(identifier);
-         * }
-         * // Note: New method returns null instead of "unknown" for invalid books
-         * }</pre>
-         */
-        /**
          * Check if a book has basic required fields.
          */
         public static boolean hasRequiredFields(Book book) {
@@ -115,24 +91,6 @@ public final class ValidationUtils {
                    (hasText(book.getIsbn13()) || hasText(book.getIsbn10()) || hasText(book.getId()));
         }
 
-        /**
-         * Get the preferred ISBN (13 over 10).
-         * 
-         * @deprecated Use {@link com.williamcallahan.book_recommendation_engine.util.cover.CoverIdentifierResolver#resolve(Book)} instead.
-         * This method is part of the old identifier resolution logic. The new resolver provides comprehensive
-         * identifier prioritization and is the single source of truth for book identification.
-         * Will be removed in version 1.0.0.
-         * 
-         * <p><b>Migration Example:</b></p>
-         * <pre>{@code
-         * // Old:
-         * String isbn = ValidationUtils.BookValidator.getPreferredIsbn(book);
-         * 
-         * // New:
-         * String identifier = CoverIdentifierResolver.resolve(book);
-         * // Note: The new method may return ID if no ISBN exists, matching the full resolution logic
-         * }</pre>
-         */
         /**
          * Check if book has cover images.
          */
