@@ -4,6 +4,7 @@ import com.williamcallahan.book_recommendation_engine.dto.BookCard;
 import com.williamcallahan.book_recommendation_engine.model.Book;
 import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
 import java.util.Comparator;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -49,34 +50,29 @@ public final class CoverPrioritizer {
 
     public static Comparator<Book> bookComparator(Map<String, Integer> insertionOrder,
                                                   Comparator<Book> orderSpecific) {
-        Comparator<Book> comparator = Comparator.<Book>comparingInt(CoverPrioritizer::score).reversed();
-
-        comparator = comparator.thenComparing(
-            Comparator.<Book>comparingLong(book -> ImageDimensionUtils.totalPixels(
-                book.getCoverImageWidth(),
-                book.getCoverImageHeight()
-            )).reversed()
-        );
-
-        comparator = comparator.thenComparing(
-            Comparator.<Book>comparingInt(book -> Optional.ofNullable(book.getCoverImageHeight()).orElse(0)).reversed()
-        );
-
-        comparator = comparator.thenComparing(
-            Comparator.<Book>comparingInt(book -> Optional.ofNullable(book.getCoverImageWidth()).orElse(0)).reversed()
-        );
-
-        comparator = comparator.thenComparing(
-            Comparator.<Book, Boolean>comparing(book -> Boolean.TRUE.equals(book.getInPostgres()), Comparator.reverseOrder())
-        );
+        Comparator<Book> comparator = Comparator
+            .comparingInt(CoverPrioritizer::coverPresenceRank)
+            .thenComparingInt(CoverPrioritizer::sourceRank)
+            .thenComparingInt(CoverPrioritizer::matchTypeRank)
+            .thenComparing(Comparator.<Book>comparingDouble(CoverPrioritizer::relevanceScore).reversed());
 
         if (orderSpecific != null) {
             comparator = comparator.thenComparing(orderSpecific);
         }
 
-        comparator = comparator.thenComparing(bookInsertionComparator(insertionOrder));
+        comparator = comparator
+            .thenComparing(Comparator.<Book>comparingInt(CoverPrioritizer::score).reversed())
+            .thenComparing(Comparator.<Book>comparingLong(book -> ImageDimensionUtils.totalPixels(
+                book.getCoverImageWidth(),
+                book.getCoverImageHeight()
+            )).reversed())
+            .thenComparing(Comparator.<Book>comparingInt(book -> Optional.ofNullable(book.getCoverImageHeight()).orElse(0)).reversed())
+            .thenComparing(Comparator.<Book>comparingInt(book -> Optional.ofNullable(book.getCoverImageWidth()).orElse(0)).reversed())
+            .thenComparing(Comparator.<Book, Boolean>comparing(book -> Boolean.TRUE.equals(book.getInPostgres()), Comparator.reverseOrder()))
+            .thenComparing(bookInsertionComparator(insertionOrder))
+            .thenComparing(book -> Optional.ofNullable(book.getTitle()).orElse(""));
 
-        return comparator.thenComparing(book -> Optional.ofNullable(book.getTitle()).orElse(""));
+        return comparator;
     }
 
     public static Comparator<BookCard> cardComparator(Map<String, Integer> originalOrder) {
@@ -103,5 +99,66 @@ public final class CoverPrioritizer {
             }
             return safeOrder.getOrDefault(card.id(), Integer.MAX_VALUE);
         });
+    }
+
+    private static int coverPresenceRank(Book book) {
+        return score(book) > 0 ? 0 : 1;
+    }
+
+    private static int sourceRank(Book book) {
+        if (book == null) {
+            return 1;
+        }
+        if (Boolean.TRUE.equals(book.getInPostgres())) {
+            return 0;
+        }
+        String source = qualifierAsString(book, "search.source");
+        return "EXTERNAL_FALLBACK".equals(source) ? 2 : 1;
+    }
+
+    private static int matchTypeRank(Book book) {
+        String matchType = qualifierAsString(book, "search.matchType");
+        if (matchType == null) {
+            return 4;
+        }
+        String normalized = matchType.toUpperCase(Locale.ROOT);
+        return switch (normalized) {
+            case "EXACT_TITLE", "TITLE", "EXACT" -> 0;
+            case "FULLTEXT", "TEXT" -> 1;
+            case "AUTHOR", "AUTHORS" -> 2;
+            case "FUZZY" -> 3;
+            default -> 4;
+        };
+    }
+
+    private static double relevanceScore(Book book) {
+        Object value = qualifier(book, "search.relevanceScore");
+        if (value instanceof Number number) {
+            return number.doubleValue();
+        }
+        if (value instanceof String stringValue) {
+            try {
+                return Double.parseDouble(stringValue);
+            } catch (NumberFormatException ignored) {
+                return 0.0d;
+            }
+        }
+        return 0.0d;
+    }
+
+    private static String qualifierAsString(Book book, String key) {
+        Object value = qualifier(book, key);
+        return value == null ? null : value.toString();
+    }
+
+    private static Object qualifier(Book book, String key) {
+        if (book == null || !ValidationUtils.hasText(key)) {
+            return null;
+        }
+        Map<String, Object> qualifiers = book.getQualifiers();
+        if (qualifiers == null) {
+            return null;
+        }
+        return qualifiers.get(key);
     }
 }

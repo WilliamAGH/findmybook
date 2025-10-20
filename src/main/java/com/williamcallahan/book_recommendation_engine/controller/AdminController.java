@@ -17,9 +17,11 @@ import com.williamcallahan.book_recommendation_engine.controller.support.ErrorRe
 import com.williamcallahan.book_recommendation_engine.scheduler.BookCacheWarmingScheduler;
 import com.williamcallahan.book_recommendation_engine.scheduler.NewYorkTimesBestsellerScheduler;
 import com.williamcallahan.book_recommendation_engine.service.ApiCircuitBreakerService;
+import com.williamcallahan.book_recommendation_engine.service.BackfillCoordinator;
 import com.williamcallahan.book_recommendation_engine.service.S3CoverCleanupService;
 import com.williamcallahan.book_recommendation_engine.service.s3.DryRunSummary;
 import com.williamcallahan.book_recommendation_engine.service.s3.MoveActionSummary;
+import com.williamcallahan.book_recommendation_engine.util.ValidationUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -44,6 +46,8 @@ public class AdminController {
     private final NewYorkTimesBestsellerScheduler newYorkTimesBestsellerScheduler;
     private final BookCacheWarmingScheduler bookCacheWarmingScheduler;
     private final ApiCircuitBreakerService apiCircuitBreakerService;
+    @Autowired(required = false)
+    private BackfillCoordinator backfillCoordinator;
 
     public AdminController(@Autowired(required = false) S3CoverCleanupService s3CoverCleanupService,
                            @Autowired(required = false) NewYorkTimesBestsellerScheduler newYorkTimesBestsellerScheduler,
@@ -59,6 +63,41 @@ public class AdminController {
         this.configuredS3Prefix = configuredS3Prefix;
         this.defaultBatchLimit = defaultBatchLimit;
         this.configuredQuarantinePrefix = configuredQuarantinePrefix;
+    }
+
+    /**
+     * Enqueue a Google Books backfill task for a specific volume ID.
+     * Useful for refreshing cover metadata after ingestion fixes.
+     *
+     * @param volumeId Google Books volume identifier
+     * @param priority Optional priority override (1 = highest, 10 = lowest)
+     * @return text response describing the enqueued task
+     */
+    @PostMapping(value = "/backfill/google-volume", produces = MediaType.TEXT_PLAIN_VALUE)
+    public ResponseEntity<String> enqueueGoogleVolumeBackfill(
+            @RequestParam("volumeId") String volumeId,
+            @RequestParam(name = "priority", defaultValue = "3") int priority) {
+
+        if (backfillCoordinator == null) {
+            String message = "Async backfill is disabled. Set APP_FEATURE_ASYNC_BACKFILL_ENABLED=true to enable.";
+            log.warn(message);
+            return ResponseEntity.badRequest().body(message);
+        }
+
+        if (!ValidationUtils.hasText(volumeId)) {
+            String message = "volumeId must not be blank";
+            return ResponseEntity.badRequest().body(message);
+        }
+
+        int clampedPriority = Math.max(1, Math.min(priority, 10));
+        String normalizedVolume = volumeId.trim();
+
+        backfillCoordinator.enqueue("GOOGLE_BOOKS", normalizedVolume, clampedPriority);
+
+        String message = String.format("Enqueued GOOGLE_BOOKS backfill for %s with priority %d",
+            normalizedVolume, clampedPriority);
+        log.info(message);
+        return ResponseEntity.ok(message);
     }
 
     /**
