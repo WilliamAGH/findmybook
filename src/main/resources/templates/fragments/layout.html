@@ -280,8 +280,8 @@
             border-b transition-all duration-300">
     <div class="container mx-auto px-4">
         <div class="flex items-center h-14">
-            <!-- Logo (LEFT) -->
-            <div class="flex-shrink-0">
+            <!-- Logo (LEFT) - Fixed width container for symmetry -->
+            <div class="flex-shrink-0" style="width: 200px;">
                 <a th:href="@{/}" class="flex items-center group navbar-brand">
                     <!-- Light mode logo (dark text on white/transparent background) -->
                     <img th:src="@{/images/findmybook-logo-white-bg.png}"
@@ -324,8 +324,8 @@
             <!-- Spacer (balances left spacer for perfect centering) -->
             <div class="hidden lg:flex flex-grow min-w-[1rem]"></div>
 
-            <!-- Theme Toggle (RIGHT) -->
-            <div class="hidden lg:flex flex-shrink-0">
+            <!-- Theme Toggle (RIGHT) - Fixed width container matching logo for symmetry -->
+            <div class="hidden lg:flex flex-shrink-0 justify-end" style="width: 200px;">
                 <button type="button"
                         id="theme-toggle-list"
                         class="theme-toggle nav-btn nav-btn-icon nav-btn-inactive nav-btn-hover"
