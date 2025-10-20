@@ -88,12 +88,18 @@ public class TextUtilsTest {
     @CsvSource(delimiter = '|', value = {
         "JOHN DOE|John Doe",
         "STEPHEN KING|Stephen King",
+        "stephen king|Stephen King",
+        "j.k. rowling|J.k. Rowling",
         "J.K. ROWLING|J.k. Rowling",
         "PATRICK MCDONALD|Patrick McDonald",
+        "patrick mcdonald|Patrick McDonald",
         "SEAN MACDONALD|Sean MacDonald",
         "CONNOR O'BRIEN|Connor O'Brien",
+        "connor o'brien|Connor O'Brien",
         "LUDWIG VON BEETHOVEN|Ludwig von Beethoven",
+        "ludwig von beethoven|Ludwig von Beethoven",
         "VINCENT VAN GOGH|Vincent van Gogh",
+        "vincent van gogh|Vincent van Gogh",
         "LEONARDO DA VINCI|Leonardo Da Vinci",
         "Stephen King|Stephen King",
         "J.K. Rowling|J.K. Rowling"
@@ -116,6 +122,24 @@ public class TextUtilsTest {
 
         String author2 = "J.K. Rowling";
         assertEquals(author2, TextUtils.normalizeAuthorName(author2));
+    }
+
+    @Test
+    void testNormalizeAuthorName_StripsTrailingComma() {
+        String input = "Dr. R.K. Jain, ";
+        assertEquals("Dr. R.K. Jain", TextUtils.normalizeAuthorName(input));
+    }
+
+    @Test
+    void testNormalizeAuthorName_RemovesWrappingQuotes() {
+        String input = "\"JANE DOE\"";
+        assertEquals("Jane Doe", TextUtils.normalizeAuthorName(input));
+    }
+
+    @Test
+    void testNormalizeAuthorName_StripsSmartQuotes() {
+        String input = "\u201CJOHN SMITH\u201D";
+        assertEquals("John Smith", TextUtils.normalizeAuthorName(input));
     }
 
     /** Tests colon-separated subtitle capitalization. */

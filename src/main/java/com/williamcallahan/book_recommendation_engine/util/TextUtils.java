@@ -227,23 +227,58 @@ public class TextUtils {
      * @return normalized name in proper case, or null if input is null
      */
     public static String normalizeAuthorName(String name) {
-        if (name == null || name.isBlank()) {
-            return name;
+        if (name == null) {
+            return null;
         }
 
-        String trimmed = name.trim();
-        
-        // If already mixed case, preserve it
-        boolean isAllUppercase = trimmed.equals(trimmed.toUpperCase()) && !trimmed.equals(trimmed.toLowerCase());
-        if (!isAllUppercase) {
-            return trimmed;
+        String cleaned = stripExtraneousAuthorPunctuation(name);
+        if (cleaned.isBlank()) {
+            return "";
+        }
+
+        // Preserve intentional mixed case; normalize ALL-UPPER and all-lower
+        boolean isAllUppercase = cleaned.equals(cleaned.toUpperCase()) && !cleaned.equals(cleaned.toLowerCase());
+        boolean isAllLowercase = cleaned.equals(cleaned.toLowerCase()) && !cleaned.equals(cleaned.toUpperCase());
+        if (!(isAllUppercase || isAllLowercase)) {
+            return cleaned;
         }
 
         // Split by spaces and capitalize each part
-        String[] parts = trimmed.split("\\s+");
+        String[] parts = cleaned.split("\\s+");
         return Arrays.stream(parts)
             .map(TextUtils::capitalizeNamePart)
             .collect(Collectors.joining(" "));
+    }
+
+    private static String stripExtraneousAuthorPunctuation(String raw) {
+        String result = raw == null ? "" : raw.trim();
+        if (result.isEmpty()) {
+            return result;
+        }
+
+        // Remove wrapping quotes and other leading quote characters
+        while (!result.isEmpty() && isAuthorQuote(result.charAt(0))) {
+            result = result.substring(1).trim();
+        }
+        while (!result.isEmpty() && isAuthorQuote(result.charAt(result.length() - 1))) {
+            result = result.substring(0, result.length() - 1).trim();
+        }
+
+        // Remove trailing delimiter characters like commas or semicolons left by upstream feeds
+        while (!result.isEmpty() && isTrailingAuthorDelimiter(result.charAt(result.length() - 1))) {
+            result = result.substring(0, result.length() - 1).trim();
+        }
+
+        return result;
+    }
+
+    private static boolean isAuthorQuote(char c) {
+        return c == '"' || c == '\'' || c == '\u201C' || c == '\u201D' || c == '\u2018' || c == '\u2019'
+            || c == '\u201A' || c == '\u201B' || c == '\u00AB' || c == '\u00BB' || c == '\u2039' || c == '\u203A';
+    }
+
+    private static boolean isTrailingAuthorDelimiter(char c) {
+        return c == ',' || c == ';' || c == ':' || c == '\u00B7';
     }
 
     /**

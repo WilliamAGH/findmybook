@@ -593,10 +593,6 @@
                 }
             }
 
-            if (context.sortBy && context.sortBy !== 'relevance') {
-                sortResults(data.results, context.sortBy);
-            }
-
             displayResults(data, currentView);
 
             const paginationMeta = {
@@ -1076,35 +1072,6 @@
             }
             
             return listItem.querySelector('.col-12');
-        }
-        
-        function sortResults(results, sortBy) {
-            switch(sortBy) {
-                case 'title':
-                    results.sort((a, b) => a.title.localeCompare(b.title));
-                    break;
-                case 'author':
-                    results.sort((a, b) => {
-                        const authorA = a.authors && a.authors.length > 0 ? a.authors[0] : '';
-                        const authorB = b.authors && b.authors.length > 0 ? b.authors[0] : '';
-                        return authorA.localeCompare(authorB);
-                    });
-                    break;
-                case 'newest':
-                    results.sort((a, b) => {
-                        const dateA = a.publishedDate ? new Date(a.publishedDate) : new Date(0);
-                        const dateB = b.publishedDate ? new Date(b.publishedDate) : new Date(0);
-                        return dateB - dateA;
-                    });
-                    break;
-                case 'rating':
-                    results.sort((a, b) => {
-                        const ratingA = a.averageRating || 0;
-                        const ratingB = b.averageRating || 0;
-                        return ratingB - ratingA;
-                    });
-                    break;
-            }
         }
         
         function setupPagination({ currentPage, itemsPerPage, hasMore, totalResults }) {

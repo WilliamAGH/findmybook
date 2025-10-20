@@ -67,4 +67,27 @@ class BookDtoMapperTest {
 
         assertThat(dto.publication().publisher()).isEqualTo("O'Reilly Media, Inc.");
     }
+
+    @Test
+    void toDto_replacesInvalidFallbackWithPlaceholder() {
+        Book book = new Book();
+        book.setId("bad-fallback");
+        book.setTitle("Bad Fallback Cover");
+        book.setS3ImagePath("images/book-covers/bad.jpg");
+        book.setExternalImageUrl("https://book-finder.example.invalid/images/book-covers/bad.jpg");
+        book.setCoverImageWidth(400);
+        book.setCoverImageHeight(600);
+
+        CoverImages images = new CoverImages(
+            "https://book-finder.example.invalid/images/book-covers/bad.jpg",
+            "https://books.google.com/books/content?id=BAD&printsec=frontcover"
+        );
+        book.setCoverImages(images);
+
+        BookDto dto = BookDtoMapper.toDto(book);
+
+        assertThat(dto.cover().fallbackUrl()).isEqualTo(ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH);
+        assertThat(dto.cover().source()).isEqualTo(CoverImageSource.NONE.name());
+        assertThat(dto.cover().highResolution()).isFalse();
+    }
 }

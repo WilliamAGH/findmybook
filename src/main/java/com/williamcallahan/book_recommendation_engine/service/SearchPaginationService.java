@@ -273,7 +273,6 @@ public class SearchPaginationService {
             : resolutionPreference;
 
         return books.stream()
-            .filter(book -> !isCoverSuppressed(book))
             .filter(book -> matchesSourcePreference(book, effectiveSource))
             .filter(book -> matchesResolutionPreference(book, effectiveResolution))
             .collect(Collectors.toCollection(ArrayList::new));

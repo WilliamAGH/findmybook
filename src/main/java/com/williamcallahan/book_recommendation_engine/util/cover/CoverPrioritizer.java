@@ -72,7 +72,7 @@ public final class CoverPrioritizer {
             .thenComparing(bookInsertionComparator(insertionOrder))
             .thenComparing(book -> Optional.ofNullable(book.getTitle()).orElse(""));
 
-        return comparator;
+        return Comparator.nullsLast(comparator);
     }
 
     public static Comparator<BookCard> cardComparator(Map<String, Integer> originalOrder) {

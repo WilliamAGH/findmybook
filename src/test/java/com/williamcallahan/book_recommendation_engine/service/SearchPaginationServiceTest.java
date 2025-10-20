@@ -226,6 +226,41 @@ class SearchPaginationServiceTest {
     }
 
     @Test
+    @DisplayName("search() retains suppressed covers but ranks them after valid covers")
+    void searchKeepsSuppressedButRanksLast() {
+        UUID withCover = UUID.randomUUID();
+        UUID suppressed = UUID.randomUUID();
+
+        when(bookSearchService.searchBooks(eq("suppressed"), eq(24))).thenReturn(List.of(
+            new BookSearchService.SearchResult(withCover, 0.95, "TSVECTOR"),
+            new BookSearchService.SearchResult(suppressed, 0.90, "TSVECTOR")
+        ));
+        when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(List.of(
+            buildListItem(withCover, "Valid Cover", 600, 900, true, "https://cdn.test/high.jpg"),
+            buildListItem(suppressed, "Too Wide", 1200, 120, false, "https://example.test/wide.jpg?w=1200&h=120")
+        ));
+
+        SearchPaginationService.SearchRequest request = new SearchPaginationService.SearchRequest(
+            "suppressed",
+            0,
+            12,
+            "relevance",
+            CoverImageSource.ANY,
+            ImageResolutionPreference.ANY
+        );
+
+        SearchPaginationService.SearchPage page = service.search(request).block();
+
+        assertThat(page).isNotNull();
+        assertThat(page.pageItems())
+            .extracting(Book::getId)
+            .containsExactly(withCover.toString(), suppressed.toString());
+        assertThat(page.pageItems().get(1).getQualifiers())
+            .containsEntry("cover.suppressed", true);
+        assertThat(page.pageItems().get(1).getExternalImageUrl()).isNull();
+    }
+
+    @Test
     @DisplayName("search() triggers Google API fallback when Postgres returns no matches")
     void searchInvokesFallbackWhenPostgresEmpty() {
         UUID fallbackId = UUID.randomUUID();
