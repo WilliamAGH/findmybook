@@ -46,11 +46,11 @@ public class AdminController {
     private final NewYorkTimesBestsellerScheduler newYorkTimesBestsellerScheduler;
     private final BookCacheWarmingScheduler bookCacheWarmingScheduler;
     private final ApiCircuitBreakerService apiCircuitBreakerService;
-    @Autowired(required = false)
-    private BackfillCoordinator backfillCoordinator;
+    private final BackfillCoordinator backfillCoordinator;
 
     public AdminController(@Autowired(required = false) S3CoverCleanupService s3CoverCleanupService,
                            @Autowired(required = false) NewYorkTimesBestsellerScheduler newYorkTimesBestsellerScheduler,
+                           @Autowired(required = false) BackfillCoordinator backfillCoordinator,
                            BookCacheWarmingScheduler bookCacheWarmingScheduler,
                            ApiCircuitBreakerService apiCircuitBreakerService,
                            @Value("${app.s3.cleanup.prefix:images/book-covers/}") String configuredS3Prefix,
@@ -63,6 +63,7 @@ public class AdminController {
         this.configuredS3Prefix = configuredS3Prefix;
         this.defaultBatchLimit = defaultBatchLimit;
         this.configuredQuarantinePrefix = configuredQuarantinePrefix;
+        this.backfillCoordinator = backfillCoordinator;
     }
 
     /**

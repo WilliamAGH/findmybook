@@ -102,7 +102,7 @@ public final class ImageUrlEnhancer {
      * Determines optimal zoom level using modern pattern matching.
      * <p>
      * Rules:
-     * - Establish minimum zoom levels per Google size tier.
+     * - Establish minimum zoom levels per Google size tier (smaller variants need higher zoom to stay legible).
      * - Preserve or upgrade (never downgrade) any existing zoom parameter.
      * 
      * @param quality Size qualifier
@@ -116,7 +116,7 @@ public final class ImageUrlEnhancer {
         }
 
         int desiredZoom = switch (quality.toLowerCase()) {
-            case "smallthumbnail" -> 5;
+            case "smallthumbnail" -> 5; // Google reserves higher zooms for the tiniest assets; request them to avoid blurry results
             case "thumbnail" -> 1;
             case "small" -> 2;
             case "medium" -> 3;
