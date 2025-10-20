@@ -653,6 +653,33 @@ function handleImageSuccess() {
     // 'this' is the image element
     const cover = this;
     console.log('[Cover Success] Loaded: ' + cover.src);
+
+    const isPlaceholder = cover.src.includes(LOCAL_PLACEHOLDER) || cover.src.includes('data:image/svg');
+    const naturalWidth = cover.naturalWidth;
+    const naturalHeight = cover.naturalHeight;
+
+    const MIN_DISPLAY_HEIGHT = 280;
+    const MIN_ASPECT_RATIO = 1.2;
+    const MAX_ASPECT_RATIO = 2.0;
+
+    if (!isPlaceholder && naturalWidth > 0) {
+        const aspectRatio = naturalHeight / naturalWidth;
+        const attempts = parseInt(cover.getAttribute('data-quality-attempts') || '0', 10);
+        const invalidAspect = aspectRatio < MIN_ASPECT_RATIO || aspectRatio > MAX_ASPECT_RATIO;
+        const invalidHeight = naturalHeight < MIN_DISPLAY_HEIGHT;
+
+        if ((invalidAspect || invalidHeight) && attempts < 2) {
+            cover.setAttribute('data-quality-attempts', String(attempts + 1));
+            console.warn('[Cover Quality] Rejecting poorly sized cover ' + naturalWidth + 'x' + naturalHeight +
+                ' (aspect=' + aspectRatio.toFixed(2) + ', attempt ' + (attempts + 1) + ') for ' + cover.src);
+            handleImageFailure.call(cover);
+            return;
+        }
+
+        if ((invalidAspect || invalidHeight) && attempts >= 2) {
+            console.warn('[Cover Quality] All fallbacks exhausted; keeping placeholder for ' + cover.src);
+        }
+    }
     
     const container = cover.closest('.book-cover-container, .book-cover-wrapper');
     const placeholderDiv = container?.querySelector('.cover-placeholder-overlay');
@@ -661,17 +688,17 @@ function handleImageSuccess() {
         placeholderDiv.style.display = 'none';
     }
     cover.classList.remove('loading');
-    cover.classList.add('loaded');
+   cover.classList.add('loaded');
     cover.style.opacity = '1';
 
-    const isPlaceholder = cover.src.includes(LOCAL_PLACEHOLDER) || cover.src.includes('data:image/svg');
-    if (cover.naturalWidth < 20 && cover.naturalHeight < 20 && !isPlaceholder) {
-        console.warn('[Cover Warning] Loaded image is tiny (' + cover.naturalWidth + 'x' + cover.naturalHeight + '), treating as failure for: ' + cover.src);
+    if (naturalWidth < 20 && naturalHeight < 20 && !isPlaceholder) {
+        console.warn('[Cover Warning] Loaded image is tiny (' + naturalWidth + 'x' + naturalHeight + '), treating as failure for: ' + cover.src);
         handleImageFailure.call(cover); // Treat as error
     } else {
+        cover.removeAttribute('data-quality-attempts');
         // Apply consistent dimensions to normalize the appearance
-        applyConsistentDimensions(cover, cover.naturalWidth, cover.naturalHeight);
-        console.log('[Cover Success] Applied normalized dimensions to: ' + cover.src + ' (' + cover.naturalWidth + 'x' + cover.naturalHeight + ')');
+        applyConsistentDimensions(cover, naturalWidth, naturalHeight);
+        console.log('[Cover Success] Applied normalized dimensions to: ' + cover.src + ' (' + naturalWidth + 'x' + naturalHeight + ')');
         
         // Successfully loaded a real image or the intended local placeholder
         cover.onerror = null; // Prevent future errors on this now successfully loaded image (e.g. if removed from DOM then re-added by mistake)
