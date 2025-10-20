@@ -113,9 +113,9 @@ public class BookRecommendationPersistenceService {
 
         UUID uuid = UuidUtils.parseUuidOrNull(identifier);
         if (uuid != null) {
-            return resolvePrimaryUuid(uuid)
-                .map(Mono::just)
-                .orElseGet(Mono::empty);
+            return Mono.fromCallable(() -> resolvePrimaryUuid(uuid))
+                .subscribeOn(Schedulers.boundedElastic())
+                .flatMap(optional -> optional.map(Mono::just).orElseGet(Mono::empty));
         }
 
         return Mono.fromCallable(() -> resolveCanonicalUuidSync(book)
