@@ -70,7 +70,16 @@ public final class ImageUrlEnhancer {
         // Step 3: Optimize zoom using Spring's UriComponentsBuilder
         try {
             UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(normalized);
-            
+
+            String host = builder.build().getHost();
+            String path = builder.build().getPath();
+
+            if ("books.google.com".equalsIgnoreCase(host) && path != null && path.startsWith("/books/publisher/content")) {
+                builder.replacePath("/books/content");
+            }
+
+            builder.replaceQueryParam("imgtk");
+
             // Determine optimal zoom level based on quality
             Integer optimalZoom = determineOptimalZoom(quality, normalized);
             
