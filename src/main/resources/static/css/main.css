@@ -269,13 +269,6 @@
 /* =============================================================================
    KEEP - Search Results Page (not yet migrated)
    ============================================================================= */
-.search-header {
-    background-color: var(--card-bg);
-    border-radius: 10px;
-    padding: 1.5rem;
-    margin-bottom: 2rem;
-}
-
 .list-view .book-cover {
     max-height: 200px;
     object-fit: scale-down;
@@ -744,7 +737,29 @@
    Only keep specific [data-theme="dark"] rules if a distinct appearance is required beyond variable changes. */
 
 /* Example: If pagination needs a very specific dark mode look not achievable with variables alone */
-/* [data-theme="dark"] .pagination { ... } */
+/* Dark theme adjustments for pagination readability */
+[data-theme="dark"] .pagination {
+    background: rgba(30, 41, 59, 0.8);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
+[data-theme="dark"] .pagination .page-item .page-link {
+    color: var(--text-color-primary);
+}
+
+[data-theme="dark"] .pagination .page-item .page-link:hover {
+    background-color: rgba(var(--brand-primary-rgb), 0.18);
+}
+
+[data-theme="dark"] .pagination .page-item.active .page-link {
+    background-color: var(--brand-primary);
+    color: var(--text-on-primary-bg);
+    box-shadow: 0 4px 10px rgba(var(--brand-primary-rgb), 0.35);
+}
+
+[data-theme="dark"] .pagination .page-item.disabled .page-link {
+    color: var(--text-color-secondary);
+}
 
 
 /* =============================================================================
