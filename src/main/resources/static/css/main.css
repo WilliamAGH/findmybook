@@ -193,7 +193,7 @@
     max-width: 100%;
     width: auto;
     height: auto;
-    object-fit: contain;
+    object-fit: scale-down;
     box-shadow: 0 10px 20px rgba(0,0,0,0.2);
     border-radius: 5px;
 }
@@ -278,7 +278,7 @@
 
 .list-view .book-cover {
     max-height: 200px;
-    object-fit: cover;
+    object-fit: scale-down;
 }
 /* END Search Results */
 
@@ -373,6 +373,7 @@
 
     .book-cover {
         max-height: 350px;
+        object-fit: scale-down;
     }
 
     .hero-section {
@@ -856,7 +857,7 @@
     width: auto;
     max-height: 85%;
     max-width: 85%;
-    object-fit: contain;
+    object-fit: scale-down;
     transform: none;
     margin: auto;
     padding: 5px;
@@ -871,7 +872,7 @@
 /* Specific list view settings */
 .book-cover-wrapper .normalized-cover {
     max-height: 180px;
-    object-fit: contain;
+    object-fit: scale-down;
 }
 
 .cover-landscape {
@@ -988,7 +989,7 @@
     max-height: 100%;
     width: auto;
     height: auto;
-    object-fit: contain;
+    object-fit: scale-down;
     object-position: center;
     transition: transform 0.3s ease;
     display: block;
@@ -1001,12 +1002,14 @@
     max-width: min(100%, 180px);
     max-height: 240px;
     margin: 0 auto;
+    object-fit: scale-down;
 }
 
 @media (max-width: 767px) {
     .book-cover {
         display: block;
         margin: 0 auto;
+        object-fit: scale-down;
     }
     
     .list-view .book-cover {
@@ -1014,6 +1017,7 @@
         max-width: 120px;
         max-height: 180px;
         margin: 0 auto;
+        object-fit: scale-down;
     }
     
     .book-cover-container {
