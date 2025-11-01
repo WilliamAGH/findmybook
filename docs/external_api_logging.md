@@ -241,7 +241,6 @@ grep "\[EXTERNAL-API\].*TIERED-SEARCH" application.log
 All logging is implemented in:
 
 1. **ExternalApiLogger.java** - Centralized logging utility
-2. **TieredBookSearchService.java** - Tiered search orchestration
 3. **GoogleApiFetcher.java** - Low-level API calls
 4. **BookDataOrchestrator.java** - Overall data orchestration
 
