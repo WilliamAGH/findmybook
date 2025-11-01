@@ -47,7 +47,7 @@
 
 ## 3. Core Operating Principles
 
-1. **User-Directed Tasks**: Treat the User's request as the source of truth. Capture additional context only when the User asks for it.
+1. **User-Directed Tasks**: Treat the User's request as the source of truth. Before starting any new or updated functionality, confirm the underlying why (business goal, bug, or constraint) so the work, documentation, and validation stay aligned. Capture additional context only when the User asks for it.
 2. **Scope Confirmation**: Clarify uncertainties before modifying code. If requirements shift mid-task, confirm the new scope with the User.
 3. **Traceability**: Reference the current request in code comments, commits, and conversation summaries so decisions stay attributable to the User.
 4. **Minimal Bureaucracy**: Backlog and task files are optional. Maintain or create documentation only when the User explicitly requests it.
@@ -413,6 +413,8 @@ public class AuthorParser { /* Author name parsing */ }
 
 **BEFORE making any code changes:**
 
+0. **Confirm the Why**: Understand and restate the purpose of the change (feature objective, defect being resolved, compliance requirement, etc.) so it can be reflected in implementation choices and documentation updates.
+
 1. **Map All Usages:**
 
    ```bash
@@ -672,6 +674,8 @@ public class BookService {
 - DTOs and data models
 
 **Format:**
+
+Every Javadoc (or JSDoc in JavaScript/TypeScript contexts) created or updated while delivering functionality MUST, when the intent is known, explain succinctly why the class or method exists alongside behavioral notes. Keep this context tight and objective.
 
 ```java
 /**
