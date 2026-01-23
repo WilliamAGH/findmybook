@@ -140,7 +140,7 @@ public class ApiCircuitBreakerService {
             failureCount.set(0);
             lastFailureTime.set(null);
         }
-        // If circuit is OPEN, success doesn't matter - we wait for UTC reset
+        // If circuit is OPEN, success doesn't matter - we wait for Pacific midnight reset
     }
     
     /**

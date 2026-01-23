@@ -16,6 +16,7 @@ import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -61,7 +62,13 @@ import java.util.UUID;
 @Service
 @Slf4j
 public class BookUpsertService {
-    
+
+    /** FNV-1a 64-bit offset basis constant for hash computation. */
+    private static final long FNV_64_OFFSET_BASIS = 0xcbf29ce484222325L;
+
+    /** FNV-1a 64-bit prime constant for hash computation. */
+    private static final long FNV_64_PRIME = 0x100000001b3L;
+
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
@@ -190,24 +197,24 @@ public class BookUpsertService {
      * @param aggregate the book data containing identifiers to search by
      * @return Optional containing the existing book's UUID, or empty if no match found
      *
-     * Lookup strategy (in order, per Task #9):
-     * 1. ISBN-13 (universal identifier)
-     * 2. ISBN-10 (universal identifier)
-     * 3. External ID (source-specific identifier)
+     * <p>Lookup strategy (in order, per Task #9):</p>
+     * <ol>
+     *   <li>ISBN-13 (universal identifier)</li>
+     *   <li>ISBN-10 (universal identifier)</li>
+     *   <li>External ID (source-specific identifier)</li>
+     * </ol>
      *
-     * For books WITH identifiers: Acquires advisory lock based on stable hash of identifiers
-     * to prevent duplicate inserts from concurrent requests.
+     * <p>For books WITH identifiers: Acquires advisory lock based on stable hash of identifiers
+     * to prevent duplicate inserts from concurrent requests.</p>
      *
-     * For books WITHOUT identifiers: Falls back to unsafe path (no lock protection).
+     * <p>For books WITHOUT identifiers: Falls back to unsafe path (no lock protection).</p>
      */
     private Optional<UUID> findExistingBookId(BookAggregate aggregate) {
-        // Compute lock key from book identifiers
         Long lockKey = computeBookLockKey(aggregate);
 
         if (lockKey == null) {
-            // No identifiers available - fall back to unsafe path
             log.warn("Book has no identifiers (ISBN/externalId) - cannot use advisory lock. Race condition possible.");
-            return Optional.ofNullable(findBookByIdentifiersUnsafe(aggregate));
+            return lookupBookByIdentifiers(aggregate);
         }
 
         // Acquire PostgreSQL advisory lock for this book
@@ -217,10 +224,18 @@ public class BookUpsertService {
             log.debug("Acquired advisory lock {} for book lookup", lockKey);
         } catch (Exception e) {
             log.warn("Failed to acquire advisory lock {}, proceeding without lock: {}", lockKey, e.getMessage());
-            return Optional.ofNullable(findBookByIdentifiersUnsafe(aggregate));
+            return lookupBookByIdentifiers(aggregate);
         }
 
         // Now safely query within locked section
+        return lookupBookByIdentifiers(aggregate);
+    }
+
+    /**
+     * Looks up existing book by identifiers and returns as Optional.
+     * Wraps the nullable lookup result in Optional for cleaner null handling.
+     */
+    private Optional<UUID> lookupBookByIdentifiers(BookAggregate aggregate) {
         return Optional.ofNullable(findBookByIdentifiersUnsafe(aggregate));
     }
 
@@ -282,16 +297,11 @@ public class BookUpsertService {
      * @return 64-bit hash value (always positive for pg_advisory_xact_lock compatibility)
      */
     private static long fnv1a64(String input) {
-        final long FNV_OFFSET_BASIS = 0xcbf29ce484222325L;
-        final long FNV_PRIME = 0x100000001b3L;
-
-        long hash = FNV_OFFSET_BASIS;
+        long hash = FNV_64_OFFSET_BASIS;
         for (int i = 0; i < input.length(); i++) {
             hash ^= input.charAt(i);
-            hash *= FNV_PRIME;
+            hash *= FNV_64_PRIME;
         }
-
-        // Ensure positive value (pg_advisory_xact_lock accepts bigint, but positive is cleaner)
         return hash & Long.MAX_VALUE;
     }
 
@@ -303,11 +313,12 @@ public class BookUpsertService {
      * duplicate book creation when same ISBN comes from different sources with different external IDs.</p>
      *
      * @param aggregate the book data containing identifiers to search by
-     * @return the existing book's UUID, or null if no match found
+     * @return the existing book's UUID, or {@code null} if no match found (callers must null-check)
      *
      * <p><strong>Warning:</strong> RACE CONDITION POSSIBLE - two concurrent requests may
      * both get null and attempt to create duplicate books.</p>
      */
+    @Nullable
     private UUID findBookByIdentifiersUnsafe(BookAggregate aggregate) {
         String sanitizedIsbn13 = IsbnUtils.sanitize(aggregate.getIsbn13());
         if (sanitizedIsbn13 != null) {

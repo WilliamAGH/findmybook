@@ -1,39 +1,44 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+<?xml version="1.0" encoding="UTF-8" ?>
+<project
+    xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd"
+>
     <modelVersion>4.0.0</modelVersion>
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
         <version>3.4.10</version>
-        <relativePath/>
+        <relativePath />
     </parent>
     <groupId>com.williamcallahan</groupId>
     <artifactId>book_recommendation_engine</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>book_recommendation_engine</name>
     <description>book_recommendation_engine</description>
-    <url/>
+    <url />
     <licenses>
-        <license/>
+        <license />
     </licenses>
     <developers>
-        <developer/>
+        <developer />
     </developers>
     <scm>
-        <connection/>
-        <developerConnection/>
-        <tag/>
-        <url/>
+        <connection />
+        <developerConnection />
+        <tag />
+        <url />
     </scm>
     <properties>
         <java.version>21</java.version>
         <spring-ai.version>1.0.0-RC1</spring-ai.version>
         <wro4j.version>2.1.1</wro4j.version>
         <wro4j.skip>false</wro4j.skip>
-        <maven.resources.useDefaultDelimiters>false</maven.resources.useDefaultDelimiters>
+        <maven.resources.useDefaultDelimiters
+        >false</maven.resources.useDefaultDelimiters>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+        <project.reporting.outputEncoding
+        >UTF-8</project.reporting.outputEncoding>
         <mockito.version>5.11.0</mockito.version>
         <commons-io.version>2.15.1</commons-io.version>
         <error-prone.version>2.36.0</error-prone.version>
@@ -181,7 +186,8 @@
         </dependency>
         <dependency>
             <groupId>org.springframework.cloud</groupId>
-            <artifactId>spring-cloud-starter-circuitbreaker-resilience4j</artifactId>
+            <artifactId
+            >spring-cloud-starter-circuitbreaker-resilience4j</artifactId>
         </dependency>
         <dependency>
             <groupId>io.github.resilience4j</groupId>
@@ -231,7 +237,8 @@
             <id>dev</id>
             <properties>
                 <spring.profiles.active>dev</spring.profiles.active>
-                <spring-boot.run.jvmArguments>-Dspring.devtools.restart.enabled=true</spring-boot.run.jvmArguments>
+                <spring-boot.run.jvmArguments
+                >-Dspring.devtools.restart.enabled=true</spring-boot.run.jvmArguments>
             </properties>
         </profile>
         <profile>
@@ -309,20 +316,24 @@
                                 <pluginExecution>
                                     <pluginExecutionFilter>
                                         <groupId>ro.isdc.wro4j</groupId>
-                                        <artifactId>wro4j-maven-plugin</artifactId>
-                                        <versionRange>[${wro4j.version},)</versionRange>
+                                        <artifactId
+                                        >wro4j-maven-plugin</artifactId>
+                                        <versionRange
+                                        >[${wro4j.version},)</versionRange>
                                         <goals>
                                             <goal>run</goal>
                                         </goals>
                                     </pluginExecutionFilter>
                                     <action>
-                                        <execute/>
+                                        <execute />
                                     </action>
                                 </pluginExecution>
                                 <pluginExecution>
                                     <pluginExecutionFilter>
-                                        <groupId>org.apache.maven.plugins</groupId>
-                                        <artifactId>maven-clean-plugin</artifactId>
+                                        <groupId
+                                        >org.apache.maven.plugins</groupId>
+                                        <artifactId
+                                        >maven-clean-plugin</artifactId>
                                         <versionRange>[3.3.2,)</versionRange>
                                         <goals>
                                             <goal>clean</goal>
@@ -330,14 +341,17 @@
                                     </pluginExecutionFilter>
                                     <action>
                                         <execute>
-                                            <runOnConfiguration>true</runOnConfiguration>
+                                            <runOnConfiguration
+                                            >true</runOnConfiguration>
                                         </execute>
                                     </action>
                                 </pluginExecution>
                                <pluginExecution>
                                    <pluginExecutionFilter>
-                                       <groupId>org.apache.maven.plugins</groupId>
-                                       <artifactId>maven-antrun-plugin</artifactId>
+                                       <groupId
+                                        >org.apache.maven.plugins</groupId>
+                                       <artifactId
+                                        >maven-antrun-plugin</artifactId>
                                        <versionRange>[3.0.0,)</versionRange>
                                        <goals>
                                            <goal>run</goal>
@@ -345,7 +359,8 @@
                                    </pluginExecutionFilter>
                                    <action>
                                        <execute>
-                                           <runOnConfiguration>true</runOnConfiguration>
+                                           <runOnConfiguration
+                                            >true</runOnConfiguration>
                                        </execute>
                                    </action>
                                </pluginExecution>
@@ -382,13 +397,27 @@
                      <source>${java.version}</source>
                      <target>${java.version}</target>
                      <release>${java.version}</release>
+                     <annotationProcessorPaths>
+                         <path>
+                             <groupId>org.projectlombok</groupId>
+                             <artifactId>lombok</artifactId>
+                             <version>1.18.40</version>
+                         </path>
+                         <path>
+                             <groupId>org.springframework.boot</groupId>
+                             <artifactId
+                            >spring-boot-configuration-processor</artifactId>
+                             <version>${spring-boot.version}</version>
+                         </path>
+                     </annotationProcessorPaths>
                 </configuration>
             </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
-                    <jvmArguments>-XX:+EnableDynamicAgentLoading -Xshare:off</jvmArguments>
+                    <jvmArguments
+                    >-XX:+EnableDynamicAgentLoading -Xshare:off</jvmArguments>
                     <profiles>
                         <profile>dev</profile>
                     </profiles>
@@ -428,12 +457,16 @@
                     </execution>
                 </executions>
                 <configuration>
-                    <wroManagerFactory>ro.isdc.wro.maven.plugin.manager.factory.ConfigurableWroManagerFactory</wroManagerFactory>
+                    <wroManagerFactory
+                    >ro.isdc.wro.maven.plugin.manager.factory.ConfigurableWroManagerFactory</wroManagerFactory>
                     <wroFile>${basedir}/src/main/resources/wro.xml</wroFile>
-                    <extraConfigFile>${basedir}/src/main/resources/wro.properties</extraConfigFile>
+                    <extraConfigFile
+                    >${basedir}/src/main/resources/wro.properties</extraConfigFile>
                     <contextFolder>${basedir}/src/main/resources</contextFolder>
-                    <cssDestinationFolder>${project.build.directory}/classes/static/css/</cssDestinationFolder>
-                    <jsDestinationFolder>${project.build.directory}/classes/static/js/</jsDestinationFolder>
+                    <cssDestinationFolder
+                    >${project.build.directory}/classes/static/css/</cssDestinationFolder>
+                    <jsDestinationFolder
+                    >${project.build.directory}/classes/static/js/</jsDestinationFolder>
                     <ignoreMissingResources>false</ignoreMissingResources>
                     <targetGroups>app</targetGroups>
                     <skip>${wro4j.skip}</skip>
@@ -448,10 +481,12 @@
                     <encoding>UTF-8</encoding>
                     <nonFilteredFileExtensions>
                         <nonFilteredFileExtension>jpg</nonFilteredFileExtension>
-                        <nonFilteredFileExtension>jpeg</nonFilteredFileExtension>
+                        <nonFilteredFileExtension
+                        >jpeg</nonFilteredFileExtension>
                         <nonFilteredFileExtension>png</nonFilteredFileExtension>
                         <nonFilteredFileExtension>gif</nonFilteredFileExtension>
-                        <nonFilteredFileExtension>properties</nonFilteredFileExtension>
+                        <nonFilteredFileExtension
+                        >properties</nonFilteredFileExtension>
                         <nonFilteredFileExtension>p12</nonFilteredFileExtension>
                         <nonFilteredFileExtension>jks</nonFilteredFileExtension>
                         <nonFilteredFileExtension>pfx</nonFilteredFileExtension>
@@ -479,7 +514,8 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-antrun-plugin</artifactId>
-                <version>3.0.0</version> <!-- Using a common version, can be updated if needed -->
+                <version
+                >3.0.0</version> <!-- Using a common version, can be updated if needed -->
                 <executions>
                     <execution>
                         <id>clean-images-before-build-antrun</id>
@@ -489,9 +525,18 @@
                         </goals>
                         <configuration>
                             <target>
-                                <echo message="Cleaning image files from ${project.build.directory}/classes/static/covers"/>
-                                <delete verbose="true" failonerror="false" quiet="true">
-                                    <fileset dir="${project.build.directory}/classes/static/covers" includes="**/*.jpg, **/*.jpeg, **/*.png, **/*.gif"/>
+                                <echo
+                                    message="Cleaning image files from ${project.build.directory}/classes/static/covers"
+                                />
+                                <delete
+                                    verbose="true"
+                                    failonerror="false"
+                                    quiet="true"
+                                >
+                                    <fileset
+                                        dir="${project.build.directory}/classes/static/covers"
+                                        includes="**/*.jpg, **/*.jpeg, **/*.png, **/*.gif"
+                                    />
                                 </delete>
                             </target>
                         </configuration>
@@ -502,7 +547,8 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <argLine>-XX:+EnableDynamicAgentLoading -Xshare:off --enable-native-access=ALL-UNNAMED --add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.io=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED -javaagent:"${settings.localRepository}/net/bytebuddy/byte-buddy-agent/1.14.4/byte-buddy-agent-1.14.4.jar"</argLine>
+                    <argLine
+                    >-XX:+EnableDynamicAgentLoading -Xshare:off --enable-native-access=ALL-UNNAMED --add-opens java.base/java.lang=ALL-UNNAMED --add-opens java.base/java.io=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED -javaagent:"${settings.localRepository}/net/bytebuddy/byte-buddy-agent/1.14.4/byte-buddy-agent-1.14.4.jar"</argLine>
                     <includes>
                         <include>**/*Test.java</include>
                     </includes>
@@ -533,7 +579,8 @@
                     <xmlOutput>true</xmlOutput>
                     <xmlOutputDirectory>target</xmlOutputDirectory>
                     <htmlOutput>true</htmlOutput>
-                    <htmlOutputDirectory>target/site/spotbugs</htmlOutputDirectory>
+                    <htmlOutputDirectory
+                    >target/site/spotbugs</htmlOutputDirectory>
                 </configuration>
             </plugin>
         </plugins>
