@@ -1677,6 +1677,7 @@ declare
   books_count integer := 0;
   google_id text;
   existing_cluster uuid;
+  primary_title text;
 begin
   for rec in
     select
