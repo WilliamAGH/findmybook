@@ -104,7 +104,7 @@ public class BookCollectionPersistenceService {
             String id = jdbcTemplate.queryForObject(
                 "INSERT INTO book_collections (id, collection_type, source, provider_list_id, provider_list_code, display_name, normalized_name, description, bestsellers_date, published_date, raw_data_json, created_at, updated_at) " +
                 "VALUES (?, 'BESTSELLER_LIST', 'NYT', ?, ?, ?, ?, ?, ?, ?, ?::jsonb, NOW(), NOW()) " +
-                "ON CONFLICT (source, provider_list_code, published_date) WHERE provider_list_code IS NOT NULL AND published_date IS NOT NULL " +
+                "ON CONFLICT (source, provider_list_code, published_date) " +
                 "DO UPDATE SET display_name = EXCLUDED.display_name, description = EXCLUDED.description, raw_data_json = EXCLUDED.raw_data_json, updated_at = NOW() RETURNING id",
                 (rs, rowNum) -> rs.getString("id"),
                 IdGenerator.generateShort(),

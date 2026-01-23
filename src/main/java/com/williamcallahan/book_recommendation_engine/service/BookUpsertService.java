@@ -24,6 +24,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -119,11 +120,11 @@ public class BookUpsertService {
         );
         
         // 1. Determine book_id (check if book already exists)
-        UUID bookId = findOrCreateBookId(aggregate);
-        boolean isNew = bookId == null;
-        
+        Optional<UUID> existingBookId = findExistingBookId(aggregate);
+        boolean isNew = existingBookId.isEmpty();
+        UUID bookId = existingBookId.orElseGet(() -> UUID.fromString(IdGenerator.uuidV7()));
+
         if (isNew) {
-            bookId = UUID.fromString(IdGenerator.uuidV7());
             log.info("Creating new book: id={}, title='{}'", bookId, aggregate.getTitle());
         } else {
             log.info("Updating existing book: id={}, title='{}'", bookId, aggregate.getTitle());
@@ -183,11 +184,13 @@ public class BookUpsertService {
     }
     
     /**
-     * Find existing book ID or return null for new book.
-     * Uses PostgreSQL advisory locks to prevent race conditions during concurrent upserts.
+     * Finds an existing book ID by its identifiers.
+     * Uses PostgreSQL advisory locks to prevent race conditions during concurrent lookups.
      *
-     * Lookup strategy (in order):
-     * Task #9: Prioritize universal identifiers (ISBN) over source-specific ones
+     * @param aggregate the book data containing identifiers to search by
+     * @return Optional containing the existing book's UUID, or empty if no match found
+     *
+     * Lookup strategy (in order, per Task #9):
      * 1. ISBN-13 (universal identifier)
      * 2. ISBN-10 (universal identifier)
      * 3. External ID (source-specific identifier)
@@ -197,14 +200,14 @@ public class BookUpsertService {
      *
      * For books WITHOUT identifiers: Falls back to unsafe path (no lock protection).
      */
-    private UUID findOrCreateBookId(BookAggregate aggregate) {
+    private Optional<UUID> findExistingBookId(BookAggregate aggregate) {
         // Compute lock key from book identifiers
         Long lockKey = computeBookLockKey(aggregate);
 
         if (lockKey == null) {
             // No identifiers available - fall back to unsafe path
             log.warn("Book has no identifiers (ISBN/externalId) - cannot use advisory lock. Race condition possible.");
-            return findOrCreateBookIdUnsafe(aggregate);
+            return Optional.ofNullable(findBookByIdentifiersUnsafe(aggregate));
         }
 
         // Acquire PostgreSQL advisory lock for this book
@@ -214,11 +217,11 @@ public class BookUpsertService {
             log.debug("Acquired advisory lock {} for book lookup", lockKey);
         } catch (Exception e) {
             log.warn("Failed to acquire advisory lock {}, proceeding without lock: {}", lockKey, e.getMessage());
-            return findOrCreateBookIdUnsafe(aggregate);
+            return Optional.ofNullable(findBookByIdentifiersUnsafe(aggregate));
         }
 
         // Now safely query within locked section
-        return findOrCreateBookIdUnsafe(aggregate);
+        return Optional.ofNullable(findBookByIdentifiersUnsafe(aggregate));
     }
 
     /**
@@ -230,10 +233,11 @@ public class BookUpsertService {
      * generate the SAME lock key, preventing race conditions and duplicate book creation when
      * different sources format ISBNs differently.</p>
      *
-     * Returns null if book has no identifiers (title-only books).
+     * <p>Uses a custom 64-bit hash function to reduce collision probability compared to
+     * Java's 32-bit String.hashCode(). With ~4 billion possible 32-bit values, collisions
+     * become likely at scale; 64-bit provides adequate space for millions of books.</p>
      *
-     * Uses Java's String.hashCode() which is stable across JVM instances
-     * and deterministic for the same input string.
+     * Returns null if book has no identifiers (title-only books).
      */
     private Long computeBookLockKey(BookAggregate aggregate) {
         String lockString = null;
@@ -266,24 +270,45 @@ public class BookUpsertService {
             return null; // No identifiers available
         }
 
-        // Convert string to stable 64-bit integer for pg_advisory_xact_lock
-        // Use hashCode() which is deterministic for same input
-        long hash = (long) lockString.hashCode();
-
-        // Ensure positive value (pg_advisory_xact_lock accepts bigint)
-        return Math.abs(hash);
+        // Use 64-bit FNV-1a hash for better distribution and fewer collisions than 32-bit hashCode
+        return fnv1a64(lockString);
     }
 
     /**
-     * Unsafe book ID lookup without advisory lock protection.
+     * FNV-1a 64-bit hash function for generating advisory lock keys.
+     * Provides better collision resistance than Java's 32-bit String.hashCode().
+     *
+     * @param input the string to hash
+     * @return 64-bit hash value (always positive for pg_advisory_xact_lock compatibility)
+     */
+    private static long fnv1a64(String input) {
+        final long FNV_OFFSET_BASIS = 0xcbf29ce484222325L;
+        final long FNV_PRIME = 0x100000001b3L;
+
+        long hash = FNV_OFFSET_BASIS;
+        for (int i = 0; i < input.length(); i++) {
+            hash ^= input.charAt(i);
+            hash *= FNV_PRIME;
+        }
+
+        // Ensure positive value (pg_advisory_xact_lock accepts bigint, but positive is cleaner)
+        return hash & Long.MAX_VALUE;
+    }
+
+    /**
+     * Looks up existing book ID by identifiers without advisory lock protection.
      * Used as fallback for books without identifiers or when lock acquisition fails.
      *
-     * Task #9: Prioritizes universal identifiers (ISBN) over source-specific ones to prevent
-     * duplicate book creation when same ISBN comes from different sources with different external IDs.
+     * <p>Task #9: Prioritizes universal identifiers (ISBN) over source-specific ones to prevent
+     * duplicate book creation when same ISBN comes from different sources with different external IDs.</p>
      *
-     * RACE CONDITION POSSIBLE: Two concurrent requests may create duplicate books.
+     * @param aggregate the book data containing identifiers to search by
+     * @return the existing book's UUID, or null if no match found
+     *
+     * <p><strong>Warning:</strong> RACE CONDITION POSSIBLE - two concurrent requests may
+     * both get null and attempt to create duplicate books.</p>
      */
-    private UUID findOrCreateBookIdUnsafe(BookAggregate aggregate) {
+    private UUID findBookByIdentifiersUnsafe(BookAggregate aggregate) {
         String sanitizedIsbn13 = IsbnUtils.sanitize(aggregate.getIsbn13());
         if (sanitizedIsbn13 != null) {
             UUID existing = findBookByIsbn13(sanitizedIsbn13);

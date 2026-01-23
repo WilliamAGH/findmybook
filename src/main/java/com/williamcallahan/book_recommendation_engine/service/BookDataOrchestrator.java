@@ -234,15 +234,24 @@ public class BookDataOrchestrator {
                     if (ok) {
                         ExternalApiLogger.logHydrationSuccess(logger, context, book.getId(), book.getId(), "POSTGRES_UPSERT");
                         successCount++;
+                        logger.debug("[EXTERNAL-API] [{}] Successfully persisted book id={}", context, book.getId());
                     } else {
                         failureCount++;
                         logger.warn("[EXTERNAL-API] [{}] Persist returned false for id={}", context, book.getId());
                     }
-                    logger.debug("[EXTERNAL-API] [{}] Successfully persisted book id={}", context, book.getId());
                 } catch (Exception ex) {
                     ExternalApiLogger.logHydrationFailure(logger, context, book.getId(), ex.getMessage());
                     failureCount++;
                     logger.error("[EXTERNAL-API] [{}] Failed to persist book {} from {}: {}", context, book.getId(), context, ex.getMessage(), ex);
+
+                    // Fail fast on systemic errors (connection issues) to avoid hammering a broken database
+                    if (isSystemicDatabaseError(ex)) {
+                        logger.error("[EXTERNAL-API] [{}] Aborting batch due to systemic database error", context);
+                        if (ex instanceof RuntimeException runtimeEx) {
+                            throw runtimeEx;
+                        }
+                        throw new RuntimeException("Systemic database error during batch persistence", ex);
+                    }
                 }
             }
             
@@ -314,24 +323,38 @@ public class BookDataOrchestrator {
         return title.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
     }
 
+    /**
+     * Triggers materialized view refresh with rate limiting to prevent concurrent refreshes.
+     * Uses atomic compareAndSet to ensure only one thread wins the race.
+     *
+     * @param force if true, bypasses the rate limit check (but still prevents concurrent execution)
+     */
     private void triggerSearchViewRefresh(boolean force) {
         if (bookSearchService == null) {
             return;
         }
 
         long now = System.currentTimeMillis();
-        if (!force) {
-            long last = lastSearchViewRefresh.get();
-            if (last != 0 && now - last < SEARCH_VIEW_REFRESH_INTERVAL_MS) {
-                return;
-            }
+        long last = lastSearchViewRefresh.get();
+
+        // Rate limit check (unless forced)
+        if (!force && last != 0 && now - last < SEARCH_VIEW_REFRESH_INTERVAL_MS) {
+            return;
+        }
+
+        // Atomic check-and-set to prevent concurrent refreshes
+        // Only one thread will succeed; others will see the updated timestamp and skip
+        if (!lastSearchViewRefresh.compareAndSet(last, now)) {
+            logger.debug("Skipping materialized view refresh - another thread is handling it");
+            return;
         }
 
         try {
             bookSearchService.refreshMaterializedView();
-            lastSearchViewRefresh.set(now);
         } catch (Exception ex) {
             logger.warn("BookDataOrchestrator: Failed to refresh search materialized view: {}", ex.getMessage());
+            // Reset timestamp on failure so next attempt can try again
+            lastSearchViewRefresh.compareAndSet(now, last);
         }
     }
 
@@ -368,6 +391,33 @@ public class BookDataOrchestrator {
                 book != null ? book.getId() : "UNKNOWN", e.getMessage(), e);
             return false;
         }
+    }
+
+    /**
+     * Determines if an exception indicates a systemic database problem (connection failure,
+     * authentication error, etc.) that would cause all subsequent operations to fail.
+     * Used to fail-fast on batch operations rather than repeatedly hammering a broken database.
+     */
+    private boolean isSystemicDatabaseError(Exception ex) {
+        if (ex == null) {
+            return false;
+        }
+        String message = ex.getMessage();
+        if (message == null) {
+            message = "";
+        }
+        String lowerMessage = message.toLowerCase(Locale.ROOT);
+
+        // Check for connection-related failures
+        return lowerMessage.contains("connection") && (
+                   lowerMessage.contains("refused") ||
+                   lowerMessage.contains("closed") ||
+                   lowerMessage.contains("reset") ||
+                   lowerMessage.contains("timeout")
+               ) ||
+               lowerMessage.contains("authentication failed") ||
+               lowerMessage.contains("too many connections") ||
+               lowerMessage.contains("database") && lowerMessage.contains("does not exist");
     }
 
     /**
