@@ -29,6 +29,12 @@ import org.springframework.lang.Nullable;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.jdbc.CannotGetJdbcConnectionException;
+
+import java.net.ConnectException;
+import java.net.SocketException;
+import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -48,13 +54,23 @@ public class BookDataOrchestrator {
     private static final Logger logger = LoggerFactory.getLogger(BookDataOrchestrator.class);
 
     private final ObjectMapper objectMapper;
-    // private final LongitoodBookDataService longitoodBookDataService; // Removed
     private final BookSearchService bookSearchService;
     private final PostgresBookRepository postgresBookRepository;
     private final BookUpsertService bookUpsertService; // SSOT for all book writes
     private final com.williamcallahan.book_recommendation_engine.mapper.GoogleBooksMapper googleBooksMapper; // For Book->BookAggregate mapping
     private static final long SEARCH_VIEW_REFRESH_INTERVAL_MS = 60_000L;
     private final AtomicLong lastSearchViewRefresh = new AtomicLong(0L);
+
+    // Error message patterns for detecting systemic database failures
+    private static final String ERR_CONNECTION = "connection";
+    private static final String ERR_REFUSED = "refused";
+    private static final String ERR_CLOSED = "closed";
+    private static final String ERR_RESET = "reset";
+    private static final String ERR_TIMEOUT = "timeout";
+    private static final String ERR_AUTH_FAILED = "authentication failed";
+    private static final String ERR_TOO_MANY_CONNECTIONS = "too many connections";
+    private static final String ERR_DATABASE = "database";
+    private static final String ERR_DOES_NOT_EXIST = "does not exist";
 
     public BookDataOrchestrator(ObjectMapper objectMapper,
                                 BookSearchService bookSearchService,
@@ -397,27 +413,74 @@ public class BookDataOrchestrator {
      * Determines if an exception indicates a systemic database problem (connection failure,
      * authentication error, etc.) that would cause all subsequent operations to fail.
      * Used to fail-fast on batch operations rather than repeatedly hammering a broken database.
+     *
+     * <p>Detection strategy:</p>
+     * <ol>
+     *   <li>Check exception type hierarchy first (most reliable)</li>
+     *   <li>Fall back to message analysis only for SQLException subtypes (avoids false positives)</li>
+     * </ol>
      */
     private boolean isSystemicDatabaseError(Exception ex) {
         if (ex == null) {
             return false;
         }
-        String message = ex.getMessage();
+
+        // 1. Check exception types first - these are definitive indicators
+        if (isSystemicExceptionType(ex)) {
+            return true;
+        }
+
+        // 2. Check cause chain for systemic exception types
+        Throwable cause = ex.getCause();
+        while (cause != null) {
+            if (cause instanceof Exception causeEx && isSystemicExceptionType(causeEx)) {
+                return true;
+            }
+            cause = cause.getCause();
+        }
+
+        // 3. Only analyze messages for SQLException/DataAccessException to avoid false positives
+        //    from user data containing strings like "connection reset"
+        if (ex instanceof SQLException || ex instanceof org.springframework.dao.DataAccessException) {
+            return isSystemicErrorMessage(ex.getMessage());
+        }
+
+        return false;
+    }
+
+    /**
+     * Checks if the exception type itself indicates a systemic database failure.
+     */
+    private boolean isSystemicExceptionType(Exception ex) {
+        return ex instanceof ConnectException
+            || ex instanceof SocketException
+            || ex instanceof CannotGetJdbcConnectionException
+            || ex instanceof DataAccessResourceFailureException;
+    }
+
+    /**
+     * Analyzes exception message for systemic error patterns.
+     * Only called for SQLException/DataAccessException to minimize false positives.
+     */
+    private boolean isSystemicErrorMessage(String message) {
         if (message == null) {
-            message = "";
+            return false;
         }
         String lowerMessage = message.toLowerCase(Locale.ROOT);
 
-        // Check for connection-related failures
-        return lowerMessage.contains("connection") && (
-                   lowerMessage.contains("refused") ||
-                   lowerMessage.contains("closed") ||
-                   lowerMessage.contains("reset") ||
-                   lowerMessage.contains("timeout")
-               ) ||
-               lowerMessage.contains("authentication failed") ||
-               lowerMessage.contains("too many connections") ||
-               lowerMessage.contains("database") && lowerMessage.contains("does not exist");
+        boolean isConnectionError = lowerMessage.contains(ERR_CONNECTION) && (
+            lowerMessage.contains(ERR_REFUSED) ||
+            lowerMessage.contains(ERR_CLOSED) ||
+            lowerMessage.contains(ERR_RESET) ||
+            lowerMessage.contains(ERR_TIMEOUT)
+        );
+
+        boolean isAuthError = lowerMessage.contains(ERR_AUTH_FAILED);
+        boolean isPoolExhausted = lowerMessage.contains(ERR_TOO_MANY_CONNECTIONS);
+        boolean isDatabaseMissing = lowerMessage.contains(ERR_DATABASE) &&
+                                    lowerMessage.contains(ERR_DOES_NOT_EXIST);
+
+        return isConnectionError || isAuthError || isPoolExhausted || isDatabaseMissing;
     }
 
     /**
