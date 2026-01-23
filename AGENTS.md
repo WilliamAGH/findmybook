@@ -1,5 +1,30 @@
 # Agent Operations Manual
 
+## 🚨🚨🚨 CRITICAL: CLEAN CODE & FILE CREATION REQUIREMENTS 🚨🚨🚨
+
+### FILE CREATION — MANDATORY WORKFLOW
+
+**STOP! BEFORE CREATING ANY NEW FILE YOU MUST:**
+
+1. **SEARCH EXHAUSTIVELY**: Find ALL existing files related to EVERY function, class, method, or component you envision. Use grep, file_glob, and semantic search across the ENTIRE codebase.
+2. **ANALYZE**: Review each discovered file—does the functionality ALREADY EXIST or can it be EXTENDED?
+3. **CONFIRM**: Only after exhaustively confirming NO existing solution may you proceed.
+4. **REQUEST PERMISSION**: Ask explicitly for consent before creating any file.
+5. **COMPLY WITH STANDARDS**: All new files MUST follow the code quality mandates below.
+
+### CODE QUALITY MANDATES (per Robert Martin's Clean Code & Clean Architecture)
+
+| Requirement | Rule | Violation Example (Java) |
+|-------------|------|-------------------------|
+| **Type Safety** | NEVER use `Object`, `Map<String,Object>`, or raw types. Use typed DTOs/records. | ❌ `Map<String, Object> data` |
+| **Clean Code** | Succinct, single-responsibility methods. NO useless try/catch that swallows errors. NO dead code. | ❌ `catch (Exception e) { log.error(e); }` |
+| **Clean Architecture** | Dependencies point inward. Domain has ZERO framework imports. Respect layer boundaries. | ❌ Service importing from Controller |
+| **No Suppression** | NEVER use `@SuppressWarnings`. Fix the root cause. | ❌ `@SuppressWarnings("unchecked")` |
+
+**These are NON-NEGOTIABLE requirements, not suggestions.**
+
+---
+
 ## 🚨 CRITICAL MANDATES
 
 **ALL markdown files MUST BE CREATED IN tmp/ UNLESS EXPLICITLY REQUESTED BY THE USER, AND MUST BE DELETED AFTER THEY'RE NO LONGER REQUIRED/COMPLETED.**
@@ -26,7 +51,7 @@
 - ❌ **NEVER** use CSS `!important` declarations - **100% DISALLOWED** in this repository
 - ❌ **NEVER** create inline styles in templates
 - ❌ **NEVER** exceed 500 lines per file (split immediately at ~400 lines)
-- ❌ **NEVER** create new files without explicit user permission
+- ❌ **NEVER** create new files without following the CRITICAL FILE CREATION WORKFLOW at top of this document.
 - ❌ **NEVER** use British English in code or comments; exclusively use American English
 
 ### Migration & Database Rules
