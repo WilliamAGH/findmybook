@@ -1,4 +1,4 @@
-FROM maven:3.9.6-eclipse-temurin-21-alpine AS build
+FROM public.ecr.aws/docker/library/maven:3.9.6-eclipse-temurin-21-alpine AS build
 WORKDIR /app
 
 # Copy pom.xml first for better layer caching
@@ -19,8 +19,8 @@ COPY src/ /app/src/
 # Build the application
 RUN mvn ${MAVEN_CLI_OPTS} package -DskipTests
 
-# Use JRE for smaller runtime image
-FROM eclipse-temurin:21-jre-alpine
+# Use JRE for smaller runtime image (from ECR Public to avoid Docker Hub rate limits)
+FROM public.ecr.aws/docker/library/eclipse-temurin:21-jre-alpine
 WORKDIR /app
 ENV SERVER_PORT=8095
 EXPOSE 8095

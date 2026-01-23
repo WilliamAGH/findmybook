@@ -29,6 +29,12 @@ import org.springframework.lang.Nullable;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.jdbc.CannotGetJdbcConnectionException;
+
+import java.net.ConnectException;
+import java.net.SocketException;
+import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -39,6 +45,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 
@@ -48,13 +55,24 @@ public class BookDataOrchestrator {
     private static final Logger logger = LoggerFactory.getLogger(BookDataOrchestrator.class);
 
     private final ObjectMapper objectMapper;
-    // private final LongitoodBookDataService longitoodBookDataService; // Removed
     private final BookSearchService bookSearchService;
     private final PostgresBookRepository postgresBookRepository;
     private final BookUpsertService bookUpsertService; // SSOT for all book writes
     private final com.williamcallahan.book_recommendation_engine.mapper.GoogleBooksMapper googleBooksMapper; // For Book->BookAggregate mapping
     private static final long SEARCH_VIEW_REFRESH_INTERVAL_MS = 60_000L;
     private final AtomicLong lastSearchViewRefresh = new AtomicLong(0L);
+    private final AtomicBoolean searchViewRefreshInProgress = new AtomicBoolean(false);
+
+    // Error message patterns for detecting systemic database failures
+    private static final String ERR_CONNECTION = "connection";
+    private static final String ERR_REFUSED = "refused";
+    private static final String ERR_CLOSED = "closed";
+    private static final String ERR_RESET = "reset";
+    private static final String ERR_TIMEOUT = "timeout";
+    private static final String ERR_AUTH_FAILED = "authentication failed";
+    private static final String ERR_TOO_MANY_CONNECTIONS = "too many connections";
+    private static final String ERR_DATABASE = "database";
+    private static final String ERR_DOES_NOT_EXIST = "does not exist";
 
     public BookDataOrchestrator(ObjectMapper objectMapper,
                                 BookSearchService bookSearchService,
@@ -234,15 +252,24 @@ public class BookDataOrchestrator {
                     if (ok) {
                         ExternalApiLogger.logHydrationSuccess(logger, context, book.getId(), book.getId(), "POSTGRES_UPSERT");
                         successCount++;
+                        logger.debug("[EXTERNAL-API] [{}] Successfully persisted book id={}", context, book.getId());
                     } else {
                         failureCount++;
                         logger.warn("[EXTERNAL-API] [{}] Persist returned false for id={}", context, book.getId());
                     }
-                    logger.debug("[EXTERNAL-API] [{}] Successfully persisted book id={}", context, book.getId());
                 } catch (Exception ex) {
                     ExternalApiLogger.logHydrationFailure(logger, context, book.getId(), ex.getMessage());
                     failureCount++;
                     logger.error("[EXTERNAL-API] [{}] Failed to persist book {} from {}: {}", context, book.getId(), context, ex.getMessage(), ex);
+
+                    // Fail fast on systemic errors (connection issues) to avoid hammering a broken database
+                    if (isSystemicDatabaseError(ex)) {
+                        logger.error("[EXTERNAL-API] [{}] Aborting batch due to systemic database error", context);
+                        if (ex instanceof RuntimeException runtimeEx) {
+                            throw runtimeEx;
+                        }
+                        throw new RuntimeException("Systemic database error during batch persistence", ex);
+                    }
                 }
             }
             
@@ -314,24 +341,43 @@ public class BookDataOrchestrator {
         return title.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
     }
 
+    /**
+     * Triggers materialized view refresh with rate limiting to prevent concurrent refreshes.
+     * Uses AtomicBoolean in-flight guard for mutual exclusion plus timestamp for rate limiting.
+     *
+     * @param force if true, bypasses the rate limit check (but still prevents concurrent execution)
+     */
     private void triggerSearchViewRefresh(boolean force) {
         if (bookSearchService == null) {
             return;
         }
 
         long now = System.currentTimeMillis();
-        if (!force) {
-            long last = lastSearchViewRefresh.get();
-            if (last != 0 && now - last < SEARCH_VIEW_REFRESH_INTERVAL_MS) {
-                return;
-            }
+        long last = lastSearchViewRefresh.get();
+
+        // Rate limit check (unless forced)
+        if (!force && last != 0 && now - last < SEARCH_VIEW_REFRESH_INTERVAL_MS) {
+            return;
         }
+
+        // In-flight guard to prevent concurrent refreshes
+        // Only one thread will succeed the CAS from false -> true
+        if (!searchViewRefreshInProgress.compareAndSet(false, true)) {
+            logger.debug("Skipping materialized view refresh - another thread is handling it");
+            return;
+        }
+
+        // Update timestamp after acquiring the lock
+        lastSearchViewRefresh.set(now);
 
         try {
             bookSearchService.refreshMaterializedView();
-            lastSearchViewRefresh.set(now);
         } catch (Exception ex) {
             logger.warn("BookDataOrchestrator: Failed to refresh search materialized view: {}", ex.getMessage());
+            // Keep timestamp at `now` to enforce rate limiting even after failure.
+            // Resetting to `last` (especially when last==0) would bypass the rate limit check.
+        } finally {
+            searchViewRefreshInProgress.set(false);
         }
     }
 
@@ -366,8 +412,89 @@ public class BookDataOrchestrator {
         } catch (Exception e) {
             logger.error("Error persisting via BookUpsertService for book {}: {}",
                 book != null ? book.getId() : "UNKNOWN", e.getMessage(), e);
+            // Rethrow systemic DB failures so batch abort logic in persistBooksAsync can trigger
+            if (isSystemicDatabaseError(e)) {
+                if (e instanceof RuntimeException runtimeEx) {
+                    throw runtimeEx;
+                }
+                throw new RuntimeException("Systemic database error during upsert", e);
+            }
             return false;
         }
+    }
+
+    /**
+     * Determines if an exception indicates a systemic database problem (connection failure,
+     * authentication error, etc.) that would cause all subsequent operations to fail.
+     * Used to fail-fast on batch operations rather than repeatedly hammering a broken database.
+     *
+     * <p>Detection strategy:</p>
+     * <ol>
+     *   <li>Check exception type hierarchy first (most reliable)</li>
+     *   <li>Fall back to message analysis only for SQLException subtypes (avoids false positives)</li>
+     * </ol>
+     */
+    private boolean isSystemicDatabaseError(Exception ex) {
+        if (ex == null) {
+            return false;
+        }
+
+        // 1. Check exception types first - these are definitive indicators
+        if (isSystemicExceptionType(ex)) {
+            return true;
+        }
+
+        // 2. Check cause chain for systemic exception types
+        Throwable cause = ex.getCause();
+        while (cause != null) {
+            if (cause instanceof Exception causeEx && isSystemicExceptionType(causeEx)) {
+                return true;
+            }
+            cause = cause.getCause();
+        }
+
+        // 3. Only analyze messages for SQLException/DataAccessException to avoid false positives
+        //    from user data containing strings like "connection reset"
+        if (ex instanceof SQLException || ex instanceof org.springframework.dao.DataAccessException) {
+            return isSystemicErrorMessage(ex.getMessage());
+        }
+
+        return false;
+    }
+
+    /**
+     * Checks if the exception type itself indicates a systemic database failure.
+     */
+    private boolean isSystemicExceptionType(Exception ex) {
+        return ex instanceof ConnectException
+            || ex instanceof SocketException
+            || ex instanceof CannotGetJdbcConnectionException
+            || ex instanceof DataAccessResourceFailureException;
+    }
+
+    /**
+     * Analyzes exception message for systemic error patterns.
+     * Only called for SQLException/DataAccessException to minimize false positives.
+     */
+    private boolean isSystemicErrorMessage(String message) {
+        if (message == null) {
+            return false;
+        }
+        String lowerMessage = message.toLowerCase(Locale.ROOT);
+
+        boolean isConnectionError = lowerMessage.contains(ERR_CONNECTION) && (
+            lowerMessage.contains(ERR_REFUSED) ||
+            lowerMessage.contains(ERR_CLOSED) ||
+            lowerMessage.contains(ERR_RESET) ||
+            lowerMessage.contains(ERR_TIMEOUT)
+        );
+
+        boolean isAuthError = lowerMessage.contains(ERR_AUTH_FAILED);
+        boolean isPoolExhausted = lowerMessage.contains(ERR_TOO_MANY_CONNECTIONS);
+        boolean isDatabaseMissing = lowerMessage.contains(ERR_DATABASE) &&
+                                    lowerMessage.contains(ERR_DOES_NOT_EXIST);
+
+        return isConnectionError || isAuthError || isPoolExhausted || isDatabaseMissing;
     }
 
     /**

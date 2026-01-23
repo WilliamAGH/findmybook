@@ -79,28 +79,156 @@ BEGIN
         LEFT JOIN authors a ON a.id = baj.author_id
         LEFT JOIN book_external_ids bei ON bei.book_id = b.id AND bei.source = 'GOOGLE_BOOKS'
         LEFT JOIN LATERAL (
-            SELECT COALESCE(bil.s3_image_path, bil.url) AS cover_url,
-                   bil.s3_image_path AS cover_s3_key,
-                   bil.url AS cover_fallback_url
-            FROM book_image_links bil
-            WHERE bil.book_id = b.id
-              AND bil.download_error IS NULL
+            SELECT chosen.cover_url,
+                   chosen.cover_s3_key,
+                   chosen.cover_fallback_url,
+                   chosen.width,
+                   chosen.height,
+                   chosen.is_high_resolution
+            FROM (
+                SELECT strict.cover_url,
+                       strict.cover_s3_key,
+                       strict.cover_fallback_url,
+                       strict.width,
+                       strict.height,
+                       strict.is_high_resolution,
+                       strict.cover_priority,
+                       strict.height_value,
+                       strict.width_value,
+                       strict.created_value,
+                       0 AS quality_rank
+                FROM (
+                    SELECT
+                        COALESCE(bil.s3_image_path, bil.url) AS cover_url,
+                        bil.s3_image_path AS cover_s3_key,
+                        COALESCE(
+                            (
+                                SELECT bil_fallback.url
+                                FROM book_image_links bil_fallback
+                                WHERE bil_fallback.book_id = b.id
+                                  AND bil_fallback.download_error IS NULL
+                                  AND bil_fallback.s3_image_path IS NULL
+                                  AND bil_fallback.url <> bil.url
+                                  AND bil_fallback.url NOT LIKE '%printsec=titlepage%'
+                                  AND bil_fallback.url NOT LIKE '%printsec=copyright%'
+                                  AND bil_fallback.url NOT LIKE '%printsec=toc%'
+                                  AND (bil_fallback.height::float / NULLIF(bil_fallback.width, 0)) BETWEEN 1.2 AND 2.0
+                                  AND bil_fallback.width >= 180
+                                  AND bil_fallback.height >= 280
+                                ORDER BY
+                                    CASE
+                                        WHEN bil_fallback.is_high_resolution THEN 0
+                                        WHEN bil_fallback.width >= 320 AND bil_fallback.height >= 320 THEN 1
+                                        WHEN bil_fallback.image_type = 'extraLarge' THEN 2
+                                        WHEN bil_fallback.image_type = 'large' THEN 3
+                                        WHEN bil_fallback.image_type = 'medium' THEN 4
+                                        ELSE 5
+                                    END,
+                                    bil_fallback.height DESC NULLS LAST,
+                                    bil_fallback.width DESC NULLS LAST,
+                                    bil_fallback.created_at DESC
+                                LIMIT 1
+                            ),
+                            bil.url
+                        ) AS cover_fallback_url,
+                        bil.width,
+                        bil.height,
+                        COALESCE(bil.is_high_resolution, false) AS is_high_resolution,
+                        CASE
+                            WHEN bil.s3_image_path IS NOT NULL AND COALESCE(bil.is_high_resolution, false) THEN 0
+                            WHEN bil.s3_image_path IS NOT NULL THEN 1
+                            WHEN bil.url LIKE '%edge=curl%' THEN 5
+                            WHEN COALESCE(bil.is_high_resolution, false) THEN 10
+                            WHEN bil.width >= 320 AND bil.height >= 320 THEN 11
+                            WHEN bil.image_type = 'extraLarge' THEN 12
+                            WHEN bil.image_type = 'large' THEN 13
+                            WHEN bil.image_type = 'medium' THEN 14
+                            WHEN bil.image_type = 'small' THEN 15
+                            WHEN bil.image_type = 'thumbnail' THEN 16
+                            ELSE 20
+                        END AS cover_priority,
+                        COALESCE(bil.height, 0) AS height_value,
+                        COALESCE(bil.width, 0) AS width_value,
+                        bil.created_at AS created_value
+                    FROM book_image_links bil
+                    WHERE bil.book_id = b.id
+                      AND bil.download_error IS NULL
+                      AND bil.width >= 180
+                      AND bil.height >= 280
+                      AND (bil.height::float / NULLIF(bil.width, 0)) BETWEEN 1.2 AND 2.0
+                      AND bil.url NOT LIKE '%printsec=titlepage%'
+                      AND bil.url NOT LIKE '%printsec=copyright%'
+                      AND bil.url NOT LIKE '%printsec=toc%'
+                    ORDER BY
+                        CASE
+                            WHEN bil.s3_image_path IS NOT NULL AND COALESCE(bil.is_high_resolution, false) THEN 0
+                            WHEN bil.s3_image_path IS NOT NULL THEN 1
+                            WHEN bil.url LIKE '%edge=curl%' THEN 5
+                            WHEN COALESCE(bil.is_high_resolution, false) THEN 10
+                            WHEN bil.width >= 320 AND bil.height >= 320 THEN 11
+                            WHEN bil.image_type = 'extraLarge' THEN 12
+                            WHEN bil.image_type = 'large' THEN 13
+                            WHEN bil.image_type = 'medium' THEN 14
+                            WHEN bil.image_type = 'small' THEN 15
+                            WHEN bil.image_type = 'thumbnail' THEN 16
+                            ELSE 20
+                        END,
+                        bil.height DESC NULLS LAST,
+                        bil.width DESC NULLS LAST,
+                        bil.created_at DESC
+                    LIMIT 1
+                ) strict
+                UNION ALL
+                SELECT relaxed_inner.cover_url,
+                       relaxed_inner.cover_s3_key,
+                       relaxed_inner.cover_fallback_url,
+                       relaxed_inner.width,
+                       relaxed_inner.height,
+                       relaxed_inner.is_high_resolution,
+                       relaxed_inner.cover_priority,
+                       relaxed_inner.height_value,
+                       relaxed_inner.width_value,
+                       relaxed_inner.created_value,
+                       1 AS quality_rank
+                FROM (
+                    SELECT
+                        COALESCE(bil_relaxed.s3_image_path, bil_relaxed.url) AS cover_url,
+                        bil_relaxed.s3_image_path AS cover_s3_key,
+                        NULLIF(bil_relaxed.url, '') AS cover_fallback_url,
+                        bil_relaxed.width,
+                        bil_relaxed.height,
+                        COALESCE(bil_relaxed.is_high_resolution, false) AS is_high_resolution,
+                        CASE
+                            WHEN bil_relaxed.s3_image_path IS NOT NULL AND COALESCE(bil_relaxed.is_high_resolution, false) THEN 0
+                            WHEN bil_relaxed.s3_image_path IS NOT NULL THEN 1
+                            WHEN bil_relaxed.url LIKE '%edge=curl%' THEN 5
+                            WHEN COALESCE(bil_relaxed.is_high_resolution, false) THEN 10
+                            WHEN bil_relaxed.width >= 320 AND bil_relaxed.height >= 320 THEN 11
+                            WHEN bil_relaxed.image_type = 'extraLarge' THEN 12
+                            WHEN bil_relaxed.image_type = 'large' THEN 13
+                            WHEN bil_relaxed.image_type = 'medium' THEN 14
+                            WHEN bil_relaxed.image_type = 'small' THEN 15
+                            WHEN bil_relaxed.image_type = 'thumbnail' THEN 16
+                            ELSE 20
+                        END AS cover_priority,
+                        COALESCE(bil_relaxed.height, 0) AS height_value,
+                        COALESCE(bil_relaxed.width, 0) AS width_value,
+                        bil_relaxed.created_at AS created_value
+                    FROM book_image_links bil_relaxed
+                    WHERE bil_relaxed.book_id = b.id
+                      AND bil_relaxed.download_error IS NULL
+                    ORDER BY
+                        COALESCE((bil_relaxed.width::bigint * bil_relaxed.height::bigint), 0) DESC,
+                        bil_relaxed.created_at DESC
+                    LIMIT 1
+                ) relaxed_inner
+            ) chosen
             ORDER BY
-                CASE
-                    WHEN bil.s3_image_path IS NOT NULL AND bil.is_high_resolution THEN 0
-                    WHEN bil.s3_image_path IS NOT NULL THEN 1
-                    WHEN bil.is_high_resolution THEN 2
-                    WHEN bil.width >= 320 AND bil.height >= 320 THEN 3
-                    WHEN bil.image_type = 'extraLarge' THEN 4
-                    WHEN bil.image_type = 'large' THEN 5
-                    WHEN bil.image_type = 'medium' THEN 6
-                    WHEN bil.image_type = 'small' THEN 7
-                    WHEN bil.image_type = 'thumbnail' THEN 8
-                    ELSE 9
-                END,
-                bil.height DESC NULLS LAST,
-                bil.width DESC NULLS LAST,
-                bil.created_at DESC
+                chosen.quality_rank,
+                chosen.cover_priority,
+                chosen.height_value DESC,
+                chosen.width_value DESC,
+                chosen.created_value DESC
             LIMIT 1
         ) cover_meta ON TRUE
         GROUP BY input_ids.ord, b.id, b.slug, b.title,
@@ -123,7 +251,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE;
 
-COMMENT ON FUNCTION get_book_cards IS 'Optimized query for book cards - single query replaces 5 separate hydration queries per book';
+COMMENT ON FUNCTION get_book_cards IS 'Optimized query for book cards - prefers high-quality covers (S3 or 180x280 edge=curl) but gracefully falls back to the best available image when none meet the strict rules';
 
 -- ============================================================================
 -- FUNCTION: get_book_list_items
@@ -214,31 +342,156 @@ BEGIN
         LEFT JOIN book_collections bc ON bc.id = bcj.collection_id
         LEFT JOIN book_external_ids bei ON bei.book_id = b.id AND bei.source = 'GOOGLE_BOOKS'
         LEFT JOIN LATERAL (
-            SELECT coalesce(bil_meta.s3_image_path, bil_meta.url) as cover_url,
-                   bil_meta.s3_image_path as cover_s3_key,
-                   NULLIF(bil_meta.url, '') as cover_fallback_url,
-                   bil_meta.width,
-                   bil_meta.height,
-                   bil_meta.is_high_resolution
-            FROM book_image_links bil_meta
-            WHERE bil_meta.book_id = b.id
-              AND bil_meta.download_error IS NULL
+            SELECT chosen.cover_url,
+                   chosen.cover_s3_key,
+                   chosen.cover_fallback_url,
+                   chosen.width,
+                   chosen.height,
+                   chosen.is_high_resolution
+            FROM (
+                SELECT strict.cover_url,
+                       strict.cover_s3_key,
+                       strict.cover_fallback_url,
+                       strict.width,
+                       strict.height,
+                       strict.is_high_resolution,
+                       strict.cover_priority,
+                       strict.height_value,
+                       strict.width_value,
+                       strict.created_value,
+                       0 AS quality_rank
+                FROM (
+                    SELECT
+                        COALESCE(bil_meta.s3_image_path, bil_meta.url) AS cover_url,
+                        bil_meta.s3_image_path AS cover_s3_key,
+                        COALESCE(
+                            (
+                                SELECT bil_fallback.url
+                                FROM book_image_links bil_fallback
+                                WHERE bil_fallback.book_id = b.id
+                                  AND bil_fallback.download_error IS NULL
+                                  AND bil_fallback.s3_image_path IS NULL
+                                  AND bil_fallback.url <> bil_meta.url
+                                  AND bil_fallback.url NOT LIKE '%printsec=titlepage%'
+                                  AND bil_fallback.url NOT LIKE '%printsec=copyright%'
+                                  AND bil_fallback.url NOT LIKE '%printsec=toc%'
+                                  AND (bil_fallback.height::float / NULLIF(bil_fallback.width, 0)) BETWEEN 1.2 AND 2.0
+                                  AND bil_fallback.width >= 180
+                                  AND bil_fallback.height >= 280
+                                ORDER BY
+                                    CASE
+                                        WHEN bil_fallback.is_high_resolution THEN 0
+                                        WHEN bil_fallback.width >= 320 AND bil_fallback.height >= 320 THEN 1
+                                        WHEN bil_fallback.image_type = 'extraLarge' THEN 2
+                                        WHEN bil_fallback.image_type = 'large' THEN 3
+                                        WHEN bil_fallback.image_type = 'medium' THEN 4
+                                        ELSE 5
+                                    END,
+                                    bil_fallback.height DESC NULLS LAST,
+                                    bil_fallback.width DESC NULLS LAST,
+                                    bil_fallback.created_at DESC
+                                LIMIT 1
+                            ),
+                            bil_meta.url
+                        ) AS cover_fallback_url,
+                        bil_meta.width,
+                        bil_meta.height,
+                        COALESCE(bil_meta.is_high_resolution, false) AS is_high_resolution,
+                        CASE
+                            WHEN bil_meta.s3_image_path IS NOT NULL AND COALESCE(bil_meta.is_high_resolution, false) THEN 0
+                            WHEN bil_meta.s3_image_path IS NOT NULL THEN 1
+                            WHEN bil_meta.url LIKE '%edge=curl%' THEN 5
+                            WHEN COALESCE(bil_meta.is_high_resolution, false) THEN 10
+                            WHEN bil_meta.width >= 320 AND bil_meta.height >= 320 THEN 11
+                            WHEN bil_meta.image_type = 'extraLarge' THEN 12
+                            WHEN bil_meta.image_type = 'large' THEN 13
+                            WHEN bil_meta.image_type = 'medium' THEN 14
+                            WHEN bil_meta.image_type = 'small' THEN 15
+                            WHEN bil_meta.image_type = 'thumbnail' THEN 16
+                            ELSE 20
+                        END AS cover_priority,
+                        COALESCE(bil_meta.height, 0) AS height_value,
+                        COALESCE(bil_meta.width, 0) AS width_value,
+                        bil_meta.created_at AS created_value
+                    FROM book_image_links bil_meta
+                    WHERE bil_meta.book_id = b.id
+                      AND bil_meta.download_error IS NULL
+                      AND bil_meta.width >= 180
+                      AND bil_meta.height >= 280
+                      AND (bil_meta.height::float / NULLIF(bil_meta.width, 0)) BETWEEN 1.2 AND 2.0
+                      AND bil_meta.url NOT LIKE '%printsec=titlepage%'
+                      AND bil_meta.url NOT LIKE '%printsec=copyright%'
+                      AND bil_meta.url NOT LIKE '%printsec=toc%'
+                    ORDER BY
+                        CASE
+                            WHEN bil_meta.s3_image_path IS NOT NULL AND COALESCE(bil_meta.is_high_resolution, false) THEN 0
+                            WHEN bil_meta.s3_image_path IS NOT NULL THEN 1
+                            WHEN bil_meta.url LIKE '%edge=curl%' THEN 5
+                            WHEN COALESCE(bil_meta.is_high_resolution, false) THEN 10
+                            WHEN bil_meta.width >= 320 AND bil_meta.height >= 320 THEN 11
+                            WHEN bil_meta.image_type = 'extraLarge' THEN 12
+                            WHEN bil_meta.image_type = 'large' THEN 13
+                            WHEN bil_meta.image_type = 'medium' THEN 14
+                            WHEN bil_meta.image_type = 'small' THEN 15
+                            WHEN bil_meta.image_type = 'thumbnail' THEN 16
+                            ELSE 20
+                        END,
+                        bil_meta.height DESC NULLS LAST,
+                        bil_meta.width DESC NULLS LAST,
+                        bil_meta.created_at DESC
+                    LIMIT 1
+                ) strict
+                UNION ALL
+                SELECT relaxed_inner.cover_url,
+                       relaxed_inner.cover_s3_key,
+                       relaxed_inner.cover_fallback_url,
+                       relaxed_inner.width,
+                       relaxed_inner.height,
+                       relaxed_inner.is_high_resolution,
+                       relaxed_inner.cover_priority,
+                       relaxed_inner.height_value,
+                       relaxed_inner.width_value,
+                       relaxed_inner.created_value,
+                       1 AS quality_rank
+                FROM (
+                    SELECT
+                        COALESCE(bil_relaxed.s3_image_path, bil_relaxed.url) AS cover_url,
+                        bil_relaxed.s3_image_path AS cover_s3_key,
+                        NULLIF(bil_relaxed.url, '') AS cover_fallback_url,
+                        bil_relaxed.width,
+                        bil_relaxed.height,
+                        COALESCE(bil_relaxed.is_high_resolution, false) AS is_high_resolution,
+                        CASE
+                            WHEN bil_relaxed.s3_image_path IS NOT NULL AND COALESCE(bil_relaxed.is_high_resolution, false) THEN 0
+                            WHEN bil_relaxed.s3_image_path IS NOT NULL THEN 1
+                            WHEN bil_relaxed.url LIKE '%edge=curl%' THEN 5
+                            WHEN COALESCE(bil_relaxed.is_high_resolution, false) THEN 10
+                            WHEN bil_relaxed.width >= 320 AND bil_relaxed.height >= 320 THEN 11
+                            WHEN bil_relaxed.image_type = 'extraLarge' THEN 12
+                            WHEN bil_relaxed.image_type = 'large' THEN 13
+                            WHEN bil_relaxed.image_type = 'medium' THEN 14
+                            WHEN bil_relaxed.image_type = 'small' THEN 15
+                            WHEN bil_relaxed.image_type = 'thumbnail' THEN 16
+                            ELSE 20
+                        END AS cover_priority,
+                        COALESCE(bil_relaxed.height, 0) AS height_value,
+                        COALESCE(bil_relaxed.width, 0) AS width_value,
+                        bil_relaxed.created_at AS created_value
+                    FROM book_image_links bil_relaxed
+                    WHERE bil_relaxed.book_id = b.id
+                      AND bil_relaxed.download_error IS NULL
+                    ORDER BY
+                        COALESCE((bil_relaxed.width::bigint * bil_relaxed.height::bigint), 0) DESC,
+                        bil_relaxed.created_at DESC
+                    LIMIT 1
+                ) relaxed_inner
+            ) chosen
             ORDER BY
-                CASE
-                    WHEN bil_meta.s3_image_path IS NOT NULL AND bil_meta.is_high_resolution THEN 0
-                    WHEN bil_meta.s3_image_path IS NOT NULL THEN 1
-                    WHEN bil_meta.is_high_resolution THEN 2
-                    WHEN bil_meta.width >= 320 AND bil_meta.height >= 320 THEN 3
-                    WHEN bil_meta.image_type = 'extraLarge' THEN 4
-                    WHEN bil_meta.image_type = 'large' THEN 5
-                    WHEN bil_meta.image_type = 'medium' THEN 6
-                    WHEN bil_meta.image_type = 'small' THEN 7
-                    WHEN bil_meta.image_type = 'thumbnail' THEN 8
-                    ELSE 9
-                END,
-                bil_meta.height DESC NULLS LAST,
-                bil_meta.width DESC NULLS LAST,
-                bil_meta.created_at DESC
+                chosen.quality_rank,
+                chosen.cover_priority,
+                chosen.height_value DESC,
+                chosen.width_value DESC,
+                chosen.created_value DESC
             LIMIT 1
         ) cover_meta ON TRUE
         GROUP BY input_ids.ord, b.id, b.slug, b.title, b.description,
@@ -267,7 +520,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE;
 
-COMMENT ON FUNCTION get_book_list_items IS 'Optimized query for book list view - single query replaces 6 separate hydration queries per book';
+COMMENT ON FUNCTION get_book_list_items IS 'Optimized query for book list view - prefers high-quality covers (S3 or 180x280 edge=curl) but gracefully falls back to the best available image when none meet the strict rules';
 
 DROP FUNCTION IF EXISTS get_book_detail(UUID);
 
@@ -556,7 +809,18 @@ BEGIN
         bc.ratings_count,
         bc.tags
     FROM book_collections_join bcj
-    CROSS JOIN LATERAL get_book_cards(ARRAY[bcj.book_id]) bc
+    CROSS JOIN LATERAL get_book_cards(ARRAY[bcj.book_id]) AS bc(
+        id,
+        slug,
+        title,
+        authors,
+        cover_url,
+        cover_s3_key,
+        cover_fallback_url,
+        average_rating,
+        ratings_count,
+        tags
+    )
     WHERE bcj.collection_id = collection_id_param
     ORDER BY COALESCE(bcj.position, 2147483647), bcj.created_at ASC
     LIMIT limit_param;

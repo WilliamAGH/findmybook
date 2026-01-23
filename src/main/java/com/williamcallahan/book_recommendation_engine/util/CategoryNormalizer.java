@@ -31,7 +31,13 @@ public final class CategoryNormalizer {
      * Regex pattern for splitting compound categories with flexible whitespace
      */
     private static final String SPLIT_PATTERN = "\\s*/\\s*";
-    
+
+    /**
+     * Regex pattern for collapsing multiple whitespace characters into a single space.
+     * Used to normalize internal whitespace so "Science  Fiction" equals "Science Fiction".
+     */
+    private static final String WHITESPACE_COLLAPSE_PATTERN = "\\s+";
+
     private CategoryNormalizer() {
         // Utility class - no instantiation
     }
@@ -75,11 +81,13 @@ public final class CategoryNormalizer {
             String[] parts = category.split(SPLIT_PATTERN);
             
             for (String part : parts) {
-                String trimmed = part.trim();
+                // Trim leading/trailing whitespace and collapse internal whitespace to single spaces
+                // This ensures "Science  Fiction" and "Science Fiction" are treated as identical
+                String trimmed = part.trim().replaceAll(WHITESPACE_COLLAPSE_PATTERN, " ");
                 if (trimmed.isEmpty()) {
                     continue;
                 }
-                
+
                 String lowercase = trimmed.toLowerCase(Locale.ROOT);
                 
                 // Only add if not seen before (case-insensitive deduplication)
@@ -122,7 +130,8 @@ public final class CategoryNormalizer {
 
             // Split compound categories and add each part
             for (String part : category.split(SPLIT_PATTERN)) {
-                String trimmed = part.trim();
+                // Collapse internal whitespace for consistent comparison
+                String trimmed = part.trim().replaceAll(WHITESPACE_COLLAPSE_PATTERN, " ");
                 if (!trimmed.isEmpty()) {
                     normalized.add(trimmed.toLowerCase(Locale.ROOT));
                 }
@@ -209,7 +218,10 @@ public final class CategoryNormalizer {
             return false;
         }
 
-        return category1.trim().equalsIgnoreCase(category2.trim());
+        // Collapse internal whitespace for consistent comparison
+        String normalized1 = category1.trim().replaceAll(WHITESPACE_COLLAPSE_PATTERN, " ");
+        String normalized2 = category2.trim().replaceAll(WHITESPACE_COLLAPSE_PATTERN, " ");
+        return normalized1.equalsIgnoreCase(normalized2);
     }
 }
 

@@ -573,7 +573,7 @@ begin
 end;
 $$;
 
--- Main search function combining multiple strategies
+-- Main search function combining multiple strategies with cluster deduplication
 create or replace function search_books(
   search_query text,
   max_results integer default 20
@@ -588,7 +588,9 @@ returns table (
   published_date date,
   publisher text,
   relevance_score float,
-  match_type text
+  match_type text,
+  edition_count integer,
+  cluster_id uuid
 ) as $$
 begin
   return query
@@ -605,10 +607,28 @@ begin
       b.published_date,
       b.publisher,
       1.0::float as relevance_score,
-      'exact_title'::text as match_type
+      'exact_title'::text as match_type,
+      coalesce(wc.member_count, 1) as edition_count,
+      wc.id as cluster_id,
+      -- Add priority for selecting primary edition
+      coalesce(wcm.is_primary, false) as is_primary,
+      -- Quality metrics for tie-breaking
+      coalesce(
+        (
+          select coalesce(bil.is_high_resolution, false)
+          from book_image_links bil
+          where bil.book_id = b.book_id
+          order by coalesce(bil.is_high_resolution, false) desc,
+                   coalesce((bil.width::bigint * bil.height::bigint), 0) desc
+          limit 1
+        ),
+        false
+      ) as has_high_res_cover
     from book_search_view b
+    left join work_cluster_members wcm on b.book_id = wcm.book_id
+    left join work_clusters wc on wcm.cluster_id = wc.id
     where lower(b.title) = lower(search_query)
-    limit 5
+    limit 50  -- Get more results for deduplication
   ),
   -- Strategy 2: Full-text search with ranking
   fulltext_matches as (
@@ -622,12 +642,28 @@ begin
       b.published_date,
       b.publisher,
       ts_rank(b.search_vector, plainto_tsquery('english', search_query))::float as relevance_score,
-      'fulltext'::text as match_type
+      'fulltext'::text as match_type,
+      coalesce(wc.member_count, 1) as edition_count,
+      wc.id as cluster_id,
+      coalesce(wcm.is_primary, false) as is_primary,
+      coalesce(
+        (
+          select coalesce(bil.is_high_resolution, false)
+          from book_image_links bil
+          where bil.book_id = b.book_id
+          order by coalesce(bil.is_high_resolution, false) desc,
+                   coalesce((bil.width::bigint * bil.height::bigint), 0) desc
+          limit 1
+        ),
+        false
+      ) as has_high_res_cover
     from book_search_view b
+    left join work_cluster_members wcm on b.book_id = wcm.book_id
+    left join work_clusters wc on wcm.cluster_id = wc.id
     where b.search_vector @@ plainto_tsquery('english', search_query)
       and b.book_id not in (select em.book_id from exact_matches em)
     order by relevance_score desc
-    limit max_results
+    limit 100  -- Get more results for deduplication
   ),
   -- Strategy 3: Fuzzy matches for typo tolerance
   fuzzy_matches as (
@@ -641,22 +677,65 @@ begin
       b.published_date,
       b.publisher,
       similarity(b.searchable_text, lower(search_query))::float * 0.8 as relevance_score,
-      'fuzzy'::text as match_type
+      'fuzzy'::text as match_type,
+      coalesce(wc.member_count, 1) as edition_count,
+      wc.id as cluster_id,
+      coalesce(wcm.is_primary, false) as is_primary,
+      coalesce(
+        (
+          select coalesce(bil.is_high_resolution, false)
+          from book_image_links bil
+          where bil.book_id = b.book_id
+          order by coalesce(bil.is_high_resolution, false) desc,
+                   coalesce((bil.width::bigint * bil.height::bigint), 0) desc
+          limit 1
+        ),
+        false
+      ) as has_high_res_cover
     from book_search_view b
+    left join work_cluster_members wcm on b.book_id = wcm.book_id
+    left join work_clusters wc on wcm.cluster_id = wc.id
     where b.searchable_text % lower(search_query)
       and b.book_id not in (
         select em.book_id from exact_matches em
         union select fm.book_id from fulltext_matches fm
       )
     order by relevance_score desc
-    limit 10
-  )
+    limit 50  -- Get more results for deduplication
+  ),
   -- Combine all results
-  select * from exact_matches
-  union all
-  select * from fulltext_matches
-  union all
-  select * from fuzzy_matches
+  all_matches as (
+    select * from exact_matches
+    union all
+    select * from fulltext_matches
+    union all
+    select * from fuzzy_matches
+  ),
+  -- Deduplicate by cluster: keep only the best book per cluster
+  deduplicated as (
+    select distinct on (coalesce(am.cluster_id, am.book_id))
+      am.book_id,
+      am.title,
+      am.subtitle,
+      am.authors,
+      am.isbn13,
+      am.isbn10,
+      am.published_date,
+      am.publisher,
+      am.relevance_score,
+      am.match_type,
+      am.edition_count,
+      am.cluster_id
+    from all_matches am
+    order by
+      coalesce(am.cluster_id, am.book_id),  -- Group by cluster (or book if no cluster)
+      am.relevance_score desc,               -- Prefer higher relevance
+      am.is_primary desc,                    -- Prefer primary edition
+      am.has_high_res_cover desc,            -- Prefer better cover quality
+      am.published_date desc nulls last      -- Prefer newer editions
+  )
+  -- Final results ordered by relevance
+  select * from deduplicated
   order by relevance_score desc
   limit max_results;
 end;
@@ -1193,7 +1272,7 @@ begin
   for rec in
     select
       prefix,
-      array_agg(book_id order by cover_score desc, published_date desc nulls last, lower(title)) as book_ids,
+      array_agg(book_id order by has_high_res desc, cover_area desc, published_date desc nulls last, lower(title)) as book_ids,
       count(*) as book_count
     from (
       select
@@ -1203,18 +1282,28 @@ begin
         b.published_date,
         coalesce(
           (
-            select
-              (case when bil.is_high_resolution then 1000 else 0 end) +
-              coalesce(bil.width * bil.height, 0)
+            select coalesce(bil.is_high_resolution, false)
             from book_image_links bil
             where bil.book_id = b.id
             order by coalesce(bil.is_high_resolution, false) desc,
-                     coalesce(bil.width * bil.height, 0) desc,
+                     coalesce((bil.width::bigint * bil.height::bigint), 0) desc,
+                     bil.created_at desc
+            limit 1
+          ),
+          false
+        ) as has_high_res,
+        coalesce(
+          (
+            select coalesce((bil.width::bigint * bil.height::bigint), 0)
+            from book_image_links bil
+            where bil.book_id = b.id
+            order by coalesce(bil.is_high_resolution, false) desc,
+                     coalesce((bil.width::bigint * bil.height::bigint), 0) desc,
                      bil.created_at desc
             limit 1
           ),
           0
-        ) as cover_score
+        ) as cover_area
       from books b
       where b.isbn13 is not null
     ) candidate
@@ -1226,9 +1315,15 @@ begin
       continue;
     end if;
 
-    select title into primary_title
+    -- Get the primary title from the first (best) book with fallback for NULL/empty
+    select coalesce(nullif(title, ''), 'Untitled Book') into primary_title
     from books
     where id = rec.book_ids[1];
+
+    -- Ensure primary_title is never NULL
+    if primary_title is null or primary_title = '' then
+      primary_title := 'Untitled Book';
+    end if;
 
     select id into cluster_uuid
     from work_clusters
@@ -1286,7 +1381,7 @@ begin
   end if;
 
   select
-    array_agg(book_id order by cover_score desc, published_date desc nulls last, lower(title)) as ordered_ids,
+    array_agg(book_id order by has_high_res desc, cover_area desc, published_date desc nulls last, lower(title)) as ordered_ids,
     count(*) as total_books
   into book_ids, book_count
   from (
@@ -1296,18 +1391,28 @@ begin
       b.published_date,
       coalesce(
         (
-          select
-            (case when bil.is_high_resolution then 1000 else 0 end) +
-            coalesce(bil.width * bil.height, 0)
+          select coalesce(bil.is_high_resolution, false)
           from book_image_links bil
           where bil.book_id = b.id
           order by coalesce(bil.is_high_resolution, false) desc,
-                   coalesce(bil.width * bil.height, 0) desc,
+                   coalesce((bil.width::bigint * bil.height::bigint), 0) desc,
+                   bil.created_at desc
+          limit 1
+        ),
+        false
+      ) as has_high_res,
+      coalesce(
+        (
+          select coalesce((bil.width::bigint * bil.height::bigint), 0)
+          from book_image_links bil
+          where bil.book_id = b.id
+          order by coalesce(bil.is_high_resolution, false) desc,
+                   coalesce((bil.width::bigint * bil.height::bigint), 0) desc,
                    bil.created_at desc
           limit 1
         ),
         0
-      ) as cover_score
+      ) as cover_area
     from books b
     where extract_isbn_work_prefix(b.isbn13) = prefix
   ) ranked;
@@ -1316,9 +1421,15 @@ begin
     return;
   end if;
 
-  select title into primary_title
+  -- Get primary title with fallback for NULL/empty
+  select coalesce(nullif(title, ''), 'Untitled Book') into primary_title
   from books
   where id = book_ids[1];
+
+  -- Ensure primary_title is never NULL
+  if primary_title is null or primary_title = '' then
+    primary_title := 'Untitled Book';
+  end if;
 
   select id into cluster_uuid
   from work_clusters
@@ -1386,27 +1497,63 @@ begin
   end if;
 
   select
-    array_agg(distinct b.id order by b.published_date desc nulls last, lower(b.title)) as ordered_ids,
-    count(distinct b.id) as total_books
+    array_agg(book_id order by has_high_res desc, cover_area desc, published_date desc nulls last, lower(title)) as ordered_ids,
+    count(*) as total_books
   into book_ids, book_count
-  from book_external_ids bei
-  join books b on b.id = bei.book_id
-  where bei.source = 'GOOGLE_BOOKS'
-    and (
-      bei.google_canonical_id = canonical_id
-      or (
-        bei.canonical_volume_link is not null
-        and regexp_replace(bei.canonical_volume_link, '.*[?&]id=([^&]+).*', '\1') = canonical_id
+  from (
+    select distinct
+      b.id as book_id,
+      b.title,
+      b.published_date,
+      coalesce(
+        (
+          select coalesce(bil.is_high_resolution, false)
+          from book_image_links bil
+          where bil.book_id = b.id
+          order by coalesce(bil.is_high_resolution, false) desc,
+                   coalesce((bil.width::bigint * bil.height::bigint), 0) desc,
+                   bil.created_at desc
+          limit 1
+        ),
+        false
+      ) as has_high_res,
+      coalesce(
+        (
+          select coalesce((bil.width::bigint * bil.height::bigint), 0)
+          from book_image_links bil
+          where bil.book_id = b.id
+          order by coalesce(bil.is_high_resolution, false) desc,
+                   coalesce((bil.width::bigint * bil.height::bigint), 0) desc,
+                   bil.created_at desc
+          limit 1
+        ),
+        0
+      ) as cover_area
+    from book_external_ids bei
+    join books b on b.id = bei.book_id
+    where bei.source = 'GOOGLE_BOOKS'
+      and (
+        bei.google_canonical_id = canonical_id
+        or (
+          bei.canonical_volume_link is not null
+          and regexp_replace(bei.canonical_volume_link, '.*[?&]id=([^&]+).*', '\1') = canonical_id
+        )
       )
-    );
+  ) ranked;
 
   if book_count is null or book_count < 2 then
     return;
   end if;
 
-  select title into primary_title
+  -- Get primary title with fallback for NULL/empty
+  select coalesce(nullif(title, ''), 'Untitled Book') into primary_title
   from books
   where id = book_ids[1];
+
+  -- Ensure primary_title is never NULL
+  if primary_title is null or primary_title = '' then
+    primary_title := 'Untitled Book';
+  end if;
 
   select id into cluster_uuid
   from work_clusters
@@ -1530,59 +1677,101 @@ declare
   books_count integer := 0;
   google_id text;
   existing_cluster uuid;
+  primary_title text;
 begin
   for rec in
     select
-      canonical_volume_link,
-      array_agg(distinct bei.book_id) as book_ids,
-      min(b.title) as canonical_title,
-      count(distinct bei.book_id) as book_count
-    from book_external_ids bei
-    join books b on b.id = bei.book_id
-    where canonical_volume_link is not null
-      and source = 'GOOGLE_BOOKS'
-    group by canonical_volume_link
-    having count(distinct bei.book_id) > 1
+      canonical_id,
+      array_agg(book_id order by has_high_res desc, cover_area desc, published_date desc nulls last, lower(title)) as book_ids,
+      count(*) as book_count
+    from (
+      select distinct
+        coalesce(
+          bei.google_canonical_id,
+          regexp_replace(bei.canonical_volume_link, '.*[?&]id=([^&]+).*', '\1')
+        ) as canonical_id,
+        b.id as book_id,
+        b.title,
+        b.published_date,
+        coalesce(
+          (
+            select coalesce(bil.is_high_resolution, false)
+            from book_image_links bil
+            where bil.book_id = b.id
+            order by coalesce(bil.is_high_resolution, false) desc,
+                     coalesce((bil.width::bigint * bil.height::bigint), 0) desc,
+                     bil.created_at desc
+            limit 1
+          ),
+          false
+        ) as has_high_res,
+        coalesce(
+          (
+            select coalesce((bil.width::bigint * bil.height::bigint), 0)
+            from book_image_links bil
+            where bil.book_id = b.id
+            order by coalesce(bil.is_high_resolution, false) desc,
+                     coalesce((bil.width::bigint * bil.height::bigint), 0) desc,
+                     bil.created_at desc
+            limit 1
+          ),
+          0
+        ) as cover_area
+      from book_external_ids bei
+      join books b on b.id = bei.book_id
+      where bei.source = 'GOOGLE_BOOKS'
+        and (
+          bei.google_canonical_id is not null
+          or bei.canonical_volume_link ~ '[?&]id='
+        )
+    ) candidate
+    where canonical_id is not null
+    group by canonical_id
+    having count(*) > 1
   loop
-    -- Extract Google Books ID from canonical link
-    google_id := regexp_replace(rec.canonical_volume_link, '.*[?&]id=([^&]+).*', '\1');
-
-    if google_id is not null and google_id != rec.canonical_volume_link then
-      -- Check if cluster exists
-      select id into existing_cluster
-      from work_clusters
-      where google_canonical_id = google_id;
-
-      if existing_cluster is null then
-        -- Create new cluster
-        insert into work_clusters (google_canonical_id, canonical_title, confidence_score, cluster_method, member_count)
-        values (google_id, rec.canonical_title, 0.85, 'GOOGLE_CANONICAL', rec.book_count)
-        returning id into cluster_uuid;
-
-        clusters_count := clusters_count + 1;
-      else
-        -- Update existing cluster
-        update work_clusters
-        set canonical_title = coalesce(work_clusters.canonical_title, rec.canonical_title),
-            member_count = rec.book_count,
-            updated_at = now()
-        where id = existing_cluster
-        returning id into cluster_uuid;
-      end if;
-
-      -- Add members using ON CONFLICT for idempotent upserts
-      -- This preserves manual overrides and prevents data loss during re-clustering
-      for i in 1..array_length(rec.book_ids, 1) loop
-        insert into work_cluster_members (cluster_id, book_id, is_primary, confidence, join_reason)
-        values (cluster_uuid, rec.book_ids[i], (i = 1), 0.85, 'GOOGLE_CANONICAL')
-        on conflict (cluster_id, book_id) do update set
-          is_primary = excluded.is_primary,
-          confidence = excluded.confidence,
-          join_reason = excluded.join_reason;
-
-        books_count := books_count + 1;
-      end loop;
+    if rec.book_ids is null or array_length(rec.book_ids, 1) = 0 then
+      continue;
     end if;
+
+    -- Get the primary title from the first (best) book with fallback for NULL/empty
+    select coalesce(nullif(title, ''), 'Untitled Book') into primary_title
+    from books
+    where id = rec.book_ids[1];
+
+    -- Ensure primary_title is never NULL
+    if primary_title is null or primary_title = '' then
+      primary_title := 'Untitled Book';
+    end if;
+
+    select id into cluster_uuid
+    from work_clusters
+    where google_canonical_id = rec.canonical_id;
+
+    if cluster_uuid is null then
+      insert into work_clusters (google_canonical_id, canonical_title, confidence_score, cluster_method, member_count)
+      values (rec.canonical_id, primary_title, 0.85, 'GOOGLE_CANONICAL', rec.book_count)
+      returning id into cluster_uuid;
+
+      clusters_count := clusters_count + 1;
+    else
+      update work_clusters
+      set canonical_title = coalesce(primary_title, work_clusters.canonical_title),
+          member_count = rec.book_count,
+          updated_at = now()
+      where id = cluster_uuid;
+    end if;
+
+    for i in 1..array_length(rec.book_ids, 1) loop
+      insert into work_cluster_members (cluster_id, book_id, is_primary, confidence, join_reason)
+      values (cluster_uuid, rec.book_ids[i], (i = 1), 0.85, 'GOOGLE_CANONICAL')
+      on conflict (cluster_id, book_id) do update set
+        is_primary = excluded.is_primary,
+        confidence = excluded.confidence,
+        join_reason = excluded.join_reason,
+        updated_at = now();
+
+      books_count := books_count + 1;
+    end loop;
   end loop;
 
   return query select clusters_count, books_count;
@@ -1631,3 +1820,44 @@ comment on function cluster_books_by_isbn is 'Groups books by ISBN prefix to fin
 comment on function cluster_books_by_google_canonical is 'Groups books by Google canonical volume link to find editions';
 comment on function get_book_editions is 'Returns all editions of a book from its work cluster';
 comment on function get_clustering_stats is 'Returns statistics about work clustering';
+
+-- ============================================================================
+-- TITLE + AUTHOR CLUSTERING
+-- Merge duplicate clusters for books with same title/authors but different ISBNs
+-- ============================================================================
+
+-- Function to normalize titles for matching (remove punctuation, lowercase, trim)
+create or replace function normalize_title_for_clustering(title text)
+returns text as $$
+begin
+  if title is null then
+    return null;
+  end if;
+  
+  -- Lowercase, remove punctuation, collapse whitespace
+  return trim(regexp_replace(
+    lower(regexp_replace(title, '[^\w\s]', '', 'g')),
+    '\s+', ' ', 'g'
+  ));
+end;
+$$ language plpgsql immutable;
+
+-- Function to get normalized author list for a book
+create or replace function get_normalized_authors(book_id_param uuid)
+returns text as $$
+begin
+  return (
+    select string_agg(
+      trim(lower(regexp_replace(regexp_replace(a.name, '[^\w\s]', '', 'g'), '\s+', ' ', 'g'))),
+      '|'
+      order by ba.position, a.name
+    )
+    from book_authors_join ba
+    join authors a on a.id = ba.author_id
+    where ba.book_id = book_id_param
+  );
+end;
+$$ language plpgsql stable;
+
+comment on function normalize_title_for_clustering is 'Normalize book title for clustering: lowercase, remove punctuation, collapse whitespace';
+comment on function get_normalized_authors is 'Get normalized author list for a book as pipe-separated string';

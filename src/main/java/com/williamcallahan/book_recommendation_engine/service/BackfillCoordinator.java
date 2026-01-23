@@ -247,12 +247,19 @@ public class BackfillCoordinator {
     
     /**
      * Fallback when rate limiter/bulkhead rejects.
+     * Increments attempt counter to prevent infinite retry loops.
      */
     private void processTaskFallback(BackfillQueueService.BackfillTask task, Throwable t) {
-        log.warn("Task rejected by rate limiter/bulkhead: {} {} - {}",
-            task.source(), task.sourceId(), t.getMessage());
-        // Re-enqueue for later retry
-        queueService.retry(task);
+        BackfillQueueService.BackfillTask incrementedTask = task.withIncrementedAttempts();
+        if (incrementedTask.attempts() >= MAX_RETRIES) {
+            log.error("Task exhausted retries after rate limit rejections: {} {} (attempts={})",
+                task.source(), task.sourceId(), incrementedTask.attempts());
+            queueService.markCompleted(task);
+            return;
+        }
+        log.warn("Task rejected by rate limiter/bulkhead (attempt {}/{}): {} {} - {}",
+            incrementedTask.attempts(), MAX_RETRIES, task.source(), task.sourceId(), t.getMessage());
+        queueService.retry(incrementedTask);
     }
 
     // No additional references required; fallback is used directly in exception path

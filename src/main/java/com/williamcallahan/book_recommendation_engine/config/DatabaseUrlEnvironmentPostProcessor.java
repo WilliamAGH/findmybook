@@ -27,6 +27,111 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
     private static final String DS_USERNAME = "spring.datasource.username";
     private static final String DS_PASSWORD = "spring.datasource.password";
     private static final String DS_DRIVER = "spring.datasource.driver-class-name";
+    private static final String DEFAULT_HOST = "localhost";
+    private static final String DEFAULT_DATABASE = "postgres";
+    private static final int DEFAULT_PORT = 5432;
+    private static final int MIN_PORT = 1;
+    private static final int MAX_PORT = 65535;
+
+    /**
+     * Checks if a string has meaningful content (not null, not empty, not blank).
+     */
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    /**
+     * Validates that a port number is within the valid TCP/UDP port range (1-65535).
+     */
+    private static boolean isValidPort(int port) {
+        return port >= MIN_PORT && port <= MAX_PORT;
+    }
+
+    /**
+     * Value object for parsed host and port.
+     */
+    private record HostPort(String host, int port) {}
+
+    /**
+     * Defaults empty host to localhost (PostgreSQL convention).
+     */
+    private static String defaultHost(String host) {
+        return hasText(host) ? host : DEFAULT_HOST;
+    }
+
+    /**
+     * Parses host:port string into a HostPort value object.
+     * Falls back to defaultPort if port is missing, invalid, or out of range.
+     * Falls back to localhost if host is empty (PostgreSQL convention for local connections).
+     * Handles bracketed IPv6 addresses (e.g., [::1]:5432).
+     *
+     * <p><strong>Design Note - System.err Usage:</strong> This method intentionally uses
+     * {@code System.err} instead of SLF4J logging because it executes during the
+     * {@link EnvironmentPostProcessor} phase of Spring Boot startup. At this point:</p>
+     * <ul>
+     *   <li>The logging subsystem is not yet initialized</li>
+     *   <li>LoggerFactory.getLogger() would return a NOP logger or cause initialization errors</li>
+     *   <li>Configuration errors at this stage are critical and must be visible to operators</li>
+     * </ul>
+     * <p>This is a standard Spring Boot pattern for EnvironmentPostProcessor implementations.</p>
+     *
+     * @param hostPortString the host:port string to parse
+     * @param defaultPort fallback port if parsing fails or port is invalid
+     * @return parsed HostPort with validated port and non-empty host
+     */
+    private static HostPort parseHostPort(String hostPortString, int defaultPort) {
+        // Handle bracketed IPv6 addresses (e.g., [::1]:5432)
+        if (hostPortString.startsWith("[")) {
+            int endBracket = hostPortString.indexOf(']');
+            if (endBracket > 0) {
+                String host = defaultHost(hostPortString.substring(1, endBracket));
+                int port = defaultPort;
+                if (endBracket + 1 < hostPortString.length()
+                    && hostPortString.charAt(endBracket + 1) == ':') {
+                    String portString = hostPortString.substring(endBracket + 2);
+                    try {
+                        int parsedPort = Integer.parseInt(portString);
+                        if (isValidPort(parsedPort)) {
+                            return new HostPort(host, parsedPort);
+                        }
+                        logBootstrapWarning("Invalid port " + parsedPort
+                            + " (must be " + MIN_PORT + "-" + MAX_PORT + "), using default " + defaultPort);
+                    } catch (NumberFormatException e) {
+                        logBootstrapWarning("Non-numeric port '" + portString + "', using default " + defaultPort);
+                    }
+                }
+                return new HostPort(host, port);
+            }
+        }
+
+        if (!hostPortString.contains(":")) {
+            return new HostPort(defaultHost(hostPortString), defaultPort);
+        }
+
+        String[] parts = hostPortString.split(":", 2);
+        String host = defaultHost(parts[0]);
+        String portString = parts[1];
+
+        try {
+            int parsedPort = Integer.parseInt(portString);
+            if (isValidPort(parsedPort)) {
+                return new HostPort(host, parsedPort);
+            }
+            logBootstrapWarning("Invalid port " + parsedPort
+                + " (must be " + MIN_PORT + "-" + MAX_PORT + "), using default " + defaultPort);
+        } catch (NumberFormatException e) {
+            logBootstrapWarning("Non-numeric port '" + portString + "', using default " + defaultPort);
+        }
+        return new HostPort(host, defaultPort);
+    }
+
+    /**
+     * Logs a warning message during bootstrap before SLF4J is available.
+     * Uses System.err as this runs before logging infrastructure is initialized.
+     */
+    private static void logBootstrapWarning(String message) {
+        System.err.println("[DatabaseUrlEnvironmentPostProcessor] " + message);
+    }
 
     /**
      * Parsed JDBC output for a Postgres URL. username/password may be null if not provided.
@@ -47,7 +152,7 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
      * Returns empty when the input is blank or not a Postgres URL.
      */
     public static java.util.Optional<JdbcParseResult> normalizePostgresUrl(String url) {
-        if (url == null || url.isBlank()) return java.util.Optional.empty();
+        if (!hasText(url)) return java.util.Optional.empty();
         String lower = url.toLowerCase(Locale.ROOT);
         if (!(lower.startsWith("postgres://") || lower.startsWith("postgresql://"))) {
             return java.util.Optional.empty();
@@ -81,8 +186,8 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
 
         // Parse host, port, database, and query params
         String host;
-        int port = 5432;
-        String database = "postgres";
+        int port = DEFAULT_PORT;
+        String database = DEFAULT_DATABASE;
         String query = null;
 
         // Split by ? to separate query params
@@ -96,33 +201,22 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
         if (hostPart.contains("/")) {
             String[] dbParts = hostPart.split("/", 2);
             String hostPortPart = dbParts[0];
-            database = dbParts[1];
+            String dbName = dbParts[1];
+            // Handle trailing slash case (empty database name) - fall back to default
+            if (hasText(dbName)) {
+                database = dbName;
+            }
+            // else: keep DEFAULT_DATABASE
 
             // Extract host and port
-            if (hostPortPart.contains(":")) {
-                String[] hostPortSplit = hostPortPart.split(":", 2);
-                host = hostPortSplit[0];
-                try {
-                    port = Integer.parseInt(hostPortSplit[1]);
-                } catch (NumberFormatException e) {
-                    port = 5432;
-                }
-            } else {
-                host = hostPortPart;
-            }
+            HostPort parsed = parseHostPort(hostPortPart, port);
+            host = parsed.host();
+            port = parsed.port();
         } else {
             // No database specified in URL
-            if (hostPart.contains(":")) {
-                String[] hostPortSplit = hostPart.split(":", 2);
-                host = hostPortSplit[0];
-                try {
-                    port = Integer.parseInt(hostPortSplit[1]);
-                } catch (NumberFormatException e) {
-                    port = 5432;
-                }
-            } else {
-                host = hostPart;
-            }
+            HostPort parsed = parseHostPort(hostPart, port);
+            host = parsed.host();
+            port = parsed.port();
         }
 
         // Build JDBC URL
@@ -133,7 +227,7 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
                 .append(port)
                 .append("/")
                 .append(database);
-        if (query != null && !query.isBlank()) {
+        if (hasText(query)) {
             jdbc.append("?").append(query);
         }
         return java.util.Optional.of(new JdbcParseResult(jdbc.toString(), username, password));
@@ -142,7 +236,7 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
         String url = environment.getProperty(DS_URL);
-        if (url == null || url.isBlank()) {
+        if (!hasText(url)) {
             // Fallback to raw env var if application.yml hasn't mapped it yet
             url = environment.getProperty(ENV_DS_URL);
         }
@@ -163,10 +257,10 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
             // Set username and password if extracted and not already provided
             String existingUser = environment.getProperty(DS_USERNAME);
             String existingPass = environment.getProperty(DS_PASSWORD);
-            if ((existingUser == null || existingUser.isBlank()) && result.username != null && !result.username.isBlank()) {
+            if (!hasText(existingUser) && hasText(result.username)) {
                 overrides.put(DS_USERNAME, result.username);
             }
-            if ((existingPass == null || existingPass.isBlank()) && result.password != null && !result.password.isBlank()) {
+            if (!hasText(existingPass) && hasText(result.password)) {
                 overrides.put(DS_PASSWORD, result.password);
             }
 
