@@ -2,9 +2,14 @@ package com.williamcallahan.book_recommendation_engine.util;
 
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.dao.IncorrectResultSizeDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -15,6 +20,8 @@ import java.util.function.Consumer;
  * boilerplate try/catch blocks across services.
  */
 public final class JdbcUtils {
+
+    private static final Logger log = LoggerFactory.getLogger(JdbcUtils.class);
 
     private JdbcUtils() {
     }
@@ -59,12 +66,24 @@ public final class JdbcUtils {
     }
 
     /**
-     * Query for an optional single result of any type, handling EmptyResultDataAccessException gracefully.
+     * Query for an optional single result of any type.
+     * Returns empty for zero rows or multiple rows (logs warning for multiple).
+     *
+     * @param jdbc the JdbcTemplate to use
+     * @param sql the SQL query (should return 0 or 1 rows)
+     * @param type the expected result type
+     * @param params query parameters
+     * @param <T> the result type
+     * @return Optional containing the result, or empty if no rows or multiple rows
      */
     public static <T> Optional<T> queryForOptional(JdbcTemplate jdbc, String sql, Class<T> type, Object... params) {
         try {
             return Optional.ofNullable(jdbc.queryForObject(sql, type, params));
         } catch (EmptyResultDataAccessException e) {
+            return Optional.empty();
+        } catch (IncorrectResultSizeDataAccessException e) {
+            log.warn("queryForOptional returned multiple rows (expected 0 or 1): sql={}, actualSize={}",
+                sql, e.getActualSize());
             return Optional.empty();
         }
     }
@@ -127,13 +146,10 @@ public final class JdbcUtils {
         try {
             return jdbc.update(sql, params) > 0;
         } catch (DataAccessException ex) {
-            // Log detailed error for debugging SQL issues
-            System.err.println("SQL Error: " + ex.getMessage());
-            System.err.println("SQL: " + sql);
-            System.err.println("Params: " + java.util.Arrays.toString(params));
-            if (ex.getCause() != null) {
-                System.err.println("Root cause: " + ex.getCause().getMessage());
-            }
+            // Log detailed error with context for debugging SQL issues, then rethrow
+            log.error("SQL update failed: sql={}, params={}, rootCause={}",
+                sql, Arrays.toString(params),
+                ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage(), ex);
             throw ex;
         }
     }

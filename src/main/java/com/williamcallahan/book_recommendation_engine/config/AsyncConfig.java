@@ -34,13 +34,17 @@ public class AsyncConfig implements WebMvcConfigurer {
     @Override
     public void configureAsyncSupport(@NonNull AsyncSupportConfigurer configurer) {
         configurer.setDefaultTimeout(60000);
-        configurer.setTaskExecutor(taskExecutor());
+        configurer.setTaskExecutor(mvcAsyncTaskExecutor());
     }
 
     /**
-     * Creates and configures the thread pool task executor for MVC async processing
+     * Creates and configures the thread pool task executor for MVC async processing.
      *
-     * @return Configured AsyncTaskExecutor for processing asynchronous requests
+     * <p><strong>Note:</strong> This bean is intentionally NOT named "taskExecutor" to avoid
+     * hijacking Spring's default executor for {@code @Async} methods. Only MVC async request
+     * handling uses this executor via {@link #configureAsyncSupport(AsyncSupportConfigurer)}.
+     *
+     * @return Configured AsyncTaskExecutor for processing asynchronous HTTP requests
      *
      * Features:
      * - Core pool of 20 threads for handling typical load
@@ -48,8 +52,8 @@ public class AsyncConfig implements WebMvcConfigurer {
      * - Queue capacity of 500 tasks before rejecting new requests
      * - Descriptive thread naming pattern for monitoring
      */
-    @Bean({"taskExecutor", "mvcTaskExecutor"})
-    public AsyncTaskExecutor taskExecutor() {
+    @Bean("mvcAsyncTaskExecutor")
+    public AsyncTaskExecutor mvcAsyncTaskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(20);
         executor.setMaxPoolSize(100);

@@ -49,14 +49,17 @@ public final class UuidUtils {
     }
 
     /**
-     * Checks if a string is a valid UUID by attempting to parse it.
-     * Stricter than looksLikeUuid - actually validates the UUID.
+     * Checks if a string is a valid UUID using strict format validation.
+     * Uses regex pattern matching to ensure exact UUID format (8-4-4-4-12 hex digits).
+     * <p>
+     * Note: This is stricter than {@code UUID.fromString()} which accepts malformed
+     * inputs like "0-0-0-0-0" (parsing as all zeros with padded sections).
      *
      * @param value the string to check
-     * @return true if the string can be parsed as a valid UUID
+     * @return true if the string matches the strict UUID format
      */
     public static boolean isValidUuid(String value) {
-        return parseUuidOrNull(value) != null;
+        return looksLikeUuid(value);
     }
 
     /**

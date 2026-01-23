@@ -27,6 +27,39 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
     private static final String DS_USERNAME = "spring.datasource.username";
     private static final String DS_PASSWORD = "spring.datasource.password";
     private static final String DS_DRIVER = "spring.datasource.driver-class-name";
+    private static final String DEFAULT_DATABASE = "postgres";
+    private static final int DEFAULT_PORT = 5432;
+
+    /**
+     * Checks if a string has meaningful content (not null, not empty, not blank).
+     */
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    /**
+     * Value object for parsed host and port.
+     */
+    private record HostPort(String host, int port) {}
+
+    /**
+     * Parses host:port string into a HostPort value object.
+     * Falls back to defaultPort if port is missing or invalid.
+     */
+    private static HostPort parseHostPort(String hostPortString, int defaultPort) {
+        if (hostPortString.contains(":")) {
+            String[] parts = hostPortString.split(":", 2);
+            String host = parts[0];
+            int port;
+            try {
+                port = Integer.parseInt(parts[1]);
+            } catch (NumberFormatException e) {
+                port = defaultPort;
+            }
+            return new HostPort(host, port);
+        }
+        return new HostPort(hostPortString, defaultPort);
+    }
 
     /**
      * Parsed JDBC output for a Postgres URL. username/password may be null if not provided.
@@ -47,7 +80,7 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
      * Returns empty when the input is blank or not a Postgres URL.
      */
     public static java.util.Optional<JdbcParseResult> normalizePostgresUrl(String url) {
-        if (url == null || url.isBlank()) return java.util.Optional.empty();
+        if (!hasText(url)) return java.util.Optional.empty();
         String lower = url.toLowerCase(Locale.ROOT);
         if (!(lower.startsWith("postgres://") || lower.startsWith("postgresql://"))) {
             return java.util.Optional.empty();
@@ -81,8 +114,8 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
 
         // Parse host, port, database, and query params
         String host;
-        int port = 5432;
-        String database = "postgres";
+        int port = DEFAULT_PORT;
+        String database = DEFAULT_DATABASE;
         String query = null;
 
         // Split by ? to separate query params
@@ -96,33 +129,22 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
         if (hostPart.contains("/")) {
             String[] dbParts = hostPart.split("/", 2);
             String hostPortPart = dbParts[0];
-            database = dbParts[1];
+            String dbName = dbParts[1];
+            // Handle trailing slash case (empty database name) - fall back to default
+            if (hasText(dbName)) {
+                database = dbName;
+            }
+            // else: keep DEFAULT_DATABASE
 
             // Extract host and port
-            if (hostPortPart.contains(":")) {
-                String[] hostPortSplit = hostPortPart.split(":", 2);
-                host = hostPortSplit[0];
-                try {
-                    port = Integer.parseInt(hostPortSplit[1]);
-                } catch (NumberFormatException e) {
-                    port = 5432;
-                }
-            } else {
-                host = hostPortPart;
-            }
+            HostPort parsed = parseHostPort(hostPortPart, port);
+            host = parsed.host();
+            port = parsed.port();
         } else {
             // No database specified in URL
-            if (hostPart.contains(":")) {
-                String[] hostPortSplit = hostPart.split(":", 2);
-                host = hostPortSplit[0];
-                try {
-                    port = Integer.parseInt(hostPortSplit[1]);
-                } catch (NumberFormatException e) {
-                    port = 5432;
-                }
-            } else {
-                host = hostPart;
-            }
+            HostPort parsed = parseHostPort(hostPart, port);
+            host = parsed.host();
+            port = parsed.port();
         }
 
         // Build JDBC URL
@@ -133,7 +155,7 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
                 .append(port)
                 .append("/")
                 .append(database);
-        if (query != null && !query.isBlank()) {
+        if (hasText(query)) {
             jdbc.append("?").append(query);
         }
         return java.util.Optional.of(new JdbcParseResult(jdbc.toString(), username, password));
@@ -142,7 +164,7 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
         String url = environment.getProperty(DS_URL);
-        if (url == null || url.isBlank()) {
+        if (!hasText(url)) {
             // Fallback to raw env var if application.yml hasn't mapped it yet
             url = environment.getProperty(ENV_DS_URL);
         }
@@ -163,10 +185,10 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
             // Set username and password if extracted and not already provided
             String existingUser = environment.getProperty(DS_USERNAME);
             String existingPass = environment.getProperty(DS_PASSWORD);
-            if ((existingUser == null || existingUser.isBlank()) && result.username != null && !result.username.isBlank()) {
+            if (!hasText(existingUser) && hasText(result.username)) {
                 overrides.put(DS_USERNAME, result.username);
             }
-            if ((existingPass == null || existingPass.isBlank()) && result.password != null && !result.password.isBlank()) {
+            if (!hasText(existingPass) && hasText(result.password)) {
                 overrides.put(DS_PASSWORD, result.password);
             }
 
