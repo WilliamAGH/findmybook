@@ -72,6 +72,12 @@ public class LongitoodServiceImpl implements LongitoodService {
         String apiUrl = "https://bookcover.longitood.com/bookcover/" + isbn;
         final String finalIsbn = isbn; 
 
+        // IMPORTANT: Do NOT use onErrorResume() to swallow exceptions here.
+        // Exceptions must propagate so the @CircuitBreaker annotation can intercept them.
+        // The fallback methods (fetchCoverFallback, fetchCoverRateLimitFallback) handle
+        // returning empty results when the circuit opens or rate limit is exceeded.
+        //
+        // Only 404 (not found) is handled gracefully as an expected "no cover available" case.
         Mono<ImageDetails> imageDetailsMono = webClient.get()
             .uri(apiUrl)
             .retrieve()
@@ -87,7 +93,7 @@ public class LongitoodServiceImpl implements LongitoodService {
                             LONGITOOD_SOURCE_NAME,
                             sourceSystemId,
                             CoverImageSource.LONGITOOD,
-                            ImageResolutionPreference.ORIGINAL 
+                            ImageResolutionPreference.ORIGINAL
                         );
                         return Mono.just(imageDetails);
                     }
@@ -95,20 +101,23 @@ public class LongitoodServiceImpl implements LongitoodService {
                 logger.debug("No valid cover URL found from Longitood API for book {}", book.getId());
                 return Mono.empty();
             })
-            .onErrorResume(WebClientResponseException.class, e -> {
-                logger.warn("Longitood API error for book {}: {}", book.getId(), e.getMessage());
-                return Mono.empty(); 
+            // Only handle 404 gracefully - this is expected when no cover exists
+            .onErrorResume(WebClientResponseException.NotFound.class, e -> {
+                logger.debug("No cover found at Longitood for book {} (404)", book.getId());
+                return Mono.empty();
             })
-            .onErrorResume(Exception.class, e -> {
-                 logger.error("Unexpected error during Longitood API call for book {}: {}", book.getId(), e.getMessage(), e);
-                 return Mono.empty(); 
-            });
-        
+            // Log non-404 errors before they propagate to trip the circuit breaker.
+            // Note: 404 errors are already handled above, so doOnError only sees other failures.
+            .doOnError(e -> logger.warn(
+                "Longitood API error for book {} (will propagate to circuit breaker): {}",
+                book.getId(), e.getMessage()));
+
         // Convert Mono<ImageDetails> to CompletableFuture<Optional<ImageDetails>>
+        // Errors will propagate and be handled by Resilience4j fallback methods
         return imageDetailsMono
-            .map(Optional::of) // Map ImageDetails to Optional<ImageDetails>
-            .defaultIfEmpty(Optional.empty()) // If Mono is empty, provide Optional.empty()
-            .toFuture(); // Convert to CompletableFuture
+            .map(Optional::of)
+            .defaultIfEmpty(Optional.empty())
+            .toFuture();
     }
 
     /**
