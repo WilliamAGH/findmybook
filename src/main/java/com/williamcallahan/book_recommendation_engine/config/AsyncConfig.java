@@ -9,7 +9,7 @@ import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.lang.NonNull;
 
 /**
- * Configuration for asynchronous request handling in the Spring MVC framework
+ * Configuration for asynchronous request handling in the Spring MVC framework.
  *
  * @author William Callahan
  *
@@ -22,18 +22,34 @@ import org.springframework.lang.NonNull;
 @Configuration
 public class AsyncConfig implements WebMvcConfigurer {
 
+    // MVC async request timeout in milliseconds
+    private static final long MVC_ASYNC_TIMEOUT_MS = 60_000L;
+
+    // MVC thread pool configuration
+    private static final int MVC_CORE_POOL_SIZE = 20;
+    private static final int MVC_MAX_POOL_SIZE = 100;
+    private static final int MVC_QUEUE_CAPACITY = 500;
+    private static final String MVC_THREAD_NAME_PREFIX = "mvc-async-";
+
+    // Image processing thread pool configuration
+    private static final int IMAGE_PROC_MIN_THREADS = 2;
+    private static final int IMAGE_PROC_BURST_MULTIPLIER = 2;
+    private static final int IMAGE_PROC_MIN_BURST_THREADS = 4;
+    private static final int IMAGE_PROC_QUEUE_CAPACITY = 100;
+    private static final String IMAGE_PROC_THREAD_NAME_PREFIX = "image-proc-";
+
     /**
-     * Configures asynchronous request handling for Spring MVC
+     * Configures asynchronous request handling for Spring MVC.
      *
      * @param configurer Spring's async support configurer object
      *
      * Features:
-     * - Sets default timeout to 60 seconds for async requests
+     * - Sets default timeout for async requests
      * - Assigns custom task executor with optimized thread pool
      */
     @Override
     public void configureAsyncSupport(@NonNull AsyncSupportConfigurer configurer) {
-        configurer.setDefaultTimeout(60000);
+        configurer.setDefaultTimeout(MVC_ASYNC_TIMEOUT_MS);
         configurer.setTaskExecutor(mvcAsyncTaskExecutor());
     }
 
@@ -47,18 +63,18 @@ public class AsyncConfig implements WebMvcConfigurer {
      * @return Configured AsyncTaskExecutor for processing asynchronous HTTP requests
      *
      * Features:
-     * - Core pool of 20 threads for handling typical load
-     * - Maximum pool of 100 threads for high load periods
-     * - Queue capacity of 500 tasks before rejecting new requests
+     * - Core pool of {@value #MVC_CORE_POOL_SIZE} threads for handling typical load
+     * - Maximum pool of {@value #MVC_MAX_POOL_SIZE} threads for high load periods
+     * - Queue capacity of {@value #MVC_QUEUE_CAPACITY} tasks before rejecting new requests
      * - Descriptive thread naming pattern for monitoring
      */
     @Bean("mvcAsyncTaskExecutor")
     public AsyncTaskExecutor mvcAsyncTaskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(20);
-        executor.setMaxPoolSize(100);
-        executor.setQueueCapacity(500);
-        executor.setThreadNamePrefix("mvc-async-");
+        executor.setCorePoolSize(MVC_CORE_POOL_SIZE);
+        executor.setMaxPoolSize(MVC_MAX_POOL_SIZE);
+        executor.setQueueCapacity(MVC_QUEUE_CAPACITY);
+        executor.setThreadNamePrefix(MVC_THREAD_NAME_PREFIX);
         executor.initialize();
         return executor;
     }
@@ -69,20 +85,35 @@ public class AsyncConfig implements WebMvcConfigurer {
      * @return Configured AsyncTaskExecutor for image processing tasks.
      *
      * Features:
-     * - Core pool size based on available processors.
-     * - Max pool size also based on available processors (can be slightly higher for burst).
-     * - Smaller queue capacity as tasks are expected to be CPU-bound and long-running.
-     * - Descriptive thread naming pattern for monitoring.
+     * - Core pool size based on available processors (minimum {@value #IMAGE_PROC_MIN_THREADS})
+     * - Max pool size allows burst capacity for peak loads
+     * - Smaller queue capacity as tasks are expected to be CPU-bound and long-running
+     * - Descriptive thread naming pattern for monitoring
      */
     @Bean("imageProcessingExecutor")
     public AsyncTaskExecutor imageProcessingExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         int processors = Runtime.getRuntime().availableProcessors();
-        executor.setCorePoolSize(processors > 1 ? processors : 2); // At least 2 threads
-        executor.setMaxPoolSize(processors > 1 ? processors * 2 : 4); // Allow some burst
-        executor.setQueueCapacity(100); // Smaller queue for CPU-bound tasks
-        executor.setThreadNamePrefix("image-proc-");
+        executor.setCorePoolSize(computeCorePoolSize(processors));
+        executor.setMaxPoolSize(computeMaxPoolSize(processors));
+        executor.setQueueCapacity(IMAGE_PROC_QUEUE_CAPACITY);
+        executor.setThreadNamePrefix(IMAGE_PROC_THREAD_NAME_PREFIX);
         executor.initialize();
         return executor;
+    }
+
+    /**
+     * Computes core pool size: available processors or minimum, whichever is larger.
+     */
+    private int computeCorePoolSize(int availableProcessors) {
+        return Math.max(availableProcessors, IMAGE_PROC_MIN_THREADS);
+    }
+
+    /**
+     * Computes max pool size: double the processors or minimum burst threads, whichever is larger.
+     */
+    private int computeMaxPoolSize(int availableProcessors) {
+        int burstCapacity = availableProcessors * IMAGE_PROC_BURST_MULTIPLIER;
+        return Math.max(burstCapacity, IMAGE_PROC_MIN_BURST_THREADS);
     }
 }
