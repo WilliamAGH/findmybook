@@ -29,6 +29,8 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
     private static final String DS_DRIVER = "spring.datasource.driver-class-name";
     private static final String DEFAULT_DATABASE = "postgres";
     private static final int DEFAULT_PORT = 5432;
+    private static final int MIN_PORT = 1;
+    private static final int MAX_PORT = 65535;
 
     /**
      * Checks if a string has meaningful content (not null, not empty, not blank).
@@ -38,27 +40,63 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
     }
 
     /**
+     * Validates that a port number is within the valid TCP/UDP port range (1-65535).
+     */
+    private static boolean isValidPort(int port) {
+        return port >= MIN_PORT && port <= MAX_PORT;
+    }
+
+    /**
      * Value object for parsed host and port.
      */
     private record HostPort(String host, int port) {}
 
     /**
      * Parses host:port string into a HostPort value object.
-     * Falls back to defaultPort if port is missing or invalid.
+     * Falls back to defaultPort if port is missing, invalid, or out of range.
+     *
+     * <p><strong>Design Note - System.err Usage:</strong> This method intentionally uses
+     * {@code System.err} instead of SLF4J logging because it executes during the
+     * {@link EnvironmentPostProcessor} phase of Spring Boot startup. At this point:</p>
+     * <ul>
+     *   <li>The logging subsystem is not yet initialized</li>
+     *   <li>LoggerFactory.getLogger() would return a NOP logger or cause initialization errors</li>
+     *   <li>Configuration errors at this stage are critical and must be visible to operators</li>
+     * </ul>
+     * <p>This is a standard Spring Boot pattern for EnvironmentPostProcessor implementations.</p>
+     *
+     * @param hostPortString the host:port string to parse
+     * @param defaultPort fallback port if parsing fails or port is invalid
+     * @return parsed HostPort with validated port
      */
     private static HostPort parseHostPort(String hostPortString, int defaultPort) {
-        if (hostPortString.contains(":")) {
-            String[] parts = hostPortString.split(":", 2);
-            String host = parts[0];
-            int port;
-            try {
-                port = Integer.parseInt(parts[1]);
-            } catch (NumberFormatException e) {
-                port = defaultPort;
-            }
-            return new HostPort(host, port);
+        if (!hostPortString.contains(":")) {
+            return new HostPort(hostPortString, defaultPort);
         }
-        return new HostPort(hostPortString, defaultPort);
+
+        String[] parts = hostPortString.split(":", 2);
+        String host = parts[0];
+        String portString = parts[1];
+
+        try {
+            int parsedPort = Integer.parseInt(portString);
+            if (isValidPort(parsedPort)) {
+                return new HostPort(host, parsedPort);
+            }
+            logBootstrapWarning("Invalid port " + parsedPort
+                + " (must be " + MIN_PORT + "-" + MAX_PORT + "), using default " + defaultPort);
+        } catch (NumberFormatException e) {
+            logBootstrapWarning("Non-numeric port '" + portString + "', using default " + defaultPort);
+        }
+        return new HostPort(host, defaultPort);
+    }
+
+    /**
+     * Logs a warning message during bootstrap before SLF4J is available.
+     * Uses System.err as this runs before logging infrastructure is initialized.
+     */
+    private static void logBootstrapWarning(String message) {
+        System.err.println("[DatabaseUrlEnvironmentPostProcessor] " + message);
     }
 
     /**
