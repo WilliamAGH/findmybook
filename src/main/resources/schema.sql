@@ -1848,7 +1848,7 @@ returns text as $$
 begin
   return (
     select string_agg(
-      lower(regexp_replace(regexp_replace(a.name, '[^\w\s]', '', 'g'), '\s+', ' ', 'g')),
+      trim(lower(regexp_replace(regexp_replace(a.name, '[^\w\s]', '', 'g'), '\s+', ' ', 'g'))),
       '|'
       order by ba.position, a.name
     )
