@@ -31,6 +31,12 @@ public class AsyncConfig implements WebMvcConfigurer {
     private static final int MVC_QUEUE_CAPACITY = 500;
     private static final String MVC_THREAD_NAME_PREFIX = "mvc-async-";
 
+    // Default @Async thread pool configuration (for OutboxRelay, RecentBookViewRepository, etc.)
+    private static final int ASYNC_CORE_POOL_SIZE = 4;
+    private static final int ASYNC_MAX_POOL_SIZE = 16;
+    private static final int ASYNC_QUEUE_CAPACITY = 200;
+    private static final String ASYNC_THREAD_NAME_PREFIX = "async-";
+
     // Image processing thread pool configuration
     private static final int IMAGE_PROC_MIN_THREADS = 2;
     private static final int IMAGE_PROC_BURST_MULTIPLIER = 2;
@@ -54,11 +60,36 @@ public class AsyncConfig implements WebMvcConfigurer {
     }
 
     /**
+     * Default task executor for {@code @Async} methods that don't specify an executor.
+     * Spring's {@code @EnableAsync} infrastructure looks for a bean named "taskExecutor".
+     *
+     * <p>This provides bounded thread pooling for general async operations like:
+     * <ul>
+     *   <li>{@code OutboxRelay.relayEvents()} - runs every second</li>
+     *   <li>{@code RecentBookViewRepository.recordView()} - runs on every book view</li>
+     * </ul>
+     *
+     * <p>Without this bean, Spring falls back to {@code SimpleAsyncTaskExecutor} which
+     * creates unbounded threads without pooling, risking thread exhaustion under load.
+     *
+     * @return Configured ThreadPoolTaskExecutor for general @Async methods
+     */
+    @Bean("taskExecutor")
+    public ThreadPoolTaskExecutor taskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(ASYNC_CORE_POOL_SIZE);
+        executor.setMaxPoolSize(ASYNC_MAX_POOL_SIZE);
+        executor.setQueueCapacity(ASYNC_QUEUE_CAPACITY);
+        executor.setThreadNamePrefix(ASYNC_THREAD_NAME_PREFIX);
+        executor.initialize();
+        return executor;
+    }
+
+    /**
      * Creates and configures the thread pool task executor for MVC async processing.
      *
-     * <p><strong>Note:</strong> This bean is intentionally NOT named "taskExecutor" to avoid
-     * hijacking Spring's default executor for {@code @Async} methods. Only MVC async request
-     * handling uses this executor via {@link #configureAsyncSupport(AsyncSupportConfigurer)}.
+     * <p>This is separate from the default "taskExecutor" to allow different tuning
+     * for MVC async requests vs. general @Async methods.
      *
      * @return Configured AsyncTaskExecutor for processing asynchronous HTTP requests
      *
