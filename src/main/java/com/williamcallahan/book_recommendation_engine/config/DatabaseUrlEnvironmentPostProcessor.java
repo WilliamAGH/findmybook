@@ -54,6 +54,7 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
     /**
      * Parses host:port string into a HostPort value object.
      * Falls back to defaultPort if port is missing, invalid, or out of range.
+     * Handles bracketed IPv6 addresses (e.g., [::1]:5432).
      *
      * <p><strong>Design Note - System.err Usage:</strong> This method intentionally uses
      * {@code System.err} instead of SLF4J logging because it executes during the
@@ -70,6 +71,30 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
      * @return parsed HostPort with validated port
      */
     private static HostPort parseHostPort(String hostPortString, int defaultPort) {
+        // Handle bracketed IPv6 addresses (e.g., [::1]:5432)
+        if (hostPortString.startsWith("[")) {
+            int endBracket = hostPortString.indexOf(']');
+            if (endBracket > 0) {
+                String host = hostPortString.substring(1, endBracket);
+                int port = defaultPort;
+                if (endBracket + 1 < hostPortString.length()
+                    && hostPortString.charAt(endBracket + 1) == ':') {
+                    String portString = hostPortString.substring(endBracket + 2);
+                    try {
+                        int parsedPort = Integer.parseInt(portString);
+                        if (isValidPort(parsedPort)) {
+                            return new HostPort(host, parsedPort);
+                        }
+                        logBootstrapWarning("Invalid port " + parsedPort
+                            + " (must be " + MIN_PORT + "-" + MAX_PORT + "), using default " + defaultPort);
+                    } catch (NumberFormatException e) {
+                        logBootstrapWarning("Non-numeric port '" + portString + "', using default " + defaultPort);
+                    }
+                }
+                return new HostPort(host, port);
+            }
+        }
+
         if (!hostPortString.contains(":")) {
             return new HostPort(hostPortString, defaultPort);
         }
