@@ -64,11 +64,17 @@ public class S3HealthIndicator implements ReactiveHealthIndicator {
                 })
                 .timeout(S3_TIMEOUT)
                 .subscribeOn(Schedulers.boundedElastic()) // Perform S3 call on a separate thread
-                .onErrorResume(S3Exception.class, ex -> Mono.just(Health.down()
-                        .withDetail("s3_status", "s3_error")
-                        .withDetail("bucket", bucketName)
-                        .withDetail("error", ex.awsErrorDetails().errorCode() + ": " + ex.awsErrorDetails().errorMessage())
-                        .build()))
+                .onErrorResume(S3Exception.class, ex -> {
+                    var details = ex.awsErrorDetails();
+                    String error = (details != null)
+                            ? details.errorCode() + ": " + details.errorMessage()
+                            : ex.getMessage();
+                    return Mono.just(Health.down()
+                            .withDetail("s3_status", "s3_error")
+                            .withDetail("bucket", bucketName)
+                            .withDetail("error", error)
+                            .build());
+                })
                 .onErrorResume(Exception.class, ex -> Mono.just(Health.down()
                         .withDetail("s3_status", "unavailable_or_timeout")
                         .withDetail("bucket", bucketName)
