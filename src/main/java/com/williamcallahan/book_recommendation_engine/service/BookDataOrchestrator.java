@@ -45,6 +45,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 
@@ -60,6 +61,7 @@ public class BookDataOrchestrator {
     private final com.williamcallahan.book_recommendation_engine.mapper.GoogleBooksMapper googleBooksMapper; // For Book->BookAggregate mapping
     private static final long SEARCH_VIEW_REFRESH_INTERVAL_MS = 60_000L;
     private final AtomicLong lastSearchViewRefresh = new AtomicLong(0L);
+    private final AtomicBoolean searchViewRefreshInProgress = new AtomicBoolean(false);
 
     // Error message patterns for detecting systemic database failures
     private static final String ERR_CONNECTION = "connection";
@@ -341,7 +343,7 @@ public class BookDataOrchestrator {
 
     /**
      * Triggers materialized view refresh with rate limiting to prevent concurrent refreshes.
-     * Uses atomic compareAndSet to ensure only one thread wins the race.
+     * Uses AtomicBoolean in-flight guard for mutual exclusion plus timestamp for rate limiting.
      *
      * @param force if true, bypasses the rate limit check (but still prevents concurrent execution)
      */
@@ -358,12 +360,15 @@ public class BookDataOrchestrator {
             return;
         }
 
-        // Atomic check-and-set to prevent concurrent refreshes
-        // Only one thread will succeed; others will see the updated timestamp and skip
-        if (!lastSearchViewRefresh.compareAndSet(last, now)) {
+        // In-flight guard to prevent concurrent refreshes
+        // Only one thread will succeed the CAS from false -> true
+        if (!searchViewRefreshInProgress.compareAndSet(false, true)) {
             logger.debug("Skipping materialized view refresh - another thread is handling it");
             return;
         }
+
+        // Update timestamp after acquiring the lock
+        lastSearchViewRefresh.set(now);
 
         try {
             bookSearchService.refreshMaterializedView();
@@ -371,6 +376,8 @@ public class BookDataOrchestrator {
             logger.warn("BookDataOrchestrator: Failed to refresh search materialized view: {}", ex.getMessage());
             // Reset timestamp on failure so next attempt can try again
             lastSearchViewRefresh.compareAndSet(now, last);
+        } finally {
+            searchViewRefreshInProgress.set(false);
         }
     }
 
