@@ -374,8 +374,8 @@ public class BookDataOrchestrator {
             bookSearchService.refreshMaterializedView();
         } catch (Exception ex) {
             logger.warn("BookDataOrchestrator: Failed to refresh search materialized view: {}", ex.getMessage());
-            // Reset timestamp on failure so next attempt can try again
-            lastSearchViewRefresh.compareAndSet(now, last);
+            // Keep timestamp at `now` to enforce rate limiting even after failure.
+            // Resetting to `last` (especially when last==0) would bypass the rate limit check.
         } finally {
             searchViewRefreshInProgress.set(false);
         }
