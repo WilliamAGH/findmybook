@@ -1,750 +1,126 @@
 # Agent Operations Manual
 
-## 🚨🚨🚨 CRITICAL: CLEAN CODE & FILE CREATION REQUIREMENTS 🚨🚨🚨
-
-### FILE CREATION — MANDATORY WORKFLOW
-
-**STOP! BEFORE CREATING ANY NEW FILE YOU MUST:**
-
-1. **SEARCH EXHAUSTIVELY**: Find ALL existing files related to EVERY function, class, method, or component you envision. Use grep, file_glob, and semantic search across the ENTIRE codebase.
-2. **ANALYZE**: Review each discovered file—does the functionality ALREADY EXIST or can it be EXTENDED?
-3. **CONFIRM**: Only after exhaustively confirming NO existing solution may you proceed.
-4. **REQUEST PERMISSION**: Ask explicitly for consent before creating any file.
-5. **COMPLY WITH STANDARDS**: All new files MUST follow the code quality mandates below.
-
-### CODE QUALITY MANDATES (per Robert Martin's Clean Code & Clean Architecture)
-
-| Requirement | Rule | Violation Example (Java) |
-|-------------|------|-------------------------|
-| **Type Safety** | NEVER use `Object`, `Map<String,Object>`, or raw types. Use typed DTOs/records. | ❌ `Map<String, Object> data` |
-| **Clean Code** | Succinct, single-responsibility methods. NO useless try/catch that swallows errors. NO dead code. | ❌ `catch (Exception e) { log.error(e); }` |
-| **Clean Architecture** | Dependencies point inward. Domain has ZERO framework imports. Respect layer boundaries. | ❌ Service importing from Controller |
-| **No Suppression** | NEVER use `@SuppressWarnings`. Fix the root cause. | ❌ `@SuppressWarnings("unchecked")` |
-
-**These are NON-NEGOTIABLE requirements, not suggestions.**
-
----
-
-## 🚨 CRITICAL MANDATES
-
-**ALL markdown files MUST BE CREATED IN tmp/ UNLESS EXPLICITLY REQUESTED BY THE USER, AND MUST BE DELETED AFTER THEY'RE NO LONGER REQUIRED/COMPLETED.**
-
-### Technology Stack Requirements
-
-- **Framework**: Spring Boot 3.3.x with Java 21+ idioms
-- **Styling**: Tailwind CSS (utility-first, no custom CSS unless absolutely necessary)
-- **Database**: MySQL (primary schema) and PostgreSQL (see memories for schema differences)
-- **Code Philosophy**: DRY (Don't Repeat Yourself), light, lean, modern - no unnecessary boilerplate
-
-### Development Environment
-
-- **Default Port**: `8095` (configurable via `SERVER_PORT` environment variable)
-- **Local Access**: `http://localhost:8095`
-- **Start Command**: `mvn spring-boot:run -P dev`
-- **Production Site**: `https://findmybook.net`
-
-### Absolute Prohibitions
-
-- ❌ **NEVER** use Flyway, Liquibase, or any automated migration tools
-- ❌ **NEVER** enable automatic migrations on boot
-- ❌ **NEVER** use `@SuppressWarnings` annotations (fix the underlying issue)
-- ❌ **NEVER** use CSS `!important` declarations - **100% DISALLOWED** in this repository
-- ❌ **NEVER** create inline styles in templates
-- ❌ **NEVER** exceed 500 lines per file (split immediately at ~400 lines)
-- ❌ **NEVER** create new files without following the CRITICAL FILE CREATION WORKFLOW at top of this document.
-- ❌ **NEVER** use British English in code or comments; exclusively use American English
-
-### Migration & Database Rules
-
-- Manual SQL queries ONLY, executed by the agent
-- Temporary `.sql` migration files are allowed for planning but NEVER executed by LLMs
-- All database schema changes must reference immutable MySQL and PostgreSQL schema definitions [[memory:2639761]]
-
-## 1. Purpose & Scope
-
-- Provide a single, current reference for anyone (human or AI) working in this repository.
-- Eliminate ambiguity by defining how work is planned, executed, documented, and verified.
-
-## 2. Actors & Responsibility
-
-- **User**: Defines requirements, prioritizes work, approves changes, and ultimately owns all outcomes.
-- **AI Agent**: Executes only the work the User authorizes and keeps all artifacts aligned with this manual.
-
-## 3. Core Operating Principles
-
-1. **User-Directed Tasks**: Treat the User's request as the source of truth. Before starting any new or updated functionality, confirm the underlying why (business goal, bug, or constraint) so the work, documentation, and validation stay aligned. Capture additional context only when the User asks for it.
-2. **Scope Confirmation**: Clarify uncertainties before modifying code. If requirements shift mid-task, confirm the new scope with the User.
-3. **Traceability**: Reference the current request in code comments, commits, and conversation summaries so decisions stay attributable to the User.
-4. **Minimal Bureaucracy**: Backlog and task files are optional. Maintain or create documentation only when the User explicitly requests it.
-5. **Single Source of Truth**: Keep information in one place. If you create notes or docs, link to them instead of duplicating.
-6. **Controlled File Creation**: Create new files (including documentation) only when the User explicitly approves the specific file.
-7. **Named Constants**: Replace repeated literal values with descriptive constants in generated code.
-8. **Sense Check Data**: Validate data, requirements, and results for consistency before acting on them.
-9. **Zero Assumptions**: ALWAYS verify library APIs, framework patterns, and dependency versions before implementing. Never rely on memory or outdated patterns.
-10. **Comprehensive Updates**: When changing any code, find and update ALL usages throughout the entire codebase. Partial updates = broken features.
-
-## 4. Workflow & Scope Control
-
-- Start every change discussion by confirming you understand the User's request.
-- Keep the conversation focused on the agreed scope; call out scope creep as soon as you see it.
-- If you discover adjacent issues, surface them as optional follow-up ideas rather than expanding the active task.
-- When access or tooling limitations appear, pause and ask the User how to proceed instead of guessing.
-
-## 5. Work Tracking
-
-- Dedicated backlog/task artifacts are not required for day-to-day work.
-- When the User asks for work tracking, follow their preferred format (e.g., ad-hoc checklist, markdown file, issue link).
-- If historical docs already exist for a feature, update them only when you touch the feature and the User confirms they still matter.
-
-## 6. Testing Strategy
-
-- Apply risk-based testing and follow the test pyramid: unit at the base, integration for cross-component behavior, E2E for critical flows.
-- Provide a lightweight test plan in your response when implementing code. Scale detail with risk.
-- Prefer automated tests; document any manual verification you perform or that remains outstanding.
-
-### Testing Requirements
-
-1. **Unit Tests** (Base Layer)
-   - Test business logic in isolation
-   - Mock external dependencies using Mockito
-   - Clear, descriptive test names following `should_ExpectedBehavior_When_StateUnderTest` pattern
-   - Arrange-Act-Assert structure
-   - Cover edge cases and error scenarios
-
-2. **Integration Tests** (Middle Layer)
-   - Test component interactions (Service + Repository)
-   - Use `@SpringBootTest` or `@DataJpaTest` appropriately
-   - Test actual database interactions where relevant
-   - Cover critical business flows
-
-3. **E2E Tests** (Top Layer - Minimal)
-   - Cover main user journeys only
-   - Test across realistic scenarios
-   - Include error scenarios and edge cases
-
-### Test Organization
-
-- Test files mirror source structure: `src/test/java/com/williamcallahan/...`
-- Test fixtures in `src/test/resources/fixtures/`
-- Mock responses in `src/test/resources/mock-responses/`
-- One test class per production class (e.g., `BookService.java` → `BookServiceTest.java`)
-
-## 7. Change Management
-
-- Mention the current task/request ID (if one exists) in commits and pull requests; otherwise describe the user-visible change.
-- Summaries should highlight impacted components, testing performed, and follow-up considerations.
-- Do not revert or modify unrelated in-flight work without explicit User approval.
-
-### 7.1 Git Operations & Safety
-
-**CRITICAL GIT PROHIBITIONS:**
-
-- ❌ **NEVER change git branches** without explicit User permission
-- ❌ **NEVER commit changes** unless the User explicitly asks you to commit
-- ❌ **NEVER update git config** (user.name, user.email, etc.)
-- ❌ **NEVER perform destructive git actions simply because code differs from your own changes; treat all existing work as intentional unless the User directs otherwise**
-- ❌ **NEVER run destructive/irreversible commands** without explicit User request:
-  - `git push --force` (or `-f`)
-  - `git reset --hard`
-  - `git clean -fd`
-  - `git rebase` (unless explicitly requested)
-  - `git branch -D` (force delete)
-- ❌ **NEVER skip git hooks** without explicit User permission:
-  - `--no-verify`
-  - `--no-gpg-sign`
-  - `-n` (shorthand for --no-verify)
-- ❌ **NEVER force push to main/master** - Warn the User if they request this
-
-**REQUIRED BEHAVIORS:**
-
-- Always work on the current branch unless the User explicitly instructs you to switch
-- Before any branch operation (checkout, merge, rebase), confirm the User's intent
-- If the User asks to commit or merge, perform the operation on the current branch unless they specify otherwise
-- When the User asks to commit, use descriptive commit messages that reference the task/change
-- If destructive operations are requested, explain the consequences and confirm before proceeding
-
-## 8. CSS & Styling Guidelines (Tailwind CSS)
-
-### 8.1 Styling Philosophy - Utility-First Approach
-
-**PRIMARY**: Tailwind CSS utility classes
-**SECONDARY**: CSS variables for theming (see `src/main/resources/static/css/variables.css`)
-**LAST RESORT**: Custom CSS only when Tailwind cannot achieve the design
-
-### 8.2 Absolute CSS Prohibitions
-
-❌ **NEVER use `!important` declarations** - **100% DISALLOWED** - Fix specificity issues properly
-❌ **NEVER use inline styles** in HTML/Thymeleaf templates - Use Tailwind classes
-❌ **NEVER duplicate CSS** - Use Tailwind utilities or extract to components
-❌ **NEVER use arbitrary values** without justification - Use theme values first
-❌ **NEVER mix styling approaches** in the same component - Pick one strategy
-
-### 8.3 Tailwind CSS Best Practices
-
-**Class Ordering (Consistent Pattern):**
-
-```html
-<!-- Layout → Spacing → Sizing → Typography → Colors → States -->
-<div class="flex flex-col gap-4 p-6 w-full max-w-2xl text-lg font-semibold text-gray-900 bg-white hover:bg-gray-50">
-```
-
-**Recommended Class Order:**
-
-1. **Layout**: `flex`, `grid`, `block`, `inline`, `hidden`
-2. **Positioning**: `relative`, `absolute`, `fixed`, `sticky`
-3. **Spacing**: `p-*`, `m-*`, `gap-*`, `space-*`
-4. **Sizing**: `w-*`, `h-*`, `min-*`, `max-*`
-5. **Typography**: `text-*`, `font-*`, `leading-*`, `tracking-*`
-6. **Colors**: `text-*`, `bg-*`, `border-*`
-7. **Borders**: `border`, `border-*`, `rounded-*`
-8. **Effects**: `shadow-*`, `opacity-*`
-9. **Transitions**: `transition-*`, `duration-*`
-10. **States**: `hover:*`, `focus:*`, `active:*`, `disabled:*`
-11. **Responsive**: `sm:*`, `md:*`, `lg:*`, `xl:*`, `2xl:*`
-
-**Responsive Design (Mobile-First):**
-
-```html
-<!-- Base (mobile) → sm → md → lg → xl → 2xl -->
-<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-```
-
-**Color Consistency:**
-
-- Use design system colors from `variables.css`
-- Never hardcode color values like `#FF0000`
-- Use semantic naming: `text-primary`, `bg-secondary`, `border-accent`
-
-### 8.4 When Custom CSS is Acceptable
-
-**Only use custom CSS for:**
-
-1. Complex animations not possible with Tailwind
-2. Print styles (`@media print`)
-3. Global resets (already in `main.css`)
-4. CSS variables for theming (in `variables.css`)
-5. Third-party library overrides (minimize and document)
-
-**If Custom CSS Required:**
-
-- Add to `src/main/resources/static/css/main.css`
-- Use BEM naming convention: `block__element--modifier`
-- Scope styles as narrowly as possible
-- Document why Tailwind couldn't be used
-- Never use element selectors without class scoping
-
-```css
-/* ✅ GOOD: Scoped with BEM */
-.book-card__cover--loading {
-    animation: shimmer 1.5s infinite;
-}
-
-/* ❌ BAD: Global element selector */
-img {
-    border-radius: 8px;
-}
-```
-
-### 8.5 Specificity Rules
-
-**Problem-Solving Hierarchy:**
-
-1. **First**: Use more specific Tailwind classes
-2. **Second**: Restructure HTML to avoid conflicts
-3. **Third**: Use CSS cascade (order matters)
-4. **Last Resort**: Custom CSS with proper scoping
-5. **NEVER**: Use `!important` - **100% DISALLOWED** in this repository
-
-**Example - Fixing Specificity:**
-
-```html
-<!-- ❌ BAD: Using !important - 100% DISALLOWED in this repository -->
-<style>.override { color: red !important; }</style>
-
-<!-- ✅ GOOD: Use more specific Tailwind class -->
-<div class="[&>p]:text-red-600">
-    <p>Text will be red</p>
-</div>
-
-<!-- ✅ BETTER: Restructure to avoid conflict -->
-<div class="text-red-600">
-    <p>Text will be red</p>
-</div>
-```
-
-### 8.6 Thymeleaf + Tailwind Integration
-
-```html
-<!-- ✅ GOOD: Conditional classes with Thymeleaf -->
-<div th:classappend="${book.isFeatured} ? 'bg-yellow-50 border-2 border-yellow-400' : 'bg-white border border-gray-200'">
-
-<!-- ❌ BAD: Inline styles -->
-<div th:style="${book.isFeatured} ? 'background: yellow' : ''">
-```
-
-## 9. File Size Management & Code Organization
-
-### 9.1 File Size Limits
-
-**MANDATORY LIMIT: 500 lines maximum per file**
-
-**WARNING THRESHOLD: 400 lines** - Start planning refactoring
-
-**IMMEDIATE ACTION REQUIRED when approaching 400 lines:**
-
-- Extract utility methods to separate classes
-- Split large classes into focused components
-- Move constants to dedicated constant classes
-- Extract inner classes to separate files (with User permission)
-
-### 9.2 How to Split Large Files
-
-**For Java Classes (Services, Controllers, Repositories):**
-
-```java
-// ❌ BAD: 600-line service doing everything
-@Service
-public class BookService {
-    // Book CRUD
-    // Cover image processing
-    // Search functionality
-    // Recommendation logic
-    // Analytics
-}
-
-// ✅ GOOD: Focused services with single responsibilities
-@Service
-public class BookCrudService { /* Create, Read, Update, Delete */ }
-
-@Service
-public class BookSearchService { /* Search & filtering */ }
-
-@Service
-public class BookRecommendationService { /* Recommendation algorithms */ }
-
-@Service
-public class BookAnalyticsService { /* Analytics & reporting */ }
-```
-
-**For Utility Classes:**
-
-```java
-// ❌ BAD: Giant utility class
-public class BookUtils {
-    // ISBN validation
-    // Title formatting
-    // Author parsing
-    // Date conversions
-    // String manipulations
-}
-
-// ✅ GOOD: Focused utility classes
-public class IsbnValidator { /* ISBN-specific validation */ }
-public class BookTitleFormatter { /* Title formatting logic */ }
-public class AuthorParser { /* Author name parsing */ }
-```
-
-**For Template Files (HTML/Thymeleaf):**
-
-```html
-<!-- ❌ BAD: 800-line monolithic template -->
-<!-- book.html with everything -->
-
-<!-- ✅ GOOD: Modular fragments -->
-<!-- book.html (main structure) -->
-<!-- fragments/book-header.html -->
-<!-- fragments/book-details.html -->
-<!-- fragments/book-reviews.html -->
-<!-- fragments/book-recommendations.html -->
-```
-
-### 9.3 Circular Dependency Prevention
-
-**PROHIBITED PATTERNS:**
-
-- Class A imports Class B, which imports Class A
-- Service layer importing from Controller layer
-- Utility classes importing from Services
-- Cross-domain service dependencies without clear hierarchy
-
-**PREVENTION STRATEGIES:**
-
-1. **Unidirectional Flow (Enforce Strict Layering):**
-
-   ```markdown
-   Controller → Service → Repository → Entity
-   (Never backwards: Entity ❌→ Repository ❌→ Service ❌→ Controller)
-   ```
-
-2. **Dependency Injection:**
-
-   ```java
-   // ✅ GOOD: Interface-based dependency
-   @Service
-   public class BookService {
-       private final BookRepository bookRepository;
-       private final CoverImageService coverImageService;
-       
-       public BookService(BookRepository bookRepository, 
-                          CoverImageService coverImageService) {
-           this.bookRepository = bookRepository;
-           this.coverImageService = coverImageService;
-       }
-   }
-   ```
-
-3. **Event-Driven for Cross-Domain:**
-
-   ```java
-   // ✅ GOOD: Use Spring Events for loose coupling
-   @Service
-   public class BookService {
-       private final ApplicationEventPublisher eventPublisher;
-       
-       public void updateBook(Book book) {
-           // Update logic
-           eventPublisher.publishEvent(new BookUpdatedEvent(book));
-       }
-   }
-   ```
-
-4. **Extract Shared Logic:**
-
-   ```java
-   // ✅ GOOD: Shared utility avoids circular dependency
-   // util/ImageDimensionUtils.java
-   public class ImageDimensionUtils {
-       public static Dimension calculateAspectRatio(int width, int height) {
-           // Shared logic used by multiple services
-       }
-   }
-   ```
-
-**Detection:**
-
-- Maven build will fail with circular dependency errors
-- Use `mvn dependency:tree` to visualize dependencies
-- Review imports carefully during code review
-
-## 10. Comprehensive Code Update Protocol
-
-### 10.1 The Update Verification Mandate
-
-**ABSOLUTE REQUIREMENT:** When editing or updating ANY code, you MUST find and update ALL usages throughout the entire codebase. Missing even one usage creates inconsistencies that break features and introduce bugs.
-
-### 10.2 Three-Phase Update Protocol
-
-#### Phase 1: Pre-Update Planning
-
-**BEFORE making any code changes:**
-
-0. **Confirm the Why**: Understand and restate the purpose of the change (feature objective, defect being resolved, compliance requirement, etc.) so it can be reflected in implementation choices and documentation updates.
-
-1. **Map All Usages:**
-
-   ```bash
-   # Find all imports of the class
-   grep -r "import.*ClassName" src/main/java/ src/test/java/
-   
-   # Find all method calls
-   grep -r "methodName(" src/main/java/ src/test/java/
-   
-   # Find all references in templates
-   grep -r "objectName" src/main/resources/templates/
-   ```
-
-2. **Create Update Checklist:**
-
-   ```java
-   // TODO: Update Plan for BookService.findByIsbn()
-   // [ ] BookController.java - line 45, 78
-   // [ ] BookSearchService.java - line 123
-   // [ ] BookRepository.java - method signature
-   // [ ] BookServiceTest.java - all test methods
-   // [ ] book.html - Thymeleaf calls
-   ```
-
-3. **Identify Ripple Effects:**
-   - Method signature changes → Update all call sites
-   - Class renames → Update imports, Spring bean references, template references
-   - Return type changes → Update all consuming code
-   - Parameter additions → Update all invocations
-
-#### Phase 2: During Updates
-
-**WHILE making changes:**
-
-1. **Track Every Change:**
-
-   ```java
-   // CHANGE LOG:
-   // ✓ Updated method signature in BookService.java
-   // ✓ Updated call in BookController.java line 45
-   // ✓ Updated call in BookController.java line 78
-   // ✓ Updated test mocks in BookServiceTest.java
-   // ⚠️ PENDING: Update BookSearchService.java
-   // ⚠️ PENDING: Update Thymeleaf templates
-   ```
-
-2. **Verify Parameter Agreement:**
-   - Method signatures match across all calls
-   - Spring bean names are consistent
-   - Template variable names align with controller model attributes
-   - DTOs match between layers
-
-3. **Check Adjacent Functionality:**
-   - Related methods in the same class
-   - Overloaded method variants
-   - Interface implementations
-   - Abstract class extensions
-
-#### Phase 3: Post-Update Audit
-
-**AFTER completing updates:**
-
-1. **Comprehensive Verification:**
-
-   ```bash
-   # Compile to catch errors
-   ./mvnw clean compile
-   
-   # Run all tests
-   ./mvnw test
-   
-   # Check for remaining old patterns
-   grep -r "oldMethodName" src/
-   ```
-
-2. **Expanded Search for Missed Updates:**
-   - Check XML/YAML configuration files
-   - Review application.yml for bean references
-   - Scan SQL queries in resources
-   - Review JavaScript files that may call endpoints
-
-3. **Integration Verification:**
-   - Controllers → Services → Repositories chain intact
-   - DTOs properly mapped in all layers
-   - Templates receive expected model attributes
-   - API endpoints return expected response shapes
-
-### 10.3 Common Update Failures to Prevent
-
-**❌ CRITICAL FAILURES:**
-
-1. **Method Signature Mismatch:**
-
-   ```java
-   // Service updated to 3 parameters
-   public Book findBook(String isbn, String format, boolean includeReviews) {}
-   
-   // But controller still uses 2 parameters
-   Book book = bookService.findBook(isbn, format); // 💥 Compilation error!
-   ```
-
-2. **Spring Bean Name Inconsistency:**
-
-   ```java
-   // Service renamed
-   @Service("bookSearchService")
-   public class BookSearchService {}
-   
-   // But old qualifier still used
-   @Qualifier("bookFindService") // 💥 Bean not found!
-   private BookSearchService searchService;
-   ```
-
-3. **Template-Controller Mismatch:**
-
-   ```java
-   // Controller changed attribute name
-   model.addAttribute("bookDetails", book);
-   
-   // But template still uses old name
-   <div th:text="${bookInfo.title}"></div> <!-- 💥 Property not found! -->
-   ```
-
-### 10.4 Search Commands for Finding All Usages
-
-```bash
-# 1. Find all Java class references
-grep -r "ClassName" --include="*.java" src/
-
-# 2. Find all method calls
-grep -r "\.methodName(" --include="*.java" src/
-
-# 3. Find all template references
-grep -r "variableName" --include="*.html" src/main/resources/templates/
-
-# 4. Find all configuration references
-grep -r "beanName" --include="*.yml" --include="*.xml" --include="*.properties" src/main/resources/
-
-# 5. Find all SQL references
-grep -r "table_name\|column_name" --include="*.sql" src/main/resources/
-
-# 6. Find all test mocks
-grep -r "mock.*ClassName\|when.*methodName" --include="*Test.java" src/test/
-
-# 7. Find all JavaScript/frontend references
-grep -r "endpoint\|apiPath" --include="*.js" src/main/resources/static/js/
-```
-
-## 11. Java & Spring Boot Best Practices
-
-### 11.1 Code Style
-
-- **Java Version**: Java 21+ features preferred (records, pattern matching, sealed classes)
-- **Spring Boot Version**: 3.3.x idioms and conventions
-- **Dependency Injection**: Constructor injection (required), never field injection
-- **Null Safety**: Use `Optional<T>` for return types that may be absent
-- **Immutability**: Prefer immutable objects (records, final fields)
-- **Naming**:
-  - Classes: `PascalCase`
-  - Methods/Variables: `camelCase`
-  - Constants: `UPPER_SNAKE_CASE`
-  - Packages: `lowercase.dot.notation`
-
-### 11.2 Spring Boot Patterns
-
-**Controller Layer:**
-
-```java
-@RestController
-@RequestMapping("/api/books")
-public class BookController {
-    
-    private final BookService bookService;
-    
-    // ✅ GOOD: Constructor injection
-    public BookController(BookService bookService) {
-        this.bookService = bookService;
-    }
-    
-    @GetMapping("/{isbn}")
-    public ResponseEntity<BookDto> getBook(@PathVariable String isbn) {
-        return bookService.findByIsbn(isbn)
-            .map(ResponseEntity::ok)
-            .orElse(ResponseEntity.notFound().build());
-    }
-}
-```
-
-**Service Layer:**
-
-```java
-@Service
-public class BookService {
-    
-    private final BookRepository bookRepository;
-    private final CoverImageService coverImageService;
-    
-    public BookService(BookRepository bookRepository,
-                       CoverImageService coverImageService) {
-        this.bookRepository = bookRepository;
-        this.coverImageService = coverImageService;
-    }
-    
-    @Transactional(readOnly = true)
-    public Optional<Book> findByIsbn(String isbn) {
-        // Business logic
-    }
-}
-```
-
-### 11.3 Error Handling
-
-```java
-// ✅ GOOD: Specific exception handling
-@ExceptionHandler(BookNotFoundException.class)
-public ResponseEntity<ErrorResponse> handleBookNotFound(BookNotFoundException ex) {
-    return ResponseEntity.status(HttpStatus.NOT_FOUND)
-        .body(new ErrorResponse(ex.getMessage()));
-}
-
-// ❌ BAD: Generic exception swallowing
-catch (Exception e) {
-    // Silent failure
-}
-```
-
-### 11.4 Logging
-
-```java
-@Slf4j // Lombok annotation
-@Service
-public class BookService {
-    
-    public Book saveBook(Book book) {
-        log.debug("Saving book: {}", book.getIsbn());
-        try {
-            Book saved = bookRepository.save(book);
-            log.info("Successfully saved book: {}", saved.getIsbn());
-            return saved;
-        } catch (DataAccessException e) {
-            log.error("Failed to save book: {}", book.getIsbn(), e);
-            throw new BookSaveException("Could not save book", e);
-        }
-    }
-}
-```
-
-## 12. Documentation Requirements
-
-### 12.1 Javadoc Standards
-
-**Required for:**
-
-- All public classes, interfaces, and enums
-- All public methods
-- Complex private methods
-- DTOs and data models
-
-**Format:**
-
-Every Javadoc (or JSDoc in JavaScript/TypeScript contexts) created or updated while delivering functionality MUST, when the intent is known, explain succinctly why the class or method exists alongside behavioral notes. Keep this context tight and objective.
-
-```java
-/**
- * Searches for books matching the given criteria.
- * 
- * <p>This method performs a full-text search across book titles, authors,
- * and descriptions. Results are paginated and sorted by relevance.</p>
- * 
- * @param searchTerm the search query (must not be null or empty)
- * @param page the page number (zero-based)
- * @param size the page size (must be between 1 and 100)
- * @return a page of matching books
- * @throws IllegalArgumentException if searchTerm is null or empty
- * @see BookRepository#searchBooks(String, Pageable)
- */
-@Transactional(readOnly = true)
-public Page<Book> searchBooks(String searchTerm, int page, int size) {
-    // Implementation
-}
-```
-
-### 12.2 Code Comments
-
-**When to Comment:**
-
-- Complex algorithms or business logic
-- Non-obvious workarounds
-- Performance optimizations
-- Security considerations
-- External API integration details
-
-**When NOT to Comment:**
-
-```java
-// ❌ BAD: Stating the obvious
-// Get the book by ID
-Book book = bookRepository.findById(id);
-
-// ✅ GOOD: Explaining why
-// Using findById instead of getReferenceById to trigger immediate fetch
-// and validation before proceeding with cover image processing
-Book book = bookRepository.findById(id)
-    .orElseThrow(() -> new BookNotFoundException(id));
-```
+## Document Organization [ORG]
+- Purpose: keep critical rules in the first 200 lines and cite them by hash prefix.
+- Hash prefix format: `AAA1` (3–4 uppercase letters + number). Every rule statement starts with its hash and is 100% enforced.
+- Structure: Rule Summary first, then Details by hash. Add new hashes without renumbering.
+
+## Rule Summary [SUM]
+- SRC1 Never make assumptions; verify with code/docs and ask when unsure.
+- SCO1 Confirm the why and scope before changes; keep traceability to the user request.
+- FIL1 New files require exhaustive search, confirmation no existing solution, and explicit permission; markdown files only in `tmp/` unless requested and must be deleted when done.
+- TYP1 Type safety only: no `Object`, `Map<String,Object>`, raw types, unchecked casts, or `@SuppressWarnings`.
+- ARC1 Clean architecture: dependencies point inward; domain has zero framework imports; Controller → Service → Repository.
+- CLN1 Clean code: small single-purpose methods, no dead code, no empty try/catch, use named constants, avoid generic utilities.
+- NAM1 Intent-revealing names; American English only.
+- UPD1 When changing code, update all usages across the repo.
+- JVA1 Java 21+/Spring Boot 3.3 idioms: constructor injection, immutability, records, Optional returns only.
+- ERR1 Specific exceptions only; never swallow errors; log with context and rethrow or wrap.
+- DOC1 Javadocs required for public types/methods; explain why + what; comments explain why only.
+- TST1 Tests required for behavior changes; follow pyramid and naming; use Mockito for unit tests.
+- CSS1 Tailwind utility-first; no inline styles or `!important`; avoid custom CSS unless necessary.
+- FIL2 500-line max per file (plan split at ~400); avoid monoliths.
+- DB1 Manual SQL only; no Flyway/Liquibase; no auto migrations; respect schema definitions.
+- GIT1 Git safety: no branch changes, commits, config edits, destructive commands, or hook skipping without explicit approval.
+- ENV1 Defaults: port 8095, `mvn spring-boot:run -P dev`, production https://findmybook.net.
+
+## Details
+
+### [SRC1] Source Verification
+- Review the current codebase and documentation before answering or changing behavior.
+- If unsure, stop and ask rather than guessing.
+- Never rely on memory for APIs, framework patterns, or dependency versions.
+
+### [SCO1] Scope & Traceability
+- Confirm the underlying goal (bug, feature, constraint) before making changes.
+- Keep work within the agreed scope; call out scope creep early.
+- Reference the current request in code comments and summaries when relevant.
+
+### [FIL1] Controlled File Creation
+- Before any new file: search exhaustively, analyze reuse, confirm no existing solution, request explicit permission.
+- Do not create any new file without user approval.
+- Markdown files must be created in `tmp/` unless explicitly requested elsewhere, and must be deleted when no longer needed.
+
+### [TYP1] Type Safety
+- Use typed DTOs/records and value objects; never use raw types or `Map<String,Object>`.
+- No `@SuppressWarnings`; fix the root cause.
+- Prefer explicit, safe conversions (for example, `Number::intValue`) when needed.
+
+### [ARC1] Clean Architecture
+- Dependencies point inward; domain has zero framework imports.
+- Controllers translate HTTP ⇄ domain and call services; services own business logic; repositories access data.
+- Never have services import controllers or repositories import services.
+
+### [CLN1] Clean Code
+- Keep methods small, focused, and single-responsibility.
+- Remove dead code and unused paths.
+- Never swallow exceptions or add empty catch blocks.
+- Replace repeated literals with named constants.
+- Avoid generic catch-all helpers (`*Utils`, `*Helper`, `*Common`).
+
+### [NAM1] Naming & Language
+- Use intent-revealing names; avoid generic names like `data`, `info`, `value`, `item`, `tmp`.
+- Prefer domain terms; abbreviations only when standard.
+- Use American English only in code and comments.
+
+### [UPD1] Comprehensive Updates
+- When changing code, find and update all usages across Java, tests, templates, configs, SQL, and JS.
+- Use repo-wide searches before and after changes to verify completion.
+
+### [JVA1] Java & Spring Boot Idioms
+- Use Java 21+ features (records, pattern matching, sealed types) where appropriate.
+- Prefer immutable objects and `final` fields.
+- Constructor injection only; never field injection.
+- Use `Optional<T>` for nullable return values; do not use Optional parameters.
+- Use `@Transactional(readOnly = true)` for read-only service methods.
+
+### [ERR1] Error Handling & Logging
+- Catch specific exceptions only; avoid broad `Exception` catches.
+- Log with context (identifiers, inputs) and rethrow or wrap with a domain exception.
+- Never hide errors with silent fallbacks.
+
+### [DOC1] Documentation
+- Javadocs are required for public classes, interfaces, enums, and public methods.
+- Javadocs must explain why the code exists and what it does.
+- Comments should explain why, not what.
+
+### [TST1] Testing
+- Add or update tests whenever behavior changes.
+- Follow the test pyramid: unit → integration → minimal E2E.
+- Unit tests: Mockito, Arrange‑Act‑Assert, `should_ExpectedBehavior_When_StateUnderTest` naming.
+- Tests mirror source structure under `src/test/java/com/williamcallahan/...`.
+- Use fixtures in `src/test/resources/fixtures/` and mock responses in `src/test/resources/mock-responses/`.
+
+### [CSS1] Styling (Tailwind)
+- Tailwind utility classes are the default; avoid custom CSS unless required.
+- No inline styles and no `!important`, ever.
+- Avoid arbitrary values unless justified; prefer theme variables (`variables.css`).
+- If custom CSS is necessary, use `src/main/resources/static/css/main.css` with BEM naming.
+
+### [FIL2] File Size & Structure
+- Maximum 500 lines per file; start splitting around 400.
+- Extract focused classes/services/fragments with user approval per [FIL1].
+
+### [DB1] Database & Migrations
+- Manual SQL only; never use Flyway or Liquibase.
+- Do not enable automatic migrations on boot.
+- Temporary `.sql` files are allowed for planning but must not be executed by LLMs.
+- All schema changes must reference immutable MySQL and PostgreSQL schema definitions.
+
+### [GIT1] Git Operations & Safety
+- Never change branches without explicit permission.
+- Never commit unless the user explicitly asks.
+- Never edit git config (user.name/user.email).
+- Never run destructive git commands or force pushes without explicit approval.
+- Never skip hooks (`--no-verify`, `--no-gpg-sign`, `-n`).
+
+### [ENV1] Technology & Environment Defaults
+- Framework: Spring Boot 3.3.x with Java 21+ idioms.
+- Styling: Tailwind CSS utility-first (no custom CSS unless necessary).
+- Databases: MySQL (primary) and PostgreSQL (reference schema).
+- Default port: 8095 (override with `SERVER_PORT`).
+- Local start: `mvn spring-boot:run -P dev`.
+- Production site: https://findmybook.net.
 
 ---
 This manual replaces prior `.cursorrules` and `claude.md` content; refer to `AGENTS.md` as the authoritative guide going forward.
