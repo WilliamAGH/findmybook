@@ -412,6 +412,13 @@ public class BookDataOrchestrator {
         } catch (Exception e) {
             logger.error("Error persisting via BookUpsertService for book {}: {}",
                 book != null ? book.getId() : "UNKNOWN", e.getMessage(), e);
+            // Rethrow systemic DB failures so batch abort logic in persistBooksAsync can trigger
+            if (isSystemicDatabaseError(e)) {
+                if (e instanceof RuntimeException runtimeEx) {
+                    throw runtimeEx;
+                }
+                throw new RuntimeException("Systemic database error during upsert", e);
+            }
             return false;
         }
     }
