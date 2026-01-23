@@ -27,6 +27,7 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
     private static final String DS_USERNAME = "spring.datasource.username";
     private static final String DS_PASSWORD = "spring.datasource.password";
     private static final String DS_DRIVER = "spring.datasource.driver-class-name";
+    private static final String DEFAULT_HOST = "localhost";
     private static final String DEFAULT_DATABASE = "postgres";
     private static final int DEFAULT_PORT = 5432;
     private static final int MIN_PORT = 1;
@@ -52,8 +53,16 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
     private record HostPort(String host, int port) {}
 
     /**
+     * Defaults empty host to localhost (PostgreSQL convention).
+     */
+    private static String defaultHost(String host) {
+        return hasText(host) ? host : DEFAULT_HOST;
+    }
+
+    /**
      * Parses host:port string into a HostPort value object.
      * Falls back to defaultPort if port is missing, invalid, or out of range.
+     * Falls back to localhost if host is empty (PostgreSQL convention for local connections).
      * Handles bracketed IPv6 addresses (e.g., [::1]:5432).
      *
      * <p><strong>Design Note - System.err Usage:</strong> This method intentionally uses
@@ -68,14 +77,14 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
      *
      * @param hostPortString the host:port string to parse
      * @param defaultPort fallback port if parsing fails or port is invalid
-     * @return parsed HostPort with validated port
+     * @return parsed HostPort with validated port and non-empty host
      */
     private static HostPort parseHostPort(String hostPortString, int defaultPort) {
         // Handle bracketed IPv6 addresses (e.g., [::1]:5432)
         if (hostPortString.startsWith("[")) {
             int endBracket = hostPortString.indexOf(']');
             if (endBracket > 0) {
-                String host = hostPortString.substring(1, endBracket);
+                String host = defaultHost(hostPortString.substring(1, endBracket));
                 int port = defaultPort;
                 if (endBracket + 1 < hostPortString.length()
                     && hostPortString.charAt(endBracket + 1) == ':') {
@@ -96,11 +105,11 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
         }
 
         if (!hostPortString.contains(":")) {
-            return new HostPort(hostPortString, defaultPort);
+            return new HostPort(defaultHost(hostPortString), defaultPort);
         }
 
         String[] parts = hostPortString.split(":", 2);
-        String host = parts[0];
+        String host = defaultHost(parts[0]);
         String portString = parts[1];
 
         try {
