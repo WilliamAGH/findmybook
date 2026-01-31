@@ -3,7 +3,8 @@
     T(java.util.Arrays).stream(#httpServletRequest.cookies)
     .filter(cookie -> 'preferred_theme'.equals(cookie.name))
     .findFirst().orElse(null)?.value : null}" 
-    th:attr="data-theme=${themePreference != null ? themePreference : '_auto_'}">
+    th:attr="data-theme=${themePreference != null ? themePreference : '_auto_'}"
+    class="h-full">
 <head th:fragment="head(title, description, canonicalUrl, ogImage, keywords)">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -272,7 +273,7 @@
     </style>
 
 </head>
-<body class="modern-layout theme-body text-anthracite-900 dark:text-slate-50 transition-colors duration-300">
+<body class="modern-layout theme-body text-anthracite-900 dark:text-slate-50 transition-colors duration-300 min-h-full flex flex-col dark:bg-slate-900">
 
 <!-- Navbar - ShadCN/Claude UI Inspired Sophisticated Navigation -->
 <nav th:fragment="navbar" id="main-navbar"
