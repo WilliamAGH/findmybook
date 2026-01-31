@@ -1,4 +1,4 @@
-# FindMyBook.net
+# findmybook.net
 
 Spring Boot application for book lookup and recommendations using OpenAI and Google Books API.
 
@@ -46,7 +46,7 @@ Detailed documentation is available in the `docs/` directory:
 
 ## License
 
-Copyright © 2026 William Callahan.
+Copyright © 2026 [William Callahan](https://williamcallahan.com).
 
-See `LICENSE`.
+See [LICENSE.md](LICENSE.md).
 
