@@ -1,0 +1,211 @@
+package net.findmybook.service;
+
+import net.findmybook.model.Book;
+import net.findmybook.util.IdGenerator;
+import net.findmybook.util.JdbcUtils;
+import net.findmybook.util.UuidUtils;
+import reactor.core.scheduler.Schedulers;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+import java.util.Objects;
+
+/**
+ * Persists recommendation relationships to Postgres so downstream flows (e.g. similarity)
+ * can reuse Postgres/S3 data before touching external APIs.
+ */
+@Service
+@Slf4j
+public class BookRecommendationPersistenceService {
+
+    
+    private static final String PIPELINE_SOURCE = "RECOMMENDATION_PIPELINE";
+    private static final double SCORE_NORMALIZER = 10.0d; // keeps stored scores within 0..1 range
+
+    private final JdbcTemplate jdbcTemplate;
+    private final BookLookupService bookLookupService;
+    private final BookIdentifierResolver bookIdentifierResolver;
+
+    public BookRecommendationPersistenceService(JdbcTemplate jdbcTemplate,
+                                                BookLookupService bookLookupService,
+                                                Optional<BookIdentifierResolver> bookIdentifierResolver) {
+        this.jdbcTemplate = jdbcTemplate;
+        this.bookLookupService = bookLookupService;
+        this.bookIdentifierResolver = bookIdentifierResolver != null ? bookIdentifierResolver.orElse(null) : null;
+    }
+
+    public Mono<Void> persistPipelineRecommendations(Book sourceBook, List<RecommendationRecord> recommendations) {
+        if (jdbcTemplate == null || sourceBook == null || recommendations == null || recommendations.isEmpty()) {
+            return Mono.empty();
+        }
+
+        return resolveCanonicalUuid(sourceBook)
+            .flatMap(sourceUuid -> Flux.fromIterable(recommendations)
+                .flatMapSequential(record -> resolveCanonicalUuid(record.book())
+                    .map(recommendedUuid -> new PersistableRecommendation(record, recommendedUuid))
+                    .flux(), 4, 8)
+                .collectList()
+                .flatMap(resolved -> {
+                    if (resolved.isEmpty()) {
+                        log.debug("No canonical recommendations resolved for source {}. Skipping persistence.", sourceUuid);
+                        return Mono.empty();
+                    }
+                    return Mono.fromCallable(() -> {
+                            deleteExistingPipelineRows(sourceUuid);
+                            resolved.forEach(candidate -> upsertRecommendation(sourceUuid, candidate));
+                            return true;
+                        })
+                        .subscribeOn(Schedulers.boundedElastic())
+                        .doOnSuccess(ignored -> log.info("Persisted {} recommendation(s) for source {} via Postgres pipeline.", resolved.size(), sourceUuid))
+                        .then();
+                }))
+            .onErrorResume(ex -> {
+                log.warn("Failed to persist recommendations for book {}: {}", sourceBook.getId(), ex.getMessage(), ex);
+                return Mono.empty();
+            });
+    }
+
+    private void deleteExistingPipelineRows(UUID sourceUuid) {
+        JdbcUtils.executeUpdate(
+            jdbcTemplate,
+            "DELETE FROM book_recommendations WHERE source_book_id = ? AND source = ?",
+            sourceUuid,
+            PIPELINE_SOURCE
+        );
+    }
+
+    private void upsertRecommendation(UUID sourceUuid, PersistableRecommendation candidate) {
+        double normalizedScore = Math.max(0.0d, Math.min(1.0d, candidate.record().score() / SCORE_NORMALIZER));
+        String reason = formatReasons(candidate.record().reasons());
+
+        JdbcUtils.executeUpdate(
+            jdbcTemplate,
+            "INSERT INTO book_recommendations (id, source_book_id, recommended_book_id, source, score, reason) " +
+            "VALUES (?, ?, ?, ?, ?, ?) " +
+            "ON CONFLICT (source_book_id, recommended_book_id, source) " +
+            "DO UPDATE SET score = EXCLUDED.score, reason = EXCLUDED.reason, generated_at = NOW(), expires_at = NOW() + INTERVAL '30 days'",
+            IdGenerator.generate(),
+            sourceUuid,
+            candidate.recommendedUuid(),
+            PIPELINE_SOURCE,
+            normalizedScore,
+            reason
+        );
+    }
+
+    private Mono<UUID> resolveCanonicalUuid(Book book) {
+        if (book == null) {
+            return Mono.empty();
+        }
+        String identifier = book.getId();
+        if (identifier == null || identifier.isBlank()) {
+            return Mono.empty();
+        }
+
+        UUID uuid = UuidUtils.parseUuidOrNull(identifier);
+        if (uuid != null) {
+            return Mono.fromCallable(() -> resolvePrimaryUuid(uuid))
+                .subscribeOn(Schedulers.boundedElastic())
+                .flatMap(optional -> optional.map(Mono::just).orElseGet(Mono::empty));
+        }
+
+        return Mono.fromCallable(() -> resolveCanonicalUuidSync(book)
+                .flatMap(resolved -> resolvePrimaryUuid(resolved))
+        )
+            .subscribeOn(Schedulers.boundedElastic())
+            .flatMap(optional -> optional.map(Mono::just).orElseGet(Mono::empty))
+            .onErrorResume(err -> {
+                log.debug("Error resolving canonical book for {}: {}", identifier, err.getMessage());
+                return Mono.empty();
+            });
+    }
+
+    private Optional<UUID> resolveCanonicalUuidSync(Book book) {
+        if (bookLookupService == null) {
+            return Optional.empty();
+        }
+
+        // Try ISBNs first (most reliable)
+        Optional<String> resolved = Optional.empty();
+        if (book.getIsbn13() != null) {
+            resolved = bookLookupService.findBookIdByIsbn13(book.getIsbn13());
+        }
+        if (resolved.isEmpty() && book.getIsbn10() != null) {
+            resolved = bookLookupService.findBookIdByIsbn10(book.getIsbn10());
+        }
+        if (resolved.isEmpty() && book.getId() != null) {
+            resolved = bookLookupService.findBookIdByExternalIdentifier(book.getId());
+        }
+
+        return resolved
+            .map(UuidUtils::parseUuidOrNull)
+            .filter(Objects::nonNull)
+            .flatMap(this::resolvePrimaryUuid);
+    }
+
+    private Optional<UUID> resolvePrimaryUuid(UUID uuid) {
+        if (uuid == null) {
+            return Optional.empty();
+        }
+
+        if (bookIdentifierResolver != null) {
+            Optional<String> resolved = bookIdentifierResolver.resolveCanonicalId(uuid.toString());
+            if (resolved.isPresent()) {
+                UUID primary = UuidUtils.parseUuidOrNull(resolved.get());
+                if (primary != null) {
+                    return Optional.of(primary);
+                }
+            }
+        }
+
+        if (jdbcTemplate == null) {
+            return Optional.of(uuid);
+        }
+
+        try {
+            UUID primary = jdbcTemplate.query(
+                """
+                SELECT primary_wcm.book_id
+                FROM work_cluster_members wcm
+                JOIN work_cluster_members primary_wcm
+                  ON primary_wcm.cluster_id = wcm.cluster_id
+                 AND primary_wcm.is_primary = true
+                WHERE wcm.book_id = ?
+                LIMIT 1
+                """,
+                rs -> rs.next() ? (UUID) rs.getObject(1) : null,
+                uuid
+            );
+            return Optional.ofNullable(primary != null ? primary : uuid);
+        } catch (Exception ex) {
+            log.debug("Failed to resolve primary edition for {}: {}", uuid, ex.getMessage());
+            return Optional.of(uuid);
+        }
+    }
+
+    private String formatReasons(List<String> reasons) {
+        if (reasons == null || reasons.isEmpty()) {
+            return "";
+        }
+        Set<String> ordered = new LinkedHashSet<>(reasons);
+        return String.join(",", ordered);
+    }
+
+    public record RecommendationRecord(Book book, double score, List<String> reasons) {
+        public RecommendationRecord {
+            reasons = reasons == null ? List.of() : new ArrayList<>(reasons);
+        }
+    }
+
+    private record PersistableRecommendation(RecommendationRecord record, UUID recommendedUuid) {
+    }
+}

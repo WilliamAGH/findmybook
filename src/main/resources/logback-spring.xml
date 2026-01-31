@@ -65,7 +65,7 @@
             <appender-ref ref="FILE" />
         </root>
         
-        <logger name="com.williamcallahan.book_recommendation_engine" level="DEBUG" additivity="false">
+        <logger name="net.findmybook" level="DEBUG" additivity="false">
             <appender-ref ref="CONSOLE" />
             <appender-ref ref="APP_FILE" />
         </logger>
@@ -79,7 +79,7 @@
     <logger name="reactor.netty" level="WARN" />
     
     <!-- API call logging at INFO level -->
-    <logger name="com.williamcallahan.book_recommendation_engine.service.GoogleApiFetcher" level="INFO" />
-    <logger name="com.williamcallahan.book_recommendation_engine.service.OpenLibraryBookDataService" level="INFO" />
-    <logger name="com.williamcallahan.book_recommendation_engine.service.BookDataOrchestrator" level="INFO" />
+    <logger name="net.findmybook.service.GoogleApiFetcher" level="INFO" />
+    <logger name="net.findmybook.service.OpenLibraryBookDataService" level="INFO" />
+    <logger name="net.findmybook.service.BookDataOrchestrator" level="INFO" />
 </configuration>

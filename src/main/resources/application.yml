@@ -179,7 +179,7 @@ resilience4j:
 logging:
   level:
     root: INFO # PRODUCTION-SAFE: Standard INFO level
-    "[com.williamcallahan.book_recommendation_engine]": INFO
+    "[net.findmybook]": INFO
     "[org.springframework.cache]": WARN
     "[org.hibernate]": WARN
     "[org.springframework.web]": WARN # PRODUCTION-SAFE: Minimal web logging
@@ -215,7 +215,7 @@ logging:
   level:
     '[org.springframework.boot.devtools]': WARN
     "[org.springframework.web]": INFO # DEV OVERRIDE: More verbose web logging
-    "[com.williamcallahan.book_recommendation_engine]": DEBUG # DEV OVERRIDE: Debug app logging
+    "[net.findmybook]": DEBUG # DEV OVERRIDE: Debug app logging
     "[ro.isdc.wro]": ERROR
     "[ro.isdc.wro.extensions.processor.css.CssVariablesProcessor]": ERROR
 
@@ -251,7 +251,7 @@ spring:
 
 logging:
   level:
-    "[com.williamcallahan.book_recommendation_engine]": INFO
+    "[net.findmybook]": INFO
 
 app:
   environment:
@@ -275,7 +275,7 @@ spring:
 logging:
   level:
     root: WARN
-    "[com.williamcallahan.book_recommendation_engine]": INFO
+    "[net.findmybook]": INFO
     "[org.springframework]": WARN
 
 s3:
