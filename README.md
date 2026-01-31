@@ -1,4 +1,4 @@
-# Find My Book
+# FindMyBook.net
 
 Spring Boot application for book lookup and recommendations using OpenAI and Google Books API.
 
