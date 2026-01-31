@@ -1,32 +1,47 @@
-FROM public.ecr.aws/docker/library/maven:3.9.6-eclipse-temurin-21-alpine AS build
+##
+## Multi-stage build for Java Spring Boot application (Gradle + Java 25)
+## Base registry defaults to AWS ECR Public mirror but can be overridden
+## Some alternatives:
+##   - docker.io/library
+##   - ghcr.io/eclipse-temurin
+##   - icr.io/appcafe
+ARG BASE_REGISTRY=public.ecr.aws/docker/library
+##
+
+# ---------- Build stage ----------
+FROM ${BASE_REGISTRY}/eclipse-temurin:25-jdk AS build
 WORKDIR /app
 
-# Copy pom.xml first for better layer caching
-COPY pom.xml .
-COPY docker/maven-settings.xml /usr/share/maven/ref/settings-docker.xml
+# 1. Gradle wrapper (rarely changes)
+COPY gradlew .
+COPY gradle gradle
+RUN chmod +x ./gradlew
 
-ARG MAVEN_CLI_OPTS="-B -s /usr/share/maven/ref/settings-docker.xml \
-  -Dmaven.wagon.http.retryHandler.count=8 \
-  -Dmaven.wagon.http.retryHandler.class=standard \
-  -Dmaven.wagon.http.retryHandler.requestSentEnabled=true"
+# 2. Build configuration (changes occasionally)
+COPY build.gradle .
+COPY settings.gradle .
 
-RUN mvn ${MAVEN_CLI_OPTS} dependency:go-offline \
-  || (sleep 10 && mvn ${MAVEN_CLI_OPTS} dependency:go-offline)
+# 3. Frontend sources (used by buildFrontendCss task)
+COPY frontend ./frontend
 
-# Copy source code
-COPY src/ /app/src/
+# 4. Pre-fetch dependencies (layer caching handles repeat builds)
+RUN ./gradlew dependencies --no-daemon --quiet
 
-# Build the application
-RUN mvn ${MAVEN_CLI_OPTS} package -DskipTests
+# 5. Java sources (most frequent changes) - copy LAST for optimal caching
+COPY src ./src
 
-# Use JRE for smaller runtime image (from ECR Public to avoid Docker Hub rate limits)
-FROM public.ecr.aws/docker/library/eclipse-temurin:21-jre-alpine
+# 6. Build JAR
+RUN ./gradlew bootJar --no-daemon -x test
+
+# ---------- Runtime stage ----------
+FROM ${BASE_REGISTRY}/eclipse-temurin:25-jre AS runtime
 WORKDIR /app
 ENV SERVER_PORT=8095
+ENV JAVA_OPTS="--enable-preview -Dio.netty.noUnsafe=true"
 EXPOSE 8095
 
 # Copy the built jar from the build stage
-COPY --from=build /app/target/*.jar app.jar
+COPY --from=build /app/build/libs/*.jar app.jar
 
 # Run the application (SERVER_PORT env var automatically bound to server.port by Spring Boot)
-ENTRYPOINT ["java", "-jar", "app.jar"]
+ENTRYPOINT exec java $JAVA_OPTS -jar /app/app.jar

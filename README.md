@@ -6,23 +6,23 @@ Spring Boot application for book lookup and recommendations using OpenAI and Goo
 
 ## Quick Start
 
-**Prerequisites:** Java 21, Maven 3.6+
+**Prerequisites:** Java 25, Gradle (via `./gradlew`)
 
 1. **Configure:** Copy `.env.example` to `.env` and update values
-2. **Run:** `mvn spring-boot:run -P dev`
+2. **Run:** `SPRING_PROFILES_ACTIVE=dev SERVER_PORT=8095 ./gradlew bootRun`
 3. **Access:** [http://localhost:8095](http://localhost:8095) (or configured `SERVER_PORT`)
 
 ## Development Shortcuts
 
 | Command | Description |
 |---------|-------------|
-| `mvn spring-boot:run -P dev` | Run in dev mode with hot reload (includes clean + compile) |
-| `mvn clean compile -DskipTests` | Quick clean and compile without tests |
-| `mvn test` | Run tests only |
-| `mvn spring-boot:run -Dspring.profiles.active=nodb` | Run without database |
-| `mvn spring-boot:run -Dspring.profiles.active=prod` | Run in production mode |
-| `mvn dependency:tree` | Display dependencies |
-| `mvn clean package` | Build JAR |
+| `SPRING_PROFILES_ACTIVE=dev SERVER_PORT=8095 ./gradlew bootRun` | Run in dev mode |
+| `./gradlew clean classes -x test` | Quick clean + compile without tests |
+| `./gradlew test` | Run tests only |
+| `SPRING_PROFILES_ACTIVE=nodb ./gradlew bootRun` | Run without database |
+| `SPRING_PROFILES_ACTIVE=prod ./gradlew bootRun` | Run in production mode |
+| `./gradlew dependencies` | Display dependencies |
+| `./gradlew bootJar` | Build JAR |
 
 ## Environment Variables
 
@@ -61,7 +61,7 @@ Key variables in `.env`:
 
 ## Troubleshooting
 
-**JVM Warnings:** `export MAVEN_OPTS="-XX:+EnableDynamicAgentLoading -Xshare:off"`
+**JVM Warnings:** `export GRADLE_OPTS="-XX:+EnableDynamicAgentLoading -Xshare:off"`
 
 **Port Conflicts:**
 
@@ -94,13 +94,13 @@ The app includes CLI flags to backfill S3 JSON into Postgres. Run with your DB a
 - Backfill individual book JSONs (S3 prefix defaults to `books/v1/`):
 
 ```bash
-mvn spring-boot:run -Dspring-boot.run.arguments="--migrate.s3.books --migrate.prefix=books/v1/ --migrate.max=0 --migrate.skip=0"
+./gradlew bootRun --args="--migrate.s3.books --migrate.prefix=books/v1/ --migrate.max=0 --migrate.skip=0"
 ```
 
 - Backfill list JSONs (e.g., NYT lists under `lists/nyt/`):
 
 ```bash
-mvn spring-boot:run -Dspring-boot.run.arguments="--migrate.s3.lists --migrate.lists.provider=NYT --migrate.lists.prefix=lists/nyt/ --migrate.lists.max=0 --migrate.lists.skip=0"
+./gradlew bootRun --args="--migrate.s3.lists --migrate.lists.provider=NYT --migrate.lists.prefix=lists/nyt/ --migrate.lists.max=0 --migrate.lists.skip=0"
 ```
 
 Notes:
@@ -130,7 +130,7 @@ export SPRING_DATASOURCE_PASSWORD="<pass>"
 Then run, for example, to process 1 book JSON from S3:
 
 ```bash
-mvn spring-boot:run -P dev -Dspring-boot.run.arguments="--migrate.s3.books --migrate.prefix=books/v1/ --migrate.max=1 --migrate.skip=0"
+SPRING_PROFILES_ACTIVE=dev ./gradlew bootRun --args="--migrate.s3.books --migrate.prefix=books/v1/ --migrate.max=1 --migrate.skip=0"
 ```
 
 ### Debugging Overrides
@@ -151,9 +151,7 @@ resilience4j.ratelimiter.instances.googleBooksServiceRateLimiter.timeoutDuration
 
 ### Code Analysis Tools
 
-- **PMD:** `mvn pmd:pmd && open target/site/pmd.html`
-- **SpotBugs:** `mvn spotbugs:spotbugs && open target/site/spotbugs/index.html`
-- **Dependency Analysis:** `mvn dependency:analyze`
+- **Dependency Analysis:** `./gradlew dependencies`
 
 ## Admin API Authentication
 
@@ -174,9 +172,8 @@ This uses a `dotenv` wrapper to load `$APP_ADMIN_PASSWORD` and `$SERVER_PORT` fr
 
 - [Java Docs](https://docs.oracle.com/en/java/index.html)
 - [Spring Boot Docs](https://docs.spring.io/spring-boot/docs/current/reference/html/)
-- [PMD Maven Plugin](https://maven.apache.org/plugins/maven-pmd-plugin/)
-- [SpotBugs Maven Plugin](https://spotbugs.github.io/)
-- [Maven Dependency Plugin](https://maven.apache.org/plugins/maven-dependency-plugin/)
+- [Gradle User Manual](https://docs.gradle.org/current/userguide/userguide.html)
+- [Spring Boot Gradle Plugin](https://docs.spring.io/spring-boot/docs/current/gradle-plugin/reference/htmlsingle/)
 
 ## License
 

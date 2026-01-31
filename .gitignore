@@ -63,3 +63,12 @@ migration-logs/
 .DS_Store
 report/
 report/jscpd-report.json
+
+### Gradle ###
+.gradle/
+**/.gradle/
+.gradletasknamecache
+gradle-app.setting
+bin/
+node_modules/
+**/node_modules/

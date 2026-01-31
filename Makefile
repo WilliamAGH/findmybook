@@ -2,8 +2,7 @@ SHELL := /bin/sh
 
 # Configurable variables
 PORT ?= 8095
-MVN ?= mvn
-WRO4J_SKIP ?= true
+GRADLEW ?= ./gradlew
 
 # Migration args (override via: make migrate-books MIGRATE_MAX=100 MIGRATE_SKIP=0 MIGRATE_PREFIX=books/v1/ MIGRATE_DEBUG=true)
 MIGRATE_MAX ?= 0
@@ -11,7 +10,7 @@ MIGRATE_SKIP ?= 0
 MIGRATE_PREFIX ?= books/v1/
 MIGRATE_DEBUG ?= false
 
-.PHONY: run build test kill-port migrate-books migrate-books-spring cluster-books
+.PHONY: run build test lint kill-port migrate-books migrate-books-spring cluster-books
 
 # Kill any process currently listening on $(PORT)
 kill-port:
@@ -26,15 +25,23 @@ kill-port:
 
 # Run the application locally in dev mode
 run: kill-port
-	$(MVN) spring-boot:run -P dev -Dspring-boot.run.jvmArguments="-Dserver.port=$(PORT)"
+	SERVER_PORT=$(PORT) SPRING_PROFILES_ACTIVE=dev $(GRADLEW) bootRun
 
 # Build the application JAR
 build:
-	$(MVN) -Dwro4j.skip=$(WRO4J_SKIP) clean package
+	$(GRADLEW) clean build
 
 # Run tests
 test:
-	$(MVN) -Dwro4j.skip=$(WRO4J_SKIP) test
+	$(GRADLEW) test
+
+lint:
+	@echo "Running lint/format..."
+	@if $(GRADLEW) -q tasks --all | grep -q "spotlessApply"; then \
+	  $(GRADLEW) spotlessApply; \
+	else \
+	  echo "spotlessApply task not configured; skipping."; \
+	fi
 
 
 # Fast S3 -> Postgres books migration (standalone Node.js script - v2 refactored)
@@ -47,9 +54,9 @@ migrate-books:
 # Build JAR and run S3 -> Postgres books backfill via Spring Boot (slower, may hang)
 migrate-books-spring:
 	@echo "Building JAR (tests skipped) ..."
-	@$(MVN) -DskipTests clean package >/dev/null
+	@$(GRADLEW) bootJar -x test >/dev/null
 	@echo "Launching migration with URL normalization..."
-	@java -Dspring.main.web-application-type=none -jar target/book_recommendation_engine-0.0.1-SNAPSHOT.jar \
+	@java -Dspring.main.web-application-type=none -jar build/libs/*.jar \
 	     --migrate.s3.books --migrate.prefix=$(MIGRATE_PREFIX) --migrate.max=$(MIGRATE_MAX) --migrate.skip=$(MIGRATE_SKIP)
 
 # Database schema operations

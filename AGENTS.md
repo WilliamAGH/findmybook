@@ -14,7 +14,7 @@
 - CLN1 Clean code: small single-purpose methods, no dead code, no empty try/catch, use named constants, avoid generic utilities.
 - NAM1 Intent-revealing names; American English only.
 - UPD1 When changing code, update all usages across the repo.
-- JVA1 Java 21+/Spring Boot 3.3 idioms: constructor injection, immutability, records, Optional returns only.
+- JVA1 Java 25+/Spring Boot 3.4 idioms: constructor injection, immutability, records, Optional returns only.
 - ERR1 Specific exceptions only; never swallow errors; log with context and rethrow or wrap.
 - DOC1 Javadocs required for public types/methods; explain why + what; comments explain why only.
 - TST1 Tests required for behavior changes; follow pyramid and naming; use Mockito for unit tests.
@@ -22,7 +22,7 @@
 - FIL2 500-line max per file (plan split at ~400); avoid monoliths.
 - DB1 Manual SQL only; no Flyway/Liquibase; no auto migrations; respect schema definitions.
 - GIT1 Git safety: no branch changes, commits, config edits, destructive commands, or hook skipping without explicit approval.
-- ENV1 Defaults: port 8095, `mvn spring-boot:run -P dev`, production https://findmybook.net.
+- ENV1 Defaults: port 8095, `SPRING_PROFILES_ACTIVE=dev SERVER_PORT=8095 ./gradlew bootRun`, production https://findmybook.net.
 
 ## Details
 
@@ -68,7 +68,7 @@
 - Use repo-wide searches before and after changes to verify completion.
 
 ### [JVA1] Java & Spring Boot Idioms
-- Use Java 21+ features (records, pattern matching, sealed types) where appropriate.
+- Use Java 25+ features (records, pattern matching, sealed types) where appropriate.
 - Prefer immutable objects and `final` fields.
 - Constructor injection only; never field injection.
 - Use `Optional<T>` for nullable return values; do not use Optional parameters.
@@ -115,11 +115,11 @@
 - Never skip hooks (`--no-verify`, `--no-gpg-sign`, `-n`).
 
 ### [ENV1] Technology & Environment Defaults
-- Framework: Spring Boot 3.3.x with Java 21+ idioms.
+- Framework: Spring Boot 3.4.x with Java 25+ idioms.
 - Styling: Tailwind CSS utility-first (no custom CSS unless necessary).
 - Databases: MySQL (primary) and PostgreSQL (reference schema).
 - Default port: 8095 (override with `SERVER_PORT`).
-- Local start: `mvn spring-boot:run -P dev`.
+- Local start: `SPRING_PROFILES_ACTIVE=dev SERVER_PORT=8095 ./gradlew bootRun`.
 - Production site: https://findmybook.net.
 
 ---
