@@ -1437,8 +1437,10 @@ function loadEnvFile() {
         process.env[key] = valueParts.join('=').trim();
       }
     });
-  } catch {
-    // Ignore errors
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      console.warn(`[WARN] Failed to read .env file: ${error.message}`);
+    }
   }
 }
 
