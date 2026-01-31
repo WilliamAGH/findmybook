@@ -12,6 +12,11 @@ ARG BASE_REGISTRY=public.ecr.aws/docker/library
 FROM ${BASE_REGISTRY}/eclipse-temurin:25-jdk AS build
 WORKDIR /app
 
+# 0. Install Node.js for frontend CSS build (Tailwind)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    nodejs npm \
+    && rm -rf /var/lib/apt/lists/*
+
 # 1. Gradle wrapper (rarely changes)
 COPY gradlew .
 COPY gradle gradle
@@ -23,6 +28,7 @@ COPY settings.gradle .
 
 # 3. Frontend sources (used by buildFrontendCss task)
 COPY frontend ./frontend
+RUN cd frontend && npm install
 
 # 4. Pre-fetch dependencies (layer caching handles repeat builds)
 RUN ./gradlew dependencies --no-daemon --quiet
