@@ -80,8 +80,8 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
                 }
             }
         } catch (IOException | SecurityException e) {
-            // Silently continue if .env loading fails, but log at debug level
-            log.debug("Skipping .env file loading: {}", e.getMessage());
+            log.warn("Failed to load .env file; aborting startup", e);
+            throw new IllegalStateException("Failed to load .env file", e);
         }
     }
 
@@ -134,70 +134,69 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
             String safeUrl = jdbcUrl.replaceAll("://[^@]+@", "://***:***@");
             log.info("[DB] Normalized SPRING_DATASOURCE_URL to JDBC: {}", safeUrl);
         } catch (RuntimeException e) {
-            // If parsing fails, leave as-is; Spring will surface the connection error
-            log.error("[DB] Failed to normalize SPRING_DATASOURCE_URL: {}", e.getMessage());
+            log.error("[DB] Failed to normalize SPRING_DATASOURCE_URL", e);
+            throw e;
         }
     }
 
     /**
      * Normalizes Spring AI OpenAI environment variables to Spring properties.
-     * Sets placeholder keys when no credentials are provided so the app can boot
+     * Sets placeholder key when no credentials are provided so the app can boot
      * without OpenAI configured (the feature simply won't be available).
+     *
+     * <p>Per Spring AI docs, only these properties are recognized:
+     * <ul>
+     *   <li>spring.ai.openai.api-key</li>
+     *   <li>spring.ai.openai.base-url</li>
+     *   <li>spring.ai.openai.chat.options.model</li>
+     * </ul>
      */
     private static void normalizeOpenAiConfig() {
-        // Normalize API key from environment variable to Spring property
-        String openAiEnvKey = firstText(
-            System.getenv("SPRING_AI_OPENAI_API_KEY"),
-            System.getProperty("SPRING_AI_OPENAI_API_KEY")
-        );
-        String openAiChatEnvKey = firstText(
-            System.getenv("SPRING_AI_OPENAI_CHAT_API_KEY"),
-            System.getProperty("SPRING_AI_OPENAI_CHAT_API_KEY")
-        );
+        try {
+            // Normalize API key from environment variable to Spring property
+            String openAiEnvKey = firstText(
+                System.getenv("SPRING_AI_OPENAI_API_KEY"),
+                System.getProperty("SPRING_AI_OPENAI_API_KEY")
+            );
 
-        if (ValidationUtils.hasText(openAiEnvKey)
-            && !ValidationUtils.hasText(System.getProperty("spring.ai.openai.api-key"))) {
-            System.setProperty("spring.ai.openai.api-key", openAiEnvKey);
-        }
+            if (ValidationUtils.hasText(openAiEnvKey)
+                && !ValidationUtils.hasText(System.getProperty("spring.ai.openai.api-key"))) {
+                System.setProperty("spring.ai.openai.api-key", openAiEnvKey);
+            }
 
-        if (ValidationUtils.hasText(openAiChatEnvKey)
-            && !ValidationUtils.hasText(System.getProperty("spring.ai.openai.chat.api-key"))) {
-            System.setProperty("spring.ai.openai.chat.api-key", openAiChatEnvKey);
-        }
+            // Normalize base URL from environment variable to Spring property
+            String baseUrl = firstText(
+                System.getenv("SPRING_AI_OPENAI_BASE_URL"),
+                System.getProperty("SPRING_AI_OPENAI_BASE_URL")
+            );
+            if (ValidationUtils.hasText(baseUrl)
+                && !ValidationUtils.hasText(System.getProperty("spring.ai.openai.base-url"))) {
+                System.setProperty("spring.ai.openai.base-url", baseUrl);
+            }
 
-        // Normalize base URL from environment variable to Spring property
-        String baseUrl = firstText(
-            System.getenv("SPRING_AI_OPENAI_BASE_URL"),
-            System.getProperty("SPRING_AI_OPENAI_BASE_URL")
-        );
-        if (ValidationUtils.hasText(baseUrl)
-            && !ValidationUtils.hasText(System.getProperty("spring.ai.openai.base-url"))) {
-            System.setProperty("spring.ai.openai.base-url", baseUrl);
-        }
+            // Normalize model from environment variable to Spring property
+            String model = firstText(
+                System.getenv("SPRING_AI_OPENAI_MODEL"),
+                System.getProperty("SPRING_AI_OPENAI_MODEL")
+            );
+            if (ValidationUtils.hasText(model)
+                && !ValidationUtils.hasText(System.getProperty("spring.ai.openai.chat.options.model"))) {
+                System.setProperty("spring.ai.openai.chat.options.model", model);
+            }
 
-        // Normalize model from environment variable to Spring property
-        String model = firstText(
-            System.getenv("SPRING_AI_OPENAI_MODEL"),
-            System.getProperty("SPRING_AI_OPENAI_MODEL")
-        );
-        if (ValidationUtils.hasText(model)
-            && !ValidationUtils.hasText(System.getProperty("spring.ai.openai.chat.options.model"))) {
-            System.setProperty("spring.ai.openai.chat.options.model", model);
-        }
+            boolean hasApiKey = ValidationUtils.hasText(firstText(
+                System.getProperty("spring.ai.openai.api-key"),
+                openAiEnvKey
+            ));
 
-        boolean hasAnyKey = ValidationUtils.hasText(firstText(
-            System.getProperty("spring.ai.openai.api-key"),
-            System.getProperty("spring.ai.openai.chat.api-key"),
-            openAiEnvKey,
-            openAiChatEnvKey
-        ));
-
-        if (!hasAnyKey) {
-            // Set placeholder key so Spring AI auto-configuration doesn't fail.
-            // OpenAI features will be unavailable but the app will boot.
-            System.setProperty("spring.ai.openai.api-key", "not-configured");
-            System.setProperty("spring.ai.openai.chat.api-key", "not-configured");
-            log.info("[AI] No OpenAI API key configured; Spring AI features disabled");
+            if (!hasApiKey) {
+                // Set placeholder key so Spring AI auto-configuration doesn't fail.
+                // OpenAI features will be unavailable but the app will boot.
+                System.setProperty("spring.ai.openai.api-key", "not-configured");
+                log.info("[AI] No OpenAI API key configured; Spring AI features disabled");
+            }
+        } catch (SecurityException e) {
+            log.warn("[AI] Unable to set OpenAI system properties due to security restrictions", e);
         }
     }
 
@@ -213,6 +212,11 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
         return null;
     }
 
+    /**
+     * Validates CLI args for removed migrations and fails fast with guidance.
+     *
+     * @param args Application arguments provided at startup
+     */
     @Override
     public void run(ApplicationArguments args) {
         if (args.containsOption("migrate.s3.books")) {
