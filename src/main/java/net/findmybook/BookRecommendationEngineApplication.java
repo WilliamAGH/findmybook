@@ -52,9 +52,16 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
     public static void main(String[] args) {
         // Load .env file first
         loadDotEnvFile();
+        disableNettyUnsafeAccess();
         normalizeDatasourceUrlFromEnv();
         ensureOpenAiApiKey();
         SpringApplication.run(BookRecommendationEngineApplication.class, args);
+    }
+
+    private static void disableNettyUnsafeAccess() {
+        if (System.getProperty("io.netty.noUnsafe") == null) {
+            System.setProperty("io.netty.noUnsafe", "true");
+        }
     }
 
     private static void loadDotEnvFile() {
