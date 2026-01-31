@@ -23,7 +23,6 @@ import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.retry.annotation.EnableRetry;
-// Spring AI auto-configurations are excluded to allow manual control or prevent conflicts
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -54,7 +53,7 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
         loadDotEnvFile();
         disableNettyUnsafeAccess();
         normalizeDatasourceUrlFromEnv();
-        ensureOpenAiApiKey();
+        normalizeOpenAiConfig();
         SpringApplication.run(BookRecommendationEngineApplication.class, args);
     }
 
@@ -140,7 +139,13 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
         }
     }
 
-    private static void ensureOpenAiApiKey() {
+    /**
+     * Normalizes Spring AI OpenAI environment variables to Spring properties.
+     * Sets placeholder keys when no credentials are provided so the app can boot
+     * without OpenAI configured (the feature simply won't be available).
+     */
+    private static void normalizeOpenAiConfig() {
+        // Normalize API key from environment variable to Spring property
         String openAiEnvKey = firstText(
             System.getenv("SPRING_AI_OPENAI_API_KEY"),
             System.getProperty("SPRING_AI_OPENAI_API_KEY")
@@ -160,6 +165,26 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
             System.setProperty("spring.ai.openai.chat.api-key", openAiChatEnvKey);
         }
 
+        // Normalize base URL from environment variable to Spring property
+        String baseUrl = firstText(
+            System.getenv("SPRING_AI_OPENAI_BASE_URL"),
+            System.getProperty("SPRING_AI_OPENAI_BASE_URL")
+        );
+        if (ValidationUtils.hasText(baseUrl)
+            && !ValidationUtils.hasText(System.getProperty("spring.ai.openai.base-url"))) {
+            System.setProperty("spring.ai.openai.base-url", baseUrl);
+        }
+
+        // Normalize model from environment variable to Spring property
+        String model = firstText(
+            System.getenv("SPRING_AI_OPENAI_MODEL"),
+            System.getProperty("SPRING_AI_OPENAI_MODEL")
+        );
+        if (ValidationUtils.hasText(model)
+            && !ValidationUtils.hasText(System.getProperty("spring.ai.openai.chat.options.model"))) {
+            System.setProperty("spring.ai.openai.chat.options.model", model);
+        }
+
         boolean hasAnyKey = ValidationUtils.hasText(firstText(
             System.getProperty("spring.ai.openai.api-key"),
             System.getProperty("spring.ai.openai.chat.api-key"),
@@ -167,29 +192,13 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
             openAiChatEnvKey
         ));
 
-        if (!hasAnyKey && isDevOrTestProfile()) {
-            // Dev/test should boot without requiring real OpenAI credentials.
-            System.setProperty("spring.ai.openai.api-key", "test");
-            System.setProperty("spring.ai.openai.chat.api-key", "test");
+        if (!hasAnyKey) {
+            // Set placeholder key so Spring AI auto-configuration doesn't fail.
+            // OpenAI features will be unavailable but the app will boot.
+            System.setProperty("spring.ai.openai.api-key", "not-configured");
+            System.setProperty("spring.ai.openai.chat.api-key", "not-configured");
+            log.info("[AI] No OpenAI API key configured; Spring AI features disabled");
         }
-    }
-
-    private static boolean isDevOrTestProfile() {
-        String profiles = firstText(
-            System.getenv("SPRING_PROFILES_ACTIVE"),
-            System.getProperty("SPRING_PROFILES_ACTIVE"),
-            System.getProperty("spring.profiles.active")
-        );
-        if (!ValidationUtils.hasText(profiles)) {
-            return false;
-        }
-        for (String profile : profiles.split(",")) {
-            String trimmed = profile.trim();
-            if ("dev".equalsIgnoreCase(trimmed) || "test".equalsIgnoreCase(trimmed)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private static String firstText(String... values) {
