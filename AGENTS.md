@@ -20,12 +20,15 @@
 - [BE1] Backend flow MUST remain Controller -> Service/Use Case -> Repository/Adapter.
 - [FE1] Net-new frontend features MUST target Svelte 5 + Vite; Thymeleaf is maintenance-only.
 - [FE2] Frontend data access MUST be API-only with typed validation at the boundary.
+- [FE3] Frontend state/testing/styling MUST use bounded state, Vitest+Testing Library, and Tailwind-first rules.
 - [CLN1] Keep code small and single-purpose; remove dead code and magic literals.
 - [NAM1] Use intent-revealing American English names.
 - [DOC1] Public types/methods require Javadocs that explain why + what.
 - [DB1] Manual SQL only; no Flyway/Liquibase and no auto-migrations.
+- [API1] API contracts MUST remain explicit, strongly typed, and documented when changed.
 - [UPD1] Update all impacted usages across Java, templates, JS/TS, SQL, configs, and tests.
 - [GIT1] No destructive git operations, branch changes, commits, or pushes without explicit user approval.
+- [LOC1] File size ceilings are mandatory; large touched legacy files require split plans.
 - [TST1] Behavior changes require tests (unit first, integration as needed).
 - [VER1] Validate changes with repository-standard build/test/runtime checks.
 - [ENV1] Use Spring Boot 3.5.x, Java 25, port 8095 defaults, and documented run commands.

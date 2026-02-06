@@ -10,20 +10,12 @@ curl -X POST http://localhost:8095/admin/trigger-sitemap-update
 ```
 
 ## S3 to Postgres Backfill
-The app includes CLI flags to backfill S3 JSON into Postgres.
+CLI migration flags were removed from application startup. The runtime now fails fast when
+`--migrate.s3.books` or `--migrate.s3.lists` are provided.
 
-### Books
-Backfill individual book JSONs (S3 prefix defaults to `books/v1/`):
-```bash
-./gradlew bootRun --args="--migrate.s3.books --migrate.prefix=books/v1/ --migrate.max=0 --migrate.skip=0"
-```
+Use manual SQL migration scripts and controlled data-loading steps instead of boot-time flags.
 
-### Lists
-Backfill list JSONs (e.g., NYT lists):
-```bash
-./gradlew bootRun --args="--migrate.s3.lists --migrate.lists.provider=NYT --migrate.lists.prefix=lists/nyt/ --migrate.lists.max=0 --migrate.lists.skip=0"
-```
-
-**Notes:**
-- `--migrate.max` ≤ 0 means no limit.
-- Enrichment is idempotent.
+- SQL migration assets: `frontend/scripts/backfill_cover_metadata.sql` and `src/main/resources/schema.sql` (slug population helpers around `generate_all_book_slugs`).
+- Controlled data load: run the explicit migration tool directly:
+  `node frontend/scripts/migrate-s3-to-db-v2.js --prefix books/v1/ --limit 1000`
+- Verification and rollback guidance: follow `docs/troubleshooting.md` and `docs/edition_clustering.md` after each batch.
