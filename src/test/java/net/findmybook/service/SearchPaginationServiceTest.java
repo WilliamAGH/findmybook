@@ -9,12 +9,14 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import net.findmybook.dto.BookAggregate;
 import net.findmybook.mapper.GoogleBooksMapper;
 import net.findmybook.repository.BookQueryRepository;
+import net.findmybook.service.event.SearchResultsUpdatedEvent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import reactor.core.publisher.Flux;
 import java.util.ArrayList;
 import java.util.List;
@@ -24,9 +26,12 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -45,6 +50,15 @@ class SearchPaginationServiceTest {
 
     @Mock
     private GoogleBooksMapper googleBooksMapper;
+
+    @Mock
+    private OpenLibraryBookDataService openLibraryBookDataService;
+
+    @Mock
+    private BookDataOrchestrator bookDataOrchestrator;
+
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     private SearchPaginationService service;
 
@@ -310,6 +324,109 @@ class SearchPaginationServiceTest {
         assertThat(page.totalUnique()).isEqualTo(1);
         assertThat(page.pageItems()).extracting(Book::getId).containsExactly(fallbackId.toString());
         verify(googleApiFetcher, times(1)).streamSearchItems(eq("fallback"), eq(24), eq("newest"), isNull(), eq(true));
+    }
+
+    @Test
+    @DisplayName("search() applies published year filtering using repository-backed year metadata")
+    void searchFiltersByPublishedYear() {
+        UUID matchingYear = UUID.randomUUID();
+        UUID differentYear = UUID.randomUUID();
+
+        when(bookSearchService.searchBooks(eq("history"), eq(24))).thenReturn(List.of(
+            new BookSearchService.SearchResult(matchingYear, 0.91, "FULLTEXT"),
+            new BookSearchService.SearchResult(differentYear, 0.83, "FULLTEXT")
+        ));
+        when(bookQueryRepository.fetchPublishedYears(anyList())).thenReturn(Map.of(
+            matchingYear, 2024,
+            differentYear, 1999
+        ));
+        when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(List.of(
+            buildListItem(matchingYear, "Modern History")
+        ));
+
+        SearchPaginationService.SearchRequest request = new SearchPaginationService.SearchRequest(
+            "history",
+            0,
+            12,
+            "relevance",
+            CoverImageSource.ANY,
+            ImageResolutionPreference.ANY,
+            2024
+        );
+
+        SearchPaginationService.SearchPage page = service.search(request).block();
+
+        assertThat(page).isNotNull();
+        assertThat(page.totalUnique()).isEqualTo(1);
+        assertThat(page.pageItems()).extracting(Book::getId).containsExactly(matchingYear.toString());
+    }
+
+    @Test
+    @DisplayName("search() publishes realtime external candidates when Postgres has baseline results")
+    void searchPublishesRealtimeExternalCandidates() {
+        UUID postgresId = UUID.randomUUID();
+
+        when(bookSearchService.searchBooks(eq("distributed systems"), eq(24))).thenReturn(List.of(
+            new BookSearchService.SearchResult(postgresId, 0.96, "FULLTEXT")
+        ));
+        when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(List.of(
+            buildListItem(postgresId, "Designing Data-Intensive Applications")
+        ));
+        ObjectMapper mapper = new ObjectMapper();
+        ObjectNode node = mapper.createObjectNode();
+        node.put("id", "google-vol-realtime");
+        ObjectNode volumeInfo = node.putObject("volumeInfo");
+        volumeInfo.put("title", "Realtime Systems");
+
+        BookAggregate aggregate = BookAggregate.builder()
+            .title("Realtime Systems")
+            .authors(List.of("A. Author"))
+            .slugBase("realtime-systems")
+            .identifiers(BookAggregate.ExternalIdentifiers.builder()
+                .source("GOOGLE_BOOKS")
+                .externalId("google-vol-realtime")
+                .imageLinks(Map.of("thumbnail", "https://example.test/realtime.jpg"))
+                .build())
+            .build();
+
+        when(googleApiFetcher.streamSearchItems(eq("distributed systems"), eq(12), eq("relevance"), isNull(), eq(true)))
+            .thenReturn(Flux.just(node));
+        when(googleApiFetcher.isFallbackAllowed()).thenReturn(false);
+        when(googleBooksMapper.map(node)).thenReturn(aggregate);
+        when(openLibraryBookDataService.searchBooks(eq("distributed systems"), eq(false))).thenReturn(Flux.empty());
+        when(openLibraryBookDataService.searchBooks(eq("distributed systems"), eq(true))).thenReturn(Flux.empty());
+
+        SearchPaginationService realtimeService = new SearchPaginationService(
+            bookSearchService,
+            bookQueryRepository,
+            Optional.of(googleApiFetcher),
+            Optional.of(googleBooksMapper),
+            Optional.of(openLibraryBookDataService),
+            Optional.of(bookDataOrchestrator),
+            Optional.of(eventPublisher),
+            true
+        );
+
+        SearchPaginationService.SearchRequest request = new SearchPaginationService.SearchRequest(
+            "distributed systems",
+            0,
+            12,
+            "author", // unsupported by Google; service should normalize to relevance
+            CoverImageSource.ANY,
+            ImageResolutionPreference.ANY
+        );
+
+        SearchPaginationService.SearchPage page = realtimeService.search(request).block();
+
+        assertThat(page).isNotNull();
+        verify(googleApiFetcher, times(1))
+            .streamSearchItems(eq("distributed systems"), eq(12), eq("relevance"), isNull(), eq(true));
+        verify(eventPublisher, timeout(2000).atLeastOnce()).publishEvent((Object) argThat(event ->
+            event instanceof SearchResultsUpdatedEvent
+                && "GOOGLE_BOOKS".equals(((SearchResultsUpdatedEvent) event).getSource())
+                && ((SearchResultsUpdatedEvent) event).getNewResults() != null
+                && !((SearchResultsUpdatedEvent) event).getNewResults().isEmpty()
+        ));
     }
 
     private BookListItem buildListItem(UUID id, String title) {

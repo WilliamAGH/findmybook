@@ -42,4 +42,18 @@ class SearchQueryUtilsTest {
         assertThat(SearchQueryUtils.cacheKey("Distributed Systems", " "))
             .isEqualTo("distributed_systems-any.json");
     }
+
+    @Test
+    @DisplayName("topicKey normalizes whitespace and unsafe characters for realtime routing")
+    void topicKeyNormalizesForRealtimeRouting() {
+        assertThat(SearchQueryUtils.topicKey("  Distributed   Systems!  "))
+            .isEqualTo("distributed___systems_");
+    }
+
+    @Test
+    @DisplayName("topicKey falls back to search for blank-like inputs")
+    void topicKeyFallsBackToSearch() {
+        assertThat(SearchQueryUtils.topicKey(null)).isEqualTo("search");
+        assertThat(SearchQueryUtils.topicKey(" \t ")).isEqualTo("search");
+    }
 }

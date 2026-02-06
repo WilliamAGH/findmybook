@@ -28,6 +28,7 @@ import net.findmybook.service.event.SearchResultsUpdatedEvent;
 import net.findmybook.service.event.BookUpsertEvent;
 import net.findmybook.service.image.CoverPersistenceService;
 import net.findmybook.service.image.S3BookCoverService;
+import net.findmybook.util.ValidationUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.BeansException;
@@ -172,29 +173,48 @@ public class CoverUpdateNotifierService {
         payload.put("isComplete", event.isComplete());
         payload.put("newResultsCount", event.getNewResults().size());
         
-        // Convert books to a simplified format for WebSocket transmission
+        // Convert books into the same shape expected by search.html rendering.
         payload.put("newResults", event.getNewResults().stream()
             .map(book -> {
                 Map<String, Object> bookData = new HashMap<>();
                 bookData.put("id", book.getId());
+                bookData.put("slug", ValidationUtils.hasText(book.getSlug()) ? book.getSlug() : book.getId());
                 bookData.put("title", book.getTitle());
                 bookData.put("authors", book.getAuthors());
-                bookData.put("s3ImagePath", book.getS3ImagePath());
-                bookData.put("externalImageUrl", book.getExternalImageUrl());
-                bookData.put("publishedDate", book.getPublishedDate());
                 bookData.put("description", book.getDescription());
+                bookData.put("publishedDate", book.getPublishedDate());
                 bookData.put("pageCount", book.getPageCount());
                 bookData.put("categories", book.getCategories());
                 bookData.put("isbn10", book.getIsbn10());
                 bookData.put("isbn13", book.getIsbn13());
                 bookData.put("publisher", book.getPublisher());
                 bookData.put("language", book.getLanguage());
-                if (book.getCoverImages() != null) {
-                    Map<String, String> coverImages = new HashMap<>();
-                    coverImages.put("small", book.getCoverImages().getFallbackUrl());
-                    coverImages.put("large", book.getCoverImages().getPreferredUrl());
-                    bookData.put("coverImages", coverImages);
+                bookData.put("source", event.getSource());
+
+                Object matchType = null;
+                Object relevance = null;
+                if (book.getQualifiers() != null) {
+                    matchType = book.getQualifiers().get("search.matchType");
+                    relevance = book.getQualifiers().get("search.relevanceScore");
                 }
+                if (matchType != null) {
+                    bookData.put("matchType", matchType.toString());
+                }
+                if (relevance != null) {
+                    bookData.put("relevanceScore", relevance);
+                }
+
+                Map<String, Object> coverData = new HashMap<>();
+                coverData.put("s3ImagePath", book.getS3ImagePath());
+                coverData.put("externalImageUrl", book.getExternalImageUrl());
+                if (book.getCoverImages() != null) {
+                    coverData.put("preferredUrl", book.getCoverImages().getPreferredUrl());
+                    coverData.put("fallbackUrl", book.getCoverImages().getFallbackUrl());
+                    if (book.getCoverImages().getSource() != null) {
+                        coverData.put("source", book.getCoverImages().getSource().name());
+                    }
+                }
+                bookData.put("cover", coverData);
                 return bookData;
             })
             .collect(Collectors.toList()));

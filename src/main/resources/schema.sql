@@ -628,6 +628,12 @@ begin
     left join work_cluster_members wcm on b.book_id = wcm.book_id
     left join work_clusters wc on wcm.cluster_id = wc.id
     where lower(b.title) = lower(search_query)
+    order by
+      coalesce(wcm.is_primary, false) desc,
+      has_high_res_cover desc,
+      b.published_date desc nulls last,
+      lower(b.title),
+      b.book_id
     limit 50  -- Get more results for deduplication
   ),
   -- Strategy 2: Full-text search with ranking
@@ -662,7 +668,13 @@ begin
     left join work_clusters wc on wcm.cluster_id = wc.id
     where b.search_vector @@ plainto_tsquery('english', search_query)
       and b.book_id not in (select em.book_id from exact_matches em)
-    order by relevance_score desc
+    order by
+      relevance_score desc,
+      coalesce(wcm.is_primary, false) desc,
+      has_high_res_cover desc,
+      b.published_date desc nulls last,
+      lower(b.title),
+      b.book_id
     limit 100  -- Get more results for deduplication
   ),
   -- Strategy 3: Fuzzy matches for typo tolerance
@@ -700,7 +712,13 @@ begin
         select em.book_id from exact_matches em
         union select fm.book_id from fulltext_matches fm
       )
-    order by relevance_score desc
+    order by
+      relevance_score desc,
+      coalesce(wcm.is_primary, false) desc,
+      has_high_res_cover desc,
+      b.published_date desc nulls last,
+      lower(b.title),
+      b.book_id
     limit 50  -- Get more results for deduplication
   ),
   -- Combine all results
@@ -736,7 +754,10 @@ begin
   )
   -- Final results ordered by relevance
   select * from deduplicated
-  order by relevance_score desc
+  order by
+    relevance_score desc,
+    lower(title),
+    coalesce(cluster_id, book_id)
   limit max_results;
 end;
 $$ language plpgsql;
@@ -814,7 +835,11 @@ begin
     group by a.id, a.name, a.search_vector
   )
   select * from author_matches
-  order by relevance_score desc, book_count desc
+  order by
+    relevance_score desc,
+    book_count desc,
+    lower(author_name),
+    author_id
   limit max_results;
 end;
 $$ language plpgsql;

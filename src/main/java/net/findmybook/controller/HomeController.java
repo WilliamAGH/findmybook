@@ -518,19 +518,13 @@ public class HomeController {
                 pageSize,
                 sort,
                 coverSourcePreference,
-                resolutionPreference
+                resolutionPreference,
+                effectiveYear
             );
 
             return searchPaginationService.search(request)
                 .map(result -> {
                     List<Book> windowed = result.pageItems();
-                    if (effectiveYear != null) {
-                        windowed = windowed.stream()
-                            .filter(book -> book.getPublishedDate() != null)
-                            .filter(book -> book.getPublishedDate().toInstant()
-                                .atZone(java.time.ZoneId.systemDefault()).getYear() == effectiveYear)
-                            .toList();
-                    }
                     model.addAttribute("initialResults", windowed);
                     model.addAttribute("hasInitialResults", !windowed.isEmpty());
                     model.addAttribute("totalResults", result.totalUnique());

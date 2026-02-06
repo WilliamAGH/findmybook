@@ -209,6 +209,7 @@
 
 <!-- Cover Source Handler Script -->
 <script src="/js/cover-source-handler.js"></script>
+<script src="/js/search-realtime.js"></script>
 
 <!-- Search Page Scripts -->
 <script th:inline="javascript">
@@ -229,6 +230,8 @@
         let currentCoverSource = 'ANY';
         let currentResolution = 'HIGH_FIRST'; // Default to HIGH_FIRST
         let publishedYear = initialYear; // Published year filter from server or URL params
+        let activeQueryHash = null;
+        const realtimeCandidatesById = new Map();
 
         const searchCache = new Map();
         const SEARCH_CACHE_LIMIT = 6;
@@ -267,6 +270,33 @@
                 startIndex,
                 pageSize
             ].join('#');
+        };
+
+        const computeQueryHash = (queryValue) => window.SearchRealtimeUtils.computeQueryHash(queryValue);
+
+        const mergeRealtimeCandidates = () => {
+            window.lastSearchResults = window.SearchRealtimeUtils.mergeRealtimeCandidates(
+                window.lastSearchResults,
+                realtimeCandidatesById
+            ) || window.lastSearchResults;
+        };
+
+        const updateRealtimeStatus = (payload) => {
+            window.SearchRealtimeUtils.updateRealtimeStatus(payload, loadingIndicator);
+        };
+
+        const applyRealtimePayload = (payload, queryHash) => {
+            window.SearchRealtimeUtils.applyRealtimePayload(
+                payload,
+                queryHash,
+                activeQueryHash,
+                realtimeCandidatesById,
+                window.lastSearchResults,
+                (updatedResults) => {
+                    window.lastSearchResults = updatedResults;
+                    displayResults(window.lastSearchResults, currentView);
+                }
+            );
         };
         
         // Initialize search if query exists
@@ -553,7 +583,7 @@
             }
 
             let url = `/api/books/search?query=${encodeURIComponent(queryValue)}&startIndex=${nextStartIndex}&maxResults=${pageSize}`;
-            if (sortBy && sortBy !== 'relevance') url += `&orderBy=${sortBy}`;
+            if (sortBy) url += `&orderBy=${sortBy}`;
             if (resolution && resolution !== 'ANY') url += `&resolution=${resolution}`;
             if (coverSource && coverSource !== 'ANY') url += `&coverSource=${coverSource}`;
             if (year) url += `&publishedYear=${year}`;
@@ -581,6 +611,8 @@
             loadingIndicator.classList.add('d-none');
             resultsContainer.style.display = 'block';
             window.lastSearchResults = data;
+            activeQueryHash = data.queryHash || computeQueryHash(context.query);
+            mergeRealtimeCandidates();
 
             if (context.year) {
                 const resultsText = document.querySelector('.search-header .theme-search-results-text');
@@ -635,8 +667,22 @@
             }
 
             window._searchWsSubscribed.add(queryHash);
-            window._searchStompClient.subscribe(`/topic/search/${queryHash}/progress`, function(msg){ try{ console.log('[WS][progress]', JSON.parse(msg.body)); } catch(e){} });
-            window._searchStompClient.subscribe(`/topic/search/${queryHash}/results`, function(msg){ try{ console.log('[WS][results]', JSON.parse(msg.body)); } catch(e){} });
+            window._searchStompClient.subscribe(`/topic/search/${queryHash}/progress`, function(msg) {
+                try {
+                    const payload = JSON.parse(msg.body);
+                    updateRealtimeStatus(payload);
+                } catch (e) {
+                    console.warn('Failed to parse realtime progress payload', e);
+                }
+            });
+            window._searchStompClient.subscribe(`/topic/search/${queryHash}/results`, function(msg) {
+                try {
+                    const payload = JSON.parse(msg.body);
+                    applyRealtimePayload(payload, queryHash);
+                } catch (e) {
+                    console.warn('Failed to parse realtime results payload', e);
+                }
+            });
         }
 
         function ensureSearchWebSocketClient() {
@@ -673,6 +719,7 @@
             if (startIndex === 0 && searchSignature !== lastSearchSignature) {
                 searchCache.clear();
                 prefetchInFlight.clear();
+                realtimeCandidatesById.clear();
                 lastSearchSignature = searchSignature;
             }
 
@@ -709,8 +756,8 @@
             // Build the URL
             let apiUrl = `/api/books/search?query=${encodeURIComponent(query)}&startIndex=${startIndex}&maxResults=${currentMaxResults}`;
             
-            // Add sort parameter if not default
-            if (sortBy && sortBy !== 'relevance') {
+            // Always pass sort so backend honors relevance and other explicit options.
+            if (sortBy) {
                 apiUrl += `&orderBy=${sortBy}`;
             }
             
@@ -743,7 +790,8 @@
             
             // Subscribe to search WS topics for this query
             try {
-                const queryHash = (query || '').trim().toLowerCase().replace(/[^a-z0-9-_]/g, '_');
+                const queryHash = computeQueryHash(query);
+                activeQueryHash = queryHash;
                 subscribeToSearchTopics(queryHash);
             } catch (e) { console.warn('Search WS subscribe failed:', e); }
             

@@ -388,6 +388,43 @@ public class BookQueryRepository {
         }
     }
 
+    /**
+     * Fetch publication years for the supplied book IDs.
+     *
+     * @param bookIds canonical book identifiers
+     * @return map of book id to publication year for rows that have a published date
+     */
+    public Map<UUID, Integer> fetchPublishedYears(List<UUID> bookIds) {
+        if (bookIds == null || bookIds.isEmpty()) {
+            return Map.of();
+        }
+
+        try {
+            String sql = """
+                SELECT id, EXTRACT(YEAR FROM published_date)::int AS published_year
+                FROM books
+                WHERE id = ANY(?::UUID[])
+                  AND published_date IS NOT NULL
+                """;
+            UUID[] idsArray = bookIds.toArray(new UUID[0]);
+            List<Map.Entry<UUID, Integer>> rows = jdbcTemplate.query(
+                sql,
+                (rs, rowNum) -> Map.entry(
+                    (UUID) rs.getObject("id"),
+                    rs.getInt("published_year")
+                ),
+                (Object) idsArray
+            );
+
+            return rows.stream()
+                .filter(entry -> entry.getKey() != null)
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (first, second) -> first));
+        } catch (DataAccessException ex) {
+            log.error("Failed to fetch published years for {} books: {}", bookIds.size(), ex.getMessage(), ex);
+            return Map.of();
+        }
+    }
+
     // ==================== Book Detail ====================
     
     /**

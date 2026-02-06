@@ -73,6 +73,7 @@ public class BookController {
                                                             @RequestParam(name = "startIndex", defaultValue = "0") int startIndex,
                                                             @RequestParam(name = "maxResults", defaultValue = "12") int maxResults,
                                                             @RequestParam(name = "orderBy", defaultValue = "newest") String orderBy,
+                                                            @RequestParam(name = "publishedYear", required = false) Integer publishedYear,
                                                             @RequestParam(name = "coverSource", defaultValue = "ANY") String coverSource,
                                                             @RequestParam(name = "resolution", defaultValue = "ANY") String resolution) {
         String normalizedQuery = SearchQueryUtils.normalize(query);
@@ -94,7 +95,8 @@ public class BookController {
             maxResults,
             orderBy,
             coverSourcePreference,
-            resolutionPreference
+            resolutionPreference,
+            publishedYear
         );
 
         Mono<SearchResponse> responseMono = searchPaginationService.search(request)
@@ -209,9 +211,11 @@ public class BookController {
             .map(this::toSearchHit)
             .filter(Objects::nonNull)
             .toList();
+        String queryHash = SearchQueryUtils.topicKey(page.query());
 
         return new SearchResponse(
             page.query(),
+            queryHash,
             page.startIndex(),
             page.maxResults(),
             page.totalUnique(),
@@ -226,8 +230,10 @@ public class BookController {
     }
 
     private SearchResponse emptySearchResponse(String query, SearchPaginationService.SearchRequest request) {
+        String queryHash = SearchQueryUtils.topicKey(query);
         return new SearchResponse(
             query,
+            queryHash,
             request.startIndex(),
             request.maxResults(),
             0,
@@ -394,6 +400,7 @@ public class BookController {
     }
 
     private record SearchResponse(String query,
+                                  String queryHash,
                                   int startIndex,
                                   int maxResults,
                                   int totalResults,

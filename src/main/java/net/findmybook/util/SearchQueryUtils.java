@@ -13,6 +13,7 @@ public final class SearchQueryUtils {
 
     private static final String DEFAULT_QUERY = "*";
     private static final Pattern CACHE_KEY_SANITIZER = Pattern.compile("[^a-zA-Z0-9-_]");
+    private static final Pattern TOPIC_KEY_SANITIZER = Pattern.compile("[^a-z0-9-_]");
 
     private SearchQueryUtils() {
         // Utility class
@@ -78,5 +79,21 @@ public final class SearchQueryUtils {
             langPart = sanitizedLang.isEmpty() ? "any" : sanitizedLang;
         }
         return sanitized + "-" + langPart + ".json";
+    }
+
+    /**
+     * Generates a stable topic-safe hash/key used by realtime transports (WebSocket/SSE)
+     * to route incremental search updates.
+     * <p>
+     * This intentionally mirrors the frontend sanitization semantics:
+     * lowercase + replace all non {@code [a-z0-9-_]} characters with underscores.
+     */
+    public static String topicKey(String query) {
+        String canonical = Objects.requireNonNullElse(canonicalize(query), "");
+        String sanitized = TOPIC_KEY_SANITIZER.matcher(canonical).replaceAll("_");
+        if (sanitized.isBlank()) {
+            return "search";
+        }
+        return sanitized;
     }
 }
