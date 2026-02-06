@@ -19,16 +19,21 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.boot.web.error.ErrorAttributeOptions;
+import org.springframework.boot.web.servlet.error.ErrorAttributes;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.request.WebRequest;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.time.LocalDate;
 import java.util.Date;
 import java.util.List;
@@ -51,6 +56,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
 
 @ExtendWith(MockitoExtension.class)
 class BookControllerTest {
@@ -349,6 +355,46 @@ class BookControllerTest {
             .andExpect(jsonPath("$.query", equalTo("Fixture")))
             .andExpect(jsonPath("$.results", hasSize(1)))
             .andExpect(jsonPath("$.results[0].id", containsString("author-1")));
+    }
+
+    @Test
+    @DisplayName("GET /error returns JSON with matching status for API clients")
+    void errorDiagnostics_returnsJsonAndStatusForApiAcceptHeader() throws Exception {
+        ErrorAttributes errorAttributes = Mockito.mock(ErrorAttributes.class);
+        ErrorDiagnosticsController controller = new ErrorDiagnosticsController(errorAttributes);
+        MockMvc errorMvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        Map<String, Object> attributes = new HashMap<>();
+        attributes.put("status", 500);
+        attributes.put("error", "Internal Server Error");
+        attributes.put("message", "boom");
+        when(errorAttributes.getErrorAttributes(any(WebRequest.class), any(ErrorAttributeOptions.class)))
+            .thenReturn(attributes);
+
+        errorMvc.perform(get("/error").accept(MediaType.APPLICATION_JSON))
+            .andExpect(status().isInternalServerError())
+            .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+            .andExpect(jsonPath("$.status", equalTo(500)))
+            .andExpect(jsonPath("$.message", equalTo("boom")));
+    }
+
+    @Test
+    @DisplayName("GET /error returns 404 view with 404 status for HTML clients")
+    void errorDiagnostics_returns404TemplateAndStatusForHtml() throws Exception {
+        ErrorAttributes errorAttributes = Mockito.mock(ErrorAttributes.class);
+        ErrorDiagnosticsController controller = new ErrorDiagnosticsController(errorAttributes);
+        MockMvc errorMvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+        Map<String, Object> attributes = new HashMap<>();
+        attributes.put("status", 404);
+        attributes.put("error", "Not Found");
+        attributes.put("message", "missing");
+        when(errorAttributes.getErrorAttributes(any(WebRequest.class), any(ErrorAttributeOptions.class)))
+            .thenReturn(attributes);
+
+        errorMvc.perform(get("/error").accept(MediaType.TEXT_HTML))
+            .andExpect(status().isNotFound())
+            .andExpect(view().name("error/404"));
     }
 
     private Book buildBook(String id, String slug) {

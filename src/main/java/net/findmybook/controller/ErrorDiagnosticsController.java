@@ -13,14 +13,22 @@
 
 package net.findmybook.controller;
 
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.web.error.ErrorAttributeOptions;
 import org.springframework.boot.web.servlet.error.ErrorAttributes;
 import org.springframework.boot.web.servlet.error.ErrorController;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.InvalidMediaTypeException;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.context.request.WebRequest;
+import java.util.List;
 import java.util.Map;
 
 @Controller
@@ -45,14 +53,26 @@ public class ErrorDiagnosticsController implements ErrorController {
      * @return Template name for error page
      */
     @RequestMapping("/error")
-    public String handleError(WebRequest request, Model model) {
-        Map<String, Object> errors = errorAttributes.getErrorAttributes(request, 
+    public Object handleError(HttpServletRequest request,
+                              HttpServletResponse response,
+                              WebRequest webRequest,
+                              Model model) {
+        Map<String, Object> errors = errorAttributes.getErrorAttributes(webRequest, 
             ErrorAttributeOptions.of(
                 ErrorAttributeOptions.Include.STACK_TRACE, 
                 ErrorAttributeOptions.Include.MESSAGE, 
                 ErrorAttributeOptions.Include.EXCEPTION,
                 ErrorAttributeOptions.Include.BINDING_ERRORS
             ));
+        int statusCode = resolveStatusCode(errors.get("status"));
+        response.setStatus(statusCode);
+
+        if (clientPrefersJson(request)) {
+            return ResponseEntity.status(statusCode)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(errors);
+        }
+
         model.addAttribute("timestamp", errors.get("timestamp"));
         model.addAttribute("status", errors.get("status"));
         model.addAttribute("error", errors.get("error"));
@@ -70,11 +90,46 @@ public class ErrorDiagnosticsController implements ErrorController {
             }
         }
         
-        Integer status = (Integer) errors.get("status");
-        if (status != null && status == 404) {
+        if (statusCode == HttpStatus.NOT_FOUND.value()) {
             return "error/404";
         }
 
         return "error_diagnostics";
+    }
+
+    private int resolveStatusCode(Object statusValue) {
+        if (statusValue instanceof Number numericStatus) {
+            return numericStatus.intValue();
+        }
+        if (statusValue instanceof String stringStatus) {
+            try {
+                return Integer.parseInt(stringStatus);
+            } catch (NumberFormatException ignored) {
+                return HttpStatus.INTERNAL_SERVER_ERROR.value();
+            }
+        }
+        return HttpStatus.INTERNAL_SERVER_ERROR.value();
+    }
+
+    private boolean clientPrefersJson(HttpServletRequest request) {
+        String acceptHeader = request.getHeader(HttpHeaders.ACCEPT);
+        if (acceptHeader == null || acceptHeader.isBlank()) {
+            return false;
+        }
+        try {
+            List<MediaType> acceptedTypes = MediaType.parseMediaTypes(acceptHeader);
+            for (MediaType acceptedType : acceptedTypes) {
+                if (acceptedType.isCompatibleWith(MediaType.TEXT_HTML)) {
+                    return false;
+                }
+                if (acceptedType.isCompatibleWith(MediaType.APPLICATION_JSON)
+                    || acceptedType.getSubtype().endsWith("+json")) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (InvalidMediaTypeException ex) {
+            return false;
+        }
     }
 }
