@@ -33,7 +33,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * @see net.findmybook.service.CanonicalBookPersistenceService
  */
 @Configuration
-@ConditionalOnExpression("'${spring.datasource.url:}'.length() > 0")
+@ConditionalOnExpression("T(org.springframework.util.StringUtils).hasText(environment.getProperty('spring.datasource.url'))")
 @ImportAutoConfiguration({
         DataSourceAutoConfiguration.class,
         DataSourceTransactionManagerAutoConfiguration.class,

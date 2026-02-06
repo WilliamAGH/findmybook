@@ -40,7 +40,7 @@ import org.springframework.context.annotation.Configuration;
  * Multiple auto-configuration classes are excluded to prevent database startup
  */
 @Configuration
-@ConditionalOnExpression("'${spring.datasource.url:}'.length() == 0")
+@ConditionalOnExpression("!T(org.springframework.util.StringUtils).hasText(environment.getProperty('spring.datasource.url'))")
 @EnableAutoConfiguration(exclude = {
         DataSourceAutoConfiguration.class,
         DataSourceTransactionManagerAutoConfiguration.class,

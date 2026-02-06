@@ -1,5 +1,8 @@
 package net.findmybook.config;
 
+import java.net.URI;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.env.EnvironmentPostProcessor;
@@ -57,6 +60,28 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
      */
     private static String defaultHost(String host) {
         return hasText(host) ? host : DEFAULT_HOST;
+    }
+
+    private static String decodeComponent(String value) {
+        if (!hasText(value)) {
+            return value;
+        }
+        try {
+            return URLDecoder.decode(value, StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException ex) {
+            logBootstrapWarning("Failed to URL-decode component '" + value + "', preserving raw value");
+            return value;
+        }
+    }
+
+    private static String formatHostForJdbc(String host) {
+        if (!hasText(host)) {
+            return DEFAULT_HOST;
+        }
+        if (host.contains(":") && !(host.startsWith("[") && host.endsWith("]"))) {
+            return "[" + host + "]";
+        }
+        return host;
     }
 
     /**
@@ -153,76 +178,56 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
      */
     public static java.util.Optional<JdbcParseResult> normalizePostgresUrl(String url) {
         if (!hasText(url)) return java.util.Optional.empty();
-        String lower = url.toLowerCase(Locale.ROOT);
-        if (!(lower.startsWith("postgres://") || lower.startsWith("postgresql://"))) {
+        URI uri;
+        try {
+            uri = URI.create(url);
+        } catch (IllegalArgumentException ex) {
+            logBootstrapWarning("Invalid datasource URI format; preserving original value");
+            return java.util.Optional.empty();
+        }
+        String scheme = uri.getScheme();
+        String lowerScheme = scheme == null ? "" : scheme.toLowerCase(Locale.ROOT);
+        if (!("postgres".equals(lowerScheme) || "postgresql".equals(lowerScheme))) {
             return java.util.Optional.empty();
         }
 
-        // Manual parsing to handle postgres:// format properly
-        // Format: postgres://username:password@host:port/database?params
-        String withoutScheme = url.substring(url.indexOf("://") + 3);
-
         String username = null;
         String password = null;
-        String hostPart;
-
-        // Check if credentials are present
-        if (withoutScheme.contains("@")) {
-            String[] parts = withoutScheme.split("@", 2);
-            String userInfo = parts[0];
-            hostPart = parts[1];
-
-            // Extract username and password
-            if (userInfo.contains(":")) {
-                int colonIndex = userInfo.indexOf(":");
-                username = userInfo.substring(0, colonIndex);
-                password = userInfo.substring(colonIndex + 1);
+        String rawUserInfo = uri.getRawUserInfo();
+        if (hasText(rawUserInfo)) {
+            int colonIndex = rawUserInfo.indexOf(':');
+            if (colonIndex >= 0) {
+                username = decodeComponent(rawUserInfo.substring(0, colonIndex));
+                password = decodeComponent(rawUserInfo.substring(colonIndex + 1));
             } else {
-                username = userInfo;
+                username = decodeComponent(rawUserInfo);
             }
-        } else {
-            hostPart = withoutScheme;
         }
 
-        // Parse host, port, database, and query params
-        String host;
-        int port = DEFAULT_PORT;
+        String host = defaultHost(uri.getHost());
+        int port = isValidPort(uri.getPort()) ? uri.getPort() : DEFAULT_PORT;
+        if (!hasText(uri.getHost()) && hasText(uri.getRawAuthority())) {
+            String authority = uri.getRawAuthority();
+            int atIndex = authority.lastIndexOf('@');
+            String hostPortPart = atIndex >= 0 ? authority.substring(atIndex + 1) : authority;
+            HostPort parsedHostPort = parseHostPort(hostPortPart, DEFAULT_PORT);
+            host = parsedHostPort.host();
+            port = parsedHostPort.port();
+        }
+
         String database = DEFAULT_DATABASE;
-        String query = null;
-
-        // Split by ? to separate query params
-        if (hostPart.contains("?")) {
-            String[] queryParts = hostPart.split("\\?", 2);
-            hostPart = queryParts[0];
-            query = queryParts[1];
-        }
-
-        // Split by / to separate database
-        if (hostPart.contains("/")) {
-            String[] dbParts = hostPart.split("/", 2);
-            String hostPortPart = dbParts[0];
-            String dbName = dbParts[1];
-            // Handle trailing slash case (empty database name) - fall back to default
-            if (hasText(dbName)) {
-                database = dbName;
+        String rawPath = uri.getRawPath();
+        if (hasText(rawPath)) {
+            String rawDatabase = rawPath.startsWith("/") ? rawPath.substring(1) : rawPath;
+            if (hasText(rawDatabase)) {
+                database = decodeComponent(rawDatabase);
             }
-            // else: keep DEFAULT_DATABASE
-
-            // Extract host and port
-            HostPort parsed = parseHostPort(hostPortPart, port);
-            host = parsed.host();
-            port = parsed.port();
-        } else {
-            // No database specified in URL
-            HostPort parsed = parseHostPort(hostPart, port);
-            host = parsed.host();
-            port = parsed.port();
         }
 
-        // Build JDBC URL
+        String query = uri.getRawQuery();
         StringBuilder jdbc = new StringBuilder()
                 .append("jdbc:postgresql://")
-                .append(host)
+                .append(formatHostForJdbc(host))
                 .append(":")
                 .append(port)
                 .append("/")
@@ -278,4 +283,3 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
         return Ordered.HIGHEST_PRECEDENCE;
     }
 }
-
