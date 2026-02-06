@@ -88,15 +88,15 @@ public class GoogleApiFetcher {
             if (!circuitBreakerService.isApiCallAllowed()) {
                 log.info("Circuit breaker is OPEN - skipping authenticated fetch for book ID: {}. Caller should try unauthenticated fallback.", bookId);
                 ExternalApiLogger.logCircuitBreakerBlocked(log, "GoogleBooks", bookId);
-                return Mono.empty();
+                return Mono.error(new IllegalStateException("Circuit breaker OPEN for authenticated Google Books fetch of " + bookId));
             }
             if (googleBooksApiKey == null || googleBooksApiKey.isEmpty()) {
-                log.debug("No API key configured - skipping authenticated fetch for bookId {}", bookId);
-                return Mono.empty();
+                log.warn("No API key configured - cannot perform authenticated fetch for bookId {}", bookId);
+                return Mono.error(new IllegalStateException("Google Books API key not configured"));
             }
         } else if (!circuitBreakerService.isFallbackAllowed()) {
             log.info("Fallback circuit is OPEN - skipping unauthenticated fetch for book ID: {}", bookId);
-            return Mono.empty();
+            return Mono.error(new IllegalStateException("Fallback circuit OPEN for unauthenticated Google Books fetch of " + bookId));
         }
 
         String url = buildVolumeUrl(bookId, authenticated);
@@ -211,16 +211,15 @@ public class GoogleApiFetcher {
     }
 
     public Mono<JsonNode> searchVolumesAuthenticated(String query, int startIndex, String orderBy, String langCode, int pageSize) {
-        // Check circuit breaker first
         if (!circuitBreakerService.isApiCallAllowed()) {
             log.info("Circuit breaker is OPEN - skipping authenticated search for query '{}'. Caller should try unauthenticated fallback.", query);
             ExternalApiLogger.logCircuitBreakerBlocked(log, "GoogleBooks", query);
-            return Mono.empty();
+            return Mono.error(new IllegalStateException("Circuit breaker OPEN for authenticated Google Books search"));
         }
-        
+
         if (googleBooksApiKey == null || googleBooksApiKey.isEmpty()) {
-            log.debug("No API key configured - skipping authenticated search for query '{}'", query);
-            return Mono.empty();
+            log.warn("No API key configured - cannot perform authenticated search for query '{}'", query);
+            return Mono.error(new IllegalStateException("Google Books API key not configured"));
         }
         return searchVolumesInternal(query, startIndex, orderBy, langCode, true, pageSize);
     }
