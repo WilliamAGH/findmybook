@@ -441,6 +441,28 @@ class BookDimensionsPersistenceTest {
         assertThat(countAfter).isZero();
     }
 
+    @Test
+    void testPostgresBookRepository_hydrateTagConfidenceFromNumericColumn() {
+        UUID tagId = UUID.randomUUID();
+        UUID assignmentId = UUID.randomUUID();
+        jdbcTemplate.update(
+            "INSERT INTO book_tags (id, key, display_name, tag_type, created_at, updated_at) VALUES (?, ?, ?, ?, NOW(), NOW())",
+            tagId, "test_tag", "Test Tag", "CUSTOM"
+        );
+        jdbcTemplate.update(
+            "INSERT INTO book_tag_assignments (id, book_id, tag_id, source, confidence, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?::jsonb, NOW())",
+            assignmentId, testBookId, tagId, "TEST", new BigDecimal("0.95"), "{}"
+        );
+
+        Optional<Book> bookOpt = postgresBookRepository.fetchByCanonicalId(testBookId.toString());
+
+        assertThat(bookOpt).isPresent();
+        Object tag = bookOpt.get().getQualifiers().get("testTag");
+        assertThat(tag).isInstanceOf(Map.class);
+        Map<?, ?> attributes = (Map<?, ?>) tag;
+        assertThat(((Number) attributes.get("confidence")).doubleValue()).isEqualTo(0.95d);
+    }
+
     /**
      * Helper method to create a test book in the database.
      */

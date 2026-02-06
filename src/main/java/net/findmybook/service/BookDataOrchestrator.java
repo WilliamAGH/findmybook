@@ -30,6 +30,7 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.CannotGetJdbcConnectionException;
 
 import java.net.ConnectException;
@@ -430,35 +431,25 @@ public class BookDataOrchestrator {
      *
      * <p>Detection strategy:</p>
      * <ol>
-     *   <li>Check exception type hierarchy first (most reliable)</li>
-     *   <li>Fall back to message analysis only for SQLException subtypes (avoids false positives)</li>
+     *   <li>Walk the full cause chain, checking known systemic exception types first</li>
+     *   <li>Evaluate SQLException/DataAccessException messages at each cause level</li>
      * </ol>
      */
-    private boolean isSystemicDatabaseError(Exception ex) {
+    private boolean isSystemicDatabaseError(Throwable ex) {
         if (ex == null) {
             return false;
         }
-
-        // 1. Check exception types first - these are definitive indicators
-        if (isSystemicExceptionType(ex)) {
-            return true;
-        }
-
-        // 2. Check cause chain for systemic exception types
-        Throwable cause = ex.getCause();
-        while (cause != null) {
-            if (cause instanceof Exception causeEx && isSystemicExceptionType(causeEx)) {
+        Throwable current = ex;
+        while (current != null) {
+            if (current instanceof Exception exception && isSystemicExceptionType(exception)) {
                 return true;
             }
-            cause = cause.getCause();
+            if ((current instanceof SQLException || current instanceof DataAccessException)
+                && isSystemicErrorMessage(current.getMessage())) {
+                return true;
+            }
+            current = current.getCause();
         }
-
-        // 3. Only analyze messages for SQLException/DataAccessException to avoid false positives
-        //    from user data containing strings like "connection reset"
-        if (ex instanceof SQLException || ex instanceof org.springframework.dao.DataAccessException) {
-            return isSystemicErrorMessage(ex.getMessage());
-        }
-
         return false;
     }
 

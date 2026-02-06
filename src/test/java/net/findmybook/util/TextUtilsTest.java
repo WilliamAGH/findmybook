@@ -186,4 +186,16 @@ public class TextUtilsTest {
         assertTrue(result.contains("Great"), "Should contain 'Great'");
         assertTrue(result.contains("Gatsby"), "Should contain 'Gatsby'");
     }
+
+    @Test
+    void normalizeForDatabase_keepsUnicodeLetters() {
+        String normalized = CategoryNormalizer.normalizeForDatabase("Русские книги");
+        assertEquals("русские-книги", normalized);
+    }
+
+    @Test
+    void normalizeForDatabase_usesDeterministicFallbackWhenNoLettersOrDigits() {
+        String normalized = CategoryNormalizer.normalizeForDatabase("###");
+        assertTrue(normalized.startsWith("category-"));
+    }
 }

@@ -161,9 +161,13 @@ public final class CategoryNormalizer {
             return "";
         }
 
-        return displayName.toLowerCase(Locale.ROOT)
-                         .replaceAll("[^a-z0-9]+", "-")
+        String normalized = displayName.toLowerCase(Locale.ROOT)
+                         .replaceAll("[^\\p{L}\\p{N}]+", "-")
                          .replaceAll("^-+|-+$", ""); // Remove leading/trailing hyphens
+        if (!normalized.isEmpty()) {
+            return normalized;
+        }
+        return "category-" + Integer.toUnsignedString(displayName.hashCode(), 16);
     }
 
     /**
@@ -224,4 +228,3 @@ public final class CategoryNormalizer {
         return normalized1.equalsIgnoreCase(normalized2);
     }
 }
-

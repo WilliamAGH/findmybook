@@ -310,7 +310,7 @@ public class PostgresBookRepository {
                     if (source != null && !source.isBlank()) {
                         attributes.put("source", source);
                     }
-                    Double confidence = (Double) rs.getObject("confidence");
+                    Double confidence = toDouble(rs.getBigDecimal("confidence"));
                     if (confidence != null) {
                         attributes.put("confidence", confidence);
                     }

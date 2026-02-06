@@ -4,7 +4,6 @@ import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -68,7 +67,7 @@ public class OutboxRelay {
     /**
      * Process outbox events and relay to WebSocket.
      * <p>
-     * Runs every 1 second via @Scheduled.
+     * Runs every 1 second via @Scheduled and executes sequentially.
      * Processes up to 100 events per batch.
      * <p>
      * For each event:
@@ -79,7 +78,6 @@ public class OutboxRelay {
      * If publish fails, event remains unsent and will be retried.
      */
     @Scheduled(fixedDelay = PROCESS_INTERVAL_MS)
-    @Async
     public void relayEvents() {
         try {
             List<OutboxEvent> events = fetchUnsentEvents(BATCH_SIZE);
@@ -133,7 +131,7 @@ public class OutboxRelay {
                 SELECT event_id, topic, payload, retry_count
                 FROM events_outbox
                 WHERE sent_at IS NULL
-                ORDER BY created_at ASC
+                ORDER BY retry_count ASC, created_at ASC
                 LIMIT ?
                 """,
                 (rs, rowNum) -> new OutboxEvent(
@@ -194,7 +192,6 @@ public class OutboxRelay {
                     COUNT(*) FILTER (WHERE sent_at IS NULL AND topic LIKE '/topic/cluster.%') as cluster_unsent,
                     COUNT(*) FILTER (WHERE sent_at IS NOT NULL AND topic LIKE '/topic/cluster.%') as cluster_sent
                 FROM events_outbox
-                WHERE created_at > NOW() - INTERVAL '1 hour'
                 """,
                 (rs, rowNum) -> new OutboxStats(
                     rs.getInt("unsent"),

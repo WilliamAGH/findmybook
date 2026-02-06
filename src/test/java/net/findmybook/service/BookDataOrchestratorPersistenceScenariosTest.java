@@ -13,20 +13,24 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
 import java.util.UUID;
+import java.sql.SQLException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -152,6 +156,40 @@ class BookDataOrchestratorPersistenceScenariosTest {
         assertThat(aggregate.getAuthors()).containsExactly("Author Example");
         assertThat(aggregate.getIdentifiers().getSource()).isEqualTo("OPEN_LIBRARY");
         assertThat(aggregate.getIdentifiers().getImageLinks()).containsEntry("thumbnail", "https://example.com/cover.jpg");
+    }
+
+    @Test
+    void isSystemicDatabaseError_detectsWrappedSqlConnectionFailure() {
+        SQLException rootCause = new SQLException("Connection refused");
+        RuntimeException wrapped = new RuntimeException("Systemic database error during upsert", rootCause);
+
+        Boolean systemic = ReflectionTestUtils.invokeMethod(orchestrator, "isSystemicDatabaseError", wrapped);
+
+        assertThat(systemic).isTrue();
+    }
+
+    @Test
+    void outboxRelay_shouldPrioritizeLowerRetryCountAndReportFullQueueStats() {
+        JdbcTemplate relayJdbcTemplate = mock(JdbcTemplate.class);
+        SimpMessagingTemplate messagingTemplate = mock(SimpMessagingTemplate.class);
+        OutboxRelay relay = new OutboxRelay(relayJdbcTemplate, messagingTemplate);
+
+        when(relayJdbcTemplate.query(anyString(), org.mockito.ArgumentMatchers.<RowMapper<?>>any(), eq(100))).thenReturn(List.of());
+        relay.relayEvents();
+
+        ArgumentCaptor<String> fetchSql = ArgumentCaptor.forClass(String.class);
+        verify(relayJdbcTemplate).query(fetchSql.capture(), org.mockito.ArgumentMatchers.<RowMapper<?>>any(), eq(100));
+        String normalizedFetchSql = fetchSql.getValue().replaceAll("\\s+", " ").trim();
+        assertThat(normalizedFetchSql).contains("ORDER BY retry_count ASC, created_at ASC");
+
+        when(relayJdbcTemplate.queryForObject(anyString(), org.mockito.ArgumentMatchers.<RowMapper<?>>any()))
+            .thenThrow(new RuntimeException("simulated"));
+        relay.getOutboxStats();
+
+        ArgumentCaptor<String> statsSql = ArgumentCaptor.forClass(String.class);
+        verify(relayJdbcTemplate).queryForObject(statsSql.capture(), org.mockito.ArgumentMatchers.<RowMapper<?>>any());
+        String normalizedStatsSql = statsSql.getValue().replaceAll("\\s+", " ").trim();
+        assertThat(normalizedStatsSql).doesNotContain("WHERE created_at > NOW() - INTERVAL '1 hour'");
     }
 
     private void whenExternalIdLookupReturns(String bookId) {
