@@ -54,7 +54,7 @@ public class WebPageHealthIndicator {
     public WebPageHealthIndicator(WebClient.Builder webClientBuilder, String baseUrl, String path, String healthCheckName, boolean reportErrorsAsDown, boolean isParentConfigured) {
         this.isParentConfigured = isParentConfigured;
         if (this.isParentConfigured && baseUrl != null) {
-            this.webClient = webClientBuilder.baseUrl(baseUrl).build();
+            this.webClient = webClientBuilder.clone().baseUrl(baseUrl).build();
         } else {
             this.webClient = null;
         }

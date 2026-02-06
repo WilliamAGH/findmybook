@@ -28,6 +28,7 @@ class SearchPageHealthIndicator implements ReactiveHealthIndicator, ApplicationL
     private final WebClient.Builder webClientBuilder;
     private final boolean reportErrorsAsDown;
     private static final String HEALTHCHECK_QUERY = "healthcheck";
+    private static final String SEARCH_HEALTH_PATH = "/search?query=" + HEALTHCHECK_QUERY;
     private volatile boolean isConfigured = false;
     private static final Logger logger = LoggerFactory.getLogger(SearchPageHealthIndicator.class);
 
@@ -41,6 +42,7 @@ class SearchPageHealthIndicator implements ReactiveHealthIndicator, ApplicationL
                                    @Value("${healthcheck.report-errors-as-down:true}") boolean reportErrorsAsDown) {
         this.webClientBuilder = webClientBuilder;
         this.reportErrorsAsDown = reportErrorsAsDown;
+        this.delegate = unconfiguredDelegate();
     }
 
     /**
@@ -50,22 +52,31 @@ class SearchPageHealthIndicator implements ReactiveHealthIndicator, ApplicationL
      */
     @Override
     public void onApplicationEvent(@NonNull WebServerInitializedEvent event) {
+        String serverNamespace = event.getApplicationContext().getServerNamespace();
+        if (serverNamespace != null && !serverNamespace.isBlank()) {
+            logger.debug("Ignoring WebServerInitializedEvent for namespace '{}'", serverNamespace);
+            return;
+        }
+
+        if (isConfigured) {
+            logger.debug("SearchPageHealthIndicator already configured for primary server; ignoring duplicate event.");
+            return;
+        }
+
         try {
             int port = event.getWebServer().getPort();
             if (port <= 0) {
                 logger.warn("WebServerInitializedEvent reported an invalid port: {}. SearchPageHealthIndicator will remain unconfigured.", port);
-                this.isConfigured = false;
-                this.delegate = new WebPageHealthIndicator(this.webClientBuilder, null, "/search?query=" + HEALTHCHECK_QUERY, "search_page", this.reportErrorsAsDown, false);
+                configureUninitialized();
                 return;
             }
             String baseUrl = "http://localhost:" + port;
-            this.delegate = new WebPageHealthIndicator(this.webClientBuilder, baseUrl, "/search?query=" + HEALTHCHECK_QUERY, "search_page", this.reportErrorsAsDown, true);
+            this.delegate = new WebPageHealthIndicator(this.webClientBuilder, baseUrl, SEARCH_HEALTH_PATH, "search_page", this.reportErrorsAsDown, true);
             this.isConfigured = true;
             logger.info("SearchPageHealthIndicator configured with port: {}", port);
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             logger.error("Error configuring SearchPageHealthIndicator from WebServerInitializedEvent: {}", e.getMessage(), e);
-            this.isConfigured = false;
-             this.delegate = new WebPageHealthIndicator(this.webClientBuilder, null, "/search?query=" + HEALTHCHECK_QUERY, "search_page", this.reportErrorsAsDown, false);
+            configureUninitialized();
         }
     }
 
@@ -80,5 +91,21 @@ class SearchPageHealthIndicator implements ReactiveHealthIndicator, ApplicationL
             return Mono.just(Health.unknown().withDetail("reason", "Server port not available or health indicator not fully configured for health check").build());
         }
         return delegate.checkPage();
+    }
+
+    private WebPageHealthIndicator unconfiguredDelegate() {
+        return new WebPageHealthIndicator(
+            this.webClientBuilder,
+            null,
+            SEARCH_HEALTH_PATH,
+            "search_page",
+            this.reportErrorsAsDown,
+            false
+        );
+    }
+
+    private void configureUninitialized() {
+        this.isConfigured = false;
+        this.delegate = unconfiguredDelegate();
     }
 }
