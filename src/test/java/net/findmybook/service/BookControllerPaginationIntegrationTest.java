@@ -1,7 +1,7 @@
 package net.findmybook.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import net.findmybook.controller.BookController;
 import net.findmybook.dto.BookListItem;
 import net.findmybook.repository.BookQueryRepository;
@@ -9,8 +9,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.cache.CacheManager;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
@@ -60,6 +61,9 @@ class BookControllerPaginationIntegrationTest {
 
     @MockitoBean
     private BookIdentifierResolver bookIdentifierResolver;
+
+    @MockitoBean
+    private CacheManager cacheManager;
 
     private final List<UUID> bookIds = new ArrayList<>();
     private final List<BookSearchService.SearchResult> searchResults = new ArrayList<>();

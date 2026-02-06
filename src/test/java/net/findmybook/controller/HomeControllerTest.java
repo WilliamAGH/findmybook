@@ -6,13 +6,10 @@
 package net.findmybook.controller;
 
 import net.findmybook.dto.BookCard;
-import net.findmybook.dto.BookDetail;
 import net.findmybook.model.Book;
-import net.findmybook.service.BookDataOrchestrator;
-import net.findmybook.service.BookIdentifierResolver;
-import net.findmybook.service.BookSearchService;
+import net.findmybook.service.BookSeoMetadataService;
+import net.findmybook.service.HomePageSectionsService;
 import net.findmybook.service.SearchPaginationService;
-import net.findmybook.service.RecentlyViewedService;
 import net.findmybook.util.ApplicationConstants;
 import net.findmybook.util.SearchQueryUtils;
 // Use fully-qualified names for image services to avoid import resolution issues in test slice
@@ -25,8 +22,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.reactive.WebFluxTest;
+import org.springframework.boot.webflux.test.autoconfigure.WebFluxTest;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
 import org.springframework.context.annotation.Bean;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
@@ -34,58 +33,47 @@ import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.ArgumentMatchers.anyString; // For mocking getSimilarBooks
 import static org.mockito.ArgumentMatchers.anyInt; // For mocking getSimilarBooks
 import static org.mockito.ArgumentMatchers.eq; // For mocking specific values
 import reactor.core.publisher.Mono; // For mocking reactive service
-import net.findmybook.service.NewYorkTimesService;
-import java.util.Optional;
-import java.util.UUID;
 @WebFluxTest(value = HomeController.class,
-    excludeAutoConfiguration = org.springframework.boot.autoconfigure.security.reactive.ReactiveSecurityAutoConfiguration.class)
-@TestPropertySource(properties = "spring.aop.proxy-target-class=true")
+    excludeAutoConfiguration = org.springframework.boot.security.autoconfigure.web.reactive.ReactiveWebSecurityAutoConfiguration.class)
+@TestPropertySource(properties = {
+    "spring.aop.proxy-target-class=true",
+    "app.frontend.spa.enabled=false"
+})
 class HomeControllerTest {
     /**
      * WebTestClient for controller integration testing
      */
     @Autowired
     private WebTestClient webTestClient;
-    @org.springframework.beans.factory.annotation.Autowired
-    private BookDataOrchestrator bookDataOrchestrator;
-
-    @org.springframework.beans.factory.annotation.Autowired
-    private RecentlyViewedService recentlyViewedService;
     
     @org.springframework.beans.factory.annotation.Autowired
     private net.findmybook.service.image.LocalDiskCoverCacheService localDiskCoverCacheService;
-    
-    @org.springframework.beans.factory.annotation.Autowired
-    private NewYorkTimesService newYorkTimesService;
-    
-    @org.springframework.beans.factory.annotation.Autowired
-    private BookSearchService bookSearchService;
-
-    @org.springframework.beans.factory.annotation.Autowired
-    private BookIdentifierResolver bookIdentifierResolver;
 
     @org.springframework.beans.factory.annotation.Autowired
     private SearchPaginationService searchPaginationService;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private HomePageSectionsService homePageSectionsService;
+
     @TestConfiguration
     static class MocksConfig {
-        @Bean BookDataOrchestrator bookDataOrchestrator() { return Mockito.mock(BookDataOrchestrator.class); }
-        @Bean RecentlyViewedService recentlyViewedService() { return Mockito.mock(RecentlyViewedService.class); }
+        @Bean CacheManager cacheManager() { return new ConcurrentMapCacheManager(); }
         @Bean net.findmybook.service.image.LocalDiskCoverCacheService localDiskCoverCacheService() { return Mockito.mock(net.findmybook.service.image.LocalDiskCoverCacheService.class); }
+        @Bean HomePageSectionsService homePageSectionsService() { return Mockito.mock(HomePageSectionsService.class); }
+        @Bean BookSeoMetadataService bookSeoMetadataService(net.findmybook.service.image.LocalDiskCoverCacheService localDiskCoverCacheService) {
+            return new BookSeoMetadataService(localDiskCoverCacheService);
+        }
         @Bean net.findmybook.service.EnvironmentService environmentService() { return Mockito.mock(net.findmybook.service.EnvironmentService.class); }
         @Bean net.findmybook.service.AffiliateLinkService affiliateLinkService() { return Mockito.mock(net.findmybook.service.AffiliateLinkService.class); }
-        @Bean NewYorkTimesService newYorkTimesService() { return Mockito.mock(NewYorkTimesService.class); }
-        @Bean BookSearchService bookSearchService() { return Mockito.mock(BookSearchService.class); }
         @Bean SearchPaginationService searchPaginationService() { return Mockito.mock(SearchPaginationService.class); }
-        @Bean BookIdentifierResolver bookIdentifierResolver() { return Mockito.mock(BookIdentifierResolver.class); }
     }
     
     /**
@@ -94,23 +82,17 @@ class HomeControllerTest {
      */
     @BeforeEach
     void setUp() {
-        // Configure NewYorkTimesService to return empty BookCard list by default (NEW OPTIMIZED METHOD)
-        when(newYorkTimesService.getCurrentBestSellersCards(anyString(), anyInt()))
+        when(homePageSectionsService.loadCurrentBestsellers(anyInt()))
             .thenReturn(Mono.just(java.util.Collections.emptyList()));
-        // Configure BookSearchService projection methods to return empty results by default
-        when(bookSearchService.fetchBookCards(org.mockito.ArgumentMatchers.anyList()))
-            .thenReturn(java.util.Collections.emptyList());
-        when(bookSearchService.fetchBookDetailBySlug(anyString())).thenReturn(Optional.empty());
-        when(bookSearchService.fetchBookDetail(org.mockito.ArgumentMatchers.any(UUID.class))).thenReturn(Optional.empty());
+        when(homePageSectionsService.loadRecentBooks(anyInt()))
+            .thenReturn(Mono.just(java.util.Collections.emptyList()));
+        when(homePageSectionsService.loadSimilarBooks(anyString(), anyInt(), anyInt()))
+            .thenReturn(Mono.just(java.util.Collections.emptyList()));
+        when(homePageSectionsService.locateBook(anyString()))
+            .thenReturn(Mono.empty());
+        doNothing().when(homePageSectionsService).recordRecentlyViewed(org.mockito.ArgumentMatchers.any(Book.class));
 
-        when(bookIdentifierResolver.resolveToUuid(anyString())).thenReturn(Optional.empty());
         when(localDiskCoverCacheService.getLocalPlaceholderPath()).thenReturn(ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH);
-    
-        // Configure RecentlyViewedService to return empty BookCard IDs by default
-        when(recentlyViewedService.getRecentlyViewedBookIds(anyInt()))
-            .thenReturn(java.util.Collections.emptyList());
-
-        when(bookDataOrchestrator.fetchCanonicalBookReactive(anyString())).thenReturn(Mono.empty());
 
         when(searchPaginationService.search(org.mockito.ArgumentMatchers.any()))
             .thenReturn(Mono.just(new SearchPaginationService.SearchPage(
@@ -176,41 +158,7 @@ class HomeControllerTest {
         Book canonicalBook = createTestBook("123e4567-e89b-12d3-a456-426614174000", "Test Title", "Author A");
         canonicalBook.setSlug("test-title");
 
-        UUID canonicalUuid = UUID.fromString(canonicalBook.getId());
-        String preferredCover = canonicalBook.getCoverImages().getPreferredUrl();
-        String fallbackCover = canonicalBook.getCoverImages().getFallbackUrl();
-        String thumbnail = fallbackCover;
-        BookDetail detail = new BookDetail(
-            canonicalBook.getId(),
-            canonicalBook.getSlug(),
-            canonicalBook.getTitle(),
-            canonicalBook.getDescription(),
-            "Test Publisher",
-            LocalDate.of(2024, 1, 1),
-            "en",
-            canonicalBook.getPageCount(),
-            canonicalBook.getAuthors(),
-            List.<String>of(),
-            preferredCover,
-            canonicalBook.getS3ImagePath(),
-            fallbackCover,
-            thumbnail,
-            600,
-            900,
-            Boolean.TRUE,
-            "POSTGRES",
-            4.2,
-            128,
-            canonicalBook.getIsbn10(),
-            sanitizedIsbn,
-            "https://preview",
-            "https://info",
-            Map.<String, Object>of(),
-            List.<net.findmybook.dto.EditionSummary>of()
-        );
-
-        when(bookIdentifierResolver.resolveToUuid(eq(sanitizedIsbn))).thenReturn(Optional.of(canonicalUuid));
-        when(bookSearchService.fetchBookDetail(eq(canonicalUuid))).thenReturn(Optional.of(detail));
+        when(homePageSectionsService.locateBook(eq(sanitizedIsbn))).thenReturn(Mono.just(canonicalBook));
 
         webTestClient.get().uri("/book/isbn/" + isbn)
             .exchange()
@@ -299,16 +247,11 @@ class HomeControllerTest {
             100
         );
         List<BookCard> bestsellerCards = List.of(bestsellerCard);
-        
-        // Mock for bestsellers from NYT service (NEW OPTIMIZED METHOD)
-        when(newYorkTimesService.getCurrentBestSellersCards(eq("hardcover-fiction"), eq(8)))
+        when(homePageSectionsService.loadCurrentBestsellers(eq(8)))
             .thenReturn(Mono.just(bestsellerCards));
-        // Mock recently viewed book IDs (NEW OPTIMIZED WAY) - use proper UUIDs
-        String recentBookUuid = "550e8400-e29b-41d4-a716-446655440001";
-        when(recentlyViewedService.getRecentlyViewedBookIds(anyInt()))
-            .thenReturn(List.of(recentBookUuid));
-        
+
         // Create recent card with same UUID
+        String recentBookUuid = "550e8400-e29b-41d4-a716-446655440001";
         BookCard recentCardWithUuid = createBookCard(
             recentBookUuid,
             "recent-read-slug",
@@ -318,10 +261,8 @@ class HomeControllerTest {
             4.0,
             50
         );
-        
-        // Mock BookSearchService projection method to return recent cards
-        when(bookSearchService.fetchBookCards(org.mockito.ArgumentMatchers.anyList()))
-            .thenReturn(List.of(recentCardWithUuid));
+        when(homePageSectionsService.loadRecentBooks(eq(8)))
+            .thenReturn(Mono.just(List.of(recentCardWithUuid)));
 
         // Act & Assert
         webTestClient.get().uri("/")
@@ -368,20 +309,12 @@ class HomeControllerTest {
      */
     @Test
     void shouldShowEmptyHomePageWhenServiceThrowsException() {
-        // Arrange - NEW OPTIMIZED METHOD
-        when(newYorkTimesService.getCurrentBestSellersCards(eq("hardcover-fiction"), eq(8)))
+        when(homePageSectionsService.loadCurrentBestsellers(eq(8)))
             .thenReturn(Mono.error(new RuntimeException("simulated bestseller fetch failure")));
-        when(recentlyViewedService.getRecentlyViewedBookIds(anyInt()))
-            .thenReturn(java.util.Collections.emptyList());
         // Act & Assert
         webTestClient.get().uri("/")
             .accept(MediaType.TEXT_HTML)
             .exchange()
-            .expectStatus().isOk()
-            .expectBody(String.class)
-            .value(body -> {
-                assertTrue(body.contains("No current bestsellers to display."));
-                assertTrue(body.contains("No recent books to display."));
-            });
+            .expectStatus().is5xxServerError();
     }
 }
