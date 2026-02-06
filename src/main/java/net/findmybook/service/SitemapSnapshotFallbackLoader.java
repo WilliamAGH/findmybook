@@ -78,7 +78,7 @@ public class SitemapSnapshotFallbackLoader implements SitemapFallbackProvider {
         } catch (IOException ex) {
             log.warn("Failed to parse sitemap fallback snapshot from S3 key {}: {}", key, ex.getMessage());
             return Optional.empty();
-        } catch (Exception ex) {
+        } catch (RuntimeException ex) {
             log.warn("Unexpected error loading sitemap fallback snapshot from S3 key {}: {}", key, ex.getMessage());
             return Optional.empty();
         }

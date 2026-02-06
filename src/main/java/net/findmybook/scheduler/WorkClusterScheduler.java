@@ -3,6 +3,7 @@ package net.findmybook.scheduler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -55,7 +56,7 @@ public class WorkClusterScheduler {
                     totalClusters, totalBooks);
             }
             
-        } catch (Exception e) {
+        } catch (DataAccessException e) {
             LOGGER.error("Failed to run work clustering: {}", e.getMessage(), e);
         }
     }
@@ -77,7 +78,7 @@ public class WorkClusterScheduler {
                     );
                 }
             );
-        } catch (Exception e) {
+        } catch (DataAccessException e) {
             LOGGER.warn("Failed to get clustering stats: {}", e.getMessage());
         }
     }

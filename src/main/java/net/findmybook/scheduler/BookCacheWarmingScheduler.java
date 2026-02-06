@@ -135,7 +135,7 @@ public class BookCacheWarmingScheduler {
                 ApiRequestMonitor apiRequestMonitor = applicationContext.getBean(ApiRequestMonitor.class);
                 currentHourlyRequests = apiRequestMonitor.getCurrentHourlyRequests();
                 log.info("Current hourly API request count: {}. Will adjust cache warming accordingly.", currentHourlyRequests);
-            } catch (Exception e) {
+            } catch (RuntimeException e) {
                 log.warn("Could not get ApiRequestMonitor metrics: {}", e.getMessage());
             }
             
@@ -173,7 +173,7 @@ public class BookCacheWarmingScheduler {
 
                         // Track that we've processed this book
                         recentlyWarmedBooks.add(bookId);
-                    } catch (Exception e) {
+                    } catch (RuntimeException e) {
                         LoggingUtils.error(log, e, "Error in cache warming task for book {}", bookId);
                     }
                 }, i * delayMillis, TimeUnit.MILLISECONDS);
@@ -187,7 +187,10 @@ public class BookCacheWarmingScheduler {
                     warmedCount.get(), existingCount.get(), 
                     warmedCount.get() + existingCount.get());
             
-        } catch (Exception e) {
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LoggingUtils.warn(log, e, "Book cache warming interrupted");
+        } catch (RuntimeException e) {
             LoggingUtils.error(log, e, "Error during book cache warming");
         } finally {
             if (!executor.isTerminated()) {

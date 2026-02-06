@@ -165,23 +165,19 @@ public class AffiliateLinkService {
             return;
         }
 
-        try {
-            String encoded = URLEncoder.encode(searchTerm, StandardCharsets.UTF_8);
-            // If affiliate tag is configured, use it; otherwise, direct Audible search
-            if (amazonAssociateTag != null) {
-                links.put("audible", String.format(
-                    "https://www.amazon.com/s?k=%s&tag=%s&linkCode=ur2&linkId=audible",
-                    encoded,
-                    amazonAssociateTag
-                ));
-            } else {
-                links.put("audible", String.format(
-                    "https://www.audible.com/search?keywords=%s",
-                    encoded
-                ));
-            }
-        } catch (Exception ignored) {
-            // Encoding should not fail for UTF-8, but in case it does we skip audible link.
+        String encoded = URLEncoder.encode(searchTerm, StandardCharsets.UTF_8);
+        // If affiliate tag is configured, use it; otherwise, direct Audible search
+        if (amazonAssociateTag != null) {
+            links.put("audible", String.format(
+                "https://www.amazon.com/s?k=%s&tag=%s&linkCode=ur2&linkId=audible",
+                encoded,
+                amazonAssociateTag
+            ));
+        } else {
+            links.put("audible", String.format(
+                "https://www.audible.com/search?keywords=%s",
+                encoded
+            ));
         }
     }
 }

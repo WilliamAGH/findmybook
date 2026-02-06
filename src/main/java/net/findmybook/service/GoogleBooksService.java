@@ -29,7 +29,6 @@ import net.findmybook.util.ValidationUtils;
 import net.findmybook.util.cover.CoverIdentifierResolver;
 import net.findmybook.util.UuidUtils;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
@@ -53,8 +52,8 @@ public class GoogleBooksService {
     private final GoogleApiFetcher googleApiFetcher;
     private final GoogleBooksMapper googleBooksMapper;
 
-    private BookSearchService bookSearchService;
-    private BookQueryRepository bookQueryRepository;
+    private final BookSearchService bookSearchService;
+    private final BookQueryRepository bookQueryRepository;
 
     private static final int ISBN_BATCH_QUERY_SIZE = 5; // Reduced batch size for ISBN OR queries
     private static final List<String> GOOGLE_ID_TAG_KEYS = List.of(
@@ -79,11 +78,15 @@ public class GoogleBooksService {
             ObjectMapper objectMapper,
             ApiRequestMonitor apiRequestMonitor,
             GoogleApiFetcher googleApiFetcher,
-            GoogleBooksMapper googleBooksMapper) {
+            GoogleBooksMapper googleBooksMapper,
+            Optional<BookSearchService> bookSearchService,
+            Optional<BookQueryRepository> bookQueryRepository) {
         this.objectMapper = objectMapper;
         this.apiRequestMonitor = apiRequestMonitor;
         this.googleApiFetcher = googleApiFetcher;
         this.googleBooksMapper = googleBooksMapper;
+        this.bookSearchService = bookSearchService.orElse(null);
+        this.bookQueryRepository = bookQueryRepository.orElse(null);
     }
 
     /**
@@ -390,16 +393,6 @@ public class GoogleBooksService {
         return Mono.just(objectMapper.createObjectNode());
     }
 
-    @Autowired(required = false)
-    public void setBookSearchService(BookSearchService bookSearchService) {
-        this.bookSearchService = bookSearchService;
-    }
-
-    @Autowired(required = false)
-    public void setBookQueryRepository(BookQueryRepository bookQueryRepository) {
-        this.bookQueryRepository = bookQueryRepository;
-    }
-
     private List<Book> assembleOrderedLegacyBooks(LinkedHashMap<UUID, Integer> orderedIds,
                                                   List<BookListItem> items) {
         if (items == null || items.isEmpty()) {
@@ -447,7 +440,7 @@ public class GoogleBooksService {
                 book.setRawJsonResponse(item.toString());
             }
             return book;
-        } catch (Exception ex) {
+        } catch (IllegalArgumentException ex) {
             log.debug("Failed to map Google Books JSON node: {}", ex.getMessage());
             return null;
         }

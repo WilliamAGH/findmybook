@@ -590,32 +590,33 @@ public class PostgresBookRepository {
         if (value == null) {
             return Map.of();
         }
-        try {
-            String json = null;
-            Class<?> clazz = value.getClass();
-            if ("org.postgresql.util.PGobject".equals(clazz.getName())) {
-                try {
-                    java.lang.reflect.Method getValue = clazz.getMethod("getValue");
-                    Object v = getValue.invoke(value);
-                    if (v != null) {
-                        json = v.toString();
-                    }
-                } catch (ReflectiveOperationException ignored) {
-                    // Fall back to other parsing paths
+        String json = null;
+        Class<?> clazz = value.getClass();
+        if ("org.postgresql.util.PGobject".equals(clazz.getName())) {
+            try {
+                java.lang.reflect.Method getValue = clazz.getMethod("getValue");
+                Object v = getValue.invoke(value);
+                if (v != null) {
+                    json = v.toString();
                 }
-            } else if (value instanceof String str) {
-                json = str;
+            } catch (ReflectiveOperationException ignored) {
+                // Fall back to other parsing paths
             }
-            if (json != null && !json.isBlank()) {
+        } else if (value instanceof String str) {
+            json = str;
+        }
+        if (json != null && !json.isBlank()) {
+            try {
                 return objectMapper.readValue(json, MAP_TYPE);
+            } catch (java.io.IOException ex) {
+                LOG.debug("Failed to parse tag metadata JSON: {}", ex.getMessage());
+                return Map.of();
             }
-            if (value instanceof Map<?, ?> mapValue) {
-                Map<String, Object> copy = new LinkedHashMap<>();
-                mapValue.forEach((k, v) -> copy.put(String.valueOf(k), v));
-                return copy;
-            }
-        } catch (Exception ex) {
-            LOG.debug("Failed to parse tag metadata: {}", ex.getMessage());
+        }
+        if (value instanceof Map<?, ?> mapValue) {
+            Map<String, Object> copy = new LinkedHashMap<>();
+            mapValue.forEach((k, v) -> copy.put(String.valueOf(k), v));
+            return copy;
         }
         return Map.of();
     }

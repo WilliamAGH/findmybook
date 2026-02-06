@@ -1,5 +1,6 @@
 package net.findmybook.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.findmybook.dto.BookAggregate;
 import net.findmybook.service.event.BookUpsertEvent;
@@ -15,6 +16,7 @@ import lombok.Builder;
 import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
@@ -227,7 +229,7 @@ public class BookUpsertService {
         try {
             jdbcTemplate.execute("SELECT pg_advisory_xact_lock(" + lockKey + ")");
             log.debug("Acquired advisory lock {} for book lookup", lockKey);
-        } catch (Exception e) {
+        } catch (DataAccessException e) {
             log.warn("Failed to acquire advisory lock {}, proceeding without lock: {}", lockKey, e.getMessage());
             return lookupBookByIdentifiers(aggregate);
         }
@@ -310,7 +312,7 @@ public class BookUpsertService {
                 source, externalId
             );
             return Optional.ofNullable(id);
-        } catch (Exception e) {
+        } catch (DataAccessException e) {
             log.debug("Error finding book by external ID: {}", e.getMessage());
             return Optional.empty();
         }
@@ -334,7 +336,7 @@ public class BookUpsertService {
                 sanitized
             );
             return Optional.ofNullable(id);
-        } catch (Exception e) {
+        } catch (DataAccessException e) {
             log.debug("Error finding book by ISBN-13: {}", e.getMessage());
             return Optional.empty();
         }
@@ -358,7 +360,7 @@ public class BookUpsertService {
                 sanitized
             );
             return Optional.ofNullable(id);
-        } catch (Exception e) {
+        } catch (DataAccessException e) {
             log.debug("Error finding book by ISBN-10: {}", e.getMessage());
             return Optional.empty();
         }
@@ -388,7 +390,7 @@ public class BookUpsertService {
                 isbnPrefix
             );
             return Optional.ofNullable(id);
-        } catch (Exception e) {
+        } catch (DataAccessException e) {
             log.debug("Error finding book by work cluster prefix {}: {}", isbnPrefix, e.getMessage());
             return Optional.empty();
         }
@@ -485,7 +487,7 @@ public class BookUpsertService {
                     rs -> null
                 );
                 log.debug("Triggered ISBN-based clustering for book {}", bookId);
-            } catch (Exception ex) {
+            } catch (DataAccessException ex) {
                 log.warn("Failed to run cluster_single_book_by_isbn for book {}: {}", bookId, ex.getMessage());
             }
         }
@@ -500,7 +502,7 @@ public class BookUpsertService {
                     rs -> null
                 );
                 log.debug("Triggered Google canonical clustering for book {}", bookId);
-            } catch (Exception ex) {
+            } catch (DataAccessException ex) {
                 log.warn("Failed to run cluster_single_book_by_google_id for book {}: {}", bookId, ex.getMessage());
             }
         }
@@ -523,7 +525,7 @@ public class BookUpsertService {
                 if (existing != null && !existing.isBlank()) {
                     return existing;
                 }
-            } catch (Exception e) {
+            } catch (DataAccessException e) {
                 log.debug("Error fetching existing slug: {}", e.getMessage());
             }
         }
@@ -540,7 +542,7 @@ public class BookUpsertService {
                 String.class,
                 slugBase
             );
-        } catch (Exception e) {
+        } catch (DataAccessException e) {
             log.warn("Error generating unique slug, using base: {}", e.getMessage());
             return slugBase;
         }
@@ -648,7 +650,7 @@ public class BookUpsertService {
                 name,
                 normalized
             );
-        } catch (Exception e) {
+        } catch (DataAccessException e) {
             // Fallback: fetch existing
             log.debug("Error upserting author, fetching existing: {}", e.getMessage());
             return jdbcTemplate.query(
@@ -821,7 +823,7 @@ public class BookUpsertService {
             }
 
             log.warn("CoverPersistenceService returned no canonical cover for book {}. Falling back to simple upsert.", bookId);
-        } catch (Exception e) {
+        } catch (DataAccessException | IllegalArgumentException | IllegalStateException e) {
             log.warn("CoverPersistenceService failed for book {}, falling back to simple upsert: {}",
                 bookId, e.getMessage());
         }
@@ -966,7 +968,7 @@ public class BookUpsertService {
             );
             
             log.debug("Emitted outbox event for book {}", bookId);
-        } catch (Exception e) {
+        } catch (JsonProcessingException | DataAccessException e) {
             log.warn("Failed to emit outbox event for book {}: {}", bookId, e.getMessage());
             // Don't fail the transaction - event is optional
         }
@@ -995,7 +997,7 @@ public class BookUpsertService {
                 canonicalImageUrl,
                 source
             ));
-        } catch (Exception ex) {
+        } catch (RuntimeException ex) {
             log.warn("Failed to publish BookUpsertEvent for book {}: {}", bookId, ex.getMessage());
         }
     }
@@ -1036,7 +1038,7 @@ public class BookUpsertService {
                 },
                 bookId
             );
-        } catch (Exception ex) {
+        } catch (DataAccessException ex) {
             log.debug("Unable to evaluate existing cover quality for {}: {}", bookId, ex.getMessage());
             return CoverQualitySnapshot.absent();
         }

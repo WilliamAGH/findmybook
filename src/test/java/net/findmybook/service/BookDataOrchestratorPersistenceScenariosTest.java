@@ -13,6 +13,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -26,6 +27,7 @@ import java.util.UUID;
 import java.sql.SQLException;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -183,8 +185,10 @@ class BookDataOrchestratorPersistenceScenariosTest {
         assertThat(normalizedFetchSql).contains("ORDER BY retry_count ASC, created_at ASC");
 
         when(relayJdbcTemplate.queryForObject(anyString(), org.mockito.ArgumentMatchers.<RowMapper<?>>any()))
-            .thenThrow(new RuntimeException("simulated"));
-        relay.getOutboxStats();
+            .thenThrow(new DataAccessResourceFailureException("simulated"));
+        assertThatThrownBy(relay::getOutboxStats)
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("Failed to fetch outbox stats");
 
         ArgumentCaptor<String> statsSql = ArgumentCaptor.forClass(String.class);
         verify(relayJdbcTemplate).queryForObject(statsSql.capture(), org.mockito.ArgumentMatchers.<RowMapper<?>>any());

@@ -30,7 +30,8 @@ import net.findmybook.service.image.CoverPersistenceService;
 import net.findmybook.service.image.S3BookCoverService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.BeansException;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.context.event.EventListener;
 import org.springframework.lang.Nullable;
@@ -40,7 +41,6 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
 
-import jakarta.annotation.PostConstruct;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -62,8 +62,8 @@ public class CoverUpdateNotifierService {
     private final MessageSendingOperations<String> messagingTemplate;
     private final S3BookCoverService s3BookCoverService;
     private final CoverPersistenceService coverPersistenceService;
+    private final ObjectProvider<CoverUpdateNotifierService> selfProvider;
     private final MeterRegistry meterRegistry;
-    private CoverUpdateNotifierService self;  // Self-injection for transaction propagation
 
     // Metrics
     private final Counter s3UploadAttempts;
@@ -83,10 +83,12 @@ public class CoverUpdateNotifierService {
     public CoverUpdateNotifierService(@Lazy MessageSendingOperations<String> messagingTemplate,
                                       WebSocketMessageBrokerConfigurer webSocketConfig,
                                       @Lazy @Nullable S3BookCoverService s3BookCoverService,
+                                      ObjectProvider<CoverUpdateNotifierService> selfProvider,
                                       CoverPersistenceService coverPersistenceService,
                                       MeterRegistry meterRegistry) {
         this.messagingTemplate = messagingTemplate;
         this.s3BookCoverService = s3BookCoverService;
+        this.selfProvider = selfProvider;
         this.coverPersistenceService = coverPersistenceService;
         this.meterRegistry = meterRegistry;
 
@@ -108,31 +110,6 @@ public class CoverUpdateNotifierService {
             .register(meterRegistry);
 
         logger.info("CoverUpdateNotifierService initialized with metrics tracking, WebSocketConfig should be ready.");
-    }
-
-    /**
-     * Self-injection setter for transaction propagation across reactive thread boundaries.
-     * Enables @Transactional methods to work correctly when called from reactive callbacks.
-     */
-    @Autowired
-    public void setSelf(CoverUpdateNotifierService self) {
-        this.self = self;
-    }
-
-    /**
-     * Validates that self-injection succeeded during bean initialization.
-     * Without self-injection, transaction propagation from reactive threads will fail silently.
-     */
-    @PostConstruct
-    void validateSelfInjection() {
-        if (self == null) {
-            logger.error("❌ CRITICAL: Self-injection failed for CoverUpdateNotifierService");
-            logger.error("❌ Transaction propagation for S3 metadata persistence WILL FAIL");
-            logger.error("❌ S3 uploads may succeed but metadata updates to book_image_links will be silently lost");
-            throw new IllegalStateException("Self-injection failed - cannot ensure transaction safety for S3 metadata persistence");
-        } else {
-            logger.debug("✅ Self-injection validated for CoverUpdateNotifierService - transaction safety enabled");
-        }
     }
 
     /**
@@ -342,7 +319,7 @@ public class CoverUpdateNotifierService {
                     details -> {
                         sample.stop(s3UploadDuration);
                         s3UploadSuccesses.increment();
-                        self.persistS3MetadataInNewTransaction(bookUuid, details);
+                        resolveSelfProxy().persistS3MetadataInNewTransaction(bookUuid, details);
                     },
                     error -> {
                         sample.stop(s3UploadDuration);
@@ -450,5 +427,13 @@ public class CoverUpdateNotifierService {
             .filter(url -> url != null && !url.isBlank())
             .findFirst()
             .orElse(null);
+    }
+
+    private CoverUpdateNotifierService resolveSelfProxy() {
+        try {
+            return selfProvider.getObject();
+        } catch (BeansException ex) {
+            throw new IllegalStateException("Failed to resolve transactional self-proxy for CoverUpdateNotifierService", ex);
+        }
     }
 }

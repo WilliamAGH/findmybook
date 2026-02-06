@@ -150,7 +150,7 @@ public class ImageProcessingService {
         } catch (IOException e) {
             logger.error("Book ID {}: IOException during image processing: {}", bookIdForLog, e.getMessage(), e);
             return CompletableFuture.completedFuture(ProcessedImage.failure("IOException during image processing: " + e.getMessage()));
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             logger.error("Book ID {}: Unexpected exception during image processing: {}", bookIdForLog, e.getMessage(), e);
             return CompletableFuture.completedFuture(ProcessedImage.failure("Unexpected error during image processing: " + e.getMessage()));
         }
@@ -287,7 +287,7 @@ public class ImageProcessingService {
         } catch (IOException e) {
             logger.error("Image ID {}: IOException during dominant white check from bytes: {}", imageIdForLog, e.getMessage(), e);
             return false; // Treat as not dominantly white in case of error, or rethrow
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             logger.error("Image ID {}: Unexpected exception during dominant white check from bytes: {}", imageIdForLog, e.getMessage(), e);
             return false; // Treat as not dominantly white, or rethrow
         }

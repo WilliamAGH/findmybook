@@ -23,10 +23,10 @@ import net.findmybook.service.s3.DryRunSummary;
 import net.findmybook.service.s3.MoveActionSummary;
 import net.findmybook.util.ValidationUtils;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.Nullable;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -48,9 +48,9 @@ public class AdminController {
     private final ApiCircuitBreakerService apiCircuitBreakerService;
     private final BackfillCoordinator backfillCoordinator;
 
-    public AdminController(@Autowired(required = false) S3CoverCleanupService s3CoverCleanupService,
-                           @Autowired(required = false) NewYorkTimesBestsellerScheduler newYorkTimesBestsellerScheduler,
-                           @Autowired(required = false) BackfillCoordinator backfillCoordinator,
+    public AdminController(@Nullable S3CoverCleanupService s3CoverCleanupService,
+                           @Nullable NewYorkTimesBestsellerScheduler newYorkTimesBestsellerScheduler,
+                           @Nullable BackfillCoordinator backfillCoordinator,
                            BookCacheWarmingScheduler bookCacheWarmingScheduler,
                            ApiCircuitBreakerService apiCircuitBreakerService,
                            @Value("${app.s3.cleanup.prefix:images/book-covers/}") String configuredS3Prefix,
@@ -164,10 +164,24 @@ public class AdminController {
             log.info("S3 Cover Cleanup Dry Run response prepared for prefix: '{}', limit: {}. Summary: {} flagged out of {} scanned.", 
                         prefixToUse, batchLimitToUse, summary.getTotalFlagged(), summary.getTotalScanned());
             return ResponseEntity.ok(responseBody);
-        } catch (Exception e) {
-            String errorMessage = String.format("Failed to complete S3 Cover Cleanup Dry Run with prefix: '%s', limit: %d. Error: %s", prefixToUse, batchLimitToUse, e.getMessage());
-            log.error(errorMessage, e);
-            return ResponseEntity.internalServerError().body("Error during S3 Cover Cleanup Dry Run: " + e.getMessage());
+        } catch (IllegalArgumentException | IllegalStateException ex) {
+            String errorMessage = String.format(
+                "Failed to complete S3 Cover Cleanup Dry Run with prefix: '%s', limit: %d.",
+                prefixToUse,
+                batchLimitToUse
+            );
+            log.error("{} Cause: {}", errorMessage, ex.getMessage(), ex);
+            return ResponseEntity.internalServerError()
+                .body("Error during S3 Cover Cleanup Dry Run. Check server logs for details.");
+        } catch (RuntimeException ex) {
+            String errorMessage = String.format(
+                "Unexpected failure during S3 Cover Cleanup Dry Run with prefix: '%s', limit: %d.",
+                prefixToUse,
+                batchLimitToUse
+            );
+            log.error("{} Cause: {}", errorMessage, ex.getMessage(), ex);
+            return ResponseEntity.internalServerError()
+                .body("Error during S3 Cover Cleanup Dry Run. Check server logs for details.");
         }
     }
 
@@ -214,15 +228,25 @@ public class AdminController {
             
             log.info("S3 Cover Cleanup Move Action completed. Summary: {}", summary.toString());
             return ResponseEntity.ok(summary);
-        } catch (Exception e) {
+        } catch (IllegalArgumentException | IllegalStateException ex) {
             String errorMessage = String.format(
                 "Failed to complete S3 Cover Cleanup Move Action. Source Prefix: '%s', Limit: %d, Quarantine Prefix: '%s'.",
                 sourcePrefixToUse, batchLimitToUse, quarantinePrefixToUse
             );
-            log.error(errorMessage, e);
+            log.error(errorMessage, ex);
             return ErrorResponseUtils.internalServerError(
                 "Move action failed",
-                errorMessage + " Error: " + e.getMessage()
+                errorMessage
+            );
+        } catch (RuntimeException ex) {
+            String errorMessage = String.format(
+                "Unexpected failure during S3 Cover Cleanup Move Action. Source Prefix: '%s', Limit: %d, Quarantine Prefix: '%s'.",
+                sourcePrefixToUse, batchLimitToUse, quarantinePrefixToUse
+            );
+            log.error(errorMessage, ex);
+            return ErrorResponseUtils.internalServerError(
+                "Move action failed",
+                errorMessage
             );
         }
     }
@@ -250,10 +274,14 @@ public class AdminController {
             String successMessage = "Successfully triggered New York Times Bestseller processing job.";
             log.info(successMessage);
             return ResponseEntity.ok(successMessage);
-        } catch (Exception e) {
-            String errorMessage = "Failed to trigger New York Times Bestseller processing job: " + e.getMessage();
-            log.error(errorMessage, e);
-            return ResponseEntity.internalServerError().body(errorMessage);
+        } catch (IllegalStateException ex) {
+            log.warn("New York Times Bestseller processing trigger rejected: {}", ex.getMessage(), ex);
+            return ResponseEntity.badRequest()
+                .body(ex.getMessage() != null ? ex.getMessage() : "Failed to trigger New York Times Bestseller processing job.");
+        } catch (RuntimeException ex) {
+            log.error("Failed to trigger New York Times Bestseller processing job.", ex);
+            return ResponseEntity.internalServerError()
+                .body("Failed to trigger New York Times Bestseller processing job.");
         }
     }
 
@@ -270,10 +298,9 @@ public class AdminController {
             String successMessage = "Successfully triggered book cache warming job.";
             log.info(successMessage);
             return ResponseEntity.ok(successMessage);
-        } catch (Exception e) {
-            String errorMessage = "Failed to trigger book cache warming job: " + e.getMessage();
-            log.error(errorMessage, e);
-            return ResponseEntity.internalServerError().body(errorMessage);
+        } catch (IllegalStateException ex) {
+            log.error("Failed to trigger book cache warming job.", ex);
+            return ResponseEntity.internalServerError().body("Failed to trigger book cache warming job.");
         }
     }
 
@@ -289,10 +316,9 @@ public class AdminController {
             String status = apiCircuitBreakerService.getCircuitStatus();
             log.info("Circuit breaker status retrieved: {}", status);
             return ResponseEntity.ok(status);
-        } catch (Exception e) {
-            String errorMessage = "Failed to get circuit breaker status: " + e.getMessage();
-            log.error(errorMessage, e);
-            return ResponseEntity.internalServerError().body(errorMessage);
+        } catch (IllegalStateException ex) {
+            log.error("Failed to get circuit breaker status.", ex);
+            return ResponseEntity.internalServerError().body("Failed to get circuit breaker status.");
         }
     }
 
@@ -309,10 +335,9 @@ public class AdminController {
             String successMessage = "Successfully reset API circuit breaker to CLOSED state.";
             log.info(successMessage);
             return ResponseEntity.ok(successMessage);
-        } catch (Exception e) {
-            String errorMessage = "Failed to reset circuit breaker: " + e.getMessage();
-            log.error(errorMessage, e);
-            return ResponseEntity.internalServerError().body(errorMessage);
+        } catch (IllegalStateException ex) {
+            log.error("Failed to reset circuit breaker.", ex);
+            return ResponseEntity.internalServerError().body("Failed to reset circuit breaker.");
         }
     }
 }

@@ -1,5 +1,6 @@
 package net.findmybook.scheduler;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -226,7 +227,7 @@ public class NewYorkTimesBestsellerScheduler {
         String rawItem;
         try {
             rawItem = objectMapper.writeValueAsString(bookNode);
-        } catch (Exception e) {
+        } catch (JsonProcessingException e) {
             rawItem = null;
         }
 
@@ -261,7 +262,7 @@ public class NewYorkTimesBestsellerScheduler {
         try {
             BookUpsertService.UpsertResult result = bookUpsertService.upsert(aggregate);
             return result.getBookId().toString();
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             log.error("Failed to create book from NYT data: {}", e.getMessage(), e);
             return null;
         }

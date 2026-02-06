@@ -30,11 +30,7 @@ public final class CompressionUtils {
             return decompressGzip(raw);
         } catch (IOException ignored) {
             // Not gzipped (or failed to decompress); fall back to plain UTF-8.
-            try {
-                return new String(raw, StandardCharsets.UTF_8);
-            } catch (Exception e) {
-                return null;
-            }
+            return new String(raw, StandardCharsets.UTF_8);
         }
     }
 

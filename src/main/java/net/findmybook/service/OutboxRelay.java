@@ -2,7 +2,9 @@ package net.findmybook.service;
 
 import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.messaging.MessagingException;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -79,45 +81,59 @@ public class OutboxRelay {
      */
     @Scheduled(fixedDelay = PROCESS_INTERVAL_MS)
     public void relayEvents() {
-        try {
-            List<OutboxEvent> events = fetchUnsentEvents(BATCH_SIZE);
-            
-            if (events.isEmpty()) {
-                return;
-            }
-            
-            log.debug("Relaying {} outbox events to WebSocket", events.size());
-            int clusterEventsRelayed = 0;
-            
-            for (OutboxEvent event : events) {
+        List<OutboxEvent> events = fetchUnsentEvents(BATCH_SIZE);
+
+        if (events.isEmpty()) {
+            return;
+        }
+
+        log.debug("Relaying {} outbox events to WebSocket", events.size());
+        int clusterEventsRelayed = 0;
+
+        for (OutboxEvent event : events) {
+            try {
+                // Publish to WebSocket
+                messagingTemplate.convertAndSend(event.getTopic(), event.getPayload());
+
+                // Mark as sent
                 try {
-                    // Publish to WebSocket
-                    messagingTemplate.convertAndSend(event.getTopic(), event.getPayload());
-                    
-                    // Mark as sent
                     markSent(event.getEventId());
-                    
-                    if (event.getTopic() != null && event.getTopic().startsWith("/topic/cluster.")) {
-                        clusterEventsRelayed++;
-                    }
-                    log.debug("Relayed event {} to topic {}", event.getEventId(), event.getTopic());
-                } catch (Exception e) {
-                    log.warn("Failed to relay event {} to topic {}: {}",
+                } catch (IllegalStateException markSentException) {
+                    log.error(
+                        "Stopping outbox relay cycle because mark-sent failed for event {}",
                         event.getEventId(),
-                        event.getTopic(),
-                        e.getMessage()
+                        markSentException
                     );
-                    
-                    // Increment retry count
+                    throw markSentException;
+                }
+
+                if (event.getTopic() != null && event.getTopic().startsWith("/topic/cluster.")) {
+                    clusterEventsRelayed++;
+                }
+                log.debug("Relayed event {} to topic {}", event.getEventId(), event.getTopic());
+            } catch (MessagingException | IllegalArgumentException | IllegalStateException ex) {
+                log.warn("Failed to relay event {} to topic {}: {}",
+                    event.getEventId(),
+                    event.getTopic(),
+                    ex.getMessage()
+                );
+
+                // Increment retry count
+                try {
                     incrementRetryCount(event.getEventId());
+                } catch (IllegalStateException retryEx) {
+                    log.error(
+                        "Stopping outbox relay cycle because retry count update failed for event {}",
+                        event.getEventId(),
+                        retryEx
+                    );
+                    throw retryEx;
                 }
             }
+        }
 
-            if (clusterEventsRelayed > 0) {
-                log.info("Relayed {} work-cluster primary change event(s) this cycle", clusterEventsRelayed);
-            }
-        } catch (Exception e) {
-            log.error("Error in outbox relay processor", e);
+        if (clusterEventsRelayed > 0) {
+            log.info("Relayed {} work-cluster primary change event(s) this cycle", clusterEventsRelayed);
         }
     }
     
@@ -142,9 +158,9 @@ public class OutboxRelay {
                 ),
                 limit
             );
-        } catch (Exception e) {
-            log.error("Error fetching unsent events", e);
-            return List.of();
+        } catch (DataAccessException ex) {
+            log.error("Failed to fetch unsent outbox events", ex);
+            throw new IllegalStateException("Failed to fetch unsent outbox events", ex);
         }
     }
     
@@ -157,8 +173,9 @@ public class OutboxRelay {
                 "UPDATE events_outbox SET sent_at = NOW() WHERE event_id = ?",
                 eventId
             );
-        } catch (Exception e) {
-            log.error("Error marking event {} as sent", eventId, e);
+        } catch (DataAccessException ex) {
+            log.error("Failed to mark outbox event {} as sent", eventId, ex);
+            throw new IllegalStateException("Failed to mark outbox event as sent: " + eventId, ex);
         }
     }
     
@@ -172,8 +189,9 @@ public class OutboxRelay {
                 "UPDATE events_outbox SET retry_count = retry_count + 1 WHERE event_id = ?",
                 eventId
             );
-        } catch (Exception e) {
-            log.error("Error incrementing retry count for event {}", eventId, e);
+        } catch (DataAccessException ex) {
+            log.error("Failed to increment retry count for outbox event {}", eventId, ex);
+            throw new IllegalStateException("Failed to increment retry count for outbox event: " + eventId, ex);
         }
     }
     
@@ -201,9 +219,9 @@ public class OutboxRelay {
                     rs.getInt("cluster_sent")
                 )
             );
-        } catch (Exception e) {
-            log.error("Error fetching outbox stats", e);
-            return new OutboxStats(0, 0, 0, 0, 0);
+        } catch (DataAccessException ex) {
+            log.error("Failed to fetch outbox stats", ex);
+            throw new IllegalStateException("Failed to fetch outbox stats", ex);
         }
     }
     
@@ -217,9 +235,9 @@ public class OutboxRelay {
             return jdbcTemplate.update(
                 "DELETE FROM events_outbox WHERE sent_at < NOW() - INTERVAL '7 days'"
             );
-        } catch (Exception e) {
-            log.error("Error cleaning up old events", e);
-            return 0;
+        } catch (DataAccessException ex) {
+            log.error("Failed to clean up outbox events", ex);
+            throw new IllegalStateException("Failed to clean up outbox events", ex);
         }
     }
     
@@ -232,9 +250,9 @@ public class OutboxRelay {
             return jdbcTemplate.update(
                 "UPDATE events_outbox SET retry_count = 0 WHERE sent_at IS NULL AND retry_count > 5"
             );
-        } catch (Exception e) {
-            log.error("Error retrying stuck events", e);
-            return 0;
+        } catch (DataAccessException ex) {
+            log.error("Failed to reset retry count for stuck outbox events", ex);
+            throw new IllegalStateException("Failed to reset retry count for stuck outbox events", ex);
         }
     }
     

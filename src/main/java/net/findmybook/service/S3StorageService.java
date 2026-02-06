@@ -16,6 +16,7 @@ import org.springframework.context.annotation.Conditional;
 import org.springframework.stereotype.Service;
 import net.findmybook.config.S3EnvironmentCondition;
 import software.amazon.awssdk.core.ResponseBytes;
+import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
@@ -52,6 +53,16 @@ public class S3StorageService {
     private final String bucketName;
     private final String publicCdnUrl;
     private final String serverUrl;
+
+    private static String resolveS3ErrorMessage(S3Exception exception) {
+        if (exception == null) {
+            return "Unknown S3 exception";
+        }
+        if (exception.awsErrorDetails() != null && exception.awsErrorDetails().errorMessage() != null) {
+            return exception.awsErrorDetails().errorMessage();
+        }
+        return exception.getMessage();
+    }
 
     /**
      * Constructs an S3StorageService with required dependencies
@@ -125,9 +136,9 @@ public class S3StorageService {
                 String key = keyName.startsWith("/") ? keyName.substring(1) : keyName;
                 return cdn + key;
             } catch (S3Exception e) {
-                logger.error("Error uploading file {} to S3: {}", keyName, e.awsErrorDetails().errorMessage(), e);
+                logger.error("Error uploading file {} to S3: {}", keyName, resolveS3ErrorMessage(e), e);
                 throw e; // Re-throw to be handled by onErrorResume
-            } catch (Exception e) {
+            } catch (SdkClientException | IllegalArgumentException e) {
                 logger.error("Unexpected error uploading file {} to S3: {}", keyName, e.getMessage(), e);
                 throw e; // Re-throw to be handled by onErrorResume
             }
@@ -190,7 +201,10 @@ public class S3StorageService {
                     logger.trace("Generic JSON not found in S3 for key {}: {}", keyName, e.getMessage());
                 }
                 return S3FetchResult.notFound();
-            } catch (Exception e) { 
+            } catch (S3Exception e) {
+                logger.error("S3 error fetching generic JSON from S3 for key {}: {}", keyName, e.getMessage(), e);
+                return S3FetchResult.serviceError(e.getMessage());
+            } catch (SdkClientException | IllegalArgumentException e) { 
                 logger.error("Error fetching generic JSON from S3 for key {}: {}", keyName, e.getMessage(), e);
                 return S3FetchResult.serviceError(e.getMessage());
             }
@@ -242,9 +256,9 @@ public class S3StorageService {
 
             logger.info("Finished listing all S3 objects for prefix. Total objects found: {}", allObjects.size());
         } catch (S3Exception e) {
-            logger.error("Error listing objects in S3 bucket {}: {}", bucketName, e.awsErrorDetails().errorMessage(), e);
+            logger.error("Error listing objects in S3 bucket {}: {}", bucketName, resolveS3ErrorMessage(e), e);
             // Depending on requirements, might rethrow or return empty/partial list
-        } catch (Exception e) {
+        } catch (SdkClientException | IllegalArgumentException e) {
             logger.error("Unexpected error listing objects in S3 bucket {}: {}", bucketName, e.getMessage(), e);
         }
         return allObjects;
@@ -274,9 +288,9 @@ public class S3StorageService {
             logger.warn("File not found in S3: bucket={}, key={}", bucketName, key);
             return null;
         } catch (S3Exception e) {
-            logger.error("S3 error downloading file {} from bucket {}: {}", key, bucketName, e.awsErrorDetails().errorMessage(), e);
+            logger.error("S3 error downloading file {} from bucket {}: {}", key, bucketName, resolveS3ErrorMessage(e), e);
             return null;
-        } catch (Exception e) {
+        } catch (SdkClientException | IllegalArgumentException e) {
             logger.error("Unexpected error downloading file {} from bucket {}: {}", key, bucketName, e.getMessage(), e);
             return null;
         }
@@ -307,9 +321,9 @@ public class S3StorageService {
             logger.info("Successfully copied object from {} to {}", sourceKey, destinationKey);
             return true;
         } catch (S3Exception e) {
-            logger.error("S3 error copying object from {} to {}: {}", sourceKey, destinationKey, e.awsErrorDetails().errorMessage(), e);
+            logger.error("S3 error copying object from {} to {}: {}", sourceKey, destinationKey, resolveS3ErrorMessage(e), e);
             return false;
-        } catch (Exception e) {
+        } catch (SdkClientException | IllegalArgumentException e) {
             logger.error("Unexpected error copying object from {} to {}: {}", sourceKey, destinationKey, e.getMessage(), e);
             return false;
         }
@@ -337,9 +351,9 @@ public class S3StorageService {
             logger.info("Successfully deleted object {}", key);
             return true;
         } catch (S3Exception e) {
-            logger.error("S3 error deleting object {}: {}", key, e.awsErrorDetails().errorMessage(), e);
+            logger.error("S3 error deleting object {}: {}", key, resolveS3ErrorMessage(e), e);
             return false;
-        } catch (Exception e) {
+        } catch (SdkClientException | IllegalArgumentException e) {
             logger.error("Unexpected error deleting object {}: {}", key, e.getMessage(), e);
             return false;
         }

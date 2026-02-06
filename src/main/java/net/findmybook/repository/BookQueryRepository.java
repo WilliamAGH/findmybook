@@ -1,5 +1,6 @@
 package net.findmybook.repository;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.findmybook.dto.BookCard;
@@ -882,7 +883,7 @@ public class BookQueryRepository {
         
         try {
             return objectMapper.readValue(jsonb, MAP_TYPE);
-        } catch (Exception ex) {
+        } catch (JsonProcessingException ex) {
             log.warn("Failed to parse JSONB: {}", ex.getMessage());
             return Map.of();
         }

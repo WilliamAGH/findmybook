@@ -6,6 +6,7 @@ import net.findmybook.util.JdbcUtils;
 import net.findmybook.util.UuidUtils;
 import reactor.core.scheduler.Schedulers;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
@@ -186,7 +187,7 @@ public class BookRecommendationPersistenceService {
                 uuid
             );
             return Optional.ofNullable(primary != null ? primary : uuid);
-        } catch (Exception ex) {
+        } catch (DataAccessException ex) {
             log.debug("Failed to resolve primary edition for {}: {}", uuid, ex.getMessage());
             return Optional.of(uuid);
         }

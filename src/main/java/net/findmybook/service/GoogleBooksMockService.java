@@ -20,6 +20,7 @@
  */
 package net.findmybook.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -112,7 +113,7 @@ public class GoogleBooksMockService {
             // Load search responses
             loadMockSearchResponses();
             
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             logger.warn("Error loading mock responses: {}", e.getMessage());
         }
     }
@@ -129,7 +130,7 @@ public class GoogleBooksMockService {
                 // We'd need Spring's PathMatchingResourcePatternResolver to list all files
                 logger.info("Found classpath mock responses directory");
             }
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             logger.debug("Could not load mock responses from classpath: {}", e.getMessage());
         }
     }
@@ -188,7 +189,7 @@ public class GoogleBooksMockService {
                                     try {
                                         Book book = objectMapper.treeToValue(item, Book.class);
                                         books.add(book);
-                                    } catch (Exception e) {
+                                    } catch (JsonProcessingException e) {
                                         logger.warn("Could not convert search result to Book: {}", e.getMessage());
                                     }
                                 });
@@ -304,7 +305,7 @@ public class GoogleBooksMockService {
                 Book book = objectMapper.treeToValue(bookNode, Book.class);
                 logger.debug("Retrieved mock book: {}", bookId);
                 return book;
-            } catch (Exception e) {
+            } catch (JsonProcessingException e) {
                 logger.warn("Could not convert mock book to Book object: {}", e.getMessage());
             }
         }

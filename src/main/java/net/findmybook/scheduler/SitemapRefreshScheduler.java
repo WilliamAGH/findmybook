@@ -69,7 +69,7 @@ public class SitemapRefreshScheduler {
             sitemapService.getOverview();
             sitemapService.getAuthorsByLetter("A", 1);
             sitemapService.getBooksByLetter("A", 1);
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             LoggingUtils.warn(log, e, "Sitemap warmup queries encountered an error");
         }
 
@@ -125,7 +125,7 @@ public class SitemapRefreshScheduler {
                 if (result != null && result.isPresent()) {
                     successes++;
                 }
-            } catch (Exception e) {
+            } catch (RuntimeException e) {
                 log.debug("Cover warmup encountered error for {}: {}", item.bookId(), e.getMessage());
             }
         }

@@ -33,6 +33,7 @@ import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.CannotGetJdbcConnectionException;
 
+import java.io.IOException;
 import java.net.ConnectException;
 import java.net.SocketException;
 import java.sql.SQLException;
@@ -258,7 +259,7 @@ public class BookDataOrchestrator {
                         failureCount++;
                         logger.warn("[EXTERNAL-API] [{}] Persist returned false for id={}", context, book.getId());
                     }
-                } catch (Exception ex) {
+                } catch (IOException | RuntimeException ex) {
                     ExternalApiLogger.logHydrationFailure(logger, context, book.getId(), ex.getMessage());
                     failureCount++;
                     logger.error("[EXTERNAL-API] [{}] Failed to persist book {} from {}: {}", context, book.getId(), context, ex.getMessage(), ex);
@@ -266,10 +267,10 @@ public class BookDataOrchestrator {
                     // Fail fast on systemic errors (connection issues) to avoid hammering a broken database
                     if (isSystemicDatabaseError(ex)) {
                         logger.error("[EXTERNAL-API] [{}] Aborting batch due to systemic database error", context);
-                        if (ex instanceof RuntimeException runtimeEx) {
-                            throw runtimeEx;
+                        if (ex instanceof IllegalStateException stateException) {
+                            throw stateException;
                         }
-                        throw new RuntimeException("Systemic database error during batch persistence", ex);
+                        throw new IllegalStateException("Systemic database error during batch persistence", ex);
                     }
                 }
             }
@@ -373,10 +374,6 @@ public class BookDataOrchestrator {
 
         try {
             bookSearchService.refreshMaterializedView();
-        } catch (Exception ex) {
-            logger.warn("BookDataOrchestrator: Failed to refresh search materialized view: {}", ex.getMessage());
-            // Keep timestamp at `now` to enforce rate limiting even after failure.
-            // Resetting to `last` (especially when last==0) would bypass the rate limit check.
         } finally {
             searchViewRefreshInProgress.set(false);
         }
@@ -410,15 +407,15 @@ public class BookDataOrchestrator {
             triggerSearchViewRefresh(false);
             logger.debug("Persisted book via BookUpsertService: {}", book.getId());
             return true;
-        } catch (Exception e) {
+        } catch (DataAccessException | IllegalArgumentException | IllegalStateException ex) {
             logger.error("Error persisting via BookUpsertService for book {}: {}",
-                book != null ? book.getId() : "UNKNOWN", e.getMessage(), e);
+                book != null ? book.getId() : "UNKNOWN", ex.getMessage(), ex);
             // Rethrow systemic DB failures so batch abort logic in persistBooksAsync can trigger
-            if (isSystemicDatabaseError(e)) {
-                if (e instanceof RuntimeException runtimeEx) {
-                    throw runtimeEx;
+            if (isSystemicDatabaseError(ex)) {
+                if (ex instanceof IllegalStateException stateException) {
+                    throw stateException;
                 }
-                throw new RuntimeException("Systemic database error during upsert", e);
+                throw new IllegalStateException("Systemic database error during upsert", ex);
             }
             return false;
         }
@@ -553,14 +550,13 @@ public class BookDataOrchestrator {
             .build();
     }
 
-    // Satisfy linter for private helpers referenced by annotations
-    @SuppressWarnings("unused")
+    // Kept private for focused unit tests that validate UUID parsing behavior.
     private static boolean looksLikeUuid(String value) {
         if (value == null) return false;
         return value.matches("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
     }
 
-    @SuppressWarnings("unused")
+    // Kept private for focused unit tests that validate strict JSON payload parsing.
     private static com.fasterxml.jackson.databind.JsonNode parseBookJsonPayload(String payload, String fallbackId) {
         try {
             com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
@@ -571,7 +567,8 @@ public class BookDataOrchestrator {
                 }
                 return node;
             }
-        } catch (Exception e) {
+        } catch (IOException ex) {
+            logger.debug("Failed to parse book JSON payload for fallback id '{}': {}", fallbackId, ex.getMessage());
             return null;
         }
     }

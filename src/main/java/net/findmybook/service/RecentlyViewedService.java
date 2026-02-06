@@ -168,7 +168,7 @@ public class RecentlyViewedService {
                         .limit(limit)
                         .collect(Collectors.toList());
                 }
-            } catch (Exception e) {
+            } catch (RuntimeException e) {
                 log.warn("Failed to fetch book IDs from repository: {}", e.getMessage());
             }
         }

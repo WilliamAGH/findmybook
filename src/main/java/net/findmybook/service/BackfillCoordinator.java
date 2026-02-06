@@ -128,7 +128,7 @@ public class BackfillCoordinator {
                 log.info("Backfill worker interrupted");
                 Thread.currentThread().interrupt();
                 break;
-            } catch (Exception e) {
+            } catch (RuntimeException e) {
                 log.error("Error in backfill worker loop", e);
                 // Continue processing next task
             }
@@ -186,7 +186,7 @@ public class BackfillCoordinator {
             // Mark completed (removes from dedupe set)
             queueService.markCompleted(task);
             
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             log.error("Backfill error: {} {}", task.source(), task.sourceId(), e);
             handleFailure(task, e.getMessage());
         }
@@ -239,7 +239,7 @@ public class BackfillCoordinator {
             }
             
             return json;
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             log.error("Error fetching from Google Books: {}", volumeId, e);
             return null;
         }

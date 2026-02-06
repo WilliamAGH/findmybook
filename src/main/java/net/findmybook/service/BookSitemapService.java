@@ -9,7 +9,7 @@ import net.findmybook.model.Book;
 import net.findmybook.service.SitemapService.BookSitemapItem;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
@@ -40,8 +40,8 @@ public class BookSitemapService {
     public BookSitemapService(SitemapService sitemapService,
                               SitemapProperties sitemapProperties,
                               ObjectMapper objectMapper,
-                              @Autowired(required = false) BookDataOrchestrator bookDataOrchestrator,
-                              @Autowired(required = false) S3StorageService s3StorageService) {
+                              @Nullable BookDataOrchestrator bookDataOrchestrator,
+                              @Nullable S3StorageService s3StorageService) {
         this.sitemapService = sitemapService;
         this.sitemapProperties = sitemapProperties;
         this.objectMapper = objectMapper;
@@ -103,13 +103,15 @@ public class BookSitemapService {
         try {
             String payload = buildSnapshotPayload(snapshot);
             byte[] bytes = payload.getBytes(StandardCharsets.UTF_8);
-            try (ByteArrayInputStream inputStream = new ByteArrayInputStream(bytes)) {
-                s3StorageService.uploadFileAsync(s3Key, inputStream, bytes.length, "application/json").join();
-            }
+            ByteArrayInputStream inputStream = new ByteArrayInputStream(bytes);
+            s3StorageService.uploadFileAsync(s3Key, inputStream, bytes.length, "application/json").join();
             log.info("Uploaded sitemap snapshot ({} entries) to S3 key '{}'.", snapshot.books().size(), s3Key);
             return true;
-        } catch (Exception e) {
-            log.error("Failed to upload sitemap snapshot to S3 key '{}': {}", s3Key, e.getMessage(), e);
+        } catch (JsonProcessingException | java.util.concurrent.CompletionException | IllegalArgumentException ex) {
+            log.error("Failed to upload sitemap snapshot to S3 key '{}': {}", s3Key, ex.getMessage(), ex);
+            return false;
+        } catch (RuntimeException ex) {
+            log.error("Unexpected runtime failure while uploading sitemap snapshot to S3 key '{}'", s3Key, ex);
             return false;
         }
     }
@@ -137,19 +139,20 @@ public class BookSitemapService {
         AtomicInteger failures = new AtomicInteger();
 
         for (BookSitemapItem item : slice) {
-            try {
-                Mono<Book> mono = bookDataOrchestrator.fetchCanonicalBookReactive(item.bookId());
-                boolean present = mono.timeout(Duration.ofSeconds(15))
-                        .blockOptional(Duration.ofSeconds(20))
-                        .isPresent();
-                if (present) {
-                    succeeded.incrementAndGet();
-                } else {
-                    failures.incrementAndGet();
-                }
-            } catch (Exception e) {
+            Mono<Book> mono = bookDataOrchestrator.fetchCanonicalBookReactive(item.bookId());
+            boolean present = mono.timeout(Duration.ofSeconds(15))
+                    .map(book -> Boolean.TRUE)
+                    .onErrorResume(ex -> {
+                        log.debug("Hydration attempt failed for book {}: {}", item.bookId(), ex.getMessage());
+                        return Mono.just(Boolean.FALSE);
+                    })
+                    .defaultIfEmpty(Boolean.FALSE)
+                    .blockOptional(Duration.ofSeconds(20))
+                    .orElse(Boolean.FALSE);
+            if (present) {
+                succeeded.incrementAndGet();
+            } else {
                 failures.incrementAndGet();
-                log.debug("Hydration attempt failed for book {}: {}", item.bookId(), e.getMessage());
             }
         }
 

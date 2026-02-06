@@ -96,7 +96,7 @@ public class CacheWarmupService {
                 );
 
             warmupSubscription.set(newSubscription);
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             bestsellersWarmupInProgress.set(false);
             log.warn("Exception during bestsellers cache warmup: {}", e.getMessage());
         }

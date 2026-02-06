@@ -113,12 +113,12 @@ public class S3CoverCleanupService {
                         logger.debug("S3 object: {} - Analysis: OK.", key);
                     }
 
-                } catch (Exception e) {
+                } catch (RuntimeException e) {
                     LoggingUtils.error(logger, e, "Error processing S3 object: {}", key);
                 }
             }
 
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             LoggingUtils.error(logger, e, "Failed to list or process objects from S3 bucket: {}", bucketName);
         }
 
@@ -234,14 +234,14 @@ public class S3CoverCleanupService {
                         logger.debug("S3 object: {} - Analysis: OK. No move action needed.", sourceKey);
                     }
 
-                } catch (Exception e) {
+                } catch (RuntimeException e) {
                     LoggingUtils.error(logger, e, "Error processing S3 object {} for move action", sourceKey);
                     failedToMove.incrementAndGet(); // Count as failed if processing itself fails
                     failedMoveFileKeys.add(sourceKey);
                 }
             }
 
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             LoggingUtils.error(logger, e, "Failed to list or process objects from S3 bucket {} for move action", bucketName);
         }
 

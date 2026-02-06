@@ -1,5 +1,6 @@
 package net.findmybook.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.findmybook.util.ApplicationConstants;
 import net.findmybook.util.CategoryNormalizer;
@@ -183,16 +184,16 @@ public class BookSupplementalPersistenceService {
                 return "{\"value\":null}";
             }
             return objectMapper.writeValueAsString(Map.of("value", value));
-        } catch (Exception e) {
-            return "{\"value\":null}";
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("Failed to serialize qualifier metadata for persistence", ex);
         }
     }
 
     private String serializeMetadata(Map<String, Object> metadata) {
         try {
             return objectMapper.writeValueAsString(metadata);
-        } catch (Exception e) {
-            return "{}";
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("Failed to serialize tag metadata for persistence", ex);
         }
     }
 

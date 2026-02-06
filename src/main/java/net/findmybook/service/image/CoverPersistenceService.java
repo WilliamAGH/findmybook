@@ -7,6 +7,7 @@ import net.findmybook.util.ValidationUtils;
 import net.findmybook.util.cover.CoverUrlResolver;
 import net.findmybook.util.cover.ImageDimensionUtils;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -116,9 +117,9 @@ public class CoverPersistenceService {
                     canonicalHighRes = estimate.highRes();
                 }
                 
-            } catch (Exception e) {
+            } catch (DataAccessException | IllegalArgumentException ex) {
                 log.warn("Failed to persist image link for book {} type {}: {}", 
-                    bookId, imageType, e.getMessage());
+                    bookId, imageType, ex.getMessage());
             }
         }
         
@@ -196,9 +197,9 @@ public class CoverPersistenceService {
             
             return new PersistenceResult(true, canonicalUrl, width, height, highRes);
             
-        } catch (Exception e) {
+        } catch (DataAccessException | IllegalArgumentException ex) {
             log.error("Failed to update cover metadata after S3 upload for book {}: {}", 
-                bookId, e.getMessage(), e);
+                bookId, ex.getMessage(), ex);
             return new PersistenceResult(false, canonicalUrl, width, height, highRes);
         }
     }
@@ -245,8 +246,8 @@ public class CoverPersistenceService {
             
             return new PersistenceResult(true, resolved.url(), resolved.width(), resolved.height(), resolved.highResolution());
             
-        } catch (Exception e) {
-            log.error("Failed to persist external cover for book {}: {}", bookId, e.getMessage(), e);
+        } catch (DataAccessException | IllegalArgumentException ex) {
+            log.error("Failed to persist external cover for book {}: {}", bookId, ex.getMessage(), ex);
             return new PersistenceResult(false, resolved.url(), resolved.width(), resolved.height(), resolved.highResolution());
         }
     }

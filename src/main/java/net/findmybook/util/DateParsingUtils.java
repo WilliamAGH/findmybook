@@ -71,7 +71,7 @@ public final class DateParsingUtils {
                     yearFormat.setLenient(false);
                     return yearFormat.parse(trimmed);
                 }
-            } catch (Exception e) {
+            } catch (ParseException e) {
                 // Continue
             }
         }

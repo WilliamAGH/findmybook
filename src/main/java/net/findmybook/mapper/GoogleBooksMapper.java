@@ -234,7 +234,7 @@ public class GoogleBooksMapper implements ExternalBookMapper {
             
             log.debug("Unable to parse publishedDate: {}", dateStr);
             return null;
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             log.debug("Error parsing publishedDate '{}': {}", dateStr, e.getMessage());
             return null;
         }

@@ -19,7 +19,6 @@ import net.findmybook.util.PagingUtils;
 import net.findmybook.util.ValidationUtils;
 import net.findmybook.util.cover.CoverPrioritizer;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.lang.Nullable;
@@ -46,14 +45,7 @@ public class NewYorkTimesService {
     private final String nytApiBaseUrl;
 
     private final String nytApiKey;
-    /**
-     * @deprecated Use {@link #bookQueryRepository} instead. This is kept temporarily for backward compatibility.
-     * Will be removed once all consumers migrate to the new optimized repository.
-     */
-    @Deprecated
-    @SuppressWarnings("unused")
-    private final PostgresBookRepository postgresBookRepository;
-    
+
     /**
      * THE SINGLE SOURCE OF TRUTH for book queries.
      * All new code must use this repository.
@@ -69,12 +61,10 @@ public class NewYorkTimesService {
     public NewYorkTimesService(WebClient.Builder webClientBuilder,
                                @Value("${nyt.api.base-url:https://api.nytimes.com/svc/books/v3}") String nytApiBaseUrl,
                                @Value("${nyt.api.key}") String nytApiKey,
-                               @Autowired(required = false) PostgresBookRepository postgresBookRepository,
-                               @Autowired(required = false) BookQueryRepository bookQueryRepository) {
+                               @Nullable BookQueryRepository bookQueryRepository) {
         this.nytApiBaseUrl = nytApiBaseUrl;
         this.nytApiKey = nytApiKey;
         this.webClient = webClientBuilder.baseUrl(nytApiBaseUrl).build();
-        this.postgresBookRepository = postgresBookRepository;
         this.bookQueryRepository = bookQueryRepository;
     }
 

@@ -1,6 +1,7 @@
 package net.findmybook.service;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -66,7 +67,7 @@ public class ExternalBookIdResolver {
                 log.debug("No mapping found for {} {}", source, sourceId);
                 return Optional.empty();
             }, source, sourceId);
-        } catch (Exception e) {
+        } catch (DataAccessException e) {
             log.error("Error resolving external ID: source={}, sourceId={}", source, sourceId, e);
             return Optional.empty();
         }
@@ -113,7 +114,7 @@ public class ExternalBookIdResolver {
                 log.debug("Found {} external IDs for book {}", result.size(), bookId);
                 return result;
             }, bookId);
-        } catch (Exception e) {
+        } catch (DataAccessException e) {
             log.error("Error in reverse lookup for bookId={}", bookId, e);
             return Map.of();
         }
@@ -138,7 +139,7 @@ public class ExternalBookIdResolver {
         try {
             Integer count = jdbcTemplate.queryForObject(sql, Integer.class, source, sourceId);
             return count != null && count > 0;
-        } catch (Exception e) {
+        } catch (DataAccessException e) {
             log.error("Error checking existence: source={}, sourceId={}", source, sourceId, e);
             return false;
         }
@@ -162,7 +163,7 @@ public class ExternalBookIdResolver {
         try {
             Integer count = jdbcTemplate.queryForObject(sql, Integer.class, bookId);
             return count != null ? count : 0;
-        } catch (Exception e) {
+        } catch (DataAccessException e) {
             log.error("Error counting external IDs for bookId={}", bookId, e);
             return 0;
         }

@@ -1,6 +1,7 @@
 package net.findmybook.service;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.lang.Nullable;
 import org.springframework.scheduling.annotation.Async;
@@ -67,7 +68,7 @@ public class RecentBookViewRepository {
                         }
                     }
             );
-        } catch (Exception ex) {
+        } catch (DataAccessException ex) {
             log.debug("Failed to record recent view for book {}: {}", canonicalBookId, ex.getMessage());
         }
     }
@@ -107,7 +108,7 @@ public class RecentBookViewRepository {
                         rs.getLong("views_30d")
                 ));
             });
-        } catch (Exception ex) {
+        } catch (DataAccessException ex) {
             log.debug("Failed to fetch view stats for book {}: {}", canonicalBookId, ex.getMessage());
             return Optional.empty();
         }
@@ -154,7 +155,7 @@ public class RecentBookViewRepository {
                         rs.getLong("views_30d")
                 );
             });
-        } catch (Exception ex) {
+        } catch (DataAccessException ex) {
             log.debug("Failed to fetch recent view aggregates: {}", ex.getMessage());
             return Collections.emptyList();
         }

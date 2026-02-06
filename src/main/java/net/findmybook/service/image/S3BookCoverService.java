@@ -16,6 +16,7 @@ package net.findmybook.service.image;
 import net.findmybook.exception.CoverDownloadException;
 import net.findmybook.exception.CoverProcessingException;
 import net.findmybook.exception.CoverTooLargeException;
+import net.findmybook.exception.S3CoverUploadException;
 import net.findmybook.exception.S3UploadException;
 import net.findmybook.exception.UnsafeUrlException;
 import net.findmybook.model.Book;
@@ -38,6 +39,7 @@ import org.springframework.core.env.Profiles;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
@@ -46,12 +48,14 @@ import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
+import java.net.UnknownHostException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import reactor.core.publisher.Flux;
@@ -167,7 +171,7 @@ public class S3BookCoverService implements ExternalCoverService {
         try {
             java.net.URI uri = java.net.URI.create(imageUrl);
             return isAllowedImageHost(uri);
-        } catch (Exception e) {
+        } catch (IllegalArgumentException e) {
             logger.warn("Invalid image URL format, blocking: {}", imageUrl);
             return false;
         }
@@ -234,7 +238,7 @@ public class S3BookCoverService implements ExternalCoverService {
                 logger.warn("Blocked reserved IP range for host: {} -> {}", host, ip);
                 return false;
             }
-        } catch (Exception e) {
+        } catch (UnknownHostException | SecurityException e) {
             logger.warn("Could not resolve host for validation, blocking: {}", host);
             return false;
         }
@@ -361,7 +365,7 @@ public class S3BookCoverService implements ExternalCoverService {
             logger.error("S3Exception checking object existence for key {}: Status={}, Message={}", s3Key, s3e.statusCode(), s3e.getMessage());
             objectExistsCache.put(s3Key, false);
             return false;
-        } catch (Exception e) {
+        } catch (SdkClientException e) {
             logger.error("Unexpected error checking object existence for key {}: {}", s3Key, e.getMessage(), e);
             objectExistsCache.put(s3Key, false);
             return false;
@@ -656,7 +660,7 @@ public class S3BookCoverService implements ExternalCoverService {
                     })
                     .onErrorMap(e -> {
                         // Wrap unexpected errors in S3UploadException if not already a known exception
-                        if (e instanceof net.findmybook.exception.S3CoverUploadException) {
+                        if (e instanceof S3CoverUploadException) {
                             return e;
                         }
                         logger.error("Unexpected exception during S3 upload for book {}: {}. URL: {}", bookId, e.getMessage(), imageUrl, e);
@@ -710,10 +714,27 @@ public class S3BookCoverService implements ExternalCoverService {
             return uploadCoverToS3Async(imageUrl, bookId, source)
                 .defaultIfEmpty(buildPlaceholderImageDetails(bookId, "async-empty"))
                 .block(Duration.ofSeconds(15));
-        } catch (Exception e) {
-            logger.error("Error or timeout uploading cover to S3 for book {} from URL {}: {}", bookId, imageUrl, e.getMessage());
+        } catch (S3CoverUploadException | IllegalStateException e) {
+            logger.error("Error or timeout uploading cover to S3 for book {} from URL {}: {}", bookId, imageUrl, e.getMessage(), e);
             return new net.findmybook.model.image.ImageDetails(imageUrl, source, imageUrl, CoverImageSource.ANY, ImageResolutionPreference.ORIGINAL);
+        } catch (RuntimeException e) {
+            if (causedByTimeout(e)) {
+                logger.error("Cover upload timed out for book {} from URL {}: {}", bookId, imageUrl, e.getMessage(), e);
+                return new net.findmybook.model.image.ImageDetails(imageUrl, source, imageUrl, CoverImageSource.ANY, ImageResolutionPreference.ORIGINAL);
+            }
+            throw e;
         }
+    }
+
+    private boolean causedByTimeout(RuntimeException exception) {
+        Throwable current = exception;
+        while (current != null) {
+            if (current instanceof TimeoutException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
     
     /**
@@ -815,49 +836,52 @@ public class S3BookCoverService implements ExternalCoverService {
         }
         final String s3Source = (originalSourceForS3Key != null && !originalSourceForS3Key.isEmpty()) ? originalSourceForS3Key : "unknown";
 
-        try {
-            if (processedImageBytes.length > this.maxFileSizeBytes) {
-                logger.warn("Book ID {}: Processed image too large for S3 (size: {} bytes, max: {} bytes). Will not upload.", 
-                            bookId, processedImageBytes.length, this.maxFileSizeBytes);
-                return Mono.just(new net.findmybook.model.image.ImageDetails(null, originalSourceForS3Key, "processed-image-too-large-for-s3-" + bookId, CoverImageSource.ANY, ImageResolutionPreference.ORIGINAL, width, height));
-            }
-
-            String s3Key = generateS3Key(bookId, fileExtension, s3Source);
-
-            // Asynchronous check for existing object
-            return coverExistsInS3Async(bookId, fileExtension, s3Source)
-                .flatMap(exists -> {
-                    if (exists) {
-                        return Mono.fromCallable(() -> s3Client.headObject(HeadObjectRequest.builder().bucket(s3BucketName).key(s3Key).build()))
-                            .subscribeOn(Schedulers.boundedElastic())
-                            .flatMap(headResponse -> {
-                                if (headResponse.contentLength() == processedImageBytes.length) {
-                                    logger.info("Processed cover for book {} (from source {}) already exists in S3 with same size, skipping upload. Key: {}", bookId, s3Source, s3Key);
-                                    String cdnUrl = getS3CoverUrl(bookId, fileExtension, s3Source);
-                                    net.findmybook.model.image.ImageDetails details = 
-                                        new net.findmybook.model.image.ImageDetails(
-                                            cdnUrl, "S3", s3Key, CoverImageSource.UNDEFINED, 
-                                            ImageResolutionPreference.ORIGINAL, width, height);
-                                    details.setStorageLocation(ImageDetails.STORAGE_S3);
-                                    details.setStorageKey(s3Key);
-                                    return Mono.just(details);
-                                }
-                                return uploadToS3Internal(s3Key, processedImageBytes, mimeType, bookId, fileExtension, s3Source, new ProcessedImage(processedImageBytes, fileExtension, mimeType, width, height, true, null), provenanceData);
-                            })
-                            .onErrorResume(NoSuchKeyException.class, e -> uploadToS3Internal(s3Key, processedImageBytes, mimeType, bookId, fileExtension, s3Source, new ProcessedImage(processedImageBytes, fileExtension, mimeType, width, height, true, null), provenanceData))
-                            .onErrorResume(e -> {
-                                 logger.warn("Error checking existing S3 object for book {}: {}. Proceeding with upload.", bookId, e.getMessage());
-                                 return uploadToS3Internal(s3Key, processedImageBytes, mimeType, bookId, fileExtension, s3Source, new ProcessedImage(processedImageBytes, fileExtension, mimeType, width, height, true, null), provenanceData);
-                            });
-                    } else {
-                        return uploadToS3Internal(s3Key, processedImageBytes, mimeType, bookId, fileExtension, s3Source, new ProcessedImage(processedImageBytes, fileExtension, mimeType, width, height, true, null), provenanceData);
-                    }
-                });
-        
-        } catch (Exception e) { // Catch synchronous exceptions from this method's setup
-            logger.error("Unexpected exception during S3 upload setup for processed cover for book {}: {}.", bookId, e.getMessage(), e);
-            return Mono.just(new net.findmybook.model.image.ImageDetails(null, originalSourceForS3Key, "processed-upload-setup-exception-" + bookId, CoverImageSource.ANY, ImageResolutionPreference.ORIGINAL, width, height));
+        if (processedImageBytes.length > this.maxFileSizeBytes) {
+            logger.warn("Book ID {}: Processed image too large for S3 (size: {} bytes, max: {} bytes). Will not upload.", 
+                        bookId, processedImageBytes.length, this.maxFileSizeBytes);
+            return Mono.error(new CoverTooLargeException(bookId, null, processedImageBytes.length, this.maxFileSizeBytes));
         }
+
+        String s3Key = generateS3Key(bookId, fileExtension, s3Source);
+        ProcessedImage processedImage = new ProcessedImage(
+            processedImageBytes,
+            fileExtension,
+            mimeType,
+            width,
+            height,
+            true,
+            null
+        );
+
+        // Asynchronous check for existing object
+        return coverExistsInS3Async(bookId, fileExtension, s3Source)
+            .flatMap(exists -> {
+                if (exists) {
+                    return Mono.fromCallable(() -> s3Client.headObject(HeadObjectRequest.builder().bucket(s3BucketName).key(s3Key).build()))
+                        .subscribeOn(Schedulers.boundedElastic())
+                        .flatMap(headResponse -> {
+                            if (headResponse.contentLength() == processedImageBytes.length) {
+                                logger.info("Processed cover for book {} (from source {}) already exists in S3 with same size, skipping upload. Key: {}", bookId, s3Source, s3Key);
+                                String cdnUrl = getS3CoverUrl(bookId, fileExtension, s3Source);
+                                net.findmybook.model.image.ImageDetails details = 
+                                    new net.findmybook.model.image.ImageDetails(
+                                        cdnUrl, "S3", s3Key, CoverImageSource.UNDEFINED, 
+                                        ImageResolutionPreference.ORIGINAL, width, height);
+                                details.setStorageLocation(ImageDetails.STORAGE_S3);
+                                details.setStorageKey(s3Key);
+                                return Mono.just(details);
+                            }
+                            return uploadToS3Internal(s3Key, processedImageBytes, mimeType, bookId, fileExtension, s3Source, processedImage, provenanceData);
+                        })
+                        .onErrorResume(NoSuchKeyException.class, e -> uploadToS3Internal(s3Key, processedImageBytes, mimeType, bookId, fileExtension, s3Source, processedImage, provenanceData))
+                        .onErrorResume(e -> {
+                             logger.warn("Error checking existing S3 object for book {}: {}. Proceeding with upload.", bookId, e.getMessage());
+                             return uploadToS3Internal(s3Key, processedImageBytes, mimeType, bookId, fileExtension, s3Source, processedImage, provenanceData);
+                        });
+                } else {
+                    return uploadToS3Internal(s3Key, processedImageBytes, mimeType, bookId, fileExtension, s3Source, processedImage, provenanceData);
+                }
+            });
     }
 
 }
