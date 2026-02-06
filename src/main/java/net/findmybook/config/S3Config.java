@@ -14,7 +14,6 @@ package net.findmybook.config;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import net.findmybook.util.LoggingUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Conditional;
@@ -50,26 +49,33 @@ public class S3Config {
      * - Overrides endpoint for compatibility with MinIO or local S3 services
      * - Uses static credentials provider for authentication
      *
-     * @return Configured S3Client instance or null if misconfigured
+     * @return Configured S3Client instance
      */
     @Bean(destroyMethod = "close") // Ensure Spring calls close() on S3Client shutdown
     public S3Client s3Client() {
-        if (accessKeyId == null || accessKeyId.isEmpty() || secretAccessKey == null || secretAccessKey.isEmpty() || s3ServerUrl == null || s3ServerUrl.isEmpty()) {
-            logger.warn("S3 credentials (access-key-id, secret-access-key, or server-url) are not fully configured. S3Client bean will not be created.");
-            return null; // Avoid creating client with incomplete config
+        if (!hasText(accessKeyId) || !hasText(secretAccessKey)) {
+            throw new IllegalStateException("S3 credentials are incomplete. Ensure s3.access-key-id and s3.secret-access-key are configured.");
         }
-        
+
         try {
-            logger.info("Configuring S3Client with server URL: {} and region: {}", s3ServerUrl, s3Region);
-            return S3Client.builder()
+            var builder = S3Client.builder()
                     .region(Region.of(s3Region))
-                    .endpointOverride(URI.create(s3ServerUrl))
                     .credentialsProvider(StaticCredentialsProvider.create(
-                            AwsBasicCredentials.create(accessKeyId, secretAccessKey)))
-                    .build();
-        } catch (Exception e) {
-            LoggingUtils.error(logger, e, "Failed to create S3Client bean due to configuration error");
-            return null; // Prevent application startup with a broken S3 client
+                            AwsBasicCredentials.create(accessKeyId, secretAccessKey)));
+            if (hasText(s3ServerUrl)) {
+                builder.endpointOverride(URI.create(s3ServerUrl));
+                logger.info("Configuring S3Client with custom endpoint {} and region {}", s3ServerUrl, s3Region);
+            } else {
+                logger.info("Configuring S3Client for AWS-managed endpoint in region {}", s3Region);
+            }
+            return builder.build();
+        } catch (RuntimeException ex) {
+            logger.error("Failed to create S3Client bean due to configuration error", ex);
+            throw new IllegalStateException("Failed to configure S3Client", ex);
         }
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 }

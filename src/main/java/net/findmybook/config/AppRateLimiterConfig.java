@@ -34,7 +34,7 @@ public class AppRateLimiterConfig {
 
     /**
      * Rate limiter for Google Books API
-     * - Limits requests per minute to stay within API quotas
+     * - Limits requests per second to stay within API quotas
      * - Configured based on application.properties settings
      * 
      * @return Configured rate limiter instance
@@ -42,14 +42,14 @@ public class AppRateLimiterConfig {
     @Bean
     public RateLimiter googleBooksRateLimiter() {
         io.github.resilience4j.ratelimiter.RateLimiterConfig config = io.github.resilience4j.ratelimiter.RateLimiterConfig.custom()
-                .limitRefreshPeriod(Duration.ofMinutes(1))
+                .limitRefreshPeriod(Duration.ofSeconds(1))
                 .limitForPeriod(googleBooksRequestLimitPerMinute)
                 .timeoutDuration(Duration.ZERO)
                 .build();
                 
         RateLimiter rateLimiter = RateLimiter.of("googleBooksServiceRateLimiter", config);
         
-        logger.info("Production Google Books API rate limiter initialized with limit of {} requests/minute",
+        logger.info("Production Google Books API rate limiter initialized with limit of {} requests/second",
                 googleBooksRequestLimitPerMinute);
                 
         return rateLimiter;

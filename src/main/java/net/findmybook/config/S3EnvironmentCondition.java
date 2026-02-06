@@ -29,13 +29,13 @@ public class S3EnvironmentCondition implements Condition {
 
     @Override
     public boolean matches(@NonNull ConditionContext context, @NonNull AnnotatedTypeMetadata metadata) {
-        String accessKeyId = context.getEnvironment().getProperty("S3_ACCESS_KEY_ID");
-        String secretAccessKey = context.getEnvironment().getProperty("S3_SECRET_ACCESS_KEY");
-        String bucket = context.getEnvironment().getProperty("S3_BUCKET");
+        String accessKeyId = firstNonBlank(context, "s3.access-key-id", "S3_ACCESS_KEY_ID");
+        String secretAccessKey = firstNonBlank(context, "s3.secret-access-key", "S3_SECRET_ACCESS_KEY");
+        String bucket = firstNonBlank(context, "s3.bucket-name", "S3_BUCKET");
         
-        boolean hasRequiredVars = accessKeyId != null && !accessKeyId.trim().isEmpty() &&
-                                 secretAccessKey != null && !secretAccessKey.trim().isEmpty() &&
-                                 bucket != null && !bucket.trim().isEmpty();
+        boolean hasRequiredVars = hasText(accessKeyId)
+            && hasText(secretAccessKey)
+            && hasText(bucket);
         
         // Only log the message once to avoid spam during startup
         if (messageLogged.compareAndSet(false, true)) {
@@ -43,15 +43,29 @@ public class S3EnvironmentCondition implements Condition {
                 logger.info("✅ S3 environment variables detected - enabling S3 services (bucket: {})", bucket);
             } else {
                 logger.error("❌ CRITICAL: S3 environment variables MISSING - S3 services DISABLED");
-                logger.error("❌ Required environment variables: S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_BUCKET");
+                logger.error("❌ Required configuration: s3.access-key-id/S3_ACCESS_KEY_ID, s3.secret-access-key/S3_SECRET_ACCESS_KEY, s3.bucket-name/S3_BUCKET");
                 logger.error("❌ Current status: S3_ACCESS_KEY_ID={}, S3_SECRET_ACCESS_KEY={}, S3_BUCKET={}",
-                    (accessKeyId != null && !accessKeyId.trim().isEmpty() ? "SET" : "MISSING"),
-                    (secretAccessKey != null && !secretAccessKey.trim().isEmpty() ? "SET" : "MISSING"),
-                    (bucket != null && !bucket.trim().isEmpty() ? "SET" : "MISSING"));
+                    (hasText(accessKeyId) ? "SET" : "MISSING"),
+                    (hasText(secretAccessKey) ? "SET" : "MISSING"),
+                    (hasText(bucket) ? "SET" : "MISSING"));
                 logger.error("❌ ALL COVER UPLOADS TO S3 WILL FAIL SILENTLY");
             }
         }
         
         return hasRequiredVars;
+    }
+
+    private static String firstNonBlank(ConditionContext context, String... keys) {
+        for (String key : keys) {
+            String value = context.getEnvironment().getProperty(key);
+            if (hasText(value)) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
     }
 }

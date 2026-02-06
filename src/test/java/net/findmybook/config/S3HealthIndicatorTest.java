@@ -2,16 +2,28 @@ package net.findmybook.config;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.actuate.health.Status;
+import org.springframework.boot.web.context.WebServerApplicationContext;
+import org.springframework.boot.web.context.WebServerInitializedEvent;
+import org.springframework.boot.web.server.WebServer;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.reactive.function.client.WebClient;
 import reactor.test.StepVerifier;
+import io.github.resilience4j.ratelimiter.RateLimiter;
 import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
 import software.amazon.awssdk.services.s3.model.HeadBucketResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 
+import java.time.Duration;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class S3HealthIndicatorTest {
@@ -87,5 +99,85 @@ class S3HealthIndicatorTest {
         StepVerifier.create(indicator.health())
             .assertNext(health -> assertEquals(Status.UP, health.getStatus()))
             .verifyComplete();
+    }
+
+    @Test
+    void s3ClientCreation_shouldAllowMissingEndpointOverride() {
+        S3Config config = new S3Config();
+        ReflectionTestUtils.setField(config, "accessKeyId", "test-access-key");
+        ReflectionTestUtils.setField(config, "secretAccessKey", "test-secret");
+        ReflectionTestUtils.setField(config, "s3ServerUrl", "");
+        ReflectionTestUtils.setField(config, "s3Region", "us-east-1");
+
+        S3Client client = config.s3Client();
+
+        assertNotNull(client);
+        client.close();
+    }
+
+    @Test
+    void searchHealthIndicator_shouldIgnoreManagementNamespaceEvents() {
+        WebClient.Builder sharedBuilder = mock(WebClient.Builder.class);
+        SearchPageHealthIndicator indicator = new SearchPageHealthIndicator(sharedBuilder, true);
+
+        WebServerApplicationContext managementContext = mock(WebServerApplicationContext.class);
+        when(managementContext.getServerNamespace()).thenReturn("management");
+        WebServerInitializedEvent managementEvent = mock(WebServerInitializedEvent.class);
+        when(managementEvent.getApplicationContext()).thenReturn(managementContext);
+        WebServer managementServer = mock(WebServer.class);
+        when(managementEvent.getWebServer()).thenReturn(managementServer);
+        when(managementServer.getPort()).thenReturn(8081);
+
+        indicator.onApplicationEvent(managementEvent);
+
+        verify(sharedBuilder, never()).clone();
+        StepVerifier.create(indicator.health())
+            .assertNext(health -> assertEquals(Status.UNKNOWN, health.getStatus()))
+            .verifyComplete();
+    }
+
+    @Test
+    void searchHealthIndicator_shouldUseClonedBuilderForPrimaryServer() {
+        WebClient.Builder sharedBuilder = mock(WebClient.Builder.class);
+        WebClient.Builder clonedBuilder = mock(WebClient.Builder.class);
+        WebClient webClient = mock(WebClient.class);
+        when(sharedBuilder.clone()).thenReturn(clonedBuilder);
+        when(clonedBuilder.baseUrl(anyString())).thenReturn(clonedBuilder);
+        when(clonedBuilder.build()).thenReturn(webClient);
+
+        SearchPageHealthIndicator indicator = new SearchPageHealthIndicator(sharedBuilder, true);
+        WebServerApplicationContext appContext = mock(WebServerApplicationContext.class);
+        when(appContext.getServerNamespace()).thenReturn(null);
+        WebServerInitializedEvent appEvent = mock(WebServerInitializedEvent.class);
+        when(appEvent.getApplicationContext()).thenReturn(appContext);
+        WebServer appServer = mock(WebServer.class);
+        when(appEvent.getWebServer()).thenReturn(appServer);
+        when(appServer.getPort()).thenReturn(8095);
+
+        indicator.onApplicationEvent(appEvent);
+
+        verify(sharedBuilder).clone();
+        verify(clonedBuilder).baseUrl("http://localhost:8095");
+    }
+
+    @Test
+    void appRateLimiter_shouldUsePerSecondRefreshPeriod() {
+        AppRateLimiterConfig config = new AppRateLimiterConfig();
+        ReflectionTestUtils.setField(config, "googleBooksRequestLimitPerMinute", 10);
+
+        RateLimiter limiter = config.googleBooksRateLimiter();
+
+        assertEquals(Duration.ofSeconds(1), limiter.getRateLimiterConfig().getLimitRefreshPeriod());
+    }
+
+    @Test
+    void devRateLimiter_shouldUseServiceNameAndPerSecondRefreshPeriod() {
+        DevModeConfig config = new DevModeConfig();
+        ReflectionTestUtils.setField(config, "googleBooksRequestLimitPerMinute", 10);
+
+        RateLimiter limiter = config.googleBooksRateLimiter();
+
+        assertEquals("googleBooksServiceRateLimiter", limiter.getName());
+        assertEquals(Duration.ofSeconds(1), limiter.getRateLimiterConfig().getLimitRefreshPeriod());
     }
 }
