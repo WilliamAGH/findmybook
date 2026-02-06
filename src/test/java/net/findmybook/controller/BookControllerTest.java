@@ -21,7 +21,7 @@ import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.boot.web.error.ErrorAttributeOptions;
-import org.springframework.boot.web.servlet.error.ErrorAttributes;
+import org.springframework.boot.webmvc.error.ErrorAttributes;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -313,14 +313,14 @@ class BookControllerTest {
     }
 
     @Test
-    @DisplayName("GET /api/covers/{id} returns 404 when orchestrator lookup fails")
-    void getBookCover_returnsNotFoundWhenOrchestratorErrors() throws Exception {
+    @DisplayName("GET /api/covers/{id} returns 500 when orchestrator lookup fails")
+    void getBookCover_returnsServerError_WhenOrchestratorFails() throws Exception {
         stubRepositoryMiss("orchestrator-error");
         when(bookDataOrchestrator.fetchCanonicalBookReactive("orchestrator-error"))
             .thenReturn(Mono.error(new RuntimeException("downstream-failure")));
 
         mockMvc.perform(get("/api/covers/orchestrator-error"))
-            .andExpect(status().isNotFound());
+            .andExpect(status().isInternalServerError());
     }
 
     @Test
@@ -367,7 +367,7 @@ class BookControllerTest {
     @DisplayName("GET /error returns JSON with matching status for API clients")
     void errorDiagnostics_returnsJsonAndStatusForApiAcceptHeader() throws Exception {
         ErrorAttributes errorAttributes = Mockito.mock(ErrorAttributes.class);
-        ErrorDiagnosticsController controller = new ErrorDiagnosticsController(errorAttributes);
+        ErrorDiagnosticsController controller = new ErrorDiagnosticsController(errorAttributes, false);
         MockMvc errorMvc = MockMvcBuilders.standaloneSetup(controller).build();
 
         Map<String, Object> attributes = new HashMap<>();
@@ -388,7 +388,7 @@ class BookControllerTest {
     @DisplayName("GET /error returns 404 view with 404 status for HTML clients")
     void errorDiagnostics_returns404TemplateAndStatusForHtml() throws Exception {
         ErrorAttributes errorAttributes = Mockito.mock(ErrorAttributes.class);
-        ErrorDiagnosticsController controller = new ErrorDiagnosticsController(errorAttributes);
+        ErrorDiagnosticsController controller = new ErrorDiagnosticsController(errorAttributes, false);
         MockMvc errorMvc = MockMvcBuilders.standaloneSetup(controller).build();
 
         Map<String, Object> attributes = new HashMap<>();
