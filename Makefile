@@ -49,15 +49,7 @@ lint:
 # Uses SPRING_DATASOURCE_URL, S3_* env vars from .env
 migrate-books:
 	@echo "Running standalone S3 -> Postgres migration (v2 - Refactored)..."
-	@node migrate-s3-to-db-v2.js --max=$(MIGRATE_MAX) --skip=$(MIGRATE_SKIP) --prefix=$(MIGRATE_PREFIX) --debug=$(MIGRATE_DEBUG)
-
-# Build JAR and run S3 -> Postgres books backfill via Spring Boot (slower, may hang)
-migrate-books-spring:
-	@echo "Building JAR (tests skipped) ..."
-	@$(GRADLEW) bootJar -x test >/dev/null
-	@echo "Launching migration with URL normalization..."
-	@java -Dspring.main.web-application-type=none -jar build/libs/*.jar \
-	     --migrate.s3.books --migrate.prefix=$(MIGRATE_PREFIX) --migrate.max=$(MIGRATE_MAX) --migrate.skip=$(MIGRATE_SKIP)
+	@node frontend/scripts/migrate-s3-to-db-v2.js --max=$(MIGRATE_MAX) --skip=$(MIGRATE_SKIP) --prefix=$(MIGRATE_PREFIX) --debug=$(MIGRATE_DEBUG)
 
 # Database schema operations
 db-reset:

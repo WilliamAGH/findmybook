@@ -1,6 +1,6 @@
 # findmybook.net
 
-Spring Boot application for book lookup and recommendations using OpenAI and Google Books API.
+Spring Boot + Svelte application for book lookup and recommendations using OpenAI and Google Books API.
 
 ![Find My Book Screenshot](src/main/resources/static/images/book-finder-findmybook-net.png)
 
@@ -11,6 +11,7 @@ Spring Boot application for book lookup and recommendations using OpenAI and Goo
 ### Prerequisites
 - Java 25
 - Gradle (via `./gradlew`)
+- Node 22.17.0
 
 ### Running locally
 
@@ -22,7 +23,11 @@ Spring Boot application for book lookup and recommendations using OpenAI and Goo
    ```bash
    SPRING_PROFILES_ACTIVE=dev SERVER_PORT=8095 ./gradlew bootRun
    ```
-3. **Access:** Open [http://localhost:8095](http://localhost:8095).
+3. **Frontend (optional HMR):** Run Vite for SPA development.
+   ```bash
+   npm --prefix frontend run dev
+   ```
+4. **Access:** Open [http://localhost:8095](http://localhost:8095).
 
 ## Documentation
 
@@ -49,4 +54,3 @@ Detailed documentation is available in the `docs/` directory:
 Copyright © 2026 [William Callahan](https://williamcallahan.com).
 
 See [LICENSE.md](LICENSE.md).
-

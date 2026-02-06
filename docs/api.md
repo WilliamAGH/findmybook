@@ -7,6 +7,10 @@
   - `GET /api/books/search?query={keyword}`
   - `GET /api/books/{id}`
   - `GET /api/books/authors/search?query={author}`
+- **Page API (Svelte SPA):**
+  - `GET /api/pages/home`
+  - `GET /api/pages/sitemap?view={authors|books}&letter={A-Z|0-9}&page={n}`
+  - `GET /api/pages/book/{identifier}/affiliate-links`
 
 ## Search API Contract
 - `GET /api/books/search` supports:
@@ -24,6 +28,23 @@
 - Returns cursor metadata: `hasMore`, `nextStartIndex`, `prefetchedCount`.
 - Prefetches an additional page window to keep pagination deterministic.
 - Web UI caches up to six prefetched pages in-memory.
+
+## SPA Page Payload Contracts
+- `GET /api/pages/home`
+  - Response fields:
+    - `currentBestsellers: BookCard[]`
+    - `recentBooks: BookCard[]`
+- `GET /api/pages/sitemap`
+  - Query params:
+    - `view` (`authors` or `books`, default `authors`)
+    - `letter` (bucket `A-Z` or `0-9`)
+    - `page` (1-indexed)
+  - Response fields:
+    - `viewType`, `activeLetter`, `pageNumber`, `totalPages`, `totalItems`, `letters`, `baseUrl`
+    - `books: SitemapBookPayload[]` (books view)
+    - `authors: SitemapAuthorPayload[]` (authors view)
+- `GET /api/pages/book/{identifier}/affiliate-links`
+  - Returns a `Record<string, string>` of retailer label -> URL
 
 ## Realtime Search Updates (WebSocket)
 - STOMP endpoint: `/ws`

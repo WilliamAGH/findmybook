@@ -31,7 +31,7 @@
 - [LOC1] File size ceilings are mandatory; large touched legacy files require split plans.
 - [TST1] Behavior changes require tests (unit first, integration as needed).
 - [VER1] Validate changes with repository-standard build/test/runtime checks.
-- [ENV1] Use Spring Boot 3.5.x, Java 25, port 8095 defaults, and documented run commands.
+- [ENV1] Use Spring Boot 4.0.x, Java 25, port 8095 defaults, and documented run commands.
 
 ## Foundational
 ### [SRC1] Source Verification
