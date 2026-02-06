@@ -48,6 +48,10 @@ public final class CoverPrioritizer {
         );
     }
 
+    public static Comparator<Book> bookComparator(Map<String, Integer> insertionOrder) {
+        return bookComparator(insertionOrder, null);
+    }
+
     public static Comparator<Book> bookComparator(Map<String, Integer> insertionOrder,
                                                   Comparator<Book> orderSpecific) {
         Comparator<Book> comparator = Comparator

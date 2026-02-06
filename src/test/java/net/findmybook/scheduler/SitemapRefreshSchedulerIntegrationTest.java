@@ -2,7 +2,7 @@ package net.findmybook.scheduler;
 
 import org.springframework.lang.NonNull;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import net.findmybook.config.SitemapProperties;
 import net.findmybook.model.Book;
 import net.findmybook.service.BookDataOrchestrator;

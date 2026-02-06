@@ -1,6 +1,6 @@
 package net.findmybook.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import net.findmybook.mapper.GoogleBooksMapper;
@@ -23,6 +23,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Flux;
 
 @Slf4j
@@ -72,10 +73,8 @@ final class SearchRealtimeCoordinator {
         String queryHash = SearchQueryUtils.topicKey(request.query());
         String signature = realtimeSignature(request);
         SearchRealtimeState state = realtimeStates.get(queryHash, unused -> new SearchRealtimeState());
-        state.resetIfNewSignature(signature, page.totalUnique());
-        state.seedExistingResults(page.uniqueResults());
 
-        if (!state.startIfIdle()) {
+        if (!state.tryAcquireAndPrepare(signature, page.totalUnique(), page.uniqueResults())) {
             return;
         }
 
@@ -171,16 +170,17 @@ final class SearchRealtimeCoordinator {
                 return new RealtimeCandidate("GOOGLE_BOOKS", book);
             })
             .take(limit)
-            .onErrorResume(ex -> {
-                log.warn("Realtime Google search failed for '{}': {}", query, ex.getMessage());
+            .onErrorMap(ex -> {
+                SearchProgressEvent.SearchStatus errorStatus = classifyProviderError(ex);
+                log.warn("Realtime Google search failed for '{}' (status={}): {}", query, errorStatus, ex.getMessage());
                 publishProgress(
                     query,
-                    SearchProgressEvent.SearchStatus.RATE_LIMITED,
+                    errorStatus,
                     "Google Books unavailable, continuing with other providers",
                     queryHash,
                     "GOOGLE_BOOKS"
                 );
-                return Flux.empty();
+                return new IllegalStateException("Realtime Google search failed for query '" + query + "'", ex);
             });
     }
 
@@ -222,9 +222,20 @@ final class SearchRealtimeCoordinator {
                 book.setDataSource("OPEN_LIBRARY");
                 return new RealtimeCandidate("OPEN_LIBRARY", book);
             })
-            .onErrorResume(ex -> {
-                log.warn("Realtime Open Library search failed for '{}': {}", request.query(), ex.getMessage());
-                return Flux.empty();
+            .onErrorMap(ex -> {
+                SearchProgressEvent.SearchStatus errorStatus = classifyProviderError(ex);
+                log.warn("Realtime Open Library search failed for '{}' (status={}): {}", request.query(), errorStatus, ex.getMessage());
+                publishProgress(
+                    request.query(),
+                    errorStatus,
+                    "Open Library unavailable, continuing with other providers",
+                    queryHash,
+                    "OPEN_LIBRARY"
+                );
+                return new IllegalStateException(
+                    "Realtime Open Library search failed for query '" + request.query() + "'",
+                    ex
+                );
             });
     }
 
@@ -300,6 +311,13 @@ final class SearchRealtimeCoordinator {
         return null;
     }
 
+    private static SearchProgressEvent.SearchStatus classifyProviderError(Throwable ex) {
+        if (ex instanceof WebClientResponseException webEx && webEx.getStatusCode().value() == 429) {
+            return SearchProgressEvent.SearchStatus.RATE_LIMITED;
+        }
+        return SearchProgressEvent.SearchStatus.PROVIDER_UNAVAILABLE;
+    }
+
     private record RealtimeCandidate(String source, Book book) {
     }
 
@@ -309,33 +327,33 @@ final class SearchRealtimeCoordinator {
         private final AtomicInteger totalResults = new AtomicInteger(0);
         private volatile String signature = "";
 
-        synchronized void resetIfNewSignature(String newSignature, int baselineTotal) {
+        /**
+         * Atomically resets state for a new signature, seeds existing results,
+         * and acquires the streaming lock. Returns true if this call acquired
+         * the lock and the caller should proceed with streaming.
+         */
+        synchronized boolean tryAcquireAndPrepare(String newSignature, int baselineTotal, List<Book> existingResults) {
             if (!Objects.equals(signature, newSignature)) {
                 emittedKeys.clear();
                 signature = newSignature;
             }
             totalResults.set(Math.max(0, baselineTotal));
-        }
 
-        void seedExistingResults(List<Book> existingResults) {
-            if (existingResults == null || existingResults.isEmpty()) {
-                return;
-            }
-            for (Book existing : existingResults) {
-                String key = candidateKey(existing);
-                if (ValidationUtils.hasText(key)) {
-                    emittedKeys.add(key);
+            if (existingResults != null) {
+                for (Book existing : existingResults) {
+                    String key = candidateKey(existing);
+                    if (ValidationUtils.hasText(key)) {
+                        emittedKeys.add(key);
+                    }
                 }
             }
+
+            return streaming.compareAndSet(false, true);
         }
 
         boolean registerCandidate(Book candidate) {
             String key = candidateKey(candidate);
             return ValidationUtils.hasText(key) && emittedKeys.add(key);
-        }
-
-        boolean startIfIdle() {
-            return streaming.compareAndSet(false, true);
         }
 
         void markIdle() {

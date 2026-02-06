@@ -6,7 +6,6 @@ import net.findmybook.service.BookSitemapService;
 import net.findmybook.service.SitemapService;
 import net.findmybook.service.SitemapService.BookSitemapItem;
 import net.findmybook.service.image.S3BookCoverService;
-import net.findmybook.util.LoggingUtils;
 import net.findmybook.util.PagingUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
@@ -65,13 +64,9 @@ public class SitemapRefreshScheduler {
         Instant start = Instant.now();
         log.info("Sitemap refresh scheduler started.");
 
-        try {
-            sitemapService.getOverview();
-            sitemapService.getAuthorsByLetter("A", 1);
-            sitemapService.getBooksByLetter("A", 1);
-        } catch (RuntimeException e) {
-            LoggingUtils.warn(log, e, "Sitemap warmup queries encountered an error");
-        }
+        sitemapService.getOverview();
+        sitemapService.getAuthorsByLetter("A", 1);
+        sitemapService.getBooksByLetter("A", 1);
 
         BookSitemapService.SnapshotSyncResult snapshotResult = bookSitemapService.synchronizeSnapshot();
         List<BookSitemapItem> books = snapshotResult.snapshot().books();
@@ -117,16 +112,9 @@ public class SitemapRefreshScheduler {
             Book book = new Book();
             book.setId(item.bookId());
             book.setTitle(item.title());
-            try {
-                Optional<?> result = coverService.fetchCover(book).exceptionally(ex -> {
-                    log.debug("Cover warmup failed for {}: {}", item.bookId(), ex.getMessage());
-                    return Optional.empty();
-                }).join();
-                if (result != null && result.isPresent()) {
-                    successes++;
-                }
-            } catch (RuntimeException e) {
-                log.debug("Cover warmup encountered error for {}: {}", item.bookId(), e.getMessage());
+            Optional<?> result = coverService.fetchCover(book).join();
+            if (result != null && result.isPresent()) {
+                successes++;
             }
         }
         return successes;

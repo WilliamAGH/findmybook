@@ -1,6 +1,6 @@
 package net.findmybook.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import net.findmybook.dto.BookListItem;
 import net.findmybook.mapper.GoogleBooksMapper;
 import net.findmybook.model.Book;
@@ -232,16 +232,16 @@ public class SearchPaginationService {
         String externalOrderBy = SearchExternalProviderUtils.normalizeGoogleOrderBy(request.orderBy());
 
         Flux<JsonNode> authenticated = fetcher.streamSearchItems(request.query(), desired, externalOrderBy, null, true)
-            .onErrorResume(ex -> {
+            .onErrorMap(ex -> {
                 log.warn("Authenticated Google fallback failed for '{}': {}", request.query(), ex.getMessage());
-                return Flux.empty();
+                return new IllegalStateException("Authenticated Google fallback failed for query '" + request.query() + "'", ex);
             });
 
         Flux<JsonNode> unauthenticated = fetcher.isFallbackAllowed()
             ? fetcher.streamSearchItems(request.query(), desired, externalOrderBy, null, false)
-                .onErrorResume(ex -> {
+                .onErrorMap(ex -> {
                     log.warn("Unauthenticated Google fallback failed for '{}': {}", request.query(), ex.getMessage());
-                    return Flux.empty();
+                    return new IllegalStateException("Unauthenticated Google fallback failed for query '" + request.query() + "'", ex);
                 })
             : Flux.defer(() -> {
                 log.info("Skipping unauthenticated Google fallback for '{}' because fallback circuit is open", request.query());
@@ -276,9 +276,9 @@ public class SearchPaginationService {
                 persistSearchCandidates(yearFiltered, "SEARCH");
                 return dedupeAndSlice(yearFiltered, window, request);
             })
-            .onErrorResume(ex -> {
+            .onErrorMap(ex -> {
                 log.warn("Fallback search processing failed for '{}': {}", request.query(), ex.getMessage());
-                return Mono.just(currentPage);
+                return new IllegalStateException("Fallback search processing failed for query '" + request.query() + "'", ex);
             });
     }
 
@@ -317,7 +317,7 @@ public class SearchPaginationService {
     private Comparator<Book> buildSearchResultComparator(Map<String, Integer> insertionOrder,
                                                          SearchRequest request) {
         if (request == null || request.orderBy() == null) {
-            return CoverPrioritizer.bookComparator(insertionOrder, null);
+            return CoverPrioritizer.bookComparator(insertionOrder);
         }
 
         String orderBy = request.orderBy().toLowerCase(Locale.ROOT);

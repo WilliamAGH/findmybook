@@ -1,16 +1,13 @@
 package net.findmybook.service;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import net.findmybook.model.Book;
 import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.model.image.CoverImages;
 import net.findmybook.util.cover.CoverSourceMapper;
 import net.findmybook.util.ApplicationConstants;
 import static net.findmybook.util.ApplicationConstants.Database.Queries.BOOK_BY_SLUG;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -34,18 +31,17 @@ import org.springframework.stereotype.Component;
 public class PostgresBookRepository {
 
     private static final Logger LOG = LoggerFactory.getLogger(PostgresBookRepository.class);
-    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
     private static final String PROVIDER_GOOGLE_BOOKS = ApplicationConstants.Provider.GOOGLE_BOOKS;
 
     private final JdbcTemplate jdbcTemplate;
-    private final ObjectMapper objectMapper;
     private final BookLookupService bookLookupService;
+    private final PostgresBookSectionHydrator sectionHydrator;
 
     @Autowired
     public PostgresBookRepository(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper, BookLookupService bookLookupService) {
         this.jdbcTemplate = jdbcTemplate;
-        this.objectMapper = objectMapper;
         this.bookLookupService = bookLookupService;
+        this.sectionHydrator = new PostgresBookSectionHydrator(jdbcTemplate, objectMapper);
     }
 
     /**
@@ -55,8 +51,8 @@ public class PostgresBookRepository {
      */
     public PostgresBookRepository(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) {
         this.jdbcTemplate = jdbcTemplate;
-        this.objectMapper = objectMapper;
         this.bookLookupService = new BookLookupService(jdbcTemplate);
+        this.sectionHydrator = new PostgresBookSectionHydrator(jdbcTemplate, objectMapper);
     }
 
     Optional<Book> fetchByCanonicalId(String id) {
@@ -142,12 +138,12 @@ public class PostgresBookRepository {
                 Integer pageCount = (Integer) rs.getObject("page_count");
                 book.setPageCount(pageCount);
 
-                hydrateAuthors(book, canonicalId);
-                hydrateCategories(book, canonicalId);
-                hydrateCollections(book, canonicalId);
-                hydrateDimensions(book, canonicalId);
-                hydrateRawPayload(book, canonicalId);
-                hydrateTags(book, canonicalId);
+                sectionHydrator.hydrateAuthors(book, canonicalId);
+                sectionHydrator.hydrateCategories(book, canonicalId);
+                sectionHydrator.hydrateCollections(book, canonicalId);
+                sectionHydrator.hydrateDimensions(book, canonicalId);
+                sectionHydrator.hydrateRawPayload(book, canonicalId);
+                sectionHydrator.hydrateTags(book, canonicalId);
                 hydrateEditions(book, canonicalId);
                 hydrateCover(book, canonicalId);
                 hydrateRecommendations(book, canonicalId);
@@ -162,196 +158,8 @@ public class PostgresBookRepository {
                 return Optional.of(book);
             });
         } catch (DataAccessException ex) {
-            LOG.debug("Postgres reader failed to load canonical book {}: {}", canonicalId, ex.getMessage());
-            return Optional.empty();
+            throw new IllegalStateException("Postgres reader failed to load canonical book " + canonicalId, ex);
         }
-    }
-
-    private void hydrateAuthors(Book book, UUID canonicalId) {
-        String sql = """
-                SELECT a.name
-                FROM book_authors_join baj
-                JOIN authors a ON a.id = baj.author_id
-                WHERE baj.book_id = ?::uuid
-                ORDER BY COALESCE(baj.position, 2147483647), lower(a.name)
-                """;
-        try {
-            List<String> authors = jdbcTemplate.query(sql, ps -> ps.setObject(1, canonicalId), (rs, rowNum) -> rs.getString("name"));
-            book.setAuthors(authors == null || authors.isEmpty() ? List.of() : authors);
-        } catch (DataAccessException ex) {
-            LOG.debug("Failed to hydrate authors for {}: {}", canonicalId, ex.getMessage());
-            book.setAuthors(List.of());
-        }
-    }
-
-    private void hydrateCategories(Book book, UUID canonicalId) {
-        String sql = """
-                SELECT bc.display_name
-                FROM book_collections_join bcj
-                JOIN book_collections bc ON bc.id = bcj.collection_id
-                WHERE bcj.book_id = ?::uuid
-                  AND bc.collection_type = 'CATEGORY'
-                ORDER BY COALESCE(bcj.position, 9999), lower(bc.display_name)
-                """;
-        try {
-            List<String> categories = jdbcTemplate.query(sql, ps -> ps.setObject(1, canonicalId), (rs, rowNum) -> rs.getString("display_name"));
-            book.setCategories(categories == null || categories.isEmpty() ? List.of() : categories);
-        } catch (DataAccessException ex) {
-            LOG.debug("Failed to hydrate categories for {}: {}", canonicalId, ex.getMessage());
-            book.setCategories(List.of());
-        }
-    }
-
-    private void hydrateCollections(Book book, UUID canonicalId) {
-        String sql = """
-                SELECT bc.id,
-                       bc.display_name,
-                       bc.collection_type,
-                       bc.source,
-                       bcj.position
-                FROM book_collections_join bcj
-                JOIN book_collections bc ON bc.id = bcj.collection_id
-                WHERE bcj.book_id = ?::uuid
-                ORDER BY CASE WHEN bc.collection_type = 'CATEGORY' THEN 0 ELSE 1 END,
-                         COALESCE(bcj.position, 2147483647),
-                         lower(bc.display_name)
-                """;
-        try {
-            List<Book.CollectionAssignment> assignments = jdbcTemplate.query(
-                    sql,
-                    ps -> ps.setObject(1, canonicalId),
-                    (rs, rowNum) -> {
-                        Book.CollectionAssignment assignment = new Book.CollectionAssignment();
-                        assignment.setCollectionId(rs.getString("id"));
-                        assignment.setName(rs.getString("display_name"));
-                        assignment.setCollectionType(rs.getString("collection_type"));
-                        Integer rank = (Integer) rs.getObject("position");
-                        assignment.setRank(rank);
-                        assignment.setSource(rs.getString("source"));
-                        return assignment;
-                    }
-            );
-            book.setCollections(assignments);
-        } catch (DataAccessException ex) {
-            LOG.debug("Failed to hydrate collections for {}: {}", canonicalId, ex.getMessage());
-            book.setCollections(List.of());
-        }
-    }
-
-    private void hydrateDimensions(Book book, UUID canonicalId) {
-        String sql = """
-                SELECT height, width, thickness, weight_grams
-                FROM book_dimensions
-                WHERE book_id = ?::uuid
-                LIMIT 1
-                """;
-        try {
-            jdbcTemplate.query(sql, ps -> ps.setObject(1, canonicalId), rs -> {
-                if (!rs.next()) {
-                    return null;
-                }
-                book.setHeightCm(toDouble(rs.getBigDecimal("height")));
-                book.setWidthCm(toDouble(rs.getBigDecimal("width")));
-                book.setThicknessCm(toDouble(rs.getBigDecimal("thickness")));
-                book.setWeightGrams(toDouble(rs.getBigDecimal("weight_grams")));
-                return null;
-            });
-        } catch (DataAccessException ex) {
-            LOG.debug("Failed to hydrate dimensions for {}: {}", canonicalId, ex.getMessage());
-            book.setHeightCm(null);
-            book.setWidthCm(null);
-            book.setThicknessCm(null);
-            book.setWeightGrams(null);
-        }
-    }
-
-    private void hydrateRawPayload(Book book, UUID canonicalId) {
-        String sql = """
-                SELECT raw_json_response::text
-                FROM book_raw_data
-                WHERE book_id = ?::uuid
-                ORDER BY contributed_at DESC
-                LIMIT 1
-                """;
-        try {
-            String rawJson = jdbcTemplate.query(sql, ps -> ps.setObject(1, canonicalId), rs -> rs.next() ? rs.getString(1) : null);
-            if (rawJson != null && !rawJson.isBlank()) {
-                book.setRawJsonResponse(rawJson);
-            }
-        } catch (DataAccessException ex) {
-            LOG.debug("Failed to hydrate raw payload for {}: {}", canonicalId, ex.getMessage());
-        }
-    }
-
-    private void hydrateTags(Book book, UUID canonicalId) {
-        String sql = """
-                SELECT bt.key, bt.display_name, bta.source, bta.confidence, bta.metadata
-                FROM book_tag_assignments bta
-                JOIN book_tags bt ON bt.id = bta.tag_id
-                WHERE bta.book_id = ?::uuid
-                """;
-        try {
-            Map<String, Object> tags = jdbcTemplate.query(sql, ps -> ps.setObject(1, canonicalId), rs -> {
-                Map<String, Object> result = new LinkedHashMap<>();
-                while (rs.next()) {
-                    String key = rs.getString("key");
-                    if (key == null || key.isBlank()) {
-                        continue;
-                    }
-                    // Convert snake_case to camelCase for frontend compatibility
-                    String camelCaseKey = snakeToCamelCase(key);
-                    
-                    Map<String, Object> attributes = new LinkedHashMap<>();
-                    String displayName = rs.getString("display_name");
-                    if (displayName != null && !displayName.isBlank()) {
-                        attributes.put("displayName", displayName);
-                    }
-                    String source = rs.getString("source");
-                    if (source != null && !source.isBlank()) {
-                        attributes.put("source", source);
-                    }
-                    Double confidence = toDouble(rs.getBigDecimal("confidence"));
-                    if (confidence != null) {
-                        attributes.put("confidence", confidence);
-                    }
-                    Map<String, Object> metadata = parseJsonAttributes(rs.getObject("metadata"));
-                    if (!metadata.isEmpty()) {
-                        attributes.put("metadata", metadata);
-                    }
-                    result.put(camelCaseKey, attributes);
-                }
-                return result;
-            });
-            book.setQualifiers(tags);
-        } catch (DataAccessException ex) {
-            LOG.debug("Failed to hydrate tags for {}: {}", canonicalId, ex.getMessage());
-            book.setQualifiers(Map.of());
-        }
-    }
-    
-    /**
-     * Converts snake_case to camelCase.
-     * Example: nyt_bestseller -> nytBestseller
-     */
-    private String snakeToCamelCase(String snakeCase) {
-        if (snakeCase == null || snakeCase.isBlank()) {
-            return snakeCase;
-        }
-        String[] parts = snakeCase.split("_");
-        if (parts.length == 1) {
-            return snakeCase; // No underscores, return as-is
-        }
-        StringBuilder camelCase = new StringBuilder(parts[0].toLowerCase());
-        for (int i = 1; i < parts.length; i++) {
-            String part = parts[i];
-            if (!part.isEmpty()) {
-                camelCase.append(Character.toUpperCase(part.charAt(0)));
-                if (part.length() > 1) {
-                    camelCase.append(part.substring(1).toLowerCase());
-                }
-            }
-        }
-        return camelCase.toString();
     }
 
     private void hydrateEditions(Book book, UUID canonicalId) {
@@ -417,8 +225,7 @@ public class PostgresBookRepository {
                     });
             book.setOtherEditions(editions.isEmpty() ? List.of() : editions);
         } catch (DataAccessException ex) {
-            LOG.debug("Failed to hydrate editions for {}: {}", canonicalId, ex.getMessage());
-            book.setOtherEditions(List.of());
+            throw new IllegalStateException("Failed to hydrate editions for canonical book " + canonicalId, ex);
         }
     }
 
@@ -468,7 +275,7 @@ public class PostgresBookRepository {
             book.setCoverImages(coverImages);
             
         } catch (DataAccessException ex) {
-            LOG.debug("Failed to hydrate cover for {}: {}", canonicalId, ex.getMessage());
+            throw new IllegalStateException("Failed to hydrate cover for canonical book " + canonicalId, ex);
         }
     }
 
@@ -484,8 +291,7 @@ public class PostgresBookRepository {
             List<String> recommendations = jdbcTemplate.query(sql, ps -> ps.setObject(1, canonicalId), (rs, rowNum) -> rs.getString("recommended_book_id"));
             book.setCachedRecommendationIds(recommendations == null || recommendations.isEmpty() ? List.of() : recommendations);
         } catch (DataAccessException ex) {
-            LOG.debug("Failed to hydrate recommendations for {}: {}", canonicalId, ex.getMessage());
-            book.setCachedRecommendationIds(List.of());
+            throw new IllegalStateException("Failed to hydrate recommendations for canonical book " + canonicalId, ex);
         }
     }
 
@@ -532,7 +338,7 @@ public class PostgresBookRepository {
                 return null;
             });
         } catch (DataAccessException ex) {
-            LOG.debug("Failed to hydrate provider metadata for {}: {}", canonicalId, ex.getMessage());
+            throw new IllegalStateException("Failed to hydrate provider metadata for canonical book " + canonicalId, ex);
         }
     }
 
@@ -553,7 +359,7 @@ public class PostgresBookRepository {
                 return;
             }
         } catch (DataAccessException ex) {
-            LOG.debug("Failed to check NYT source for {}: {}", canonicalId, ex.getMessage());
+            throw new IllegalStateException("Failed to check NYT source for canonical book " + canonicalId, ex);
         }
         
         // Check external provider IDs to determine primary data source
@@ -570,7 +376,7 @@ public class PostgresBookRepository {
                 book.setDataSource(sources.get(0));
             }
         } catch (DataAccessException ex) {
-            LOG.debug("Failed to check provider source for {}: {}", canonicalId, ex.getMessage());
+            throw new IllegalStateException("Failed to check provider source for canonical book " + canonicalId, ex);
         }
     }
     
@@ -581,44 +387,8 @@ public class PostgresBookRepository {
         } catch (EmptyResultDataAccessException ex) {
             return Optional.empty();
         } catch (DataAccessException ex) {
-            LOG.debug("Postgres lookup failed for value {}: {}", param, ex.getMessage());
-            return Optional.empty();
+            throw new IllegalStateException("Postgres lookup failed for value " + param, ex);
         }
-    }
-
-    private Map<String, Object> parseJsonAttributes(Object value) {
-        if (value == null) {
-            return Map.of();
-        }
-        String json = null;
-        Class<?> clazz = value.getClass();
-        if ("org.postgresql.util.PGobject".equals(clazz.getName())) {
-            try {
-                java.lang.reflect.Method getValue = clazz.getMethod("getValue");
-                Object v = getValue.invoke(value);
-                if (v != null) {
-                    json = v.toString();
-                }
-            } catch (ReflectiveOperationException ignored) {
-                // Fall back to other parsing paths
-            }
-        } else if (value instanceof String str) {
-            json = str;
-        }
-        if (json != null && !json.isBlank()) {
-            try {
-                return objectMapper.readValue(json, MAP_TYPE);
-            } catch (java.io.IOException ex) {
-                LOG.debug("Failed to parse tag metadata JSON: {}", ex.getMessage());
-                return Map.of();
-            }
-        }
-        if (value instanceof Map<?, ?> mapValue) {
-            Map<String, Object> copy = new LinkedHashMap<>();
-            mapValue.forEach((k, v) -> copy.put(String.valueOf(k), v));
-            return copy;
-        }
-        return Map.of();
     }
 
     /**
@@ -633,9 +403,6 @@ public class PostgresBookRepository {
         return CoverSourceMapper.toCoverImageSource(raw);
     }
 
-    private Double toDouble(java.math.BigDecimal value) {
-        return value == null ? null : value.doubleValue();
-    }
     private record CoverCandidate(String url,
                                   String s3Path,
                                   String source,

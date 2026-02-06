@@ -57,7 +57,7 @@ public class WorkClusterScheduler {
             }
             
         } catch (DataAccessException e) {
-            LOGGER.error("Failed to run work clustering: {}", e.getMessage(), e);
+            throw new IllegalStateException("Failed to run scheduled work clustering", e);
         }
     }
 
@@ -79,7 +79,7 @@ public class WorkClusterScheduler {
                 }
             );
         } catch (DataAccessException e) {
-            LOGGER.warn("Failed to get clustering stats: {}", e.getMessage());
+            throw new IllegalStateException("Failed to fetch clustering stats", e);
         }
     }
 }

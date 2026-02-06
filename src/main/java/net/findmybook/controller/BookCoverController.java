@@ -20,8 +20,6 @@ import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -34,6 +32,9 @@ import java.util.UUID;
 @RequestMapping("/api/covers")
 @Slf4j
 public class BookCoverController {
+
+    private static final String SOURCE_S3_CACHE = "S3_CACHE";
+    private static final String SOURCE_UNDEFINED = "UNDEFINED";
 
     private final BookSearchService bookSearchService;
     private final BookIdentifierResolver bookIdentifierResolver;
@@ -49,28 +50,36 @@ public class BookCoverController {
     }
 
     @GetMapping("/{identifier}")
-    public ResponseEntity<Map<String, Object>> getCover(@PathVariable String identifier,
-                                                        @RequestParam(required = false, defaultValue = "ANY") String sourcePreference) {
-        CoverPayload payload = resolveCover(identifier)
-            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Book not found with ID: " + identifier));
+    public ResponseEntity<CoverResponse> getCover(@PathVariable String identifier,
+                                                   @RequestParam(required = false, defaultValue = "ANY") String sourcePreference) {
+        CoverPayload payload;
+        try {
+            payload = resolveCover(identifier)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Book not found with ID: " + identifier));
+        } catch (IllegalStateException ex) {
+            log.error("Cover resolution failed for '{}': {}", identifier, ex.getMessage(), ex);
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                "Cover resolution failed for '" + identifier + "'", ex);
+        }
 
-        Map<String, Object> response = new HashMap<>();
-        response.put("bookId", payload.bookId());
-        response.put("requestedSourcePreference", sourcePreference);
+        CoverDetail cover = new CoverDetail(
+            payload.cover().url(),
+            payload.fallbackUrl(),
+            payload.sourceLabel(),
+            payload.cover().width(),
+            payload.cover().height(),
+            payload.cover().highResolution(),
+            sourcePreference
+        );
 
-        Map<String, Object> cover = new HashMap<>();
-        cover.put("preferredUrl", payload.cover().url());
-        cover.put("fallbackUrl", payload.fallbackUrl());
-        cover.put("source", payload.sourceLabel());
-        cover.put("width", payload.cover().width());
-        cover.put("height", payload.cover().height());
-        cover.put("highResolution", payload.cover().highResolution());
-        cover.put("requestedSourcePreference", sourcePreference);
-        response.put("cover", cover);
-
-        response.put("coverUrl", payload.cover().url());
-        response.put("preferredUrl", payload.cover().url());
-        response.put("fallbackUrl", payload.fallbackUrl());
+        CoverResponse response = new CoverResponse(
+            payload.bookId(),
+            sourcePreference,
+            cover,
+            payload.cover().url(),
+            payload.cover().url(),
+            payload.fallbackUrl()
+        );
 
         return ResponseEntity.ok(response);
     }
@@ -101,9 +110,9 @@ public class BookCoverController {
 
         return bookDataOrchestrator.fetchCanonicalBookReactive(identifier)
             .timeout(Duration.ofSeconds(5))
-            .onErrorResume(ex -> {
+            .onErrorMap(ex -> {
                 log.warn("Cover orchestrator lookup failed for '{}': {}", identifier, ex.getMessage());
-                return Mono.empty();
+                return new IllegalStateException("Cover orchestrator lookup failed for identifier '" + identifier + "'", ex);
             })
             .blockOptional()
             .map(book -> toPayload(
@@ -132,10 +141,10 @@ public class BookCoverController {
 
         String fallbackUrl = firstNonBlank(fallbackCandidate, primaryUrl, ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH);
         String sourceLabel = resolved.fromS3()
-            ? "S3_CACHE"
+            ? SOURCE_S3_CACHE
             : Optional.ofNullable(UrlSourceDetector.detectSource(resolved.url()))
                 .map(Enum::name)
-                .orElse("UNDEFINED");
+                .orElse(SOURCE_UNDEFINED);
 
         return new CoverPayload(bookId, resolved, fallbackUrl, sourceLabel);
     }
@@ -156,4 +165,19 @@ public class BookCoverController {
                                 CoverUrlResolver.ResolvedCover cover,
                                 String fallbackUrl,
                                 String sourceLabel) {}
+
+    record CoverDetail(String preferredUrl,
+                        String fallbackUrl,
+                        String source,
+                        Integer width,
+                        Integer height,
+                        Boolean highResolution,
+                        String requestedSourcePreference) {}
+
+    record CoverResponse(String bookId,
+                          String requestedSourcePreference,
+                          CoverDetail cover,
+                          String coverUrl,
+                          String preferredUrl,
+                          String fallbackUrl) {}
 }

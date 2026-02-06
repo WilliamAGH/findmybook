@@ -68,8 +68,10 @@ public class ExternalBookIdResolver {
                 return Optional.empty();
             }, source, sourceId);
         } catch (DataAccessException e) {
-            log.error("Error resolving external ID: source={}, sourceId={}", source, sourceId, e);
-            return Optional.empty();
+            throw new IllegalStateException(
+                "Error resolving external ID mapping for source=" + source + ", sourceId=" + sourceId,
+                e
+            );
         }
     }
     
@@ -115,8 +117,7 @@ public class ExternalBookIdResolver {
                 return result;
             }, bookId);
         } catch (DataAccessException e) {
-            log.error("Error in reverse lookup for bookId={}", bookId, e);
-            return Map.of();
+            throw new IllegalStateException("Error performing reverse external ID lookup for bookId=" + bookId, e);
         }
     }
     
@@ -140,8 +141,10 @@ public class ExternalBookIdResolver {
             Integer count = jdbcTemplate.queryForObject(sql, Integer.class, source, sourceId);
             return count != null && count > 0;
         } catch (DataAccessException e) {
-            log.error("Error checking existence: source={}, sourceId={}", source, sourceId, e);
-            return false;
+            throw new IllegalStateException(
+                "Error checking external ID existence for source=" + source + ", sourceId=" + sourceId,
+                e
+            );
         }
     }
     
@@ -164,8 +167,7 @@ public class ExternalBookIdResolver {
             Integer count = jdbcTemplate.queryForObject(sql, Integer.class, bookId);
             return count != null ? count : 0;
         } catch (DataAccessException e) {
-            log.error("Error counting external IDs for bookId={}", bookId, e);
-            return 0;
+            throw new IllegalStateException("Error counting external IDs for bookId=" + bookId, e);
         }
     }
 }

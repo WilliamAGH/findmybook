@@ -6,12 +6,10 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import reactor.core.Disposable;
 
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Warms up critical caches on application startup to prevent first-request delays.
@@ -26,7 +24,6 @@ public class CacheWarmupService {
     private final NewYorkTimesService newYorkTimesService;
     private final AtomicBoolean bestsellersWarmupInProgress = new AtomicBoolean(false);
     private final AtomicLong lastBestsellersWarmupStartedAt = new AtomicLong(0);
-    private final AtomicReference<Disposable> warmupSubscription = new AtomicReference<>();
 
     @Value("${app.cache.warmup.bestsellers.list-name:hardcover-fiction}")
     private String bestsellerListName;
@@ -76,29 +73,15 @@ public class CacheWarmupService {
 
         try {
             lastBestsellersWarmupStartedAt.set(now);
-
-            // Dispose previous subscription to prevent memory leak
-            Disposable oldSubscription = warmupSubscription.getAndSet(null);
-            if (oldSubscription != null && !oldSubscription.isDisposed()) {
-                oldSubscription.dispose();
-                log.debug("Disposed previous warmup subscription");
-            }
-
-            // Create new subscription with proper disposal tracking
-            Disposable newSubscription = newYorkTimesService.getCurrentBestSellersCards(bestsellerListName, bestsellerLimit)
-                .doFinally(signal -> {
-                    bestsellersWarmupInProgress.set(false);
-                    warmupSubscription.compareAndSet(warmupSubscription.get(), null);
-                })
-                .subscribe(
-                    list -> log.info("Warmed bestsellers cache with {} books from '{}'", list.size(), bestsellerListName),
-                    error -> log.warn("Failed to warm bestsellers cache: {}", error.getMessage())
-                );
-
-            warmupSubscription.set(newSubscription);
+            var warmed = newYorkTimesService
+                .getCurrentBestSellersCards(bestsellerListName, bestsellerLimit)
+                .block(Duration.ofSeconds(30));
+            int warmedCount = warmed != null ? warmed.size() : 0;
+            log.info("Warmed bestsellers cache with {} books from '{}'", warmedCount, bestsellerListName);
         } catch (RuntimeException e) {
+            throw new IllegalStateException("Bestsellers cache warmup failed", e);
+        } finally {
             bestsellersWarmupInProgress.set(false);
-            log.warn("Exception during bestsellers cache warmup: {}", e.getMessage());
         }
     }
 }

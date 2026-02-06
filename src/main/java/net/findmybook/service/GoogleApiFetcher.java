@@ -7,7 +7,7 @@
  */
 package net.findmybook.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
 import net.findmybook.util.LoggingUtils;
 import net.findmybook.util.ExternalApiLogger;
@@ -159,11 +159,12 @@ public class GoogleApiFetcher {
                     }
                 })
                 .map(responseEntity -> responseEntity != null ? responseEntity.getBody() : null)
-                .onErrorResume(e -> {
+                .onErrorMap(e -> {
                     if (e instanceof PrematureCloseException) {
                         LoggingUtils.warn(log, e, "Connection prematurely closed during Google API call: {}", url);
                         apiRequestMonitor.recordFailedRequest(endpoint, "Premature close: " + e.getMessage());
-                        return Mono.empty();
+                        ExternalApiLogger.logApiCallFailure(log, "GoogleBooks", "FETCH_VOLUME", url, e.getMessage());
+                        return new IllegalStateException("Google API connection closed early for " + url, e);
                     }
                     if (e instanceof WebClientResponseException wcre) {
                         LoggingUtils.error(log, wcre,
@@ -192,7 +193,7 @@ public class GoogleApiFetcher {
                     }
                     ExternalApiLogger.logApiCallFailure(log, "GoogleBooks", "FETCH_VOLUME", url, e.getMessage());
                     apiRequestMonitor.recordFailedRequest(endpoint, e.getMessage());
-                    return Mono.empty();
+                    return new IllegalStateException("Google API request failed for " + url, e);
                 });
     }
 
@@ -306,12 +307,15 @@ public class GoogleApiFetcher {
                                 authenticated ? "Authenticated" : "Unauthenticated", query, startIndex);
                         return Flux.empty();
                     }))
-                    .onErrorResume(e -> {
+                    .onErrorMap(e -> {
                         LoggingUtils.warn(log, e,
-                                "GoogleApiFetcher: Error during {} search page for query '{}' at startIndex {}. Continuing stream.",
+                                "GoogleApiFetcher: Error during {} search page for query '{}' at startIndex {}.",
                                 authenticated ? "authenticated" : "unauthenticated", query, startIndex);
                         ExternalApiLogger.logApiCallFailure(log, "GoogleBooks", "SEARCH_PAGE", String.format("%s start=%d", query, startIndex), e.getMessage());
-                        return Flux.empty();
+                        return new IllegalStateException(
+                            "Google API search page failed for query '" + query + "' at startIndex " + startIndex,
+                            e
+                        );
                     });
             })
             .take(effectiveMax);
@@ -405,13 +409,17 @@ public class GoogleApiFetcher {
                     }
                 })
                 .map(responseEntity -> responseEntity != null ? responseEntity.getBody() : null)
-                .onErrorResume(e -> {
+                .onErrorMap(e -> {
                     if (e instanceof PrematureCloseException) {
                         LoggingUtils.warn(log, e,
                             "Connection prematurely closed during Google API search ({}) for query '{}' at startIndex {}",
                             authStatus, query, startIndex);
                         apiRequestMonitor.recordFailedRequest(endpoint, "Premature close: " + e.getMessage());
-                        return Mono.empty();
+                        ExternalApiLogger.logApiCallFailure(log, "GoogleBooks", "SEARCH_HTTP", url, e.getMessage());
+                        return new IllegalStateException(
+                            "Google API search connection closed early for query '" + query + "' at startIndex " + startIndex,
+                            e
+                        );
                     }
                     if (e instanceof WebClientResponseException wcre) {
                         LoggingUtils.error(log, wcre,
@@ -444,7 +452,10 @@ public class GoogleApiFetcher {
                     }
                     apiRequestMonitor.recordFailedRequest(endpoint, e.getMessage());
                     ExternalApiLogger.logApiCallFailure(log, "GoogleBooks", "SEARCH_HTTP", url, e.getMessage());
-                    return Mono.empty();
+                    return new IllegalStateException(
+                        "Google API search failed for query '" + query + "' at startIndex " + startIndex,
+                        e
+                    );
                 });
     }
 

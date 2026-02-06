@@ -14,14 +14,7 @@ package net.findmybook.service;
 
 import org.springframework.stereotype.Service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import net.findmybook.dto.BookAggregate;
 import net.findmybook.model.Book;
-import net.findmybook.util.ExternalApiLogger;
-import net.findmybook.util.IsbnUtils;
-import net.findmybook.util.SlugGenerator;
-import net.findmybook.util.UrlUtils;
 import net.findmybook.util.ValidationUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,24 +22,9 @@ import org.springframework.lang.Nullable;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
-import org.springframework.dao.DataAccessResourceFailureException;
-import org.springframework.dao.DataAccessException;
-import org.springframework.jdbc.CannotGetJdbcConnectionException;
-
-import java.io.IOException;
-import java.net.ConnectException;
-import java.net.SocketException;
-import java.sql.SQLException;
-import java.time.LocalDate;
-import java.time.ZoneId;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
@@ -56,36 +34,19 @@ public class BookDataOrchestrator {
 
     private static final Logger logger = LoggerFactory.getLogger(BookDataOrchestrator.class);
 
-    private final ObjectMapper objectMapper;
     private final BookSearchService bookSearchService;
     private final PostgresBookRepository postgresBookRepository;
-    private final BookUpsertService bookUpsertService; // SSOT for all book writes
-    private final net.findmybook.mapper.GoogleBooksMapper googleBooksMapper; // For Book->BookAggregate mapping
+    private final BookExternalBatchPersistenceService bookExternalBatchPersistenceService;
     private static final long SEARCH_VIEW_REFRESH_INTERVAL_MS = 60_000L;
     private final AtomicLong lastSearchViewRefresh = new AtomicLong(0L);
     private final AtomicBoolean searchViewRefreshInProgress = new AtomicBoolean(false);
 
-    // Error message patterns for detecting systemic database failures
-    private static final String ERR_CONNECTION = "connection";
-    private static final String ERR_REFUSED = "refused";
-    private static final String ERR_CLOSED = "closed";
-    private static final String ERR_RESET = "reset";
-    private static final String ERR_TIMEOUT = "timeout";
-    private static final String ERR_AUTH_FAILED = "authentication failed";
-    private static final String ERR_TOO_MANY_CONNECTIONS = "too many connections";
-    private static final String ERR_DATABASE = "database";
-    private static final String ERR_DOES_NOT_EXIST = "does not exist";
-
-    public BookDataOrchestrator(ObjectMapper objectMapper,
-                                BookSearchService bookSearchService,
+    public BookDataOrchestrator(BookSearchService bookSearchService,
                                 @Nullable PostgresBookRepository postgresBookRepository,
-                                BookUpsertService bookUpsertService,
-                                net.findmybook.mapper.GoogleBooksMapper googleBooksMapper) {
-        this.objectMapper = objectMapper;
+                                BookExternalBatchPersistenceService bookExternalBatchPersistenceService) {
         this.bookSearchService = bookSearchService;
         this.postgresBookRepository = postgresBookRepository;
-        this.bookUpsertService = bookUpsertService;
-        this.googleBooksMapper = googleBooksMapper;
+        this.bookExternalBatchPersistenceService = bookExternalBatchPersistenceService;
     }
 
     public void refreshSearchView() {
@@ -174,173 +135,17 @@ public class BookDataOrchestrator {
         })
         .subscribeOn(Schedulers.boundedElastic())
         .flatMap(book -> book != null ? Mono.just(book) : Mono.empty())
-        .onErrorResume(e -> {
-            logger.warn("fetchCanonicalBookReactive failed for {}: {}", identifier, e.getMessage());
-            return Mono.empty();
-        });
+        .doOnError(e -> logger.error("fetchCanonicalBookReactive failed for {}: {}", identifier, e.getMessage(), e));
     }
 
     /**
      * Persists books that were fetched from external APIs during search/recommendations.
      * This ensures opportunistic upsert: books returned from API calls get saved to Postgres.
-     *
-     * Task #8: Deduplicates books by ID before persistence to avoid redundant operations.
-     *
      * @param books List of books to persist
      * @param context Context string for logging (e.g., "SEARCH", "RECOMMENDATION")
      */
     public void persistBooksAsync(List<Book> books, String context) {
-        if (books == null || books.isEmpty()) {
-            logger.info("[EXTERNAL-API] [{}] persistBooksAsync called but books list is null or empty", context);
-            return;
-        }
-
-        int originalSize = books.size();
-        logger.info("[EXTERNAL-API] [{}] persistBooksAsync INVOKED with {} books", context, originalSize);
-
-        // Task #8: Deduplicate books to prevent redundant persistence operations
-        List<Book> uniqueBooks = filterDuplicatesById(books);
-        int duplicateCount = originalSize - uniqueBooks.size();
-        if (duplicateCount > 0) {
-            logger.info("[EXTERNAL-API] [{}] Filtered {} duplicate book(s) by ID, {} candidates remain",
-                context, duplicateCount, uniqueBooks.size());
-        }
-
-        if (uniqueBooks.isEmpty()) {
-            logger.warn("[EXTERNAL-API] [{}] No valid books to persist after deduplication", context);
-            return;
-        }
-
-        List<Book> dedupedByIdentifiers = deduplicateByIdentifiers(uniqueBooks);
-        int identifierDuplicateCount = uniqueBooks.size() - dedupedByIdentifiers.size();
-        if (identifierDuplicateCount > 0) {
-            logger.info("[EXTERNAL-API] [{}] Removed {} duplicate book(s) by ISBN/title after ID filtering (final count={})",
-                context, identifierDuplicateCount, dedupedByIdentifiers.size());
-        }
-
-        Mono.fromRunnable(() -> {
-            logger.info("[EXTERNAL-API] [{}] Persisting {} unique books to Postgres - RUNNABLE EXECUTING",
-                context, dedupedByIdentifiers.size());
-            long start = System.currentTimeMillis();
-            int successCount = 0;
-            int failureCount = 0;
-
-            for (Book book : dedupedByIdentifiers) {
-                if (book == null) {
-                    logger.warn("[EXTERNAL-API] [{}] Skipping null book in persistence", context);
-                    continue;
-                }
-                if (book.getId() == null) {
-                    logger.warn("[EXTERNAL-API] [{}] Skipping book with null ID: title={}", context, book.getTitle());
-                    continue;
-                }
-                
-                try {
-                    logger.debug("[EXTERNAL-API] [{}] Attempting to persist book: id={}, title={}", context, book.getId(), book.getTitle());
-                    ExternalApiLogger.logHydrationStart(logger, context, book.getId(), context);
-                    
-                    // Convert book to JSON for storage
-                    JsonNode bookJson;
-                    if (book.getRawJsonResponse() != null && !book.getRawJsonResponse().isBlank()) {
-                        bookJson = objectMapper.readTree(book.getRawJsonResponse());
-                    } else {
-                        bookJson = objectMapper.valueToTree(book);
-                    }
-                    
-                    logger.debug("[EXTERNAL-API] [{}] Calling persistBook for id={}", context, book.getId());
-                    // Persist using the same method as individual fetches
-                    boolean ok = persistBook(book, bookJson);
-                    
-                    if (ok) {
-                        ExternalApiLogger.logHydrationSuccess(logger, context, book.getId(), book.getId(), "POSTGRES_UPSERT");
-                        successCount++;
-                        logger.debug("[EXTERNAL-API] [{}] Successfully persisted book id={}", context, book.getId());
-                    } else {
-                        failureCount++;
-                        logger.warn("[EXTERNAL-API] [{}] Persist returned false for id={}", context, book.getId());
-                    }
-                } catch (IOException | RuntimeException ex) {
-                    ExternalApiLogger.logHydrationFailure(logger, context, book.getId(), ex.getMessage());
-                    failureCount++;
-                    logger.error("[EXTERNAL-API] [{}] Failed to persist book {} from {}: {}", context, book.getId(), context, ex.getMessage(), ex);
-
-                    // Fail fast on systemic errors (connection issues) to avoid hammering a broken database
-                    if (isSystemicDatabaseError(ex)) {
-                        logger.error("[EXTERNAL-API] [{}] Aborting batch due to systemic database error", context);
-                        if (ex instanceof IllegalStateException stateException) {
-                            throw stateException;
-                        }
-                        throw new IllegalStateException("Systemic database error during batch persistence", ex);
-                    }
-                }
-            }
-            
-            long elapsed = System.currentTimeMillis() - start;
-            logger.info("[EXTERNAL-API] [{}] Persistence complete: {} succeeded, {} failed ({} ms)", 
-                context, successCount, failureCount, elapsed);
-        })
-        .subscribeOn(Schedulers.boundedElastic())
-        .doOnSubscribe(sub -> logger.info("[EXTERNAL-API] [{}] Mono subscribed for persistence", context))
-        .subscribe(
-            ignored -> logger.info("[EXTERNAL-API] [{}] Persistence Mono completed successfully", context),
-            error -> logger.error("[EXTERNAL-API] [{}] Background persistence failed: {}", context, error.getMessage(), error)
-        );
-        
-        logger.info("[EXTERNAL-API] [{}] persistBooksAsync setup complete, async execution scheduled", context);
-    }
-
-    private List<Book> filterDuplicatesById(List<Book> books) {
-        if (books == null || books.isEmpty()) {
-            return List.of();
-        }
-        Set<String> seenIds = ConcurrentHashMap.newKeySet();
-        List<Book> unique = new ArrayList<>(books.size());
-        for (Book book : books) {
-            if (book == null || !ValidationUtils.hasText(book.getId())) {
-                continue;
-            }
-            if (seenIds.add(book.getId())) {
-                unique.add(book);
-            }
-        }
-        return unique;
-    }
-
-    private List<Book> deduplicateByIdentifiers(List<Book> books) {
-        if (books == null || books.isEmpty()) {
-            return List.of();
-        }
-        Map<String, Book> deduped = new LinkedHashMap<>();
-        for (Book book : books) {
-            if (book == null) {
-                continue;
-            }
-            String isbn13 = IsbnUtils.sanitize(book.getIsbn13());
-            if (ValidationUtils.hasText(isbn13)) {
-                deduped.putIfAbsent("ISBN13:" + isbn13, book);
-                continue;
-            }
-            String isbn10 = IsbnUtils.sanitize(book.getIsbn10());
-            if (ValidationUtils.hasText(isbn10)) {
-                deduped.putIfAbsent("ISBN10:" + isbn10, book);
-                continue;
-            }
-            String normalizedTitle = normalizeTitleForDedupe(book.getTitle());
-            if (normalizedTitle != null) {
-                deduped.putIfAbsent("TITLE:" + normalizedTitle, book);
-                continue;
-            }
-            // Fallback: preserve remaining entries without identifiers
-            deduped.putIfAbsent("FALLBACK:" + book.getId(), book);
-        }
-        return new ArrayList<>(deduped.values());
-    }
-
-    private String normalizeTitleForDedupe(String title) {
-        if (!ValidationUtils.hasText(title)) {
-            return null;
-        }
-        return title.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
+        bookExternalBatchPersistenceService.persistBooksAsync(books, context, () -> triggerSearchViewRefresh(false));
     }
 
     /**
@@ -383,171 +188,17 @@ public class BookDataOrchestrator {
     // See schema.sql for clustering logic
 
     /**
-     * Persists book to database using BookUpsertService (SSOT for all writes).
+     * Backward-compatible wrapper kept for focused unit tests.
      */
-    private boolean persistBook(Book book, JsonNode sourceJson) {
-        try {
-            if (book == null) {
-                logger.warn("persistBook invoked with null book reference; skipping.");
-                return false;
-            }
-
-            // Convert provider payload to BookAggregate using the Google mapper first
-            BookAggregate aggregate = googleBooksMapper.map(sourceJson);
-
-            if (aggregate == null) {
-                aggregate = buildFallbackAggregate(book);
-                if (aggregate == null) {
-                    logger.warn("Unable to map external payload for book {}. Skipping persistence.", book.getId());
-                    return false;
-                }
-            }
-
-            bookUpsertService.upsert(aggregate);
-            triggerSearchViewRefresh(false);
-            logger.debug("Persisted book via BookUpsertService: {}", book.getId());
-            return true;
-        } catch (DataAccessException | IllegalArgumentException | IllegalStateException ex) {
-            logger.error("Error persisting via BookUpsertService for book {}: {}",
-                book != null ? book.getId() : "UNKNOWN", ex.getMessage(), ex);
-            // Rethrow systemic DB failures so batch abort logic in persistBooksAsync can trigger
-            if (isSystemicDatabaseError(ex)) {
-                if (ex instanceof IllegalStateException stateException) {
-                    throw stateException;
-                }
-                throw new IllegalStateException("Systemic database error during upsert", ex);
-            }
-            return false;
-        }
+    private boolean persistBook(Book book, tools.jackson.databind.JsonNode sourceJson) {
+        return bookExternalBatchPersistenceService.persistBook(book, sourceJson, () -> triggerSearchViewRefresh(false));
     }
 
     /**
-     * Determines if an exception indicates a systemic database problem (connection failure,
-     * authentication error, etc.) that would cause all subsequent operations to fail.
-     * Used to fail-fast on batch operations rather than repeatedly hammering a broken database.
-     *
-     * <p>Detection strategy:</p>
-     * <ol>
-     *   <li>Walk the full cause chain, checking known systemic exception types first</li>
-     *   <li>Evaluate SQLException/DataAccessException messages at each cause level</li>
-     * </ol>
+     * Backward-compatible wrapper kept for focused unit tests.
      */
     private boolean isSystemicDatabaseError(Throwable ex) {
-        if (ex == null) {
-            return false;
-        }
-        Throwable current = ex;
-        while (current != null) {
-            if (current instanceof Exception exception && isSystemicExceptionType(exception)) {
-                return true;
-            }
-            if ((current instanceof SQLException || current instanceof DataAccessException)
-                && isSystemicErrorMessage(current.getMessage())) {
-                return true;
-            }
-            current = current.getCause();
-        }
-        return false;
-    }
-
-    /**
-     * Checks if the exception type itself indicates a systemic database failure.
-     */
-    private boolean isSystemicExceptionType(Exception ex) {
-        return ex instanceof ConnectException
-            || ex instanceof SocketException
-            || ex instanceof CannotGetJdbcConnectionException
-            || ex instanceof DataAccessResourceFailureException;
-    }
-
-    /**
-     * Analyzes exception message for systemic error patterns.
-     * Only called for SQLException/DataAccessException to minimize false positives.
-     */
-    private boolean isSystemicErrorMessage(String message) {
-        if (message == null) {
-            return false;
-        }
-        String lowerMessage = message.toLowerCase(Locale.ROOT);
-
-        boolean isConnectionError = lowerMessage.contains(ERR_CONNECTION) && (
-            lowerMessage.contains(ERR_REFUSED) ||
-            lowerMessage.contains(ERR_CLOSED) ||
-            lowerMessage.contains(ERR_RESET) ||
-            lowerMessage.contains(ERR_TIMEOUT)
-        );
-
-        boolean isAuthError = lowerMessage.contains(ERR_AUTH_FAILED);
-        boolean isPoolExhausted = lowerMessage.contains(ERR_TOO_MANY_CONNECTIONS);
-        boolean isDatabaseMissing = lowerMessage.contains(ERR_DATABASE) &&
-                                    lowerMessage.contains(ERR_DOES_NOT_EXIST);
-
-        return isConnectionError || isAuthError || isPoolExhausted || isDatabaseMissing;
-    }
-
-    /**
-     * Builds a fallback BookAggregate from a Book model object.
-     * <p>Task #9: Sanitizes ISBNs to ensure consistent formatting before persistence.</p>
-     */
-    private BookAggregate buildFallbackAggregate(Book book) {
-        if (book == null || book.getTitle() == null || book.getTitle().isBlank()) {
-            return null;
-        }
-
-        LocalDate publishedDate = null;
-        if (book.getPublishedDate() != null) {
-            publishedDate = book.getPublishedDate().toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
-        }
-
-        Map<String, String> imageLinks = new LinkedHashMap<>();
-        if (book.getCoverImages() != null) {
-            if (book.getCoverImages().getPreferredUrl() != null && !book.getCoverImages().getPreferredUrl().isBlank()) {
-                imageLinks.put("large", UrlUtils.normalizeToHttps(book.getCoverImages().getPreferredUrl()));
-            }
-            if (book.getCoverImages().getFallbackUrl() != null && !book.getCoverImages().getFallbackUrl().isBlank()) {
-                imageLinks.putIfAbsent("small", UrlUtils.normalizeToHttps(book.getCoverImages().getFallbackUrl()));
-            }
-        }
-        if (book.getExternalImageUrl() != null && !book.getExternalImageUrl().isBlank()) {
-            imageLinks.putIfAbsent("thumbnail", UrlUtils.normalizeToHttps(book.getExternalImageUrl()));
-        }
-
-        Map<String, String> immutableImageLinks = imageLinks.isEmpty() ? Map.of() : Map.copyOf(imageLinks);
-        String source = book.getRetrievedFrom() != null ? book.getRetrievedFrom() : "OPEN_LIBRARY";
-
-        BookAggregate.ExternalIdentifiers identifiers = BookAggregate.ExternalIdentifiers.builder()
-            .source(source)
-            .externalId(book.getId())
-            .infoLink(book.getInfoLink())
-            .previewLink(book.getPreviewLink())
-            .purchaseLink(book.getPurchaseLink())
-            .webReaderLink(book.getWebReaderLink())
-            .averageRating(book.getAverageRating())
-            .ratingsCount(book.getRatingsCount())
-            .imageLinks(immutableImageLinks)
-            .build();
-
-        // Task #9: Sanitize ISBNs before building aggregate to prevent duplicate books
-        // from formatting differences (e.g., "978-0-545-01022-1" vs "9780545010221")
-        String sanitizedIsbn13 = IsbnUtils.sanitize(book.getIsbn13());
-        String sanitizedIsbn10 = IsbnUtils.sanitize(book.getIsbn10());
-
-        return BookAggregate.builder()
-            .title(book.getTitle())
-            .description(book.getDescription())
-            .isbn13(sanitizedIsbn13)
-            .isbn10(sanitizedIsbn10)
-            .publishedDate(publishedDate)
-            .language(book.getLanguage())
-            .publisher(book.getPublisher())
-            .pageCount(book.getPageCount())
-            .authors(book.getAuthors())
-            .categories(book.getCategories())
-            .identifiers(identifiers)
-            .slugBase(SlugGenerator.generateBookSlug(book.getTitle(), book.getAuthors()))
-            .editionNumber(book.getEditionNumber())
-            // Task #6: editionGroupKey removed - replaced by work_clusters system
-            .build();
+        return bookExternalBatchPersistenceService.isSystemicDatabaseError(ex);
     }
 
     // Kept private for focused unit tests that validate UUID parsing behavior.
@@ -557,17 +208,17 @@ public class BookDataOrchestrator {
     }
 
     // Kept private for focused unit tests that validate strict JSON payload parsing.
-    private static com.fasterxml.jackson.databind.JsonNode parseBookJsonPayload(String payload, String fallbackId) {
+    private static tools.jackson.databind.JsonNode parseBookJsonPayload(String payload, String fallbackId) {
         try {
-            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-            try (com.fasterxml.jackson.core.JsonParser parser = mapper.createParser(payload)) {
-                com.fasterxml.jackson.databind.JsonNode node = mapper.readTree(parser);
+            tools.jackson.databind.ObjectMapper mapper = new tools.jackson.databind.ObjectMapper();
+            try (tools.jackson.core.JsonParser parser = mapper.createParser(payload)) {
+                tools.jackson.databind.JsonNode node = mapper.readTree(parser);
                 if (parser.nextToken() != null) {
                     return null;
                 }
                 return node;
             }
-        } catch (IOException ex) {
+        } catch (tools.jackson.core.JacksonException ex) {
             logger.debug("Failed to parse book JSON payload for fallback id '{}': {}", fallbackId, ex.getMessage());
             return null;
         }

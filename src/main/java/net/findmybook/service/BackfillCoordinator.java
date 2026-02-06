@@ -1,6 +1,6 @@
 package net.findmybook.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import net.findmybook.dto.BookAggregate;
 import net.findmybook.mapper.GoogleBooksMapper;
 import io.github.resilience4j.bulkhead.Bulkhead;
@@ -12,6 +12,7 @@ import io.github.resilience4j.ratelimiter.RequestNotPermitted;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
+import net.findmybook.support.retry.AdvisoryLockRetrySupport;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
@@ -51,6 +52,8 @@ public class BackfillCoordinator {
     private final Bulkhead bulkhead;
     
     private static final int MAX_RETRIES = 3;
+    private static final int UPSERT_LOCK_MAX_ATTEMPTS = 3;
+    private static final long UPSERT_LOCK_RETRY_BACKOFF_MS = 100L;
     
     private Thread workerThread;
     private volatile boolean running = false;
@@ -130,7 +133,8 @@ public class BackfillCoordinator {
                 break;
             } catch (RuntimeException e) {
                 log.error("Error in backfill worker loop", e);
-                // Continue processing next task
+                running = false;
+                throw new IllegalStateException("Backfill worker loop terminated due to unrecoverable error", e);
             }
         }
         
@@ -178,7 +182,13 @@ public class BackfillCoordinator {
             }
             
             // Upsert to database
-            BookUpsertService.UpsertResult result = bookUpsertService.upsert(aggregate);
+            BookUpsertService.UpsertResult result = AdvisoryLockRetrySupport.execute(
+                log,
+                "backfill upsert " + task.source() + "/" + task.sourceId(),
+                UPSERT_LOCK_MAX_ATTEMPTS,
+                UPSERT_LOCK_RETRY_BACKOFF_MS,
+                () -> bookUpsertService.upsert(aggregate)
+            );
             
             log.info("Backfill success: {} {} → book_id={}, slug={}",
                 task.source(), task.sourceId(), result.getBookId(), result.getSlug());
@@ -191,7 +201,7 @@ public class BackfillCoordinator {
             handleFailure(task, e.getMessage());
         }
     }
-    
+
     /**
      * Handle task failure with retry logic.
      */
@@ -216,10 +226,7 @@ public class BackfillCoordinator {
     private JsonNode fetchExternalData(String source, String sourceId) {
         return switch (source) {
             case "GOOGLE_BOOKS" -> fetchFromGoogleBooks(sourceId);
-            default -> {
-                log.warn("Unsupported source: {}", source);
-                yield null;
-            }
+            default -> throw new IllegalStateException("Unsupported backfill source: " + source);
         };
     }
     
@@ -240,8 +247,7 @@ public class BackfillCoordinator {
             
             return json;
         } catch (RuntimeException e) {
-            log.error("Error fetching from Google Books: {}", volumeId, e);
-            return null;
+            throw new IllegalStateException("Error fetching Google Books volume " + volumeId, e);
         }
     }
     
@@ -270,10 +276,7 @@ public class BackfillCoordinator {
     private BookAggregate mapToAggregate(String source, JsonNode json) {
         return switch (source) {
             case "GOOGLE_BOOKS" -> googleBooksMapper.map(json);
-            default -> {
-                log.warn("No mapper for source: {}", source);
-                yield null;
-            }
+            default -> throw new IllegalStateException("No mapper configured for source: " + source);
         };
     }
     

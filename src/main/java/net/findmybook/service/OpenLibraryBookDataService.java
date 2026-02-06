@@ -29,7 +29,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.netty.http.client.PrematureCloseException;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Date;
@@ -87,9 +87,9 @@ public class OpenLibraryBookDataService {
                 .retrieve()
                 .bodyToMono(JsonNode.class)
                 .timeout(Duration.ofSeconds(5))
-                .onErrorResume(PrematureCloseException.class, e -> {
+                .onErrorMap(PrematureCloseException.class, e -> {
                     log.debug("OpenLibrary connection closed early for ISBN {}: {}", isbn, e.toString());
-                    return Mono.empty();
+                    return new IllegalStateException("OpenLibrary connection closed early for ISBN " + isbn, e);
                 })
                 .flatMap(responseNode -> {
                     JsonNode bookDataNode = responseNode.path(bibkey);
@@ -101,9 +101,9 @@ public class OpenLibraryBookDataService {
                     return book != null ? Mono.just(book) : Mono.empty();
                 })
                 .doOnError(e -> LoggingUtils.error(log, e, "Error fetching book by ISBN {} from OpenLibrary", isbn))
-                .onErrorResume(e -> { // Ensure fallback behavior on error before circuit breaker
+                .onErrorMap(e -> { // Ensure errors propagate and are visible before circuit breaker handling
                     LoggingUtils.warn(log, e, "Error during OpenLibrary fetch for ISBN {}, returning empty", isbn);
-                    return Mono.empty();
+                    return new IllegalStateException("OpenLibrary ISBN lookup failed for " + isbn, e);
                 });
     }
 
@@ -153,9 +153,9 @@ public class OpenLibraryBookDataService {
                 .retrieve()
                 .bodyToMono(JsonNode.class)
                 .timeout(Duration.ofSeconds(5))
-                .onErrorResume(PrematureCloseException.class, e -> {
+                .onErrorMap(PrematureCloseException.class, e -> {
                     log.debug("OpenLibrary search connection closed early for title '{}': {}", title, e.toString());
-                    return Mono.empty();
+                    return new IllegalStateException("OpenLibrary title search connection closed early for '" + title + "'", e);
                 })
                 .flatMapMany(responseNode -> {
                     if (!responseNode.has("docs") || !responseNode.get("docs").isArray()) {
@@ -169,10 +169,10 @@ public class OpenLibraryBookDataService {
                                .filter(Objects::nonNull);
                 })
                 .doOnError(e -> LoggingUtils.error(log, e, "Error searching books by title '{}' from OpenLibrary", title))
-                .onErrorResume(e -> {
+                .onErrorMap(e -> {
                      LoggingUtils.warn(log, e, "Error during OpenLibrary search for title '{}', returning empty Flux", title);
                      ExternalApiLogger.logApiCallFailure(log, "OpenLibrary", "SEARCH_TITLE", title, e.getMessage());
-                     return Flux.empty();
+                     return new IllegalStateException("OpenLibrary title search failed for '" + title + "'", e);
                 });
     }
 
@@ -208,9 +208,9 @@ public class OpenLibraryBookDataService {
                 .retrieve()
                 .bodyToMono(JsonNode.class)
                 .timeout(Duration.ofSeconds(5))
-                .onErrorResume(PrematureCloseException.class, e -> {
+                .onErrorMap(PrematureCloseException.class, e -> {
                     log.debug("OpenLibrary author search connection closed early for '{}': {}", author, e.toString());
-                    return Mono.empty();
+                    return new IllegalStateException("OpenLibrary author search connection closed early for '" + author + "'", e);
                 })
                 .flatMapMany(responseNode -> {
                     if (!responseNode.has("docs") || !responseNode.get("docs").isArray()) {
@@ -224,10 +224,10 @@ public class OpenLibraryBookDataService {
                             .filter(Objects::nonNull);
                 })
                 .doOnError(e -> LoggingUtils.error(log, e, "Error searching books by author '{}' from OpenLibrary", author))
-                .onErrorResume(e -> {
+                .onErrorMap(e -> {
                     LoggingUtils.warn(log, e, "Error during OpenLibrary search for author '{}', returning empty Flux", author);
                     ExternalApiLogger.logApiCallFailure(log, "OpenLibrary", "SEARCH_AUTHOR", author, e.getMessage());
-                    return Flux.empty();
+                    return new IllegalStateException("OpenLibrary author search failed for '" + author + "'", e);
                 });
     }
 
@@ -247,12 +247,12 @@ public class OpenLibraryBookDataService {
     @Deprecated(since = "2025-10-01", forRemoval = true)
     public Mono<Book> fetchBookFallback(String isbn, Throwable t) {
         LoggingUtils.warn(log, t, "OpenLibraryBookDataService.fetchBookByIsbn fallback triggered for ISBN: {}", isbn);
-        return Mono.empty();
+        return Mono.error(new IllegalStateException("OpenLibrary fallback triggered for ISBN " + isbn, t));
     }
 
     public Flux<Book> searchBooksFallback(String title, Throwable t) {
         LoggingUtils.warn(log, t, "OpenLibraryBookDataService.searchBooksByTitle fallback triggered for title: '{}'", title);
-        return Flux.empty();
+        return Flux.error(new IllegalStateException("OpenLibrary fallback triggered for search '" + title + "'", t));
     }
 
     private Book parseOpenLibraryBook(JsonNode bookDataNode, String originalIsbn) {

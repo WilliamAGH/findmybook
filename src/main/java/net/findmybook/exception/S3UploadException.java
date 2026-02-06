@@ -11,4 +11,8 @@ public class S3UploadException extends S3CoverUploadException {
         super("Failed to upload cover to S3 for book " + bookId,
               bookId, imageUrl, true, cause);
     }
+
+    public S3UploadException(String message, String bookId, String imageUrl, boolean retryable, Throwable cause) {
+        super(message, bookId, imageUrl, retryable, cause);
+    }
 }

@@ -19,10 +19,8 @@ import net.findmybook.service.s3.DryRunSummary;
 import net.findmybook.service.s3.MoveActionSummary;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import net.findmybook.util.LoggingUtils;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.stereotype.Service;
-import software.amazon.awssdk.services.s3.model.S3Object;
 
 import java.util.List;
 import java.util.ArrayList;
@@ -62,8 +60,7 @@ public class S3CoverCleanupService {
 
         String bucketName = s3StorageService.getBucketName();
         if (bucketName == null || bucketName.isEmpty()) {
-            logger.error("S3 bucket name is not configured. Aborting dry run.");
-            return new DryRunSummary(0, 0, new ArrayList<>());
+            throw new IllegalStateException("S3 bucket name is not configured. Cannot execute dry run.");
         }
         logger.info("Target S3 Bucket: {}", bucketName);
         
@@ -74,10 +71,10 @@ public class S3CoverCleanupService {
         List<String> flaggedKeysList = new ArrayList<>();
 
         try {
-            List<S3Object> allS3Objects = s3StorageService.listObjects(prefix);
+            List<S3StorageService.StoredObjectMetadata> allS3Objects = s3StorageService.listObjects(prefix);
             logger.info("Found {} total objects in bucket {} with prefix '{}' to scan.", allS3Objects.size(), bucketName, prefix);
 
-            List<S3Object> objectsToProcess = allS3Objects;
+            List<S3StorageService.StoredObjectMetadata> objectsToProcess = allS3Objects;
             if (batchLimit > 0 && allS3Objects.size() > batchLimit) {
                 objectsToProcess = allS3Objects.subList(0, batchLimit);
                 logger.info("Processing a batch of {} objects due to limit {}.", objectsToProcess.size(), batchLimit);
@@ -85,12 +82,12 @@ public class S3CoverCleanupService {
                 logger.info("Processing all {} found objects (batch limit {} not exceeded or not set).", objectsToProcess.size(), batchLimit);
             }
 
-            for (S3Object s3Object : objectsToProcess) {
-                String key = s3Object.key();
+            for (S3StorageService.StoredObjectMetadata objectMetadata : objectsToProcess) {
+                String key = objectMetadata.key();
                 totalScanned.incrementAndGet();
-                logger.debug("Processing S3 object: {} (Size: {} bytes)", key, s3Object.size());
+                logger.debug("Processing S3 object: {} (Size: {} bytes)", key, objectMetadata.sizeBytes());
 
-                if (s3Object.size() == null || s3Object.size() == 0) {
+                if (objectMetadata.sizeBytes() == null || objectMetadata.sizeBytes() == 0) {
                     logger.warn("S3 object {} is empty or size is unknown. Skipping.", key);
                     continue;
                 }
@@ -114,12 +111,12 @@ public class S3CoverCleanupService {
                     }
 
                 } catch (RuntimeException e) {
-                    LoggingUtils.error(logger, e, "Error processing S3 object: {}", key);
+                    throw new IllegalStateException("Error processing S3 object during dry run: " + key, e);
                 }
             }
 
         } catch (RuntimeException e) {
-            LoggingUtils.error(logger, e, "Failed to list or process objects from S3 bucket: {}", bucketName);
+            throw new IllegalStateException("Failed to list or process objects from S3 bucket " + bucketName, e);
         }
 
         logger.info("S3 Cover Cleanup DRY RUN Finished.");
@@ -141,12 +138,12 @@ public class S3CoverCleanupService {
 
         String bucketName = s3StorageService.getBucketName();
         if (bucketName == null || bucketName.isEmpty()) {
-            logger.error("S3 bucket name is not configured. Aborting move action.");
-            return new MoveActionSummary(0, 0, 0, 0, new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
+            throw new IllegalStateException("S3 bucket name is not configured. Cannot execute move action.");
         }
         if (quarantinePrefix == null || quarantinePrefix.isEmpty() || quarantinePrefix.equals(s3Prefix)) {
-            logger.error("Quarantine prefix is invalid (null, empty, or same as source prefix: '{}'). Aborting move action.", quarantinePrefix);
-            return new MoveActionSummary(0, 0, 0, 0, new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
+            throw new IllegalArgumentException(
+                "Quarantine prefix is invalid (null, empty, or same as source prefix): " + quarantinePrefix
+            );
         }
         
         // Ensure quarantinePrefix ends with a slash if it's not empty
@@ -165,10 +162,10 @@ public class S3CoverCleanupService {
         List<String> failedMoveFileKeys = new ArrayList<>(); // Stores original keys of files that failed to move
 
         try {
-            List<S3Object> allS3Objects = s3StorageService.listObjects(s3Prefix);
+            List<S3StorageService.StoredObjectMetadata> allS3Objects = s3StorageService.listObjects(s3Prefix);
             logger.info("Found {} total objects in bucket {} with prefix '{}' to scan for move action.", allS3Objects.size(), bucketName, s3Prefix);
 
-            List<S3Object> objectsToProcess = allS3Objects;
+            List<S3StorageService.StoredObjectMetadata> objectsToProcess = allS3Objects;
             if (batchLimit > 0 && allS3Objects.size() > batchLimit) {
                 objectsToProcess = allS3Objects.subList(0, batchLimit);
                 logger.info("Processing a batch of {} objects for move action due to limit {}.", objectsToProcess.size(), batchLimit);
@@ -176,12 +173,12 @@ public class S3CoverCleanupService {
                 logger.info("Processing all {} found objects for move action (batch limit {} not exceeded or not set).", objectsToProcess.size(), batchLimit);
             }
 
-            for (S3Object s3Object : objectsToProcess) {
-                String sourceKey = s3Object.key();
+            for (S3StorageService.StoredObjectMetadata objectMetadata : objectsToProcess) {
+                String sourceKey = objectMetadata.key();
                 totalScanned.incrementAndGet();
-                logger.debug("Processing S3 object for move: {} (Size: {} bytes)", sourceKey, s3Object.size());
+                logger.debug("Processing S3 object for move: {} (Size: {} bytes)", sourceKey, objectMetadata.sizeBytes());
 
-                if (s3Object.size() == null || s3Object.size() == 0) {
+                if (objectMetadata.sizeBytes() == null || objectMetadata.sizeBytes() == 0) {
                     logger.warn("S3 object {} is empty or size is unknown. Skipping.", sourceKey);
                     continue;
                 }
@@ -235,14 +232,15 @@ public class S3CoverCleanupService {
                     }
 
                 } catch (RuntimeException e) {
-                    LoggingUtils.error(logger, e, "Error processing S3 object {} for move action", sourceKey);
-                    failedToMove.incrementAndGet(); // Count as failed if processing itself fails
-                    failedMoveFileKeys.add(sourceKey);
+                    throw new IllegalStateException("Error processing S3 object during move action: " + sourceKey, e);
                 }
             }
 
         } catch (RuntimeException e) {
-            LoggingUtils.error(logger, e, "Failed to list or process objects from S3 bucket {} for move action", bucketName);
+            throw new IllegalStateException(
+                "Failed to list or process objects from S3 bucket " + bucketName + " for move action",
+                e
+            );
         }
 
         logger.info("S3 Cover Cleanup MOVE ACTION Finished.");

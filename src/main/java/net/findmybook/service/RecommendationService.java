@@ -42,7 +42,6 @@ import java.util.stream.Collectors;
 
 import net.findmybook.util.LoggingUtils;
 import net.findmybook.util.PagingUtils;
-import net.findmybook.util.ReactiveErrorUtils;
 import net.findmybook.util.BookDomainMapper;
 import net.findmybook.util.ValidationUtils;
 import net.findmybook.util.CategoryNormalizer;
@@ -115,9 +114,9 @@ public class RecommendationService {
                 .switchIfEmpty(externalFallbackEnabled
                         ? fetchLegacyRecommendations(bookId, effectiveCount)
                         : Mono.just(Collections.emptyList()))
-                .onErrorResume(ex -> {
+                .onErrorMap(ex -> {
                     LoggingUtils.error(log, ex, "Failed to assemble recommendations for {}", bookId);
-                    return Mono.just(Collections.<Book>emptyList());
+                    return new IllegalStateException("Failed to assemble recommendations for " + bookId, ex);
                 });
     }
 
@@ -153,13 +152,19 @@ public class RecommendationService {
         Mono<Book> canonical = bookDataOrchestrator.fetchCanonicalBookReactive(identifier);
         return canonical == null
                 ? Mono.empty()
-                : canonical.onErrorResume(ReactiveErrorUtils.logAndReturnEmpty("RecommendationService.fetchCanonicalBook(" + identifier + ")"));
+                : canonical.onErrorMap(error -> new IllegalStateException(
+                    "RecommendationService.fetchCanonicalBook(" + identifier + ")",
+                    error
+                ));
     }
 
     private Mono<Book> fetchCanonicalBookSafe(String identifier) {
         return fetchCanonicalBook(identifier)
                 .doOnError(ex -> log.debug("Canonical lookup failed for recommendation {}: {}", identifier, ex.getMessage()))
-                .onErrorResume(ReactiveErrorUtils.logAndReturnEmpty("RecommendationService.fetchCanonicalBookSafe(" + identifier + ")"));
+                .onErrorMap(error -> new IllegalStateException(
+                    "RecommendationService.fetchCanonicalBookSafe(" + identifier + ")",
+                    error
+                ));
     }
 
     private Mono<List<Book>> fetchCachedRecommendations(Book sourceBook, int limit) {
@@ -253,9 +258,12 @@ public class RecommendationService {
                 Mono<Void> persistenceMono = recommendationPersistenceService != null
                     ? recommendationPersistenceService
                         .persistPipelineRecommendations(sourceBook, buildPersistenceRecords(orderedCandidates, limitedIds))
-                        .onErrorResume(ex -> {
-                        LoggingUtils.warn(log, ex, "Failed to persist recommendations for {}", sourceBook.getId());
-                            return Mono.empty();
+                        .onErrorMap(ex -> {
+                            LoggingUtils.warn(log, ex, "Failed to persist recommendations for {}", sourceBook.getId());
+                            return new IllegalStateException(
+                                "Failed to persist recommendations for " + sourceBook.getId(),
+                                ex
+                            );
                         })
                     : Mono.empty();
 
@@ -264,9 +272,12 @@ public class RecommendationService {
                             sourceBook.getId(), newRecommendationIds.size(), orderedBooks.size())))
                     .thenReturn(limitedRecommendations)
                     .doOnSuccess(finalList -> log.info("Fetched {} total potential recommendations for book ID {} from API, updated cache. Returning {} recommendations.", orderedBooks.size(), sourceBook.getId(), finalList.size()))
-                    .onErrorResume(e -> {
+                    .onErrorMap(e -> {
                         LoggingUtils.error(log, e, "Error completing recommendation pipeline for book {}", sourceBook.getId());
-                        return Mono.just(limitedRecommendations);
+                        return new IllegalStateException(
+                            "Error completing recommendation pipeline for " + sourceBook.getId(),
+                            e
+                        );
                     });
             });
     }
@@ -325,7 +336,10 @@ public class RecommendationService {
             .flatMap(author -> searchBooks("inauthor:" + author, langCode, MAX_SEARCH_RESULTS)
                 .flatMapMany(Flux::fromIterable)
                 .map(book -> new ScoredBook(book, 4.0, REASON_AUTHOR))
-                .onErrorResume(ReactiveErrorUtils.logAndReturnEmptyFlux("RecommendationService.findBooksByAuthorsReactive author=" + author)));
+                .onErrorMap(error -> new IllegalStateException(
+                    "RecommendationService.findBooksByAuthorsReactive author=" + author,
+                    error
+                )));
     }
     
     /**
@@ -362,7 +376,10 @@ public class RecommendationService {
                 double categoryScore = calculateCategoryOverlapScore(sourceBook, book);
                 return new ScoredBook(book, categoryScore, REASON_CATEGORY);
             })
-            .onErrorResume(ReactiveErrorUtils.logAndReturnEmptyFlux("RecommendationService.findBooksByCategoriesReactive query=" + categoryQueryString));
+            .onErrorMap(error -> new IllegalStateException(
+                "RecommendationService.findBooksByCategoriesReactive query=" + categoryQueryString,
+                error
+            ));
     }
     
     /**
@@ -463,7 +480,10 @@ public class RecommendationService {
                 }
                 return Mono.empty();
             })
-            .onErrorResume(ReactiveErrorUtils.logAndReturnEmptyFlux("RecommendationService.findBooksByTextReactive query=" + query));
+            .onErrorMap(error -> new IllegalStateException(
+                "RecommendationService.findBooksByTextReactive query=" + query,
+                error
+            ));
     }
 
     private Mono<List<Book>> searchBooks(String query, String langCode, int limit) {
@@ -497,7 +517,10 @@ public class RecommendationService {
             })
             .defaultIfEmpty(Collections.emptyList())
             .map(books -> limitResults(books, safeLimit))
-            .onErrorResume(ReactiveErrorUtils.logAndReturnEmptyList("RecommendationService.searchBooks query=" + query + " lang=" + langCode));
+            .onErrorMap(error -> new IllegalStateException(
+                "RecommendationService.searchBooks query=" + query + " lang=" + langCode,
+                error
+            ));
     }
 
     private List<Book> limitResults(List<Book> books, int limit) {

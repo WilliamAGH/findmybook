@@ -11,7 +11,7 @@
  */
 package net.findmybook.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import net.findmybook.dto.BookCard;
 import net.findmybook.repository.BookQueryRepository;
 import net.findmybook.util.LoggingUtils;
@@ -92,9 +92,12 @@ public class NewYorkTimesService {
                 .uri(overviewUrl.toString())
                 .retrieve()
                 .bodyToMono(JsonNode.class)
-                .onErrorResume(e -> {
+                .onErrorMap(e -> {
                     LoggingUtils.error(log, e, "Error fetching NYT bestseller list overview from API for date {}", publishedDate);
-                    return Mono.empty();
+                    return new IllegalStateException(
+                        "Failed to fetch NYT bestseller overview for date " + publishedDate,
+                        e
+                    );
                 });
     }
 
@@ -135,19 +138,21 @@ public class NewYorkTimesService {
             })
             .timeout(Duration.ofMillis(3000)) // 3s timeout for Postgres query
             .subscribeOn(Schedulers.boundedElastic())
-            .onErrorResume(e -> {
+            .onErrorMap(e -> {
                 if (e instanceof java.util.concurrent.TimeoutException) {
                     log.error("Timeout fetching bestsellers for list '{}' after 3000ms", listNameEncoded);
                 } else {
                     LoggingUtils.error(log, e, "DB error fetching current bestsellers for list '{}'", listNameEncoded);
                 }
-                return Mono.just(Collections.emptyList());
+                return new IllegalStateException(
+                    "Failed to fetch current NYT bestsellers for list '" + listNameEncoded + "'",
+                    e
+                );
             });
         }
         
         // No BookQueryRepository available
-        log.error("BookQueryRepository not injected - cannot fetch bestsellers");
-        return Mono.just(Collections.emptyList());
+        throw new IllegalStateException("BookQueryRepository not injected - cannot fetch NYT bestsellers");
     }
     
 }

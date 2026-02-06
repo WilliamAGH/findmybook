@@ -20,6 +20,7 @@ public class SearchProgressEvent {
         SEARCHING_GOOGLE,   // Searching Google Books API
         SEARCHING_OPENLIBRARY, // Searching OpenLibrary API
         RATE_LIMITED,       // Hit rate limit, trying alternative
+        PROVIDER_UNAVAILABLE, // Provider error other than rate limiting
         DEDUPLICATING,      // Processing and deduplicating results
         COMPLETE,           // All searches finished
         ERROR               // Error occurred

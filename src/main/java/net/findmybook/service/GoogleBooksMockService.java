@@ -20,10 +20,10 @@
  */
 package net.findmybook.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 import net.findmybook.model.Book;
 import net.findmybook.util.SearchQueryUtils;
 import org.slf4j.Logger;
@@ -150,7 +150,7 @@ public class GoogleBooksMockService {
                             JsonNode bookNode = objectMapper.readTree(path.toFile());
                             mockBookResponses.put(bookId, bookNode);
                             logger.debug("Loaded mock response for book ID: {}", bookId);
-                        } catch (IOException e) {
+                        } catch (JacksonException e) {
                             logger.warn("Could not load mock response from {}: {}", path, e.getMessage());
                         }
                     });
@@ -189,7 +189,7 @@ public class GoogleBooksMockService {
                                     try {
                                         Book book = objectMapper.treeToValue(item, Book.class);
                                         books.add(book);
-                                    } catch (JsonProcessingException e) {
+                                    } catch (JacksonException e) {
                                         logger.warn("Could not convert search result to Book: {}", e.getMessage());
                                     }
                                 });
@@ -197,7 +197,7 @@ public class GoogleBooksMockService {
                             
                             mockSearchResults.put(cacheKey, books);
                             logger.debug("Loaded mock search results for cacheKey: {}", cacheKey);
-                        } catch (IOException e) {
+                        } catch (JacksonException e) {
                             logger.warn("Could not load mock search from {}: {}", path, e.getMessage());
                         }
                     });
@@ -305,7 +305,7 @@ public class GoogleBooksMockService {
                 Book book = objectMapper.treeToValue(bookNode, Book.class);
                 logger.debug("Retrieved mock book: {}", bookId);
                 return book;
-            } catch (JsonProcessingException e) {
+            } catch (JacksonException e) {
                 logger.warn("Could not convert mock book to Book object: {}", e.getMessage());
             }
         }

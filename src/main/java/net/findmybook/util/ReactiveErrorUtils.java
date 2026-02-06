@@ -13,51 +13,16 @@ public final class ReactiveErrorUtils {
     private ReactiveErrorUtils() {
     }
 
-    public static <T> Function<Throwable, Mono<T>> logAndReturnEmpty(String context) {
-        return error -> {
-            log.error("{}: {}", context, error.getMessage());
-            return Mono.empty();
-        };
+    public static <T> Function<Throwable, Mono<T>> logAndPropagateMono(String context) {
+        return error -> Mono.error(wrapWithContext(context, error));
     }
 
-    public static <T> Function<Throwable, Mono<List<T>>> logAndReturnEmptyList(String context) {
-        return error -> {
-            log.error("{}: {}", context, error.getMessage());
-            return Mono.just(Collections.emptyList());
-        };
+    public static <T> Function<Throwable, Flux<T>> logAndPropagateFlux(String context) {
+        return error -> Flux.error(wrapWithContext(context, error));
     }
 
-    public static <T> Function<Throwable, Flux<T>> logAndReturnEmptyFlux(String context) {
-        return error -> {
-            log.error("{}: {}", context, error.getMessage());
-            return Flux.empty();
-        };
-    }
-
-    public static <T> Function<Throwable, Mono<T>> logAndReturnDefault(String context, T defaultValue) {
-        return error -> {
-            log.error("{}: {}", context, error.getMessage());
-            return Mono.just(defaultValue);
-        };
-    }
-
-    public static Function<Throwable, Mono<String>> logAndReturnEmptyString(String context) {
-        return error -> {
-            log.error("{}: {}", context, error.getMessage());
-            return Mono.just("");
-        };
-    }
-
-    public static Function<Throwable, Mono<Boolean>> logAndReturnFalse(String context) {
-        return error -> {
-            log.error("{}: {}", context, error.getMessage());
-            return Mono.just(false);
-        };
-    }
-
-    public static <T> Mono<T> logErrorAndContinue(Throwable error, String context) {
-        log.error("{}: {}", context, error.getMessage());
-        return Mono.empty();
+    public static <T> Mono<T> logErrorAndPropagate(Throwable error, String context) {
+        return Mono.error(wrapWithContext(context, error));
     }
 
     public static void logError(Throwable error, String context) {
@@ -69,22 +34,19 @@ public final class ReactiveErrorUtils {
     }
 
     /**
-     * Collect a Flux to a list safely, returning empty list on error.
+     * Collect a Flux to a list and propagate failures with context.
      */
-    public static <T> Mono<List<T>> collectSafely(Flux<T> flux) {
+    public static <T> Mono<List<T>> collectOrPropagate(Flux<T> flux) {
         return flux.collectList()
-                   .onErrorReturn(Collections.emptyList());
+            .onErrorMap(error -> wrapWithContext("ReactiveErrorUtils.collectOrPropagate failed", error));
     }
 
     /**
-     * Collect a Flux to a list safely with error logging.
+     * Collect a Flux to a list and propagate failures with caller-provided context.
      */
-    public static <T> Mono<List<T>> collectSafely(Flux<T> flux, String context) {
+    public static <T> Mono<List<T>> collectOrPropagate(Flux<T> flux, String context) {
         return flux.collectList()
-                   .onErrorResume(e -> {
-                       log.error("{}: {}", context, e.getMessage());
-                       return Mono.just(Collections.emptyList());
-                   });
+            .onErrorMap(error -> wrapWithContext(context, error));
     }
 
     /**
@@ -92,21 +54,18 @@ public final class ReactiveErrorUtils {
      */
     public static <T> Mono<List<T>> limitAndCollect(Flux<T> flux, int limit) {
         return flux.take(limit)
-                   .collectList()
-                   .defaultIfEmpty(Collections.emptyList());
+            .collectList()
+            .defaultIfEmpty(Collections.emptyList());
     }
 
     /**
-     * Take a limited number of items, collect to list, with error handling.
+     * Take a limited number of items, collect to list, and propagate failures.
      */
-    public static <T> Mono<List<T>> limitAndCollectSafely(Flux<T> flux, int limit, String context) {
+    public static <T> Mono<List<T>> limitAndCollectOrPropagate(Flux<T> flux, int limit, String context) {
         return flux.take(limit)
-                   .collectList()
-                   .defaultIfEmpty(Collections.emptyList())
-                   .onErrorResume(e -> {
-                       log.error("{}: {}", context, e.getMessage());
-                       return Mono.just(Collections.emptyList());
-                   });
+            .collectList()
+            .defaultIfEmpty(Collections.emptyList())
+            .onErrorMap(error -> wrapWithContext(context, error));
     }
 
     /**
@@ -117,12 +76,15 @@ public final class ReactiveErrorUtils {
     }
 
     /**
-     * Convert a Mono that might error to a default value.
+     * Logs the error with context and wraps only when necessary.
+     * Preserves the original exception type for RuntimeExceptions so callers
+     * can handle errors by type (e.g., TimeoutException vs DataAccessException).
      */
-    public static <T> Mono<T> withDefaultOnError(Mono<T> mono, T defaultValue, String context) {
-        return mono.onErrorResume(e -> {
-            log.error("{}: {}", context, e.getMessage());
-            return Mono.just(defaultValue);
-        });
+    private static RuntimeException wrapWithContext(String context, Throwable error) {
+        log.error("{}: {}", context, error.getMessage(), error);
+        if (error instanceof RuntimeException runtimeException) {
+            return runtimeException;
+        }
+        return new IllegalStateException(context, error);
     }
 }

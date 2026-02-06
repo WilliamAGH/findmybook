@@ -374,14 +374,14 @@ public class HomeController {
                     ApplicationConstants.Paging.DEFAULT_TIERED_LIMIT / 2,
                     6
                 )
-                .timeout(Duration.ofMillis(2000)) // Increased from 300ms to 2000ms
-                .onErrorMap(e -> {
+                .timeout(Duration.ofMillis(2000))
+                .onErrorResume(e -> {
                     if (e instanceof java.util.concurrent.TimeoutException) {
                         log.warn("Similar books timed out after 2000ms for {}", id);
                     } else {
                         log.warn("Similar books failed for {}: {}", id, e.getMessage());
                     }
-                    return new IllegalStateException("Similar books load failed for " + id, e);
+                    return Mono.empty();
                 }))
             .defaultIfEmpty(List.<Book>of())
             .doOnNext(list -> model.addAttribute("similarBooks", list))

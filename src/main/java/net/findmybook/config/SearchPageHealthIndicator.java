@@ -12,9 +12,9 @@
 package net.findmybook.config;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.actuate.health.Health;
-import org.springframework.boot.actuate.health.ReactiveHealthIndicator;
-import org.springframework.boot.web.context.WebServerInitializedEvent;
+import org.springframework.boot.health.contributor.Health;
+import org.springframework.boot.health.contributor.ReactiveHealthIndicator;
+import org.springframework.boot.web.server.context.WebServerInitializedEvent;
 import org.springframework.context.ApplicationListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

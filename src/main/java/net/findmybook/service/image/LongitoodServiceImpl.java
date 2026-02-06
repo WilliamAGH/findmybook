@@ -133,7 +133,9 @@ public class LongitoodServiceImpl implements LongitoodService {
         String isbn = CoverIdentifierResolver.getPreferredIsbn(book);
         logger.warn("LongitoodService.fetchCover circuit breaker opened for book ID: {}, ISBN: {}. Error: {}", 
             book.getId(), isbn, t.getMessage());
-        return CompletableFuture.completedFuture(Optional.empty()); // Return empty Optional in CompletableFuture
+        return CompletableFuture.failedFuture(
+            new IllegalStateException("Longitood cover lookup circuit is open for book " + book.getId(), t)
+        );
     }
     
     /**
@@ -150,6 +152,8 @@ public class LongitoodServiceImpl implements LongitoodService {
         String isbn = CoverIdentifierResolver.getPreferredIsbn(book);
         logger.warn("LongitoodService.fetchCover rate limit exceeded for book ID: {}, ISBN: {}. Error: {}", 
             book.getId(), isbn, t.getMessage());
-        return CompletableFuture.completedFuture(Optional.empty());
+        return CompletableFuture.failedFuture(
+            new IllegalStateException("Longitood cover lookup was rate-limited for book " + book.getId(), t)
+        );
     }
 }

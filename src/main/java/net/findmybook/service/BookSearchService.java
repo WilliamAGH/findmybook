@@ -63,8 +63,7 @@ public class BookSearchService {
             return List.of();
         }
         int safeLimit = PagingUtils.safeLimit(limit != null ? limit : 0, DEFAULT_LIMIT, 1, MAX_LIMIT);
-        try {
-            List<SearchResult> rawResults = jdbcTemplate.query(
+        List<SearchResult> rawResults = jdbcTemplate.query(
                 "SELECT * FROM search_books(?, ?)",
                 ps -> {
                     ps.setString(1, sanitizedQuery);
@@ -86,17 +85,13 @@ public class BookSearchService {
              .filter(result -> result != null)
              .toList();
 
-            List<SearchResult> deduplicated = deduplicateSearchResults(rawResults);
+        List<SearchResult> deduplicated = deduplicateSearchResults(rawResults);
 
-            if (asyncBackfillEnabled && !deduplicated.isEmpty()) {
-                enqueueBackfillForResults(deduplicated);
-            }
-
-            return deduplicated;
-        } catch (DataAccessException ex) {
-            log.debug("Postgres search failed for query '{}': {}", sanitizedQuery, ex.getMessage());
-            return Collections.emptyList();
+        if (asyncBackfillEnabled && !deduplicated.isEmpty()) {
+            enqueueBackfillForResults(deduplicated);
         }
+
+        return deduplicated;
     }
 
     public Optional<IsbnSearchResult> searchByIsbn(String isbnQuery) {
@@ -107,26 +102,21 @@ public class BookSearchService {
         if (sanitized == null) {
             return Optional.empty();
         }
-        try {
-            return jdbcTemplate.query(
-                    "SELECT * FROM search_by_isbn(?)",
-                    ps -> ps.setString(1, sanitized),
-                    rs -> rs.next()
-                            ? Optional.of(new IsbnSearchResult(
-                                    rs.getObject("book_id", UUID.class),
-                                    rs.getString("title"),
-                                    rs.getString("subtitle"),
-                                    rs.getString("authors"),
-                                    rs.getString("isbn13"),
-                                    rs.getString("isbn10"),
-                                    rs.getDate("published_date"),
-                                    ValidationUtils.stripWrappingQuotes(rs.getString("publisher"))))
-                            : Optional.empty()
-            );
-        } catch (DataAccessException ex) {
-            log.debug("Postgres ISBN search failed for '{}': {}", sanitized, ex.getMessage());
-            return Optional.empty();
-        }
+        return jdbcTemplate.query(
+                "SELECT * FROM search_by_isbn(?)",
+                ps -> ps.setString(1, sanitized),
+                rs -> rs.next()
+                        ? Optional.of(new IsbnSearchResult(
+                                rs.getObject("book_id", UUID.class),
+                                rs.getString("title"),
+                                rs.getString("subtitle"),
+                                rs.getString("authors"),
+                                rs.getString("isbn13"),
+                                rs.getString("isbn10"),
+                                rs.getDate("published_date"),
+                                ValidationUtils.stripWrappingQuotes(rs.getString("publisher"))))
+                        : Optional.empty()
+        );
     }
 
     public List<AuthorResult> searchAuthors(String query, Integer limit) {
@@ -139,23 +129,18 @@ public class BookSearchService {
             return List.of();
         }
         int safeLimit = PagingUtils.safeLimit(limit != null ? limit : 0, DEFAULT_LIMIT, 1, MAX_LIMIT);
-        try {
-            return jdbcTemplate.query(
-                    "SELECT * FROM search_authors(?, ?)",
-                    ps -> {
-                        ps.setString(1, sanitizedQuery);
-                        ps.setInt(2, safeLimit);
-                    },
-                    (rs, rowNum) -> new AuthorResult(
-                            rs.getString("author_id"),
-                            rs.getString("author_name"),
-                            rs.getLong("book_count"),
-                            rs.getDouble("relevance_score"))
-            );
-        } catch (DataAccessException ex) {
-            log.debug("Postgres author search failed for query '{}': {}", sanitizedQuery, ex.getMessage());
-            return Collections.emptyList();
-        }
+        return jdbcTemplate.query(
+                "SELECT * FROM search_authors(?, ?)",
+                ps -> {
+                    ps.setString(1, sanitizedQuery);
+                    ps.setInt(2, safeLimit);
+                },
+                (rs, rowNum) -> new AuthorResult(
+                        rs.getString("author_id"),
+                        rs.getString("author_name"),
+                        rs.getLong("book_count"),
+                        rs.getDouble("relevance_score"))
+        );
     }
 
     public List<BookCard> fetchBookCards(List<UUID> bookIds) {
@@ -197,7 +182,8 @@ public class BookSearchService {
         try {
             jdbcTemplate.execute("SELECT refresh_book_search_view()");
         } catch (DataAccessException ex) {
-            log.debug("Failed to refresh book_search_view: {}", ex.getMessage());
+            // Non-critical: search still works with stale materialized view data
+            log.warn("Non-critical: Failed to refresh book_search_view: {}", ex.getMessage());
         }
     }
     
@@ -216,27 +202,21 @@ public class BookSearchService {
             log.debug("Backfill components not available, skipping enqueue");
             return;
         }
-        
-        try {
-            for (SearchResult result : results) {
-                // Look up external IDs for this book
-                Map<String, String> externalIds = externalBookIdResolver.reverse(result.bookId());
-                
-                // Enqueue backfill for each external provider
-                for (Map.Entry<String, String> entry : externalIds.entrySet()) {
-                    String source = entry.getKey();
-                    String externalId = entry.getValue();
-                    
-                    // Priority 3 = high priority (user just searched)
-                    backfillCoordinator.enqueue(source, externalId, 3);
-                }
+
+        for (SearchResult result : results) {
+            Map<String, String> externalIds = externalBookIdResolver.reverse(result.bookId());
+            if (externalIds == null) {
+                throw new IllegalStateException("External ID resolver returned null map for book " + result.bookId());
             }
-            
-            log.debug("Enqueued backfill for {} search results", results.size());
-        } catch (RuntimeException ex) {
-            // Don't let backfill enqueue errors affect search results
-            log.warn("Error enqueuing backfill for search results", ex);
+
+            for (Map.Entry<String, String> entry : externalIds.entrySet()) {
+                String source = entry.getKey();
+                String externalId = entry.getValue();
+                backfillCoordinator.enqueue(source, externalId, 3);
+            }
         }
+
+        log.debug("Enqueued backfill for {} search results", results.size());
     }
 
     /**
@@ -350,26 +330,21 @@ public class BookSearchService {
             WHERE b.id IN (%s)
             """.formatted(placeholders);
 
-        try {
-            return jdbcTemplate.query(sql, ps -> {
-                for (int i = 0; i < bookIds.size(); i++) {
-                    ps.setObject(i + 1, bookIds.get(i));
-                }
-            }, rs -> {
-                Map<UUID, TitleAuthorKey> map = new HashMap<>();
-                while (rs.next()) {
-                    UUID bookId = (UUID) rs.getObject("book_id");
-                    String title = rs.getString("normalized_title");
-                    String authors = rs.getString("normalized_authors");
-                    String key = (title != null ? title : "") + "::" + (authors != null ? authors : "");
-                    map.put(bookId, new TitleAuthorKey(key));
-                }
-                return map;
-            });
-        } catch (DataAccessException ex) {
-            log.debug("Failed to fetch title/author keys for {} books: {}", bookIds.size(), ex.getMessage());
-            return Map.of();
-        }
+        return jdbcTemplate.query(sql, ps -> {
+            for (int i = 0; i < bookIds.size(); i++) {
+                ps.setObject(i + 1, bookIds.get(i));
+            }
+        }, rs -> {
+            Map<UUID, TitleAuthorKey> map = new HashMap<>();
+            while (rs.next()) {
+                UUID bookId = (UUID) rs.getObject("book_id");
+                String title = rs.getString("normalized_title");
+                String authors = rs.getString("normalized_authors");
+                String key = (title != null ? title : "") + "::" + (authors != null ? authors : "");
+                map.put(bookId, new TitleAuthorKey(key));
+            }
+            return map;
+        });
     }
 
     /**
@@ -409,38 +384,33 @@ public class BookSearchService {
             WHERE wcm.book_id IN (%s)
             """.formatted(placeholders);
 
-        try {
-            return jdbcTemplate.query(
-                sql,
-                ps -> {
-                    for (int i = 0; i < bookIds.size(); i++) {
-                        ps.setObject(i + 1, bookIds.get(i));
-                    }
-                },
-                rs -> {
-                    Map<UUID, ClusterMapping> mappings = new HashMap<>();
-                    while (rs.next()) {
-                        UUID editionId = (UUID) rs.getObject("edition_id");
-                        UUID primaryId = (UUID) rs.getObject("resolved_primary_book_id");
-                        UUID clusterId = (UUID) rs.getObject("cluster_id");
-                        int editionCount = rs.getInt("edition_count");
-                        boolean hasPrimary = rs.getBoolean("has_primary");
-                        if (editionId != null) {
-                            mappings.put(editionId, new ClusterMapping(
-                                primaryId != null ? primaryId : editionId,
-                                clusterId,
-                                editionCount > 0 ? editionCount : 1,
-                                hasPrimary
-                            ));
-                        }
-                    }
-                    return mappings;
+        return jdbcTemplate.query(
+            sql,
+            ps -> {
+                for (int i = 0; i < bookIds.size(); i++) {
+                    ps.setObject(i + 1, bookIds.get(i));
                 }
-            );
-        } catch (DataAccessException ex) {
-            log.debug("Failed to resolve work cluster mappings for {} search results: {}", bookIds.size(), ex.getMessage());
-            return Map.of();
-        }
+            },
+            rs -> {
+                Map<UUID, ClusterMapping> mappings = new HashMap<>();
+                while (rs.next()) {
+                    UUID editionId = (UUID) rs.getObject("edition_id");
+                    UUID primaryId = (UUID) rs.getObject("resolved_primary_book_id");
+                    UUID clusterId = (UUID) rs.getObject("cluster_id");
+                    int editionCount = rs.getInt("edition_count");
+                    boolean hasPrimary = rs.getBoolean("has_primary");
+                    if (editionId != null) {
+                        mappings.put(editionId, new ClusterMapping(
+                            primaryId != null ? primaryId : editionId,
+                            clusterId,
+                            editionCount > 0 ? editionCount : 1,
+                            hasPrimary
+                        ));
+                    }
+                }
+                return mappings;
+            }
+        );
     }
 
     private record ClusterMapping(UUID primaryId, UUID clusterId, int editionCount, boolean hasExplicitPrimary) {

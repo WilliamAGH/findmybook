@@ -56,6 +56,7 @@ public class BookController {
     private final BookSearchService bookSearchService;
     private final BookIdentifierResolver bookIdentifierResolver;
     private final SearchPaginationService searchPaginationService;
+    @Nullable
     private final BookDataOrchestrator bookDataOrchestrator;
 
     public BookController(BookSearchService bookSearchService,

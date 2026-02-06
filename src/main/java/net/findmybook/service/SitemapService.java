@@ -7,8 +7,6 @@ import net.findmybook.repository.SitemapRepository.BookRow;
 import net.findmybook.repository.SitemapRepository.DatasetFingerprint;
 import net.findmybook.repository.SitemapRepository.PageMetadata;
 import net.findmybook.util.PagingUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
@@ -19,17 +17,14 @@ import org.springframework.util.StringUtils;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -39,8 +34,6 @@ import java.util.stream.IntStream;
  */
 @Service
 public class SitemapService {
-
-    private static final Logger log = LoggerFactory.getLogger(SitemapService.class);
 
     public static final List<String> LETTER_BUCKETS;
 
@@ -66,14 +59,10 @@ public class SitemapService {
     private final Cache authorPageMetadataCache;
     private final AtomicReference<DatasetFingerprint> bookFingerprintRef = new AtomicReference<>();
     private final AtomicReference<DatasetFingerprint> authorFingerprintRef = new AtomicReference<>();
-    private final Optional<SitemapFallbackProvider> fallbackProvider;
-    private final AtomicReference<FallbackSnapshot> fallbackSnapshotRef = new AtomicReference<>();
-    private final ThreadLocal<FallbackContext> fallbackContext = ThreadLocal.withInitial(FallbackContext::new);
 
     public SitemapService(SitemapRepository sitemapRepository,
                           SitemapProperties properties,
-                          @Qualifier("sitemapCacheManager") CacheManager cacheManager,
-                          Optional<SitemapFallbackProvider> fallbackProvider) {
+                          @Qualifier("sitemapCacheManager") CacheManager cacheManager) {
         this.sitemapRepository = sitemapRepository;
         this.properties = properties;
         this.booksXmlPageCountCache = requireCache(cacheManager, CacheNames.BOOK_XML_PAGE_COUNT);
@@ -86,7 +75,6 @@ public class SitemapService {
         this.authorXmlPageCache = requireCache(cacheManager, CacheNames.AUTHOR_XML_PAGE);
         this.bookPageMetadataCache = requireCache(cacheManager, CacheNames.BOOK_PAGE_METADATA);
         this.authorPageMetadataCache = requireCache(cacheManager, CacheNames.AUTHOR_PAGE_METADATA);
-        this.fallbackProvider = fallbackProvider != null ? fallbackProvider : Optional.empty();
     }
 
     public SitemapOverview getOverview() {
@@ -232,7 +220,6 @@ public class SitemapService {
         clearCache(authorXmlPageCache);
         clearCache(bookPageMetadataCache);
         clearCache(authorPageMetadataCache);
-        fallbackSnapshotRef.set(null);
     }
 
     public String normalizeBucket(String letter) {
@@ -264,8 +251,7 @@ public class SitemapService {
             int pageSize = properties.getXmlPageSize();
             return total == 0 ? 0 : (int) Math.ceil((double) total / pageSize);
         } catch (DataAccessException ex) {
-            return useFallback("book XML page count", ex,
-                    snapshot -> snapshot.pageCount(properties.getXmlPageSize()));
+            throw new IllegalStateException("Failed to compute book XML page count", ex);
         }
     }
 
@@ -278,8 +264,7 @@ public class SitemapService {
                     .map(row -> new BookSitemapItem(row.bookId(), row.slug(), row.title(), row.updatedAt()))
                     .toList();
         } catch (DataAccessException ex) {
-            return useFallback("book XML page" + page, ex,
-                    snapshot -> snapshot.page(page, pageSize));
+            throw new IllegalStateException("Failed to load books for XML page " + page, ex);
         }
     }
 
@@ -319,9 +304,7 @@ public class SitemapService {
             }
             return List.copyOf(results);
         } catch (DataAccessException ex) {
-            log.warn("Failed to load author listings for sitemap page {}: {}", page, ex.getMessage());
-            markFallbackInvoked();
-            return List.of();
+            throw new IllegalStateException("Failed to load author listings for sitemap page " + page, ex);
         }
     }
 
@@ -336,8 +319,7 @@ public class SitemapService {
                     .map(entry -> new SitemapPageMetadata(entry.pageNumber(), entry.lastModified()))
                     .toList();
         } catch (DataAccessException ex) {
-            return useFallback("book sitemap metadata", ex,
-                    snapshot -> snapshot.pageMetadata(pageSize));
+            throw new IllegalStateException("Failed to load book sitemap metadata", ex);
         }
     }
 
@@ -357,9 +339,7 @@ public class SitemapService {
             }
             return List.copyOf(results);
         } catch (DataAccessException ex) {
-            log.warn("Failed to load author sitemap metadata; returning empty list: {}", ex.getMessage());
-            markFallbackInvoked();
-            return List.of();
+            throw new IllegalStateException("Failed to load author sitemap metadata", ex);
         }
     }
 
@@ -372,7 +352,7 @@ public class SitemapService {
             }
             return Map.copyOf(counts);
         } catch (DataAccessException ex) {
-            return useFallback("book letter counts", ex, FallbackSnapshot::letterCounts);
+            throw new IllegalStateException("Failed to load book letter counts", ex);
         }
     }
 
@@ -385,9 +365,7 @@ public class SitemapService {
             }
             return Map.copyOf(counts);
         } catch (DataAccessException ex) {
-            log.warn("Failed to load author letter counts; returning empty counts: {}", ex.getMessage());
-            markFallbackInvoked();
-            return emptyLetterCounts();
+            throw new IllegalStateException("Failed to load author letter counts", ex);
         }
     }
 
@@ -412,29 +390,20 @@ public class SitemapService {
     }
 
     private <T> T cached(Cache cache, Object key, Supplier<T> loader) {
-        FallbackContext context = fallbackContext.get();
-        boolean outermost = context.depth == 0;
-        context.depth++;
-        if (outermost) {
-            context.fallbackInvoked = false;
-        }
         try {
-            T value = cache.get(key, () -> {
+            return cache.get(key, () -> {
                 T loaded = loader.get();
                 if (loaded == null) {
                     throw new IllegalStateException("Cache loader returned null for key " + key);
                 }
                 return loaded;
             });
-            if (outermost && context.fallbackInvoked) {
-                cache.evict(key);
+        } catch (Cache.ValueRetrievalException exception) {
+            Throwable cause = exception.getCause();
+            if (cause instanceof RuntimeException runtimeException) {
+                throw runtimeException;
             }
-            return value;
-        } finally {
-            context.depth--;
-            if (context.depth == 0) {
-                fallbackContext.remove();
-            }
+            throw new IllegalStateException("Cache loader failed for key " + key, cause);
         }
     }
 
@@ -448,48 +417,6 @@ public class SitemapService {
 
     private void clearCache(Cache cache) {
         cache.clear();
-    }
-
-    private <T> T useFallback(String context, RuntimeException cause, Function<FallbackSnapshot, T> converter) {
-        Optional<FallbackSnapshot> snapshotOpt = fallbackSnapshot();
-        if (snapshotOpt.isEmpty()) {
-            throw cause;
-        }
-        log.warn("Falling back to cached sitemap snapshot for {} due to {}", context, cause.getMessage());
-        markFallbackInvoked();
-        return converter.apply(snapshotOpt.get());
-    }
-
-    private Optional<FallbackSnapshot> fallbackSnapshot() {
-        if (fallbackProvider.isEmpty()) {
-            return Optional.empty();
-        }
-        FallbackSnapshot existing = fallbackSnapshotRef.get();
-        if (existing != null) {
-            return Optional.of(existing);
-        }
-        synchronized (fallbackSnapshotRef) {
-            existing = fallbackSnapshotRef.get();
-            if (existing != null) {
-                return Optional.of(existing);
-            }
-            Optional<FallbackSnapshot> loaded = fallbackProvider.flatMap(SitemapFallbackProvider::loadSnapshot);
-            loaded.ifPresent(fallbackSnapshotRef::set);
-            return loaded;
-        }
-    }
-
-    private void markFallbackInvoked() {
-        fallbackContext.get().fallbackInvoked = true;
-    }
-
-    private static final class FallbackContext {
-        int depth;
-        boolean fallbackInvoked;
-    }
-
-    private Map<String, Integer> emptyLetterCounts() {
-        return Collections.emptyMap();
     }
 
     private static final class CacheNames {
@@ -526,94 +453,4 @@ public class SitemapService {
     }
 
     public record SitemapPageMetadata(int page, Instant lastModified) {}
-
-    public static final class FallbackSnapshot {
-        private final Instant generatedAt;
-        private final List<BookSitemapItem> books;
-
-        public FallbackSnapshot(Instant generatedAt, List<BookSitemapItem> books) {
-            this.generatedAt = generatedAt != null ? generatedAt : Instant.EPOCH;
-            this.books = books == null ? List.of() : List.copyOf(books);
-        }
-
-        public int pageCount(int pageSize) {
-            if (pageSize <= 0 || books.isEmpty()) {
-                return 0;
-            }
-            return (int) Math.ceil((double) books.size() / pageSize);
-        }
-
-        public int bookCount() {
-            return books.size();
-        }
-
-        public List<BookSitemapItem> page(int page, int pageSize) {
-            if (pageSize <= 0 || page < 1 || books.isEmpty()) {
-                return List.of();
-            }
-            int start = (page - 1) * pageSize;
-            if (start >= books.size()) {
-                return List.of();
-            }
-            int end = Math.min(start + pageSize, books.size());
-            return List.copyOf(books.subList(start, end));
-        }
-
-        public List<SitemapPageMetadata> pageMetadata(int pageSize) {
-            int totalPages = pageCount(pageSize);
-            if (totalPages == 0) {
-                return List.of();
-            }
-            List<SitemapPageMetadata> metadata = new ArrayList<>(totalPages);
-            for (int page = 1; page <= totalPages; page++) {
-                Instant lastModified = page(page, pageSize).stream()
-                        .map(BookSitemapItem::updatedAt)
-                        .filter(Objects::nonNull)
-                        .max(Comparator.naturalOrder())
-                        .orElse(generatedAt);
-                metadata.add(new SitemapPageMetadata(page, lastModified));
-            }
-            return List.copyOf(metadata);
-        }
-
-        public Map<String, Integer> letterCounts() {
-            Map<String, Integer> counts = new LinkedHashMap<>();
-            for (String bucket : LETTER_BUCKETS) {
-                counts.put(bucket, 0);
-            }
-            for (BookSitemapItem item : books) {
-                String bucket = resolveBucket(item);
-                counts.merge(bucket, 1, Integer::sum);
-            }
-            return Map.copyOf(counts);
-        }
-
-        private String resolveBucket(BookSitemapItem item) {
-            String candidate = firstNonBlank(item.title(), item.slug());
-            if (candidate == null) {
-                return "A";
-            }
-            String trimmed = candidate.trim();
-            if (trimmed.isEmpty()) {
-                return "A";
-            }
-            char first = Character.toUpperCase(trimmed.charAt(0));
-            if (first >= 'A' && first <= 'Z') {
-                return String.valueOf(first);
-            }
-            return "0-9";
-        }
-
-        private String firstNonBlank(String... values) {
-            if (values == null) {
-                return null;
-            }
-            for (String value : values) {
-                if (value != null && !value.isBlank()) {
-                    return value;
-                }
-            }
-            return null;
-        }
-    }
 }

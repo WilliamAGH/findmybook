@@ -4,8 +4,10 @@ package net.findmybook;
 import net.findmybook.config.DatabaseUrlEnvironmentPostProcessor;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
-// import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import software.amazon.awssdk.services.s3.S3Client;
 
 import java.util.Optional;
 
@@ -28,9 +30,21 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * runs with the "test" profile to load the context with mocked services defined in
  * test configuration where applicable.
  */
-@SpringBootTest(properties = "spring.ai.openai.api-key=test")
+@SpringBootTest(properties = {
+    "spring.ai.openai.api-key=test",
+    "APP_ADMIN_PASSWORD=test-password",
+    "APP_USER_PASSWORD=test-password",
+    "app.security.admin.password=test-password",
+    "app.security.user.password=test-password"
+})
 @ActiveProfiles("test") // Ensure the "test" profile and its Redis configuration are active
 class BookRecommendationEngineApplicationTests {
+
+    @MockitoBean
+    private JdbcTemplate jdbcTemplate;
+
+    @MockitoBean
+    private S3Client s3Client;
 
     // No-op: cached repository removed
 

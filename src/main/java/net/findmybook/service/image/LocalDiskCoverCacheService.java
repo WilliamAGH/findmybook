@@ -1,5 +1,6 @@
 package net.findmybook.service.image;
 
+import net.findmybook.exception.S3UploadException;
 import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.model.image.ImageAttemptStatus;
 import net.findmybook.model.image.ImageDetails;
@@ -76,7 +77,9 @@ public class LocalDiskCoverCacheService {
 
         if (!ValidationUtils.hasText(imageUrl)) {
             markAttemptFailure(attemptInfo, ImageAttemptStatus.FAILURE_INVALID_DETAILS, "Blank image URL");
-            return CompletableFuture.completedFuture(buildPlaceholderImageDetails(bookIdForLog, "missing-url"));
+            return CompletableFuture.failedFuture(
+                new S3UploadException("Image URL is required for cover cache upload", bookIdForLog, imageUrl, false, null)
+            );
         }
 
         String normalizedSource = ValidationUtils.hasText(sourceNameString)
@@ -86,15 +89,11 @@ public class LocalDiskCoverCacheService {
         Mono<ImageDetails> upload = s3BookCoverService
             .uploadCoverToS3Async(imageUrl, bookIdForLog, normalizedSource, provenanceData)
             .doOnSuccess(details -> handleSuccessfulUpload(details, attemptInfo, sourceNameEnum))
-            .onErrorResume(ex -> {
+            .switchIfEmpty(Mono.error(new IllegalStateException("S3 upload pipeline completed without image details")))
+            .doOnError(ex -> {
                 LoggingUtils.error(logger, ex, "Failed to persist cover via S3 pipeline. Context: {}", logContext);
                 markAttemptFailure(attemptInfo, ImageAttemptStatus.FAILURE_GENERIC_DOWNLOAD, ex.getMessage());
-                return Mono.just(buildPlaceholderImageDetails(bookIdForLog, "s3-upload-failed"));
-            })
-            .switchIfEmpty(Mono.fromCallable(() -> {
-                markAttemptFailure(attemptInfo, ImageAttemptStatus.FAILURE_NOT_FOUND, "S3 pipeline returned empty result");
-                return buildPlaceholderImageDetails(bookIdForLog, "s3-upload-empty");
-            }));
+            });
 
         return upload.toFuture();
     }

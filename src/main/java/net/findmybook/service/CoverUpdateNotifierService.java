@@ -145,7 +145,7 @@ public class CoverUpdateNotifierService {
         }
 
         logger.info("Sending cover update to {}: URL = {}, Source = {}", destination, event.getNewCoverUrl(), event.getSource() != null ? event.getSource().name() : "UNDEFINED");
-        this.messagingTemplate.convertAndSend(destination, payload);
+        this.messagingTemplate.convertAndSend(destination, (Object) payload);
     }
 
     /**
@@ -221,7 +221,7 @@ public class CoverUpdateNotifierService {
 
         logger.info("Sending search results update to {}: {} new results from {}, complete: {}", 
             destination, event.getNewResults().size(), event.getSource(), event.isComplete());
-        this.messagingTemplate.convertAndSend(destination, payload);
+        this.messagingTemplate.convertAndSend(destination, (Object) payload);
     }
 
     /**
@@ -249,7 +249,7 @@ public class CoverUpdateNotifierService {
         payload.put("source", event.getSource());
 
         logger.debug("Sending search progress to {}: {} - {}", destination, event.getStatus(), event.getMessage());
-        this.messagingTemplate.convertAndSend(destination, payload);
+        this.messagingTemplate.convertAndSend(destination, (Object) payload);
     }
 
     /**
@@ -272,7 +272,7 @@ public class CoverUpdateNotifierService {
             payload.put("canonicalImageUrl", event.getCanonicalImageUrl());
         }
         logger.info("Sending book upsert to {}: {} (new={})", destination, event.getTitle(), event.isNew());
-        this.messagingTemplate.convertAndSend(destination, payload);
+        this.messagingTemplate.convertAndSend(destination, (Object) payload);
 
         if (s3BookCoverService == null) {
             logger.error("CRITICAL: S3BookCoverService is NULL for book {}. S3 uploads are DISABLED. " +
@@ -338,6 +338,15 @@ public class CoverUpdateNotifierService {
                 .subscribe(
                     details -> {
                         sample.stop(s3UploadDuration);
+                        if (details == null || !ValidationUtils.hasText(details.getStorageKey())) {
+                            s3UploadFailures.increment();
+                            logger.error(
+                                "S3 upload returned non-persistable details for book {}. storageKey='{}'. Treating as failure.",
+                                event.getBookId(),
+                                details != null ? details.getStorageKey() : null
+                            );
+                            return;
+                        }
                         s3UploadSuccesses.increment();
                         resolveSelfProxy().persistS3MetadataInNewTransaction(bookUuid, details);
                     },
@@ -388,13 +397,13 @@ public class CoverUpdateNotifierService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void persistS3MetadataInNewTransaction(UUID bookId, @Nullable ImageDetails details) {
         if (details == null) {
-            logger.debug("S3 upload returned null details for book {}.", bookId);
+            logger.warn("S3 upload returned null details for book {}. Metadata persistence skipped.", bookId);
             return;
         }
 
         String storageKey = details.getStorageKey();
         if (storageKey == null || storageKey.isBlank()) {
-            logger.debug("S3 upload for book {} yielded no storage key; metadata unchanged.", bookId);
+            logger.warn("S3 upload for book {} yielded no storage key; metadata unchanged.", bookId);
             return;
         }
 

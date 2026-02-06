@@ -9,6 +9,7 @@ import net.findmybook.service.SitemapService.PagedResult;
 import net.findmybook.service.SitemapService.SitemapOverview;
 import net.findmybook.util.PagingUtils;
 import net.findmybook.util.ValidationUtils;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -39,10 +40,14 @@ public class SitemapController {
 
     private final SitemapService sitemapService;
     private final SitemapProperties sitemapProperties;
+    private final boolean spaFrontendEnabled;
 
-    public SitemapController(SitemapService sitemapService, SitemapProperties sitemapProperties) {
+    public SitemapController(SitemapService sitemapService,
+                             SitemapProperties sitemapProperties,
+                             @Value("${app.frontend.spa.enabled:true}") boolean spaFrontendEnabled) {
         this.sitemapService = sitemapService;
         this.sitemapProperties = sitemapProperties;
+        this.spaFrontendEnabled = spaFrontendEnabled;
     }
 
     @GetMapping("/sitemap")
@@ -66,6 +71,11 @@ public class SitemapController {
 
         if (!normalizedView.equals(view) || !bucket.equals(letter) || safePage != page) {
             return "redirect:/sitemap/" + normalizedView + "/" + bucket + "/" + safePage;
+        }
+
+        if (spaFrontendEnabled) {
+            applySpaMetadata(model, normalizedView, bucket, safePage);
+            return "spa/index";
         }
 
         return populateSitemapModel(normalizedView, bucket, safePage, model);
@@ -245,5 +255,15 @@ public class SitemapController {
         model.addAttribute("pageTitle", "Sitemap");
         model.addAttribute("pageDescription", "Browse all book and author pages indexed for search engines.");
         return "sitemap";
+    }
+
+    private void applySpaMetadata(Model model, String view, String bucket, int page) {
+        String canonicalPath = "/sitemap/" + view + "/" + bucket + "/" + page;
+        String canonicalUrl = sitemapProperties.getBaseUrl() + canonicalPath;
+        model.addAttribute("title", "Sitemap");
+        model.addAttribute("description", "Browse all indexed author and book pages.");
+        model.addAttribute("keywords", "book sitemap, author sitemap, find my book");
+        model.addAttribute("canonicalUrl", canonicalUrl);
+        model.addAttribute("ogImage", sitemapProperties.getBaseUrl() + "/images/og-logo.png");
     }
 }

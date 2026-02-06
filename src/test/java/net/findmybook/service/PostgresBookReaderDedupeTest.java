@@ -32,19 +32,18 @@ class PostgresBookReaderDedupeTest {
 
     @BeforeEach
     void setUp() {
-        var om = new com.fasterxml.jackson.databind.ObjectMapper();
+        var om = new tools.jackson.databind.ObjectMapper();
         var search = createBookSearchServiceMock();
         var bookUpsertService = Mockito.mock(BookUpsertService.class);
         var googleBooksMapper = Mockito.mock(GoogleBooksMapper.class);
+        var batchPersistenceService = new BookExternalBatchPersistenceService(om, googleBooksMapper, bookUpsertService);
 
         PostgresBookRepository repo = new PostgresBookRepository(jdbcTemplate, om);
 
         orchestrator = new BookDataOrchestrator(
-                om,
                 search,
                 repo,
-                bookUpsertService,
-                googleBooksMapper
+                batchPersistenceService
         );
         stubDatabaseQueries();
     }

@@ -16,11 +16,10 @@ import net.findmybook.service.ApiRequestMonitor;
 import net.findmybook.service.BookIdentifierResolver;
 import net.findmybook.service.RecentlyViewedService;
 import net.findmybook.util.BookDomainMapper;
-import net.findmybook.util.LoggingUtils;
 import net.findmybook.util.PagingUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.ApplicationContext;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -33,9 +32,12 @@ import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import net.findmybook.util.ValidationUtils;
@@ -55,7 +57,7 @@ public class BookCacheWarmingScheduler {
 
         
     private final RecentlyViewedService recentlyViewedService;
-    private final ApplicationContext applicationContext;
+    private final ObjectProvider<ApiRequestMonitor> apiRequestMonitorProvider;
     private final BookQueryRepository bookQueryRepository;
     private final BookIdentifierResolver bookIdentifierResolver;
     
@@ -72,15 +74,12 @@ public class BookCacheWarmingScheduler {
     @Value("${app.cache.warming.max-books-per-run:10}")
     private int maxBooksPerRun;
     
-    @Value("${app.cache.warming.recently-viewed-days:7}")
-    private int recentlyViewedDays;
-
     public BookCacheWarmingScheduler(RecentlyViewedService recentlyViewedService,
-                                     ApplicationContext applicationContext,
+                                     ObjectProvider<ApiRequestMonitor> apiRequestMonitorProvider,
                                      BookQueryRepository bookQueryRepository,
                                      BookIdentifierResolver bookIdentifierResolver) {
         this.recentlyViewedService = recentlyViewedService;
-        this.applicationContext = applicationContext;
+        this.apiRequestMonitorProvider = apiRequestMonitorProvider;
         this.bookQueryRepository = bookQueryRepository;
         this.bookIdentifierResolver = bookIdentifierResolver;
     }
@@ -117,6 +116,7 @@ public class BookCacheWarmingScheduler {
         AtomicInteger existingCount = new AtomicInteger(0);
         
         ScheduledExecutorService executor = Executors.newScheduledThreadPool(1);
+        List<ScheduledFuture<?>> scheduledTasks = new ArrayList<>();
 
         try {
             // Validate rate limit configuration
@@ -130,14 +130,12 @@ public class BookCacheWarmingScheduler {
             
             // Check current API call count from metrics if possible
             // Inject ApiRequestMonitor if available
-            int currentHourlyRequests = 0;
-            try {
-                ApiRequestMonitor apiRequestMonitor = applicationContext.getBean(ApiRequestMonitor.class);
-                currentHourlyRequests = apiRequestMonitor.getCurrentHourlyRequests();
-                log.info("Current hourly API request count: {}. Will adjust cache warming accordingly.", currentHourlyRequests);
-            } catch (RuntimeException e) {
-                log.warn("Could not get ApiRequestMonitor metrics: {}", e.getMessage());
+            ApiRequestMonitor apiRequestMonitor = apiRequestMonitorProvider.getIfAvailable();
+            if (apiRequestMonitor == null) {
+                throw new IllegalStateException("ApiRequestMonitor bean is required for cache warming but was not available.");
             }
+            int currentHourlyRequests = apiRequestMonitor.getCurrentHourlyRequests();
+            log.info("Current hourly API request count: {}. Will adjust cache warming accordingly.", currentHourlyRequests);
             
             // Calculate how many books we can warm based on current API usage
             // We want to leave some headroom for user requests
@@ -152,35 +150,30 @@ public class BookCacheWarmingScheduler {
                 final String bookId = bookIdsToWarm.get(i);
                 
                 // Schedule each book to be warmed with a delay
-                executor.schedule(() -> {
-                    try {
-                        // Note: Cache warming functionality has been disabled as the cache service has been removed
-                        log.info("Attempting to warm book ID: {} (cache functionality disabled)", bookId);
-                        fetchBookForWarming(bookId)
-                            .thenAccept(book -> {
-                                if (book != null) {
-                                    warmedCount.incrementAndGet();
-                                    log.info("Successfully fetched book for warming: {}",
-                                            book.getTitle() != null ? book.getTitle() : bookId);
-                                } else {
-                                    log.debug("No book found for ID: {}", bookId);
-                                }
-                            })
-                            .exceptionally(ex -> {
-                                LoggingUtils.error(log, ex, "Error fetching book {}", bookId);
-                                return null;
-                            });
-
-                        // Track that we've processed this book
-                        recentlyWarmedBooks.add(bookId);
-                    } catch (RuntimeException e) {
-                        LoggingUtils.error(log, e, "Error in cache warming task for book {}", bookId);
+                ScheduledFuture<?> scheduledFuture = executor.schedule(() -> {
+                    // Note: Cache warming functionality has been disabled as the cache service has been removed
+                    log.info("Attempting to warm book ID: {} (cache functionality disabled)", bookId);
+                    Book book = fetchBookForWarming(bookId).toCompletableFuture().join();
+                    if (book != null) {
+                        warmedCount.incrementAndGet();
+                        log.info("Successfully fetched book for warming: {}",
+                            book.getTitle() != null ? book.getTitle() : bookId);
+                    } else {
+                        log.debug("No book found for ID: {}", bookId);
                     }
+
+                    // Track that we've processed this book
+                    recentlyWarmedBooks.add(bookId);
                 }, i * delayMillis, TimeUnit.MILLISECONDS);
+                scheduledTasks.add(scheduledFuture);
             }
             
             // Make sure all tasks have a chance to complete
             executor.shutdown();
+            long timeoutMillis = maxBooksPerRun * delayMillis + 10000;
+            for (ScheduledFuture<?> scheduledTask : scheduledTasks) {
+                scheduledTask.get(timeoutMillis, TimeUnit.MILLISECONDS);
+            }
             executor.awaitTermination(maxBooksPerRun * delayMillis + 10000, TimeUnit.MILLISECONDS);
             
             log.info("Book cache warming completed. Warmed: {}, Already in cache: {}, Total: {}", 
@@ -189,9 +182,14 @@ public class BookCacheWarmingScheduler {
             
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            LoggingUtils.warn(log, e, "Book cache warming interrupted");
+            throw new IllegalStateException("Book cache warming interrupted", e);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause() != null ? e.getCause() : e;
+            throw new IllegalStateException("Book cache warming task failed", cause);
+        } catch (TimeoutException e) {
+            throw new IllegalStateException("Book cache warming task timed out", e);
         } catch (RuntimeException e) {
-            LoggingUtils.error(log, e, "Error during book cache warming");
+            throw new IllegalStateException("Error during book cache warming", e);
         } finally {
             if (!executor.isTerminated()) {
                 executor.shutdownNow();

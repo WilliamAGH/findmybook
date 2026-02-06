@@ -28,12 +28,12 @@ import org.slf4j.LoggerFactory;
 
 @SpringBootApplication(exclude = {
     // Disable default Spring Security auto-configuration to allow public access
-    org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration.class,
-    org.springframework.boot.autoconfigure.security.servlet.SecurityFilterAutoConfiguration.class,
+    org.springframework.boot.security.autoconfigure.SecurityAutoConfiguration.class,
+    org.springframework.boot.security.autoconfigure.web.servlet.SecurityFilterAutoConfiguration.class,
     // Disable reactive security auto-configuration for WebFlux endpoints
-    org.springframework.boot.autoconfigure.security.reactive.ReactiveSecurityAutoConfiguration.class,
+    org.springframework.boot.security.autoconfigure.web.reactive.ReactiveWebSecurityAutoConfiguration.class,
     // Disable SQL initialization to prevent automatic schema.sql execution
-    org.springframework.boot.autoconfigure.sql.init.SqlInitializationAutoConfiguration.class
+    org.springframework.boot.jdbc.autoconfigure.DataSourceInitializationAutoConfiguration.class
 })
 @EnableCaching(proxyTargetClass = true)
 @EnableAsync

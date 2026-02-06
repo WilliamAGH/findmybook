@@ -1,8 +1,8 @@
 package net.findmybook.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import java.util.Objects;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import net.findmybook.dto.BookAggregate;
 import net.findmybook.model.Book;
 import net.findmybook.util.ApplicationConstants;
@@ -64,13 +64,13 @@ class BookDataOrchestratorPersistenceScenariosTest {
     void setUp() {
         ObjectMapper om = new ObjectMapper();
         postgresBookRepository = new PostgresBookRepository(jdbcTemplate, om);
+        BookExternalBatchPersistenceService batchPersistenceService =
+            new BookExternalBatchPersistenceService(om, googleBooksMapper, bookUpsertService);
 
         orchestrator = new BookDataOrchestrator(
-                om,
                 bookSearchService,
                 postgresBookRepository,
-                bookUpsertService,
-                googleBooksMapper
+                batchPersistenceService
         );
         lenient().when(bookSearchService.searchBooks(anyString(), any())).thenReturn(List.of());
         lenient().when(bookSearchService.searchByIsbn(anyString())).thenReturn(java.util.Optional.empty());

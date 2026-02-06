@@ -1,15 +1,16 @@
 package net.findmybook.scheduler;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
 import net.findmybook.dto.BookAggregate;
 import net.findmybook.service.BookCollectionPersistenceService;
 import net.findmybook.service.BookLookupService;
 import net.findmybook.service.BookSupplementalPersistenceService;
 import net.findmybook.service.BookUpsertService;
 import net.findmybook.service.NewYorkTimesService;
+import net.findmybook.support.retry.AdvisoryLockRetrySupport;
 import net.findmybook.util.LoggingUtils;
 import net.findmybook.util.DateParsingUtils;
 import net.findmybook.util.ValidationUtils;
@@ -56,6 +57,8 @@ public class NewYorkTimesBestsellerScheduler {
     private final BookCollectionPersistenceService collectionPersistenceService;
     private final BookSupplementalPersistenceService supplementalPersistenceService;
     private final BookUpsertService bookUpsertService;
+    private static final int UPSERT_LOCK_MAX_ATTEMPTS = 3;
+    private static final long UPSERT_LOCK_RETRY_BACKOFF_MS = 100L;
 
     @Value("${app.nyt.scheduler.cron:0 0 4 * * SUN}")
     private String cronExpression;
@@ -105,9 +108,9 @@ public class NewYorkTimesBestsellerScheduler {
         log.info("Starting NYT bestseller ingest{}.",
             requestedDate != null ? " for " + requestedDate : "");
         JsonNode overview = newYorkTimesService.fetchBestsellerListOverview(requestedDate)
-                .onErrorResume(e -> {
+                .onErrorMap(e -> {
                     LoggingUtils.error(log, e, "Unable to fetch NYT bestseller overview");
-                    return Mono.empty();
+                    return new IllegalStateException("Unable to fetch NYT bestseller overview", e);
                 })
                 .block(Duration.ofMinutes(2));
 
@@ -227,7 +230,7 @@ public class NewYorkTimesBestsellerScheduler {
         String rawItem;
         try {
             rawItem = objectMapper.writeValueAsString(bookNode);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             rawItem = null;
         }
 
@@ -260,11 +263,19 @@ public class NewYorkTimesBestsellerScheduler {
         }
 
         try {
-            BookUpsertService.UpsertResult result = bookUpsertService.upsert(aggregate);
+            BookUpsertService.UpsertResult result = AdvisoryLockRetrySupport.execute(
+                log,
+                "NYT upsert isbn13=" + isbn13 + ",isbn10=" + isbn10,
+                UPSERT_LOCK_MAX_ATTEMPTS,
+                UPSERT_LOCK_RETRY_BACKOFF_MS,
+                () -> bookUpsertService.upsert(aggregate)
+            );
             return result.getBookId().toString();
         } catch (RuntimeException e) {
-            log.error("Failed to create book from NYT data: {}", e.getMessage(), e);
-            return null;
+            throw new IllegalStateException(
+                "Failed to create canonical book from NYT data (isbn13=" + isbn13 + ", isbn10=" + isbn10 + ")",
+                e
+            );
         }
     }
 

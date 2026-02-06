@@ -1,6 +1,6 @@
 package net.findmybook.mapper;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import net.findmybook.dto.BookAggregate;
 
 /**

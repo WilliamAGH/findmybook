@@ -38,11 +38,17 @@ import org.springframework.web.bind.annotation.RestController;
 @Slf4j
 public class AdminController {
 
+    /**
+     * Externalized S3 cleanup configuration injected via {@code @Value} properties.
+     */
+    public record S3CleanupConfig(
+        String prefix,
+        int defaultBatchLimit,
+        String quarantinePrefix
+    ) {}
 
     private final S3CoverCleanupService s3CoverCleanupService;
-    private final String configuredS3Prefix;
-    private final int defaultBatchLimit;
-    private final String configuredQuarantinePrefix;
+    private final S3CleanupConfig s3CleanupConfig;
     private final NewYorkTimesBestsellerScheduler newYorkTimesBestsellerScheduler;
     private final BookCacheWarmingScheduler bookCacheWarmingScheduler;
     private final ApiCircuitBreakerService apiCircuitBreakerService;
@@ -60,9 +66,7 @@ public class AdminController {
         this.newYorkTimesBestsellerScheduler = newYorkTimesBestsellerScheduler;
         this.bookCacheWarmingScheduler = bookCacheWarmingScheduler;
         this.apiCircuitBreakerService = apiCircuitBreakerService;
-        this.configuredS3Prefix = configuredS3Prefix;
-        this.defaultBatchLimit = defaultBatchLimit;
-        this.configuredQuarantinePrefix = configuredQuarantinePrefix;
+        this.s3CleanupConfig = new S3CleanupConfig(configuredS3Prefix, defaultBatchLimit, configuredQuarantinePrefix);
         this.backfillCoordinator = backfillCoordinator;
     }
 
@@ -123,8 +127,8 @@ public class AdminController {
             return ResponseEntity.badRequest().body(errorMessage);
         }
         
-        String prefixToUse = prefixOptional != null ? prefixOptional : configuredS3Prefix;
-        int requestedLimit     = limitOptional != null ? limitOptional : defaultBatchLimit;
+        String prefixToUse = prefixOptional != null ? prefixOptional : s3CleanupConfig.prefix();
+        int requestedLimit     = limitOptional != null ? limitOptional : s3CleanupConfig.defaultBatchLimit();
         int batchLimitToUse    = requestedLimit > 0 ? requestedLimit : Integer.MAX_VALUE;
         if (requestedLimit <= 0) {
             // This behavior can be adjusted; for now, let's say 0 or negative means a very large number (effectively no limit for practical purposes)
@@ -164,18 +168,9 @@ public class AdminController {
             log.info("S3 Cover Cleanup Dry Run response prepared for prefix: '{}', limit: {}. Summary: {} flagged out of {} scanned.", 
                         prefixToUse, batchLimitToUse, summary.getTotalFlagged(), summary.getTotalScanned());
             return ResponseEntity.ok(responseBody);
-        } catch (IllegalArgumentException | IllegalStateException ex) {
-            String errorMessage = String.format(
-                "Failed to complete S3 Cover Cleanup Dry Run with prefix: '%s', limit: %d.",
-                prefixToUse,
-                batchLimitToUse
-            );
-            log.error("{} Cause: {}", errorMessage, ex.getMessage(), ex);
-            return ResponseEntity.internalServerError()
-                .body("Error during S3 Cover Cleanup Dry Run. Check server logs for details.");
         } catch (RuntimeException ex) {
             String errorMessage = String.format(
-                "Unexpected failure during S3 Cover Cleanup Dry Run with prefix: '%s', limit: %d.",
+                "Failed to complete S3 Cover Cleanup Dry Run with prefix: '%s', limit: %d.",
                 prefixToUse,
                 batchLimitToUse
             );
@@ -205,9 +200,9 @@ public class AdminController {
             return ErrorResponseUtils.badRequest(errorMessage, null);
         }
 
-        String sourcePrefixToUse = prefixOptional != null ? prefixOptional : configuredS3Prefix;
-        int batchLimitToUse = limitOptional != null ? limitOptional : defaultBatchLimit;
-        String quarantinePrefixToUse = quarantinePrefixOptional != null ? quarantinePrefixOptional : configuredQuarantinePrefix;
+        String sourcePrefixToUse = prefixOptional != null ? prefixOptional : s3CleanupConfig.prefix();
+        int batchLimitToUse = limitOptional != null ? limitOptional : s3CleanupConfig.defaultBatchLimit();
+        String quarantinePrefixToUse = quarantinePrefixOptional != null ? quarantinePrefixOptional : s3CleanupConfig.quarantinePrefix();
 
         if (batchLimitToUse <= 0) {
             log.warn("Batch limit for move action specified as {} (or defaulted to it), processing all found items.", batchLimitToUse);
@@ -228,19 +223,9 @@ public class AdminController {
             
             log.info("S3 Cover Cleanup Move Action completed. Summary: {}", summary.toString());
             return ResponseEntity.ok(summary);
-        } catch (IllegalArgumentException | IllegalStateException ex) {
-            String errorMessage = String.format(
-                "Failed to complete S3 Cover Cleanup Move Action. Source Prefix: '%s', Limit: %d, Quarantine Prefix: '%s'.",
-                sourcePrefixToUse, batchLimitToUse, quarantinePrefixToUse
-            );
-            log.error(errorMessage, ex);
-            return ErrorResponseUtils.internalServerError(
-                "Move action failed",
-                errorMessage
-            );
         } catch (RuntimeException ex) {
             String errorMessage = String.format(
-                "Unexpected failure during S3 Cover Cleanup Move Action. Source Prefix: '%s', Limit: %d, Quarantine Prefix: '%s'.",
+                "Failed to complete S3 Cover Cleanup Move Action. Source Prefix: '%s', Limit: %d, Quarantine Prefix: '%s'.",
                 sourcePrefixToUse, batchLimitToUse, quarantinePrefixToUse
             );
             log.error(errorMessage, ex);

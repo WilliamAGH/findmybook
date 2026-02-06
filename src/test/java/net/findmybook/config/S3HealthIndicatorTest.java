@@ -1,9 +1,9 @@
 package net.findmybook.config;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.actuate.health.Status;
-import org.springframework.boot.web.context.WebServerApplicationContext;
-import org.springframework.boot.web.context.WebServerInitializedEvent;
+import org.springframework.boot.health.contributor.Status;
+import org.springframework.boot.web.server.context.WebServerApplicationContext;
+import org.springframework.boot.web.server.context.WebServerInitializedEvent;
 import org.springframework.boot.web.server.WebServer;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.reactive.function.client.WebClient;

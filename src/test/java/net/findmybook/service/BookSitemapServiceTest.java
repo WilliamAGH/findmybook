@@ -1,7 +1,7 @@
 package net.findmybook.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import net.findmybook.config.SitemapProperties;
 import net.findmybook.service.SitemapService.BookSitemapItem;
 import org.junit.jupiter.api.BeforeEach;
@@ -13,7 +13,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -99,9 +98,8 @@ class BookSitemapServiceTest {
 
     private Set<String> collectFieldNames(JsonNode node) {
         Set<String> names = new HashSet<>();
-        Iterator<String> iterator = node.fieldNames();
-        while (iterator.hasNext()) {
-            names.add(iterator.next());
+        for (String fieldName : node.propertyNames()) {
+            names.add(fieldName);
         }
         return names;
     }

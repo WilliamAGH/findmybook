@@ -7,7 +7,7 @@ import java.util.Locale;
  * Single Source of Truth for S3 object key generation for book cover images.
  * 
  * Consolidates logic from:
- * - S3BookCoverService.generateS3Key()
+ * - S3CoverKeyResolver / S3 cover storage gateway paths
  * 
  * Key format: images/book-covers/{bookId}-lg-{source}.{ext}
  * Example: images/book-covers/9780123456789-lg-google-books.jpg

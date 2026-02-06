@@ -15,10 +15,13 @@ package net.findmybook.controller;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.web.error.ErrorAttributeOptions;
-import org.springframework.boot.web.servlet.error.ErrorAttributes;
-import org.springframework.boot.web.servlet.error.ErrorController;
+import org.springframework.boot.webmvc.error.ErrorAttributes;
+import org.springframework.boot.webmvc.error.ErrorController;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.InvalidMediaTypeException;
@@ -28,6 +31,7 @@ import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.context.request.WebRequest;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -35,10 +39,15 @@ import java.util.Map;
 @ConditionalOnWebApplication
 public class ErrorDiagnosticsController implements ErrorController {
 
-    private final ErrorAttributes errorAttributes;
+    private static final Logger log = LoggerFactory.getLogger(ErrorDiagnosticsController.class);
 
-    public ErrorDiagnosticsController(ErrorAttributes errorAttributes) {
+    private final ErrorAttributes errorAttributes;
+    private final boolean spaFrontendEnabled;
+
+    public ErrorDiagnosticsController(ErrorAttributes errorAttributes,
+                                      @Value("${app.frontend.spa.enabled:true}") boolean spaFrontendEnabled) {
         this.errorAttributes = errorAttributes;
+        this.spaFrontendEnabled = spaFrontendEnabled;
     }
 
     /**
@@ -68,9 +77,15 @@ public class ErrorDiagnosticsController implements ErrorController {
         response.setStatus(statusCode);
 
         if (clientPrefersJson(request)) {
+            Map<String, Object> safeResponse = new LinkedHashMap<>();
+            safeResponse.put("timestamp", errors.get("timestamp"));
+            safeResponse.put("status", statusCode);
+            safeResponse.put("error", errors.get("error"));
+            safeResponse.put("message", errors.get("message"));
+            safeResponse.put("path", errors.get("path"));
             return ResponseEntity.status(statusCode)
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(errors);
+                .body(safeResponse);
         }
 
         model.addAttribute("timestamp", errors.get("timestamp"));
@@ -86,11 +101,21 @@ public class ErrorDiagnosticsController implements ErrorController {
                 String exceptionClassName = (String) errors.get("exception");
                 model.addAttribute("exceptionType", Class.forName(exceptionClassName).getSimpleName());
             } catch (ClassNotFoundException e) {
-                // Ignore if class not found
+                log.warn("Unable to resolve exception class '{}': {}", errors.get("exception"), e.getMessage());
             }
         }
         
         if (statusCode == HttpStatus.NOT_FOUND.value()) {
+            if (spaFrontendEnabled) {
+                String requestPath = request.getRequestURI() != null ? request.getRequestURI() : "/";
+                model.addAttribute("title", "Page Not Found");
+                model.addAttribute("description", "The page you requested could not be found.");
+                model.addAttribute("keywords", "404, page not found");
+                model.addAttribute("canonicalUrl", "https://findmybook.net" + requestPath);
+                model.addAttribute("ogImage", "/images/og-logo.png");
+                model.addAttribute("status", statusCode);
+                return "spa/index";
+            }
             return "error/404";
         }
 
@@ -104,7 +129,8 @@ public class ErrorDiagnosticsController implements ErrorController {
         if (statusValue instanceof String stringStatus) {
             try {
                 return Integer.parseInt(stringStatus);
-            } catch (NumberFormatException ignored) {
+            } catch (NumberFormatException ex) {
+                log.warn("Unparseable error status '{}', defaulting to 500", stringStatus);
                 return HttpStatus.INTERNAL_SERVER_ERROR.value();
             }
         }
@@ -129,6 +155,7 @@ public class ErrorDiagnosticsController implements ErrorController {
             }
             return false;
         } catch (InvalidMediaTypeException ex) {
+            log.debug("Malformed Accept header '{}': {}", acceptHeader, ex.getMessage());
             return false;
         }
     }

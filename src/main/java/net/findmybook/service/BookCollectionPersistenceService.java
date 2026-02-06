@@ -1,6 +1,6 @@
 package net.findmybook.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import net.findmybook.util.ApplicationConstants;
 import net.findmybook.util.CategoryNormalizer;
 import net.findmybook.util.IdGenerator;

@@ -1,9 +1,9 @@
 package net.findmybook.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 import net.findmybook.config.SitemapProperties;
 import net.findmybook.model.Book;
 import net.findmybook.service.SitemapService.BookSitemapItem;
@@ -107,12 +107,13 @@ public class BookSitemapService {
             s3StorageService.uploadFileAsync(s3Key, inputStream, bytes.length, "application/json").join();
             log.info("Uploaded sitemap snapshot ({} entries) to S3 key '{}'.", snapshot.books().size(), s3Key);
             return true;
-        } catch (JsonProcessingException | java.util.concurrent.CompletionException | IllegalArgumentException ex) {
-            log.error("Failed to upload sitemap snapshot to S3 key '{}': {}", s3Key, ex.getMessage(), ex);
-            return false;
+        } catch (JacksonException | java.util.concurrent.CompletionException | IllegalArgumentException ex) {
+            throw new IllegalStateException("Failed to upload sitemap snapshot to S3 key '" + s3Key + "'", ex);
         } catch (RuntimeException ex) {
-            log.error("Unexpected runtime failure while uploading sitemap snapshot to S3 key '{}'", s3Key, ex);
-            return false;
+            throw new IllegalStateException(
+                "Unexpected runtime failure while uploading sitemap snapshot to S3 key '" + s3Key + "'",
+                ex
+            );
         }
     }
 
@@ -159,7 +160,7 @@ public class BookSitemapService {
         return new ExternalHydrationSummary(limit, slice.size(), succeeded.get(), failures.get());
     }
 
-    private String buildSnapshotPayload(SitemapSnapshot snapshot) throws JsonProcessingException {
+    private String buildSnapshotPayload(SitemapSnapshot snapshot) throws JacksonException {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("generatedAt", snapshot.generatedAt().toString());
         root.put("totalBooks", snapshot.books().size());

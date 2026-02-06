@@ -125,6 +125,8 @@ public class OpenLibraryServiceImpl implements OpenLibraryService {
         String isbn = CoverIdentifierResolver.getPreferredIsbn(book);
         logger.warn("OpenLibraryService rate limit exceeded for book ID: {}, ISBN: {}. Error: {}", 
             book.getId(), isbn, t.getMessage());
-        return CompletableFuture.completedFuture(Optional.empty());
+        return CompletableFuture.failedFuture(
+            new IllegalStateException("OpenLibrary cover lookup was rate-limited for book " + book.getId(), t)
+        );
     }
 }

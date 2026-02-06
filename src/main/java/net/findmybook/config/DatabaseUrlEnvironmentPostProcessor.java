@@ -5,7 +5,7 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import org.springframework.boot.SpringApplication;
-import org.springframework.boot.env.EnvironmentPostProcessor;
+import org.springframework.boot.EnvironmentPostProcessor;
 import org.springframework.core.Ordered;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MapPropertySource;
@@ -273,7 +273,7 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
             // Highest precedence so these values win over application.yml
             sources.addFirst(new MapPropertySource("databaseUrlProcessor", overrides));
         } catch (RuntimeException e) {
-            // Leave the value as-is; Spring will surface connection errors if invalid
+            logBootstrapWarning("Failed to normalize datasource properties; Spring will use raw configuration. Cause: " + e.getMessage());
         }
     }
 

@@ -69,9 +69,9 @@ public class BookRecommendationPersistenceService {
                         .doOnSuccess(ignored -> log.info("Persisted {} recommendation(s) for source {} via Postgres pipeline.", resolved.size(), sourceUuid))
                         .then();
                 }))
-            .onErrorResume(ex -> {
+            .onErrorMap(ex -> {
                 log.warn("Failed to persist recommendations for book {}: {}", sourceBook.getId(), ex.getMessage(), ex);
-                return Mono.empty();
+                return new IllegalStateException("Failed to persist recommendations for book " + sourceBook.getId(), ex);
             });
     }
 
@@ -124,9 +124,9 @@ public class BookRecommendationPersistenceService {
         )
             .subscribeOn(Schedulers.boundedElastic())
             .flatMap(optional -> optional.map(Mono::just).orElseGet(Mono::empty))
-            .onErrorResume(err -> {
+            .onErrorMap(err -> {
                 log.debug("Error resolving canonical book for {}: {}", identifier, err.getMessage());
-                return Mono.empty();
+                return new IllegalStateException("Error resolving canonical recommendation book for " + identifier, err);
             });
     }
 
@@ -188,8 +188,7 @@ public class BookRecommendationPersistenceService {
             );
             return Optional.ofNullable(primary != null ? primary : uuid);
         } catch (DataAccessException ex) {
-            log.debug("Failed to resolve primary edition for {}: {}", uuid, ex.getMessage());
-            return Optional.of(uuid);
+            throw new IllegalStateException("Failed to resolve primary edition UUID for " + uuid, ex);
         }
     }
 

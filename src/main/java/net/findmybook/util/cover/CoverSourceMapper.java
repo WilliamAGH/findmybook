@@ -11,7 +11,7 @@ import java.util.Locale;
  * Consolidates logic from:
  * - Legacy cache helper mapStringToImageSourceName()
  * - Legacy cache helper mapCoverImageSourceToImageSourceName()
- * - S3BookCoverService.getSourceString()
+ * - Legacy S3 cover pipeline source string normalization
  * 
  * Provides canonical String representations for all source types.
  * 
