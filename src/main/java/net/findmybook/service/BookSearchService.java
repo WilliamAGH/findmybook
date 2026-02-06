@@ -1,5 +1,10 @@
 package net.findmybook.service;
 
+import net.findmybook.dto.BookCard;
+import net.findmybook.dto.BookDetail;
+import net.findmybook.dto.EditionSummary;
+import net.findmybook.dto.RecommendationCard;
+import net.findmybook.repository.BookQueryRepository;
 import net.findmybook.util.IsbnUtils;
 import net.findmybook.util.PagingUtils;
 import net.findmybook.util.SearchQueryUtils;
@@ -31,6 +36,7 @@ public class BookSearchService {
     private final JdbcTemplate jdbcTemplate;
     private final ExternalBookIdResolver externalBookIdResolver;
     private final BackfillCoordinator backfillCoordinator;
+    private final BookQueryRepository bookQueryRepository;
     
     @Value("${app.features.async-backfill.enabled:false}")
     private boolean asyncBackfillEnabled;
@@ -38,11 +44,13 @@ public class BookSearchService {
     public BookSearchService(
         JdbcTemplate jdbcTemplate,
         Optional<ExternalBookIdResolver> externalBookIdResolver,
-        Optional<BackfillCoordinator> backfillCoordinator
+        Optional<BackfillCoordinator> backfillCoordinator,
+        Optional<BookQueryRepository> bookQueryRepository
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.externalBookIdResolver = externalBookIdResolver.orElse(null);
         this.backfillCoordinator = backfillCoordinator.orElse(null);
+        this.bookQueryRepository = bookQueryRepository.orElse(null);
     }
 
     public List<SearchResult> searchBooks(String query, Integer limit) {
@@ -150,6 +158,38 @@ public class BookSearchService {
         }
     }
 
+    public List<BookCard> fetchBookCards(List<UUID> bookIds) {
+        return requireBookQueryRepository().fetchBookCards(bookIds);
+    }
+
+    public List<RecommendationCard> fetchRecommendationCards(UUID bookId, int limit) {
+        return requireBookQueryRepository().fetchRecommendationCards(bookId, limit);
+    }
+
+    public Optional<BookDetail> fetchBookDetailBySlug(String slug) {
+        return requireBookQueryRepository().fetchBookDetailBySlug(slug);
+    }
+
+    public Optional<BookDetail> fetchBookDetail(UUID bookId) {
+        return requireBookQueryRepository().fetchBookDetail(bookId);
+    }
+
+    public Optional<BookCard> fetchBookCard(UUID bookId) {
+        return requireBookQueryRepository().fetchBookCard(bookId);
+    }
+
+    public List<EditionSummary> fetchBookEditions(UUID bookId) {
+        return requireBookQueryRepository().fetchBookEditions(bookId);
+    }
+
+    private BookQueryRepository requireBookQueryRepository() {
+        // Fail fast: DTO projection endpoints must not silently degrade when repository wiring is missing.
+        if (bookQueryRepository == null) {
+            throw new IllegalStateException("BookQueryRepository is unavailable for Postgres DTO lookups");
+        }
+        return bookQueryRepository;
+    }
+
     public void refreshMaterializedView() {
         if (jdbcTemplate == null) {
             return;
@@ -193,9 +233,9 @@ public class BookSearchService {
             }
             
             log.debug("Enqueued backfill for {} search results", results.size());
-        } catch (Exception e) {
+        } catch (RuntimeException ex) {
             // Don't let backfill enqueue errors affect search results
-            log.warn("Error enqueuing backfill for search results: {}", e.getMessage());
+            log.warn("Error enqueuing backfill for search results", ex);
         }
     }
 

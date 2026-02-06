@@ -372,6 +372,7 @@ class SearchPaginationServiceTest {
             bookSearchService = new BookSearchService(
                 jdbcTemplate,
                 Optional.empty(),
+                Optional.empty(),
                 Optional.empty()
             );
         }

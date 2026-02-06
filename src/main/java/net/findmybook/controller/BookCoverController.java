@@ -1,8 +1,8 @@
 package net.findmybook.controller;
 
-import net.findmybook.repository.BookQueryRepository;
 import net.findmybook.service.BookDataOrchestrator;
 import net.findmybook.service.BookIdentifierResolver;
+import net.findmybook.service.BookSearchService;
 import net.findmybook.util.ApplicationConstants;
 import net.findmybook.util.ValidationUtils;
 import net.findmybook.util.cover.CoverUrlResolver;
@@ -10,12 +10,14 @@ import net.findmybook.util.cover.UrlSourceDetector;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.Nullable;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 import java.util.HashMap;
@@ -33,14 +35,15 @@ import java.util.UUID;
 @Slf4j
 public class BookCoverController {
 
-    private final BookQueryRepository bookQueryRepository;
+    private final BookSearchService bookSearchService;
     private final BookIdentifierResolver bookIdentifierResolver;
+    @Nullable
     private final BookDataOrchestrator bookDataOrchestrator;
 
-    public BookCoverController(BookQueryRepository bookQueryRepository,
+    public BookCoverController(BookSearchService bookSearchService,
                                BookIdentifierResolver bookIdentifierResolver,
-                               BookDataOrchestrator bookDataOrchestrator) {
-        this.bookQueryRepository = bookQueryRepository;
+                               @Nullable BookDataOrchestrator bookDataOrchestrator) {
+        this.bookSearchService = bookSearchService;
         this.bookIdentifierResolver = bookIdentifierResolver;
         this.bookDataOrchestrator = bookDataOrchestrator;
     }
@@ -77,7 +80,7 @@ public class BookCoverController {
             return Optional.empty();
         }
 
-        Optional<CoverPayload> fromSlug = bookQueryRepository.fetchBookDetailBySlug(identifier)
+        Optional<CoverPayload> fromSlug = bookSearchService.fetchBookDetailBySlug(identifier)
             .map(detail -> toPayload(detail.id(), detail.coverUrl(), detail.thumbnailUrl(), detail.coverWidth(), detail.coverHeight(), detail.coverHighResolution()));
         if (fromSlug.isPresent()) {
             return fromSlug;
@@ -85,7 +88,7 @@ public class BookCoverController {
 
         Optional<UUID> maybeUuid = bookIdentifierResolver.resolveToUuid(identifier);
         if (maybeUuid.isPresent()) {
-            Optional<CoverPayload> fromUuid = bookQueryRepository.fetchBookDetail(maybeUuid.get())
+            Optional<CoverPayload> fromUuid = bookSearchService.fetchBookDetail(maybeUuid.get())
                 .map(detail -> toPayload(detail.id(), detail.coverUrl(), detail.thumbnailUrl(), detail.coverWidth(), detail.coverHeight(), detail.coverHighResolution()));
             if (fromUuid.isPresent()) {
                 return fromUuid;
@@ -96,22 +99,21 @@ public class BookCoverController {
             return Optional.empty();
         }
 
-        try {
-            return bookDataOrchestrator.fetchCanonicalBookReactive(identifier)
-                .timeout(Duration.ofSeconds(5))
-                .blockOptional()
-                .map(book -> toPayload(
-                    book.getId(),
-                    book.getS3ImagePath(),
-                    book.getExternalImageUrl(),
-                    book.getCoverImageWidth(),
-                    book.getCoverImageHeight(),
-                    book.getIsCoverHighResolution()
-                ));
-        } catch (Exception ex) {
-            log.warn("Cover orchestrator fallback failed for '{}': {}", identifier, ex.getMessage());
-            return Optional.empty();
-        }
+        return bookDataOrchestrator.fetchCanonicalBookReactive(identifier)
+            .timeout(Duration.ofSeconds(5))
+            .onErrorResume(ex -> {
+                log.warn("Cover orchestrator lookup failed for '{}': {}", identifier, ex.getMessage());
+                return Mono.empty();
+            })
+            .blockOptional()
+            .map(book -> toPayload(
+                book.getId(),
+                book.getS3ImagePath(),
+                book.getExternalImageUrl(),
+                book.getCoverImageWidth(),
+                book.getCoverImageHeight(),
+                book.getIsCoverHighResolution()
+            ));
     }
 
     private CoverPayload toPayload(String bookId,

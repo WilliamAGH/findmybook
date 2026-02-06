@@ -8,9 +8,9 @@ package net.findmybook.controller;
 import net.findmybook.dto.BookCard;
 import net.findmybook.dto.BookDetail;
 import net.findmybook.model.Book;
-import net.findmybook.repository.BookQueryRepository;
 import net.findmybook.service.BookDataOrchestrator;
 import net.findmybook.service.BookIdentifierResolver;
+import net.findmybook.service.BookSearchService;
 import net.findmybook.service.SearchPaginationService;
 import net.findmybook.service.RecentlyViewedService;
 import net.findmybook.util.ApplicationConstants;
@@ -67,7 +67,7 @@ class HomeControllerTest {
     private NewYorkTimesService newYorkTimesService;
     
     @org.springframework.beans.factory.annotation.Autowired
-    private BookQueryRepository bookQueryRepository;
+    private BookSearchService bookSearchService;
 
     @org.springframework.beans.factory.annotation.Autowired
     private BookIdentifierResolver bookIdentifierResolver;
@@ -83,7 +83,7 @@ class HomeControllerTest {
         @Bean net.findmybook.service.EnvironmentService environmentService() { return Mockito.mock(net.findmybook.service.EnvironmentService.class); }
         @Bean net.findmybook.service.AffiliateLinkService affiliateLinkService() { return Mockito.mock(net.findmybook.service.AffiliateLinkService.class); }
         @Bean NewYorkTimesService newYorkTimesService() { return Mockito.mock(NewYorkTimesService.class); }
-        @Bean BookQueryRepository bookQueryRepository() { return Mockito.mock(BookQueryRepository.class); }
+        @Bean BookSearchService bookSearchService() { return Mockito.mock(BookSearchService.class); }
         @Bean SearchPaginationService searchPaginationService() { return Mockito.mock(SearchPaginationService.class); }
         @Bean BookIdentifierResolver bookIdentifierResolver() { return Mockito.mock(BookIdentifierResolver.class); }
     }
@@ -97,11 +97,11 @@ class HomeControllerTest {
         // Configure NewYorkTimesService to return empty BookCard list by default (NEW OPTIMIZED METHOD)
         when(newYorkTimesService.getCurrentBestSellersCards(anyString(), anyInt()))
             .thenReturn(Mono.just(java.util.Collections.emptyList()));
-        // Configure BookQueryRepository to return empty BookCard list by default
-        when(bookQueryRepository.fetchBookCards(org.mockito.ArgumentMatchers.anyList()))
+        // Configure BookSearchService projection methods to return empty results by default
+        when(bookSearchService.fetchBookCards(org.mockito.ArgumentMatchers.anyList()))
             .thenReturn(java.util.Collections.emptyList());
-        when(bookQueryRepository.fetchBookDetailBySlug(anyString())).thenReturn(Optional.empty());
-        when(bookQueryRepository.fetchBookDetail(org.mockito.ArgumentMatchers.any(UUID.class))).thenReturn(Optional.empty());
+        when(bookSearchService.fetchBookDetailBySlug(anyString())).thenReturn(Optional.empty());
+        when(bookSearchService.fetchBookDetail(org.mockito.ArgumentMatchers.any(UUID.class))).thenReturn(Optional.empty());
 
         when(bookIdentifierResolver.resolveToUuid(anyString())).thenReturn(Optional.empty());
         when(localDiskCoverCacheService.getLocalPlaceholderPath()).thenReturn(ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH);
@@ -210,7 +210,7 @@ class HomeControllerTest {
         );
 
         when(bookIdentifierResolver.resolveToUuid(eq(sanitizedIsbn))).thenReturn(Optional.of(canonicalUuid));
-        when(bookQueryRepository.fetchBookDetail(eq(canonicalUuid))).thenReturn(Optional.of(detail));
+        when(bookSearchService.fetchBookDetail(eq(canonicalUuid))).thenReturn(Optional.of(detail));
 
         webTestClient.get().uri("/book/isbn/" + isbn)
             .exchange()
@@ -319,8 +319,8 @@ class HomeControllerTest {
             50
         );
         
-        // Mock BookQueryRepository to return recent cards
-        when(bookQueryRepository.fetchBookCards(org.mockito.ArgumentMatchers.anyList()))
+        // Mock BookSearchService projection method to return recent cards
+        when(bookSearchService.fetchBookCards(org.mockito.ArgumentMatchers.anyList()))
             .thenReturn(List.of(recentCardWithUuid));
 
         // Act & Assert

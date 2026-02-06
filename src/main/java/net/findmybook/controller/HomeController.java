@@ -4,11 +4,11 @@ import net.findmybook.dto.BookCard;
 import net.findmybook.dto.BookDetail;
 import net.findmybook.dto.RecommendationCard;
 import net.findmybook.model.Book;
-import net.findmybook.repository.BookQueryRepository;
 import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.model.image.ImageResolutionPreference;
 import net.findmybook.service.AffiliateLinkService;
 import net.findmybook.service.BookIdentifierResolver;
+import net.findmybook.service.BookSearchService;
 import net.findmybook.service.SearchPaginationService;
 import net.findmybook.service.EnvironmentService;
 import net.findmybook.service.NewYorkTimesService;
@@ -24,6 +24,7 @@ import net.findmybook.util.ValidationUtils;
 import net.findmybook.util.UuidUtils;
 import net.findmybook.util.cover.CoverPrioritizer;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
@@ -62,7 +63,7 @@ public class HomeController {
     private final LocalDiskCoverCacheService localDiskCoverCacheService;
     private final NewYorkTimesService newYorkTimesService;
     private final AffiliateLinkService affiliateLinkService;
-    private final BookQueryRepository bookQueryRepository;
+    private final BookSearchService bookSearchService;
     private final SearchPaginationService searchPaginationService;
     private final BookIdentifierResolver bookIdentifierResolver;
     private final boolean isYearFilteringEnabled;
@@ -97,7 +98,7 @@ public class HomeController {
                           @Value("${app.feature.year-filtering.enabled:false}") boolean isYearFilteringEnabled,
                           NewYorkTimesService newYorkTimesService,
                           AffiliateLinkService affiliateLinkService,
-                          BookQueryRepository bookQueryRepository,
+                          BookSearchService bookSearchService,
                           SearchPaginationService searchPaginationService,
                           BookIdentifierResolver bookIdentifierResolver) {
         this.recentlyViewedService = recentlyViewedService;
@@ -106,7 +107,7 @@ public class HomeController {
         this.isYearFilteringEnabled = isYearFilteringEnabled;
         this.newYorkTimesService = newYorkTimesService;
         this.affiliateLinkService = affiliateLinkService;
-        this.bookQueryRepository = bookQueryRepository;
+        this.bookSearchService = bookSearchService;
         this.searchPaginationService = searchPaginationService;
         this.bookIdentifierResolver = bookIdentifierResolver;
     }
@@ -267,7 +268,7 @@ public class HomeController {
             }
             
             // Fetch as BookCard DTOs with single query
-            List<BookCard> cards = bookQueryRepository.fetchBookCards(uuids);
+            List<BookCard> cards = bookSearchService.fetchBookCards(uuids);
             if (cards.isEmpty()) {
                 return List.<BookCard>of();
             }
@@ -299,7 +300,7 @@ public class HomeController {
                 }
                 UUID uuid = optionalUuid.get();
                 return Mono.defer(() -> {
-                        List<RecommendationCard> cards = bookQueryRepository.fetchRecommendationCards(uuid, limit);
+                        List<RecommendationCard> cards = bookSearchService.fetchRecommendationCards(uuid, limit);
                         if (cards == null || cards.isEmpty()) {
                             return Mono.just(List.<Book>of());
                         }
@@ -352,7 +353,7 @@ public class HomeController {
     }
 
     private Book findBook(String identifier) {
-        Optional<BookDetail> bySlug = bookQueryRepository.fetchBookDetailBySlug(identifier);
+        Optional<BookDetail> bySlug = bookSearchService.fetchBookDetailBySlug(identifier);
         if (bySlug.isPresent()) {
             return BookDomainMapper.fromDetail(bySlug.get());
         }
@@ -363,12 +364,12 @@ public class HomeController {
         }
         UUID uuid = maybeUuid.get();
 
-        Optional<BookDetail> detail = bookQueryRepository.fetchBookDetail(uuid);
+        Optional<BookDetail> detail = bookSearchService.fetchBookDetail(uuid);
         if (detail.isPresent()) {
             return BookDomainMapper.fromDetail(detail.get());
         }
 
-        return bookQueryRepository.fetchBookCard(uuid)
+        return bookSearchService.fetchBookCard(uuid)
             .map(BookDomainMapper::fromCard)
             .orElse(null);
     }
@@ -388,8 +389,14 @@ public class HomeController {
 
         try {
             recentlyViewedService.addToRecentlyViewed(book);
-        } catch (Exception ex) {
-            log.warn("Failed to add book {} to recently viewed: {}", book.getId(), ex.getMessage());
+        } catch (RuntimeException ex) {
+            log.warn(
+                "Failed to record recently viewed book '{}' (id='{}'): {}",
+                book.getTitle(),
+                book.getId(),
+                ex.getMessage(),
+                ex
+            );
         }
     }
 

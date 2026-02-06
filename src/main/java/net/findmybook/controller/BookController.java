@@ -12,7 +12,6 @@ import net.findmybook.dto.RecommendationCard;
 import net.findmybook.model.Book;
 import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.model.image.ImageResolutionPreference;
-import net.findmybook.repository.BookQueryRepository;
 import net.findmybook.service.BookDataOrchestrator;
 import net.findmybook.service.BookIdentifierResolver;
 import net.findmybook.service.BookSearchService;
@@ -27,6 +26,7 @@ import net.findmybook.util.SlugGenerator;
 import net.findmybook.util.EnumParsingUtils;
 import net.findmybook.util.cover.CoverPrioritizer;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -54,18 +54,15 @@ import net.findmybook.util.UuidUtils;
 @Slf4j
 public class BookController {
     private final BookSearchService bookSearchService;
-    private final BookQueryRepository bookQueryRepository;
     private final BookIdentifierResolver bookIdentifierResolver;
     private final SearchPaginationService searchPaginationService;
     private final BookDataOrchestrator bookDataOrchestrator;
 
     public BookController(BookSearchService bookSearchService,
-                          BookQueryRepository bookQueryRepository,
                           BookIdentifierResolver bookIdentifierResolver,
                           SearchPaginationService searchPaginationService,
                           @Nullable BookDataOrchestrator bookDataOrchestrator) {
         this.bookSearchService = bookSearchService;
-        this.bookQueryRepository = bookQueryRepository;
         this.bookIdentifierResolver = bookIdentifierResolver;
         this.searchPaginationService = searchPaginationService;
         this.bookDataOrchestrator = bookDataOrchestrator;
@@ -167,7 +164,7 @@ public class BookController {
             if (maybeUuid.isEmpty()) {
                 return Mono.<List<BookDto>>empty();
             }
-            return Mono.fromCallable(() -> bookQueryRepository.fetchRecommendationCards(maybeUuid.get(), safeLimit))
+            return Mono.fromCallable(() -> bookSearchService.fetchRecommendationCards(maybeUuid.get(), safeLimit))
                 .subscribeOn(Schedulers.boundedElastic())
                 .map(this::mapRecommendationCards);
         });
@@ -254,8 +251,8 @@ public class BookController {
         return pipeline
             .map(ResponseEntity::ok)
             .onErrorResume(ex -> {
-                log.warn("{}: {}. Returning empty response.", contextSupplier.get(), ex.getMessage(), ex);
-                return Mono.fromSupplier(() -> ResponseEntity.ok(emptySupplier.get()));
+                log.error("{}: {}. Returning explicit error status.", contextSupplier.get(), ex.getMessage(), ex);
+                return Mono.fromSupplier(() -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(emptySupplier.get()));
             });
     }
 
@@ -267,7 +264,7 @@ public class BookController {
         if (uuid == null) {
             return detail;
         }
-        List<net.findmybook.dto.EditionSummary> editions = bookQueryRepository.fetchBookEditions(uuid);
+        List<net.findmybook.dto.EditionSummary> editions = bookSearchService.fetchBookEditions(uuid);
         if (editions == null || editions.isEmpty()) {
             return detail;
         }
@@ -312,7 +309,7 @@ public class BookController {
     }
 
     private BookDto locateBookDto(String identifier) {
-        Optional<BookDetail> bySlug = bookQueryRepository.fetchBookDetailBySlug(identifier);
+        Optional<BookDetail> bySlug = bookSearchService.fetchBookDetailBySlug(identifier);
         if (bySlug.isPresent()) {
             return BookDtoMapper.fromDetail(enrichWithEditions(bySlug.get()));
         }
@@ -327,7 +324,7 @@ public class BookController {
             return null;
         }
 
-        return bookQueryRepository.fetchBookDetail(uuid)
+        return bookSearchService.fetchBookDetail(uuid)
             .map(this::enrichWithEditions)
             .map(BookDtoMapper::fromDetail)
             .orElse(null);

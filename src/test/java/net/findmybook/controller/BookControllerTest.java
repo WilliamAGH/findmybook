@@ -8,7 +8,6 @@ import net.findmybook.model.Book;
 import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.model.image.CoverImages;
 import net.findmybook.model.image.ImageResolutionPreference;
-import net.findmybook.repository.BookQueryRepository;
 import net.findmybook.service.BookDataOrchestrator;
 import net.findmybook.service.BookIdentifierResolver;
 import net.findmybook.service.BookSearchService;
@@ -65,9 +64,6 @@ class BookControllerTest {
     private BookSearchService bookSearchService;
 
     @Mock
-    private BookQueryRepository bookQueryRepository;
-
-    @Mock
     private BookIdentifierResolver bookIdentifierResolver;
 
     @Mock
@@ -84,13 +80,12 @@ class BookControllerTest {
     void setUp() {
         BookController bookController = new BookController(
             bookSearchService,
-            bookQueryRepository,
             bookIdentifierResolver,
             searchPaginationService,
             bookDataOrchestrator
         );
         BookCoverController bookCoverController = new BookCoverController(
-            bookQueryRepository,
+            bookSearchService,
             bookIdentifierResolver,
             bookDataOrchestrator
         );
@@ -100,7 +95,7 @@ class BookControllerTest {
 
         lenient().when(bookDataOrchestrator.fetchCanonicalBookReactive(any()))
             .thenReturn(Mono.empty());
-        lenient().when(bookQueryRepository.fetchBookEditions(any(UUID.class)))
+        lenient().when(bookSearchService.fetchBookEditions(any(UUID.class)))
             .thenReturn(List.of());
     }
 
@@ -156,7 +151,7 @@ class BookControllerTest {
     @DisplayName("GET /api/books/{id} returns mapped DTO")
     void getBookByIdentifier_returnsDto() throws Exception {
         BookDetail detail = buildDetailFromBook(fixtureBook);
-        when(bookQueryRepository.fetchBookDetailBySlug(fixtureBook.getSlug()))
+        when(bookSearchService.fetchBookDetailBySlug(fixtureBook.getSlug()))
             .thenReturn(Optional.of(detail));
 
         performAsync(get("/api/books/" + fixtureBook.getSlug()))
@@ -180,13 +175,13 @@ class BookControllerTest {
     @Test
     @DisplayName("GET /api/books/{identifier} falls back to canonical UUID when slug missing")
     void getBookByIdentifier_fallsBackToCanonicalId() throws Exception {
-        when(bookQueryRepository.fetchBookDetailBySlug(fixtureBook.getSlug()))
+        when(bookSearchService.fetchBookDetailBySlug(fixtureBook.getSlug()))
             .thenReturn(Optional.empty());
         when(bookIdentifierResolver.resolveCanonicalId(fixtureBook.getSlug()))
             .thenReturn(Optional.of(fixtureBook.getId()));
 
         BookDetail detail = buildDetailFromBook(fixtureBook);
-        when(bookQueryRepository.fetchBookDetail(UUID.fromString(fixtureBook.getId())))
+        when(bookSearchService.fetchBookDetail(UUID.fromString(fixtureBook.getId())))
             .thenReturn(Optional.of(detail));
 
         performAsync(get("/api/books/" + fixtureBook.getSlug()))
@@ -212,9 +207,9 @@ class BookControllerTest {
             352
         );
 
-        when(bookQueryRepository.fetchBookDetailBySlug(fixtureBook.getSlug()))
+        when(bookSearchService.fetchBookDetailBySlug(fixtureBook.getSlug()))
             .thenReturn(Optional.of(detail));
-        when(bookQueryRepository.fetchBookEditions(UUID.fromString(fixtureBook.getId())))
+        when(bookSearchService.fetchBookEditions(UUID.fromString(fixtureBook.getId())))
             .thenReturn(List.of(summary));
 
         performAsync(get("/api/books/" + fixtureBook.getSlug()))
@@ -246,7 +241,7 @@ class BookControllerTest {
     @Test
     @DisplayName("GET /api/books/{identifier} returns 404 when not found")
     void getBook_notFound() throws Exception {
-        when(bookQueryRepository.fetchBookDetailBySlug("missing")).thenReturn(Optional.empty());
+        when(bookSearchService.fetchBookDetailBySlug("missing")).thenReturn(Optional.empty());
         when(bookIdentifierResolver.resolveCanonicalId("missing")).thenReturn(Optional.empty());
 
         performAsync(get("/api/books/missing"))
@@ -273,7 +268,7 @@ class BookControllerTest {
             Map.<String, Object>of("reason", Map.<String, Object>of("type", "AUTHOR"))
         );
         List<RecommendationCard> cards = List.of(new RecommendationCard(card, 0.9, "AUTHOR", "SAME_AUTHOR"));
-        when(bookQueryRepository.fetchRecommendationCards(bookUuid, 3)).thenReturn(cards);
+        when(bookSearchService.fetchRecommendationCards(bookUuid, 3)).thenReturn(cards);
 
         performAsync(get("/api/books/" + fixtureBook.getSlug() + "/similar")
             .param("limit", "3"))
@@ -318,10 +313,21 @@ class BookControllerTest {
     }
 
     @Test
+    @DisplayName("GET /api/covers/{id} returns 404 when orchestrator lookup fails")
+    void getBookCover_returnsNotFoundWhenOrchestratorErrors() throws Exception {
+        stubRepositoryMiss("orchestrator-error");
+        when(bookDataOrchestrator.fetchCanonicalBookReactive("orchestrator-error"))
+            .thenReturn(Mono.error(new RuntimeException("downstream-failure")));
+
+        mockMvc.perform(get("/api/covers/orchestrator-error"))
+            .andExpect(status().isNotFound());
+    }
+
+    @Test
     @DisplayName("GET /api/covers/{id} resolves via repository detail first")
     void getBookCover_usesRepositoryFirst() throws Exception {
         BookDetail detail = buildDetailFromBook(fixtureBook);
-        when(bookQueryRepository.fetchBookDetailBySlug(fixtureBook.getSlug()))
+        when(bookSearchService.fetchBookDetailBySlug(fixtureBook.getSlug()))
             .thenReturn(Optional.of(detail));
 
         CoverUrlResolver.ResolvedCover expectedCover = CoverUrlResolver.resolve(
@@ -468,7 +474,7 @@ class BookControllerTest {
     }
 
     private void stubRepositoryMiss(String identifier) {
-        lenient().when(bookQueryRepository.fetchBookDetailBySlug(identifier)).thenReturn(Optional.empty());
+        lenient().when(bookSearchService.fetchBookDetailBySlug(identifier)).thenReturn(Optional.empty());
         lenient().when(bookIdentifierResolver.resolveCanonicalId(identifier)).thenReturn(Optional.empty());
         lenient().when(bookIdentifierResolver.resolveToUuid(identifier)).thenReturn(Optional.empty());
     }
