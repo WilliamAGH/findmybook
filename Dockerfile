@@ -23,8 +23,8 @@ COPY gradle gradle
 RUN chmod +x ./gradlew
 
 # 2. Build configuration (changes occasionally)
-COPY build.gradle .
-COPY settings.gradle .
+COPY build.gradle.kts .
+COPY settings.gradle.kts .
 
 # 3. Frontend sources (used by buildFrontendCss task)
 COPY frontend ./frontend
@@ -47,7 +47,7 @@ ENV JAVA_OPTS="--enable-preview -Dio.netty.noUnsafe=true"
 EXPOSE 8095
 
 # Copy the built jar from the build stage
-COPY --from=build /app/build/libs/*.jar app.jar
+COPY --from=build /app/build/libs/book_recommendation_engine-*.jar app.jar
 
 # Run the application (SERVER_PORT env var automatically bound to server.port by Spring Boot)
 ENTRYPOINT exec java $JAVA_OPTS -jar /app/app.jar

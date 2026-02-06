@@ -180,7 +180,7 @@
 - [VER1e] For UI changes, verify both desktop and mobile rendering paths for affected pages or routes.
 
 ### [ENV1] Technology & Runtime Defaults
-- [ENV1a] Backend baseline is Spring Boot 3.5.x with Java 25 idioms.
+- [ENV1a] Backend baseline is Spring Boot 4.0.x with Java 25 idioms.
 - [ENV1b] Default local port is `8095` unless explicitly overridden.
 - [ENV1c] Production URL is `https://findmybook.net`.
 - [ENV1d] Primary data store is PostgreSQL; schema reference lives in `src/main/resources/schema.sql`.
