@@ -84,8 +84,8 @@ class S3HealthIndicatorTest {
         S3HealthIndicator indicator = new S3HealthIndicator(mockClient, "covers", true);
 
         StepVerifier.create(indicator.health())
-            .assertNext(health -> assertEquals(Status.DOWN, health.getStatus()))
-            .verifyComplete();
+            .expectError(RuntimeException.class)
+            .verify();
     }
 
     @Test
@@ -161,23 +161,33 @@ class S3HealthIndicatorTest {
     }
 
     @Test
-    void appRateLimiter_shouldUsePerSecondRefreshPeriod() {
+    void appRateLimiter_shouldUsePerMinuteRefreshPeriod() {
         AppRateLimiterConfig config = new AppRateLimiterConfig();
         ReflectionTestUtils.setField(config, "googleBooksRequestLimitPerMinute", 10);
 
         RateLimiter limiter = config.googleBooksRateLimiter();
 
-        assertEquals(Duration.ofSeconds(1), limiter.getRateLimiterConfig().getLimitRefreshPeriod());
+        assertEquals(Duration.ofMinutes(1), limiter.getRateLimiterConfig().getLimitRefreshPeriod());
     }
 
     @Test
-    void devRateLimiter_shouldUseServiceNameAndPerSecondRefreshPeriod() {
+    void appRateLimiter_openLibraryShouldUseFiveSecondPacing() {
+        AppRateLimiterConfig config = new AppRateLimiterConfig();
+
+        RateLimiter limiter = config.openLibraryRateLimiter();
+
+        assertEquals(Duration.ofSeconds(5), limiter.getRateLimiterConfig().getLimitRefreshPeriod());
+        assertEquals(1, limiter.getRateLimiterConfig().getLimitForPeriod());
+    }
+
+    @Test
+    void devRateLimiter_shouldUseServiceNameAndPerMinuteRefreshPeriod() {
         DevModeConfig config = new DevModeConfig();
         ReflectionTestUtils.setField(config, "googleBooksRequestLimitPerMinute", 10);
 
         RateLimiter limiter = config.googleBooksRateLimiter();
 
         assertEquals("googleBooksServiceRateLimiter", limiter.getName());
-        assertEquals(Duration.ofSeconds(1), limiter.getRateLimiterConfig().getLimitRefreshPeriod());
+        assertEquals(Duration.ofMinutes(1), limiter.getRateLimiterConfig().getLimitRefreshPeriod());
     }
 }

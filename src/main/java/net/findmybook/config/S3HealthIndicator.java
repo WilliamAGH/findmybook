@@ -1,15 +1,16 @@
 package net.findmybook.config;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.ReactiveHealthIndicator;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
+import software.amazon.awssdk.core.exception.SdkClientException;
 
 import java.time.Duration;
 
@@ -23,7 +24,7 @@ public class S3HealthIndicator implements ReactiveHealthIndicator {
     private static final Duration S3_TIMEOUT = Duration.ofSeconds(5);
 
     public S3HealthIndicator(
-            @Autowired(required = false) S3Client s3Client,
+            @Nullable S3Client s3Client,
             @Value("${s3.bucket-name:}") String bucketName,
             @Value("${s3.enabled:false}") boolean s3Enabled) {
         this.s3Client = s3Client; // reference only; not exposing mutable rep
@@ -75,8 +76,13 @@ public class S3HealthIndicator implements ReactiveHealthIndicator {
                             .withDetail("error", error)
                             .build());
                 })
-                .onErrorResume(Exception.class, ex -> Mono.just(Health.down()
-                        .withDetail("s3_status", "unavailable_or_timeout")
+                .onErrorResume(java.util.concurrent.TimeoutException.class, ex -> Mono.just(Health.down()
+                        .withDetail("s3_status", "timeout")
+                        .withDetail("bucket", bucketName)
+                        .withDetail("message", ex.getMessage())
+                        .build()))
+                .onErrorResume(SdkClientException.class, ex -> Mono.just(Health.down()
+                        .withDetail("s3_status", "sdk_client_error")
                         .withDetail("bucket", bucketName)
                         .withDetail("error", ex.getClass().getName())
                         .withDetail("message", ex.getMessage())

@@ -76,7 +76,7 @@ public class DevModeConfig {
                 .expireAfterWrite(Duration.ofMinutes(searchResultsCacheTtlMinutes))
                 .build());
         
-        logger.info("Dev mode cache initialized: 'books' TTL {} mins, 'bookSearchResults' TTL {} mins. Request limit: {}/sec",
+        logger.info("Dev mode cache initialized: 'books' TTL {} mins, 'bookSearchResults' TTL {} mins. Request limit: {}/min",
                 googleBooksCacheTtlMinutes, searchResultsCacheTtlMinutes, googleBooksRequestLimitPerMinute);
         
         this.cacheManager = cacheManager;
@@ -91,9 +91,9 @@ public class DevModeConfig {
     @Bean
     public io.github.resilience4j.ratelimiter.RateLimiter googleBooksRateLimiter() {
         io.github.resilience4j.ratelimiter.RateLimiterConfig config = io.github.resilience4j.ratelimiter.RateLimiterConfig.custom()
-                .limitRefreshPeriod(Duration.ofSeconds(1))
+                .limitRefreshPeriod(Duration.ofMinutes(1))
                 .limitForPeriod(googleBooksRequestLimitPerMinute)
-                .timeoutDuration(Duration.ofSeconds(5))
+                .timeoutDuration(Duration.ZERO)
                 .build();
                 
         return io.github.resilience4j.ratelimiter.RateLimiter.of("googleBooksServiceRateLimiter", config);

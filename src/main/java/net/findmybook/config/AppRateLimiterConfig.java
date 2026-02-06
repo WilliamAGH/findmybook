@@ -34,7 +34,7 @@ public class AppRateLimiterConfig {
 
     /**
      * Rate limiter for Google Books API
-     * - Limits requests per second to stay within API quotas
+     * - Limits requests per minute to stay within API quotas
      * - Configured based on application.properties settings
      * 
      * @return Configured rate limiter instance
@@ -42,14 +42,14 @@ public class AppRateLimiterConfig {
     @Bean
     public RateLimiter googleBooksRateLimiter() {
         io.github.resilience4j.ratelimiter.RateLimiterConfig config = io.github.resilience4j.ratelimiter.RateLimiterConfig.custom()
-                .limitRefreshPeriod(Duration.ofSeconds(1))
+                .limitRefreshPeriod(Duration.ofMinutes(1))
                 .limitForPeriod(googleBooksRequestLimitPerMinute)
                 .timeoutDuration(Duration.ZERO)
                 .build();
                 
         RateLimiter rateLimiter = RateLimiter.of("googleBooksServiceRateLimiter", config);
         
-        logger.info("Production Google Books API rate limiter initialized with limit of {} requests/second",
+        logger.info("Production Google Books API rate limiter initialized with limit of {} requests/minute",
                 googleBooksRequestLimitPerMinute);
                 
         return rateLimiter;
@@ -57,7 +57,7 @@ public class AppRateLimiterConfig {
     
     /**
      * Rate limiter for OpenLibrary API
-     * - Limits requests to 1 per 5 seconds
+     * - Limits requests to 1 every 5 seconds (12 per minute) to avoid burst spikes
      * - Protects against excessive usage of the service
      * 
      * @return Configured rate limiter instance
@@ -72,7 +72,7 @@ public class AppRateLimiterConfig {
                 
         RateLimiter rateLimiter = RateLimiter.of("openLibraryServiceRateLimiter", config);
         
-        logger.info("Production OpenLibrary API rate limiter initialized with limit of 1 request per 5 seconds");
+        logger.info("Production OpenLibrary API rate limiter initialized with pacing of 1 request every 5 seconds");
                 
         return rateLimiter;
     }

@@ -158,9 +158,21 @@ resilience4j:
   ratelimiter:
     instances:
       googleBooksServiceRateLimiter:
-        limitForPeriod: 10          # 10 requests per period
-        limitRefreshPeriod: 1s      # Period duration
+        limitForPeriod: 10          # 10 requests per minute
+        limitRefreshPeriod: 1m      # Period duration
         timeoutDuration: 0ms        # Don't wait if limit exceeded (fail fast)
+      openLibraryDataService:
+        limitForPeriod: 30          # 30 requests per minute
+        limitRefreshPeriod: 1m
+        timeoutDuration: 0ms
+      openLibraryServiceRateLimiter:
+        limitForPeriod: 12          # 12 requests per minute (1 every 5 seconds)
+        limitRefreshPeriod: 1m
+        timeoutDuration: 0ms
+      longitoodServiceRateLimiter:
+        limitForPeriod: 100         # 100 requests per minute
+        limitRefreshPeriod: 1m
+        timeoutDuration: 0ms
   bulkhead:
     instances:
       googleBooksServiceBulkhead:

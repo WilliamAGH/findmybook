@@ -157,7 +157,7 @@
       "name": "google.books.api.request-limit-per-minute",
       "type": "java.lang.Integer",
       "description": "Maximum requests allowed per minute",
-      "defaultValue": 60
+      "defaultValue": 10
     },
     {
       "name": "s3.bucket-name",

@@ -19,6 +19,7 @@ import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.ReactiveHealthIndicator;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
@@ -110,8 +111,19 @@ public class WebPageHealthIndicator {
                             .withDetail("http_status", ex.getStatusCode().value())
                             .build());
                 })
-                .onErrorResume(Exception.class, ex -> Mono.just(Health.down() // Always DOWN for other exceptions like connection errors or timeouts
+                .onErrorResume(java.util.concurrent.TimeoutException.class, ex -> Mono.just(Health.down()
+                        .withDetail(healthCheckName + "_status", "timeout")
+                        .withDetail("path", path)
+                        .withDetail("message", ex.getMessage())
+                        .build()))
+                .onErrorResume(WebClientRequestException.class, ex -> Mono.just(Health.down()
                         .withDetail(healthCheckName + "_status", "unavailable_or_timeout")
+                        .withDetail("path", path)
+                        .withDetail("error", ex.getClass().getName())
+                        .withDetail("message", ex.getMessage())
+                        .build()))
+                .onErrorResume(IllegalStateException.class, ex -> Mono.just(Health.down()
+                        .withDetail(healthCheckName + "_status", "health_check_misconfigured")
                         .withDetail("path", path)
                         .withDetail("error", ex.getClass().getName())
                         .withDetail("message", ex.getMessage())
