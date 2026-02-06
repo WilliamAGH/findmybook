@@ -197,6 +197,7 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
             }
         } catch (SecurityException e) {
             log.warn("[AI] Unable to set OpenAI system properties due to security restrictions", e);
+            throw e;
         }
     }
 
