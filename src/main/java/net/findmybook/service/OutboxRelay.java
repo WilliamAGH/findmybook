@@ -94,23 +94,6 @@ public class OutboxRelay {
             try {
                 // Publish to WebSocket
                 messagingTemplate.convertAndSend(event.getTopic(), event.getPayload());
-
-                // Mark as sent
-                try {
-                    markSent(event.getEventId());
-                } catch (IllegalStateException markSentException) {
-                    log.error(
-                        "Stopping outbox relay cycle because mark-sent failed for event {}",
-                        event.getEventId(),
-                        markSentException
-                    );
-                    throw markSentException;
-                }
-
-                if (event.getTopic() != null && event.getTopic().startsWith("/topic/cluster.")) {
-                    clusterEventsRelayed++;
-                }
-                log.debug("Relayed event {} to topic {}", event.getEventId(), event.getTopic());
             } catch (MessagingException | IllegalArgumentException | IllegalStateException ex) {
                 log.warn("Failed to relay event {} to topic {}: {}",
                     event.getEventId(),
@@ -129,7 +112,25 @@ public class OutboxRelay {
                     );
                     throw retryEx;
                 }
+                continue;
             }
+
+            // Mark as sent
+            try {
+                markSent(event.getEventId());
+            } catch (IllegalStateException markSentException) {
+                log.error(
+                    "Stopping outbox relay cycle because mark-sent failed for event {}",
+                    event.getEventId(),
+                    markSentException
+                );
+                throw markSentException;
+            }
+
+            if (event.getTopic() != null && event.getTopic().startsWith("/topic/cluster.")) {
+                clusterEventsRelayed++;
+            }
+            log.debug("Relayed event {} to topic {}", event.getEventId(), event.getTopic());
         }
 
         if (clusterEventsRelayed > 0) {
