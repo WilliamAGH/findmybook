@@ -231,13 +231,6 @@ public class OpenLibraryBookDataService {
                 });
     }
 
-    /**
-     * Unified entry point that selects title or author search heuristics.
-     */
-    public Flux<Book> searchBooks(String query, boolean treatAsAuthor) {
-        return treatAsAuthor ? searchBooksByAuthor(query) : searchBooksByTitle(query);
-    }
-
     // --- Fallback Methods ---
 
     /**
