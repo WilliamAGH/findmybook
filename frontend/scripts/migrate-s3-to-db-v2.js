@@ -28,6 +28,18 @@ const CONFIG = {
   BATCH_SIZE: 100
 };
 
+const SUPPORTED_IMAGE_TYPES = new Set([
+  'smallThumbnail',
+  'thumbnail',
+  'small',
+  'medium',
+  'large',
+  'extraLarge',
+  'canonical',
+  'external'
+]);
+const PLACEHOLDER_COVER_FILENAME = 'placeholder-book-cover.svg';
+
 // ============================================================================
 // HELPERS
 // ============================================================================
@@ -871,8 +883,17 @@ class BookMigrator {
 
     for (const [imageType, url] of Object.entries(imageLinks)) {
       if (!url) continue;
-      
-      const normalizedUrl = this.normalizeToHttps(url);
+
+      if (!this.isSupportedImageType(imageType)) {
+        this.log(`[SKIP] Unsupported image type '${imageType}' for book ${bookId}`);
+        continue;
+      }
+
+      const normalizedUrl = this.normalizeAndValidateImageUrl(url);
+      if (!normalizedUrl) {
+        this.log(`[SKIP] Invalid image URL for type '${imageType}' on book ${bookId}: ${url}`);
+        continue;
+      }
 
       const existingImage = await this.client.query(
         `SELECT id FROM book_image_links
@@ -888,7 +909,8 @@ class BookMigrator {
           $1, $2::uuid, $3, $4, $5, NOW()
         )
         ON CONFLICT (book_id, image_type) DO UPDATE SET
-          url = EXCLUDED.url`,
+          url = EXCLUDED.url,
+          updated_at = NOW()`,
         [generateNanoId(10), bookId, imageType, normalizedUrl, 'GOOGLE_BOOKS']
       );
 
@@ -997,7 +1019,30 @@ class BookMigrator {
    */
   normalizeToHttps(url) {
     if (!url) return url;
-    return url.startsWith('http://') ? url.replace('http://', 'https://') : url;
+    return url.toLowerCase().startsWith('http://') ? `https://${url.slice(7)}` : url;
+  }
+
+  isSupportedImageType(imageType) {
+    if (!imageType || typeof imageType !== 'string') return false;
+    return SUPPORTED_IMAGE_TYPES.has(imageType.trim());
+  }
+
+  normalizeAndValidateImageUrl(url) {
+    if (!url || typeof url !== 'string') return null;
+    const normalized = this.normalizeToHttps(url.trim());
+    if (!normalized || !/^https?:\/\//i.test(normalized)) {
+      return null;
+    }
+
+    const lower = normalized.toLowerCase();
+    if (lower.includes(PLACEHOLDER_COVER_FILENAME)) {
+      return null;
+    }
+    if (lower.includes('://localhost') || lower.includes('://127.0.0.1') || lower.includes('://0.0.0.0')) {
+      return null;
+    }
+
+    return normalized;
   }
 
   /**

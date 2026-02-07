@@ -1,7 +1,9 @@
 package net.findmybook.service;
 
 import net.findmybook.dto.BookAggregate;
+import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.service.event.BookUpsertEvent;
+import net.findmybook.service.image.CoverPersistenceService;
 import net.findmybook.test.annotations.DbIntegrationTest;
 import net.findmybook.util.IdGenerator;
 import org.junit.jupiter.api.BeforeEach;
@@ -30,6 +32,9 @@ class BookUpsertImageLinksEventTest {
 
     @Autowired
     private BookUpsertService bookUpsertService;
+
+    @Autowired
+    private CoverPersistenceService coverPersistenceService;
 
     @Autowired
     private EventCollector eventCollector;
@@ -72,13 +77,92 @@ class BookUpsertImageLinksEventTest {
         assertThat(event.getCanonicalImageUrl()).isNull();
     }
 
+    @Test
+    void should_IgnoreInvalidImageLinks_When_IncomingPayloadContainsPlaceholderAndUnsupportedTypes() {
+        UUID invalidBookId = UUID.randomUUID();
+        String invalidIsbn13 = "9780132350990";
+        insertBook(invalidBookId, invalidIsbn13, "Invalid Link Fixture");
+
+        BookAggregate aggregate = BookAggregate.builder()
+            .title("Invalid Link Fixture")
+            .slugBase("invalid-link-fixture")
+            .isbn13(invalidIsbn13)
+            .identifiers(BookAggregate.ExternalIdentifiers.builder()
+                .source("GOOGLE_BOOKS")
+                .externalId("google-invalid-" + invalidBookId)
+                .imageLinks(Map.of(
+                    "thumbnail", "/images/placeholder-book-cover.svg",
+                    "s3", "https://example.com/invalid-type.jpg",
+                    "large", "http://localhost:8095/images/book-covers/local.jpg"
+                ))
+                .build())
+            .build();
+
+        BookUpsertService.UpsertResult result = bookUpsertService.upsert(aggregate);
+        assertThat(result.getBookId()).isEqualTo(invalidBookId);
+
+        Integer persistedRows = jdbcTemplate.queryForObject(
+            "SELECT COUNT(*) FROM book_image_links WHERE book_id = ?",
+            Integer.class,
+            invalidBookId
+        );
+        assertThat(persistedRows).isZero();
+
+        List<BookUpsertEvent> events = eventCollector.eventsForBook(invalidBookId.toString());
+        assertThat(events).hasSize(1);
+        assertThat(events.getFirst().getImageLinks()).isEmpty();
+        assertThat(events.getFirst().getCanonicalImageUrl()).isNull();
+    }
+
+    @Test
+    void should_SetAuditTimestamps_When_S3UploadMetadataIsPersisted() {
+        UUID s3BookId = UUID.randomUUID();
+        String s3Isbn13 = "9780132350778";
+        insertBook(s3BookId, s3Isbn13, "S3 Audit Fixture");
+
+        String s3Key = "images/book-covers/" + s3BookId + ".jpg";
+        String cdnUrl = "https://book-finder.sfo3.digitaloceanspaces.com/" + s3Key;
+
+        CoverPersistenceService.PersistenceResult result = coverPersistenceService.updateAfterS3Upload(
+            s3BookId,
+            new CoverPersistenceService.S3UploadResult(
+                s3Key,
+                cdnUrl,
+                640,
+                960,
+                CoverImageSource.GOOGLE_BOOKS
+            )
+        );
+
+        assertThat(result.success()).isTrue();
+
+        Map<String, Object> persisted = jdbcTemplate.queryForMap(
+            """
+            SELECT image_type, s3_image_path, s3_uploaded_at, created_at, updated_at
+            FROM book_image_links
+            WHERE book_id = ? AND image_type = 'canonical'
+            """,
+            s3BookId
+        );
+
+        assertThat(persisted.get("image_type")).isEqualTo("canonical");
+        assertThat(persisted.get("s3_image_path")).isEqualTo(s3Key);
+        assertThat(persisted.get("s3_uploaded_at")).isNotNull();
+        assertThat(persisted.get("created_at")).isNotNull();
+        assertThat(persisted.get("updated_at")).isNotNull();
+    }
+
     private void insertBook() {
+        insertBook(bookId, isbn13, "Existing Book");
+    }
+
+    private void insertBook(UUID targetBookId, String targetIsbn13, String title) {
         jdbcTemplate.update(
             "INSERT INTO books (id, title, slug, isbn13, created_at, updated_at) VALUES (?, ?, ?, ?, NOW(), NOW())",
-            bookId,
-            "Existing Book",
-            "existing-book-" + bookId,
-            isbn13
+            targetBookId,
+            title,
+            "existing-book-" + targetBookId,
+            targetIsbn13
         );
     }
 

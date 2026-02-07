@@ -13,7 +13,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -39,7 +41,10 @@ import java.util.UUID;
 @Service
 @Slf4j
 public class CoverPersistenceService {
-    
+
+    private static final String PLACEHOLDER_FILENAME = "placeholder-book-cover.svg";
+    private static final Set<String> DISALLOWED_IMAGE_TYPES = Set.of("preferred", "fallback", "s3");
+
     private final JdbcTemplate jdbcTemplate;
     
     public CoverPersistenceService(JdbcTemplate jdbcTemplate) {
@@ -97,7 +102,11 @@ public class CoverPersistenceService {
             }
             
             // Normalize to HTTPS
-            String httpsUrl = UrlUtils.normalizeToHttps(url);
+            String httpsUrl = UrlUtils.validateAndNormalize(url);
+            if (!StringUtils.hasText(httpsUrl)) {
+                log.warn("Skipping invalid image URL for book {} type {}: {}", bookId, imageType, url);
+                continue;
+            }
             
             // Estimate dimensions based on Google's image type
             ImageDimensionUtils.DimensionEstimate estimate = 
@@ -239,7 +248,12 @@ public class CoverPersistenceService {
             return new PersistenceResult(false, null, null, null, false);
         }
         
-        String httpsUrl = UrlUtils.normalizeToHttps(externalUrl);
+        String httpsUrl = UrlUtils.validateAndNormalize(externalUrl);
+        if (!StringUtils.hasText(httpsUrl)) {
+            log.warn("Cannot persist external cover for book {}: URL is invalid ({})", bookId, externalUrl);
+            return new PersistenceResult(false, null, null, null, false);
+        }
+
         CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
             httpsUrl,
             httpsUrl,
@@ -268,30 +282,81 @@ public class CoverPersistenceService {
      * Handles conflict resolution with ON CONFLICT DO UPDATE.
      */
     private void upsertImageLink(ImageLinkParams params) {
+        String normalizedImageType = sanitizeImageType(params.imageType());
+        String normalizedUrl = sanitizeUrl(params.url(), params.bookId(), normalizedImageType);
+        String normalizedS3Path = sanitizeS3Path(params.s3ImagePath(), params.bookId(), normalizedImageType);
+
         jdbcTemplate.update("""
             INSERT INTO book_image_links (
                 id, book_id, image_type, url, source,
-                width, height, is_high_resolution, s3_image_path, created_at
+                width, height, is_high_resolution, s3_image_path, created_at, updated_at, s3_uploaded_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), CASE WHEN ? IS NOT NULL THEN NOW() ELSE NULL END)
             ON CONFLICT (book_id, image_type) DO UPDATE SET
                 url = EXCLUDED.url,
                 source = EXCLUDED.source,
                 width = EXCLUDED.width,
                 height = EXCLUDED.height,
                 is_high_resolution = EXCLUDED.is_high_resolution,
-                s3_image_path = COALESCE(EXCLUDED.s3_image_path, book_image_links.s3_image_path)
+                s3_image_path = COALESCE(EXCLUDED.s3_image_path, book_image_links.s3_image_path),
+                s3_uploaded_at = CASE
+                    WHEN EXCLUDED.s3_image_path IS NOT NULL THEN NOW()
+                    ELSE book_image_links.s3_uploaded_at
+                END,
+                updated_at = NOW()
             """,
             IdGenerator.generate(),
             params.bookId(),
-            params.imageType(),
-            params.url(),
+            normalizedImageType,
+            normalizedUrl,
             params.source(),
             params.width(),
             params.height(),
             params.highRes(),
-            params.s3ImagePath()
+            normalizedS3Path,
+            normalizedS3Path
         );
+    }
+
+    private String sanitizeImageType(String imageType) {
+        if (!StringUtils.hasText(imageType)) {
+            throw new IllegalArgumentException("image_type cannot be null or blank");
+        }
+        String normalizedImageType = imageType.trim();
+        if (DISALLOWED_IMAGE_TYPES.contains(normalizedImageType.toLowerCase(Locale.ROOT))) {
+            throw new IllegalArgumentException("image_type is unsupported: " + normalizedImageType);
+        }
+        return normalizedImageType;
+    }
+
+    private String sanitizeUrl(String url, UUID bookId, String imageType) {
+        String normalized = UrlUtils.validateAndNormalize(url);
+        if (!StringUtils.hasText(normalized)) {
+            throw new IllegalArgumentException("Invalid image URL for book " + bookId + " type " + imageType);
+        }
+
+        String lower = normalized.toLowerCase(Locale.ROOT);
+        if (lower.contains(PLACEHOLDER_FILENAME)) {
+            throw new IllegalArgumentException("Placeholder URL is not persistable for book " + bookId + " type " + imageType);
+        }
+        if (lower.contains("://localhost") || lower.contains("://127.0.0.1") || lower.contains("://0.0.0.0")) {
+            throw new IllegalArgumentException("Localhost URL is not persistable for book " + bookId + " type " + imageType);
+        }
+
+        return normalized;
+    }
+
+    private String sanitizeS3Path(@Nullable String s3Path, UUID bookId, String imageType) {
+        if (!StringUtils.hasText(s3Path)) {
+            return null;
+        }
+
+        String normalizedPath = s3Path.trim();
+        if (normalizedPath.toLowerCase(Locale.ROOT).contains(PLACEHOLDER_FILENAME)) {
+            throw new IllegalArgumentException(
+                "Placeholder S3 path is not persistable for book " + bookId + " type " + imageType);
+        }
+        return normalizedPath;
     }
 
     /**

@@ -9,7 +9,7 @@ SET google_canonical_id = nullif(regexp_replace(google_canonical_id, '[[:cntrl:]
     last_updated = now()
 WHERE source = 'GOOGLE_BOOKS'
   AND google_canonical_id IS NOT NULL
-  AND google_canonical_id <> nullif(regexp_replace(google_canonical_id, '[[:cntrl:]]', '', 'g'), '');
+  AND google_canonical_id IS DISTINCT FROM nullif(regexp_replace(google_canonical_id, '[[:cntrl:]]', '', 'g'), '');
 
 -- 2) Null out known placeholder/backreference-like canonical IDs.
 UPDATE book_external_ids
@@ -84,7 +84,7 @@ SET member_count = counts.member_total,
     updated_at = now()
 FROM cluster_member_counts counts
 WHERE clusters.id = counts.cluster_id
-  AND clusters.member_count <> counts.member_total;
+  AND clusters.member_count IS DISTINCT FROM counts.member_total;
 
 UPDATE work_clusters
 SET member_count = 0,
@@ -99,5 +99,8 @@ WHERE member_count <> 0
 -- 6) Rebuild Google canonical clusters with the corrected function.
 SELECT *
 FROM cluster_books_by_google_canonical();
+
+-- 7) Validate the CHECK constraint deferred as NOT VALID in migration 01.
+ALTER TABLE work_clusters VALIDATE CONSTRAINT check_reasonable_member_count;
 
 COMMIT;

@@ -1,7 +1,9 @@
 package net.findmybook.service;
 
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import net.findmybook.dto.BookAggregate;
@@ -14,6 +16,7 @@ import jakarta.annotation.Nullable;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 /**
  * Persists and evaluates cover image links for books.
@@ -21,6 +24,9 @@ import org.springframework.stereotype.Service;
 @Service
 @Slf4j
 public class BookImageLinkPersistenceService {
+
+    private static final String PLACEHOLDER_FILENAME = "placeholder-book-cover.svg";
+    private static final Set<String> DISALLOWED_IMAGE_TYPES = Set.of("preferred", "fallback", "s3");
 
     private final JdbcTemplate jdbcTemplate;
     private final CoverPersistenceService coverPersistenceService;
@@ -144,11 +150,37 @@ public class BookImageLinkPersistenceService {
     private Map<String, String> collectNormalizedImageLinks(Map<String, String> imageLinks) {
         Map<String, String> sanitized = new LinkedHashMap<>();
         imageLinks.forEach((key, value) -> {
-            if (key != null && value != null && !value.isBlank()) {
-                sanitized.put(key, UrlUtils.normalizeToHttps(value));
+            if (!StringUtils.hasText(key) || !StringUtils.hasText(value)) {
+                return;
             }
+
+            String normalizedType = key.trim();
+            if (DISALLOWED_IMAGE_TYPES.contains(normalizedType.toLowerCase(Locale.ROOT))) {
+                log.warn("Skipping unsupported image type '{}' during cover persistence", normalizedType);
+                return;
+            }
+
+            String normalizedUrl = UrlUtils.validateAndNormalize(value);
+            if (!StringUtils.hasText(normalizedUrl)) {
+                log.warn("Skipping invalid cover URL for image type '{}': {}", normalizedType, value);
+                return;
+            }
+            if (isDisallowedCoverUrl(normalizedUrl)) {
+                log.warn("Skipping non-persistable cover URL for image type '{}': {}", normalizedType, normalizedUrl);
+                return;
+            }
+
+            sanitized.put(normalizedType, normalizedUrl);
         });
         return sanitized.isEmpty() ? Map.of() : Map.copyOf(sanitized);
+    }
+
+    private boolean isDisallowedCoverUrl(String url) {
+        String lower = url.toLowerCase(Locale.ROOT);
+        return lower.contains(PLACEHOLDER_FILENAME)
+            || lower.contains("://localhost")
+            || lower.contains("://127.0.0.1")
+            || lower.contains("://0.0.0.0");
     }
 
     private record CoverQualitySnapshot(int score,

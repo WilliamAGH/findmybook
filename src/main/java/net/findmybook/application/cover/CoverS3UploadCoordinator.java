@@ -23,6 +23,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 import reactor.util.retry.Retry;
 
 /**
@@ -119,6 +120,7 @@ public class CoverS3UploadCoordinator {
         service.uploadCoverToS3Async(canonicalImageUrl, bookId, source)
             .retryWhen(buildRetrySpec(bookId))
             .switchIfEmpty(emptyUploadResult(bookId, canonicalImageUrl))
+            .publishOn(Schedulers.boundedElastic())
             .subscribe(
                 details -> handleUploadSuccess(details, bookId, bookUuid, sample),
                 error -> handleUploadError(error, bookId, sample)
@@ -139,6 +141,16 @@ public class CoverS3UploadCoordinator {
     }
 
     private boolean shouldRetryThrowable(Throwable throwable, String bookId) {
+        if (throwable instanceof CoverProcessingException
+            || throwable instanceof CoverTooLargeException
+            || throwable instanceof UnsafeUrlException) {
+            logger.warn("Not retrying S3 upload for book {} ({}): {}",
+                bookId,
+                throwable.getClass().getSimpleName(),
+                throwable.getMessage());
+            return false;
+        }
+
         if (throwable instanceof S3CoverUploadException s3Exception) {
             boolean shouldRetry = s3Exception.isRetryable();
             logger.warn("{} S3 upload for book {} ({}): {}",
@@ -167,10 +179,9 @@ public class CoverS3UploadCoordinator {
 
         if (details == null || !StringUtils.hasText(details.getStorageKey())) {
             s3UploadFailures.increment();
-            logger.error("S3 upload returned non-persistable details for book {}. storageKey='{}'",
-                bookId,
-                details != null ? details.getStorageKey() : null);
-            return;
+            throw new IllegalStateException(
+                "S3 upload returned non-persistable details for book %s. storageKey='%s'"
+                    .formatted(bookId, details != null ? details.getStorageKey() : null));
         }
 
         s3UploadSuccesses.increment();
@@ -186,9 +197,9 @@ public class CoverS3UploadCoordinator {
         );
 
         if (!persistenceResult.success()) {
-            logger.error("S3 upload metadata persistence reported unsuccessful status for book {} and key {}.",
-                bookId,
-                details.getStorageKey());
+            throw new IllegalStateException(
+                "S3 upload metadata persistence reported unsuccessful status for book %s and key %s"
+                    .formatted(bookId, details.getStorageKey()));
         }
     }
 

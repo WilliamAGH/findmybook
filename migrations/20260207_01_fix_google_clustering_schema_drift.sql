@@ -253,4 +253,92 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Harden book_image_links auditing and data quality.
+ALTER TABLE book_image_links
+  ADD COLUMN IF NOT EXISTS updated_at timestamptz;
+
+UPDATE book_image_links
+SET updated_at = coalesce(updated_at, created_at, now())
+WHERE updated_at IS NULL;
+
+ALTER TABLE book_image_links
+  ALTER COLUMN updated_at SET DEFAULT now();
+
+UPDATE book_image_links
+SET s3_uploaded_at = coalesce(s3_uploaded_at, created_at, now())
+WHERE s3_image_path IS NOT NULL
+  AND s3_uploaded_at IS NULL;
+
+-- Remove known invalid legacy cover-link rows before adding constraints.
+DELETE FROM book_image_links
+WHERE lower(image_type) IN ('preferred', 'fallback', 's3')
+   OR lower(url) LIKE '%placeholder-book-cover.svg%'
+   OR url !~* '^https?://';
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint c
+    JOIN pg_class t ON t.oid = c.conrelid
+    WHERE t.relname = 'book_image_links'
+      AND c.conname = 'check_book_image_links_disallowed_types'
+  ) THEN
+    ALTER TABLE book_image_links
+      ADD CONSTRAINT check_book_image_links_disallowed_types
+      CHECK (lower(image_type) <> ALL (ARRAY['preferred', 'fallback', 's3'])) NOT VALID;
+  END IF;
+END
+$$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint c
+    JOIN pg_class t ON t.oid = c.conrelid
+    WHERE t.relname = 'book_image_links'
+      AND c.conname = 'check_book_image_links_http_url'
+  ) THEN
+    ALTER TABLE book_image_links
+      ADD CONSTRAINT check_book_image_links_http_url
+      CHECK (url ~* '^https?://') NOT VALID;
+  END IF;
+END
+$$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint c
+    JOIN pg_class t ON t.oid = c.conrelid
+    WHERE t.relname = 'book_image_links'
+      AND c.conname = 'check_book_image_links_no_placeholder'
+  ) THEN
+    ALTER TABLE book_image_links
+      ADD CONSTRAINT check_book_image_links_no_placeholder
+      CHECK (position('placeholder-book-cover.svg' in lower(url)) = 0) NOT VALID;
+  END IF;
+END
+$$;
+
+ALTER TABLE book_image_links VALIDATE CONSTRAINT check_book_image_links_disallowed_types;
+ALTER TABLE book_image_links VALIDATE CONSTRAINT check_book_image_links_http_url;
+ALTER TABLE book_image_links VALIDATE CONSTRAINT check_book_image_links_no_placeholder;
+
+CREATE OR REPLACE FUNCTION set_book_image_links_updated_at()
+RETURNS trigger AS $$
+BEGIN
+  NEW.updated_at := now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS book_image_links_set_updated_at ON book_image_links;
+CREATE TRIGGER book_image_links_set_updated_at
+  BEFORE UPDATE ON book_image_links
+  FOR EACH ROW
+  EXECUTE FUNCTION set_book_image_links_updated_at();
+
 COMMIT;
