@@ -10,7 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
-import org.springframework.lang.Nullable;
+import jakarta.annotation.Nullable;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -73,9 +73,10 @@ public class S3CoverStorageGateway {
             logClientMisconfigured();
             this.runtimeEnabled = false;
         } else if (s3Client != null && s3Enabled) {
+            String bucketName = s3CoverObjectLookupSupport.bucketName();
             logger.info(
                 "S3 cover storage gateway initialized successfully. Bucket: {}",
-                s3CoverObjectLookupSupport.bucketName()
+                bucketName
             );
         } else {
             logger.info("S3 cover storage is disabled by configuration (s3.enabled=false or missing credentials).");
@@ -89,9 +90,10 @@ public class S3CoverStorageGateway {
                 logger.error("S3_WRITE_ENABLED=false - all cover uploads are disabled.");
             }
         } else if (isReadAvailable()) {
+            String bucketName = s3CoverObjectLookupSupport.bucketName();
             logger.info(
                 "S3 cover uploads enabled (bucket: {}, write-enabled: true).",
-                s3CoverObjectLookupSupport.bucketName()
+                bucketName
             );
         }
     }

@@ -19,8 +19,12 @@ import java.util.UUID;
 final class PostgresBookSectionHydrator {
     private static final Logger LOG = LoggerFactory.getLogger(PostgresBookSectionHydrator.class);
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
-    /** Sentinel value for COALESCE in ORDER BY so rows without a position sort last. */
-    private static final int POSITION_SORT_LAST = Integer.MAX_VALUE;
+    /**
+     * COALESCE fallback for nullable {@code position} columns (PostgreSQL {@code integer}).
+     * Uses the maximum 4-byte signed integer so unpositioned rows sort after all
+     * explicitly-positioned rows.
+     */
+    private static final int UNPOSITIONED_SORT_ORDER = 2_147_483_647;
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
@@ -37,13 +41,8 @@ final class PostgresBookSectionHydrator {
                 JOIN authors a ON a.id = baj.author_id
                 WHERE baj.book_id = ?::uuid
                 ORDER BY COALESCE(baj.position, %d), lower(a.name)
-                """.formatted(POSITION_SORT_LAST);
-        try {
-            List<String> authors = jdbcTemplate.query(sql, ps -> ps.setObject(1, canonicalId), (rs, rowNum) -> rs.getString("name"));
-            book.setAuthors(authors == null || authors.isEmpty() ? List.of() : authors);
-        } catch (DataAccessException ex) {
-            throw hydrationFailure("authors", canonicalId, ex);
-        }
+                """.formatted(UNPOSITIONED_SORT_ORDER);
+        book.setAuthors(queryStringList(sql, "name", "authors", canonicalId));
     }
 
     void hydrateCategories(Book book, UUID canonicalId) {
@@ -54,13 +53,8 @@ final class PostgresBookSectionHydrator {
                 WHERE bcj.book_id = ?::uuid
                   AND bc.collection_type = 'CATEGORY'
                 ORDER BY COALESCE(bcj.position, %d), lower(bc.display_name)
-                """.formatted(POSITION_SORT_LAST);
-        try {
-            List<String> categories = jdbcTemplate.query(sql, ps -> ps.setObject(1, canonicalId), (rs, rowNum) -> rs.getString("display_name"));
-            book.setCategories(categories == null || categories.isEmpty() ? List.of() : categories);
-        } catch (DataAccessException ex) {
-            throw hydrationFailure("categories", canonicalId, ex);
-        }
+                """.formatted(UNPOSITIONED_SORT_ORDER);
+        book.setCategories(queryStringList(sql, "display_name", "categories", canonicalId));
     }
 
     void hydrateCollections(Book book, UUID canonicalId) {
@@ -76,7 +70,7 @@ final class PostgresBookSectionHydrator {
                 ORDER BY CASE WHEN bc.collection_type = 'CATEGORY' THEN 0 ELSE 1 END,
                          COALESCE(bcj.position, %d),
                          lower(bc.display_name)
-                """.formatted(POSITION_SORT_LAST);
+                """.formatted(UNPOSITIONED_SORT_ORDER);
         try {
             List<Book.CollectionAssignment> assignments = jdbcTemplate.query(
                 sql,
@@ -165,12 +159,9 @@ final class PostgresBookSectionHydrator {
                     if (confidence != null) {
                         attributes.put("confidence", confidence);
                     }
-                    Object metadataValue = rs.getObject("metadata");
-                    if (metadataValue != null) {
-                        Map<String, Object> metadata = parseJsonAttributes(metadataValue);
-                        if (!metadata.isEmpty()) {
-                            attributes.put("metadata", metadata);
-                        }
+                    Map<String, Object> metadata = parseJsonAttributes(rs.getObject("metadata"));
+                    if (!metadata.isEmpty()) {
+                        attributes.put("metadata", metadata);
                     }
                     result.put(camelCaseKey, attributes);
                 }
@@ -203,20 +194,32 @@ final class PostgresBookSectionHydrator {
         return camelCase.toString();
     }
 
+    /**
+     * Parses a tag-metadata column value into a string-keyed map.
+     *
+     * <p>A {@code null} or blank value signals an absent metadata column
+     * (nullable by schema) and returns an empty map — this is an explicit
+     * absence contract, not a silent fallback.  Malformed JSON or
+     * unsupported driver types still throw.
+     */
     private Map<String, Object> parseJsonAttributes(Object value) {
-        String json = null;
-        if (value instanceof org.postgresql.util.PGobject pgObject) {
-            json = pgObject.getValue();
-        } else if (value instanceof String str) {
-            json = str;
+        if (value == null) {
+            return Map.of();
         }
 
-        if (json != null && !json.isBlank()) {
-            try {
-                return objectMapper.readValue(json, MAP_TYPE);
-            } catch (tools.jackson.core.JacksonException ex) {
-                throw new IllegalStateException("Failed to parse tag metadata JSON", ex);
+        if (value instanceof org.postgresql.util.PGobject pgObject) {
+            String json = pgObject.getValue();
+            if (json == null || json.isBlank()) {
+                return Map.of();
             }
+            return parseJson(json);
+        }
+
+        if (value instanceof String json) {
+            if (json.isBlank()) {
+                return Map.of();
+            }
+            return parseJson(json);
         }
 
         if (value instanceof Map<?, ?> mapValue) {
@@ -224,11 +227,30 @@ final class PostgresBookSectionHydrator {
             mapValue.forEach((k, v) -> copy.put(String.valueOf(k), v));
             return copy;
         }
-        throw new IllegalStateException("Unsupported or empty tag metadata: " + value.getClass().getName());
+
+        throw new IllegalStateException(
+            "Unsupported tag metadata type: " + value.getClass().getName());
+    }
+
+    private Map<String, Object> parseJson(String json) {
+        try {
+            return objectMapper.readValue(json, MAP_TYPE);
+        } catch (tools.jackson.core.JacksonException ex) {
+            throw new IllegalStateException("Failed to parse tag metadata JSON", ex);
+        }
     }
 
     private Double toDouble(java.math.BigDecimal value) {
         return value == null ? null : value.doubleValue();
+    }
+
+    private List<String> queryStringList(String sql, String column, String section, UUID canonicalId) {
+        try {
+            List<String> results = jdbcTemplate.query(sql, ps -> ps.setObject(1, canonicalId), (rs, rowNum) -> rs.getString(column));
+            return results == null || results.isEmpty() ? List.of() : results;
+        } catch (DataAccessException ex) {
+            throw hydrationFailure(section, canonicalId, ex);
+        }
     }
 
     private IllegalStateException hydrationFailure(String section, UUID canonicalId, DataAccessException ex) {

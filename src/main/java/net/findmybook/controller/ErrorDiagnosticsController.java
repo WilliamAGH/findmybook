@@ -15,6 +15,7 @@ import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.context.request.WebRequest;
+import net.findmybook.util.ApplicationConstants;
 import java.util.Map;
 
 /**
@@ -60,13 +61,7 @@ public class ErrorDiagnosticsController implements ErrorController {
                                   Model model) {
         ErrorContext context = readErrorContext(webRequest);
         response.setStatus(context.statusCode());
-
-        model.addAttribute("timestamp", context.timestamp());
-        model.addAttribute("status", context.statusCode());
-        model.addAttribute("error", context.error());
-        model.addAttribute("message", context.message());
-        model.addAttribute("trace", context.trace());
-        model.addAttribute("path", context.path());
+        populateErrorModel(model, context);
 
         if (missingDiagnosticMessage(context.message()) && !context.exceptionClassName().isBlank()) {
             try {
@@ -82,14 +77,22 @@ public class ErrorDiagnosticsController implements ErrorController {
                 model.addAttribute("title", "Page Not Found");
                 model.addAttribute("description", "The page you requested could not be found.");
                 model.addAttribute("keywords", "404, page not found");
-                model.addAttribute("canonicalUrl", "https://findmybook.net" + requestPath);
+                model.addAttribute("canonicalUrl", ApplicationConstants.Urls.BASE_URL + requestPath);
                 model.addAttribute("ogImage", "/images/og-logo.png");
-                model.addAttribute("status", context.statusCode());
                 return "spa/index";
             }
             return "error/404";
         }
         return "error_diagnostics";
+    }
+
+    private void populateErrorModel(Model model, ErrorContext context) {
+        model.addAttribute("timestamp", context.timestamp());
+        model.addAttribute("status", context.statusCode());
+        model.addAttribute("error", context.error());
+        model.addAttribute("message", context.message());
+        model.addAttribute("trace", context.trace());
+        model.addAttribute("path", context.path());
     }
 
     private ErrorContext readErrorContext(WebRequest webRequest) {

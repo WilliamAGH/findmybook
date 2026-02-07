@@ -35,12 +35,10 @@ import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.context.event.EventListener;
-import org.springframework.lang.Nullable;
 import org.springframework.messaging.core.MessageSendingOperations;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -53,7 +51,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 @Service
 @Lazy
@@ -76,14 +73,16 @@ public class CoverUpdateNotifierService {
     /**
      * Constructs CoverUpdateNotifierService with required dependencies
      * - Uses lazy-loaded messaging template to avoid circular dependencies
-     * - Validates WebSocket configuration is properly initialized
+     * - Uses constructor-injected collaborators required for event fan-out and persistence
      * 
      * @param messagingTemplate Template for sending WebSocket messages
-     * @param webSocketConfig WebSocket broker configuration
+     * @param s3BookCoverService S3 book cover service, may be null if S3 is disabled
+     * @param selfProvider Provider for self-proxy to handle transactions
+     * @param coverPersistenceService Service for persisting cover metadata
+     * @param meterRegistry Registry for metrics
      */
     public CoverUpdateNotifierService(@Lazy MessageSendingOperations<String> messagingTemplate,
-                                      WebSocketMessageBrokerConfigurer webSocketConfig,
-                                      @Lazy @Nullable S3BookCoverService s3BookCoverService,
+                                      @Lazy S3BookCoverService s3BookCoverService,
                                       ObjectProvider<CoverUpdateNotifierService> selfProvider,
                                       CoverPersistenceService coverPersistenceService,
                                       MeterRegistry meterRegistry) {
@@ -217,7 +216,7 @@ public class CoverUpdateNotifierService {
                 bookData.put("cover", coverData);
                 return bookData;
             })
-            .collect(Collectors.toList()));
+            .toList());
 
         logger.info("Sending search results update to {}: {} new results from {}, complete: {}", 
             destination, event.getNewResults().size(), event.getSource(), event.isComplete());
@@ -299,91 +298,59 @@ public class CoverUpdateNotifierService {
         String source = event.getSource() != null ? event.getSource() : "UNKNOWN";
         try {
             UUID bookUuid = UUID.fromString(event.getBookId());
-
-            // Increment upload attempt counter and start timing
-            s3UploadAttempts.increment();
-            Timer.Sample sample = Timer.start(meterRegistry);
-
-            s3BookCoverService.uploadCoverToS3Async(canonicalImageUrl, event.getBookId(), source)
-                .retryWhen(Retry.backoff(3, Duration.ofSeconds(2))
-                    .maxBackoff(Duration.ofSeconds(10))
-                    .filter(throwable -> {
-                        if (throwable instanceof S3CoverUploadException ex) {
-                            boolean shouldRetry = ex.isRetryable();
-                            if (shouldRetry) {
-                                logger.warn("Retrying S3 upload for book {} (retryable: {}): {}",
-                                           event.getBookId(), ex.getClass().getSimpleName(), ex.getMessage());
-                            } else {
-                                logger.warn("NOT retrying S3 upload for book {} (non-retryable: {}): {}",
-                                           event.getBookId(), ex.getClass().getSimpleName(), ex.getMessage());
-                            }
-                            return shouldRetry;
-                        }
-                        // Retry unknown exceptions (defensive) - but let retry config handle limits
-                        logger.warn("Retrying S3 upload for book {} (unknown error): {}", event.getBookId(), throwable.getMessage());
-                        return true; // Allow retry but respect maxRetries=3 configuration
-                    })
-                    .doBeforeRetry(retrySignal -> {
-                        s3UploadRetriesTotal.increment(); // Increment metric for actual retry attempt
-                        logger.info("Retry attempt {} for book {} after error: {}",
-                                   retrySignal.totalRetries() + 1,
-                                   event.getBookId(),
-                                   retrySignal.failure().getMessage());
-                    })
-                )
-                .switchIfEmpty(Mono.defer(() -> {
-                    logger.error("S3 upload pipeline returned no image details for book {} after retries. Canonical URL: {}", event.getBookId(), canonicalImageUrl);
-                    return Mono.error(new IllegalStateException("S3 upload pipeline completed without emitting ImageDetails"));
-                }))
-                .subscribe(
-                    details -> {
-                        sample.stop(s3UploadDuration);
-                        if (details == null || !StringUtils.hasText(details.getStorageKey())) {
-                            s3UploadFailures.increment();
-                            logger.error(
-                                "S3 upload returned non-persistable details for book {}. storageKey='{}'. Treating as failure.",
-                                event.getBookId(),
-                                details != null ? details.getStorageKey() : null
-                            );
-                            return;
-                        }
-                        s3UploadSuccesses.increment();
-                        resolveSelfProxy().persistS3MetadataInNewTransaction(bookUuid, details);
-                    },
-                    error -> {
-                        sample.stop(s3UploadDuration);
-                        s3UploadFailures.increment();
-
-                        // Structured error handling with exception types
-                        if (error instanceof CoverDownloadException ex) {
-                            String causeMessage = ex.getCause() != null ? ex.getCause().getMessage() : "Unknown cause";
-                            logger.error("S3 upload PERMANENTLY FAILED for book {} after retries: " +
-                                       "Download failed from {}. Cause: {}",
-                                       event.getBookId(), ex.getImageUrl(), causeMessage);
-                        } else if (error instanceof CoverProcessingException ex) {
-                            logger.error("S3 upload FAILED for book {} (non-retryable): " +
-                                       "Processing failed: {}",
-                                       event.getBookId(), ex.getMessage());
-                        } else if (error instanceof CoverTooLargeException ex) {
-                            logger.error("S3 upload FAILED for book {} (non-retryable): " +
-                                       "Image too large: {} bytes (max: {} bytes)",
-                                       event.getBookId(), ex.getActualSize(), ex.getMaxSize());
-                        } else if (error instanceof UnsafeUrlException ex) {
-                            logger.error("S3 upload FAILED for book {} (non-retryable): " +
-                                       "Unsafe URL blocked: {}",
-                                       event.getBookId(), ex.getImageUrl());
-                        } else {
-                            logger.error("S3 upload FAILED for book {} after retries: {}. " +
-                                       "Book persisted to database but cover image will NOT be available in S3. " +
-                                       "Metrics: attempts={}, successes={}, failures={}",
-                                       event.getBookId(), error.getMessage(),
-                                       s3UploadAttempts.count(), s3UploadSuccesses.count(), s3UploadFailures.count(), error);
-                        }
-                    }
-                );
-        } catch (IllegalArgumentException ex) {
+            executeS3Upload(event, canonicalImageUrl, source, bookUuid);
+        } catch (IllegalArgumentException _) {
             logger.warn("Received BookUpsertEvent with non-UUID bookId '{}'; skipping S3 upload.", event.getBookId());
         }
+    }
+
+    private void executeS3Upload(BookUpsertEvent event, String canonicalImageUrl, String source, UUID bookUuid) {
+        s3UploadAttempts.increment();
+        Timer.Sample sample = Timer.start(meterRegistry);
+
+        s3BookCoverService.uploadCoverToS3Async(canonicalImageUrl, event.getBookId(), source)
+            .retryWhen(buildRetrySpec(event))
+            .switchIfEmpty(createEmptyFallback(event, canonicalImageUrl))
+            .subscribe(
+                details -> handleUploadSuccess(details, event, bookUuid, sample),
+                error -> handleUploadError(error, event, sample)
+            );
+    }
+
+    private Retry buildRetrySpec(BookUpsertEvent event) {
+        return Retry.backoff(3, Duration.ofSeconds(2))
+            .maxBackoff(Duration.ofSeconds(10))
+            .filter(throwable -> shouldRetryThrowable(throwable, event))
+            .doBeforeRetry(retrySignal -> logRetryAttempt(retrySignal, event));
+    }
+
+    private boolean shouldRetryThrowable(Throwable throwable, BookUpsertEvent event) {
+        if (throwable instanceof S3CoverUploadException ex) {
+            boolean shouldRetry = ex.isRetryable();
+            String retryType = shouldRetry ? "retryable" : "non-retryable";
+            logger.warn("{} S3 upload for book {} ({}: {}): {}",
+                       shouldRetry ? "Retrying" : "NOT retrying",
+                       event.getBookId(), retryType, ex.getClass().getSimpleName(), ex.getMessage());
+            return shouldRetry;
+        }
+        logger.warn("Retrying S3 upload for book {} (unknown error): {}", event.getBookId(), throwable.getMessage());
+        return true;
+    }
+
+    private void logRetryAttempt(reactor.util.retry.Retry.RetrySignal retrySignal, BookUpsertEvent event) {
+        s3UploadRetriesTotal.increment();
+        logger.info("Retry attempt {} for book {} after error: {}",
+                   retrySignal.totalRetries() + 1,
+                   event.getBookId(),
+                   retrySignal.failure().getMessage());
+    }
+
+    private Mono<ImageDetails> createEmptyFallback(BookUpsertEvent event, String canonicalImageUrl) {
+        return Mono.defer(() -> {
+            logger.error("S3 upload pipeline returned no image details for book {} after retries. Canonical URL: {}",
+                event.getBookId(), canonicalImageUrl);
+            return Mono.error(new IllegalStateException("S3 upload pipeline completed without emitting ImageDetails"));
+        });
     }
 
     /**
@@ -392,10 +359,10 @@ public class CoverUpdateNotifierService {
      * to ensure proper transaction propagation.
      *
      * @param bookId UUID of the book
-     * @param details Image details from S3 upload (storage key, dimensions, CDN URL)
+     * @param details Image details from S3 upload (storage key, dimensions, CDN URL), may be null
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void persistS3MetadataInNewTransaction(UUID bookId, @Nullable ImageDetails details) {
+    public void persistS3MetadataInNewTransaction(UUID bookId, ImageDetails details) {
         if (details == null) {
             logger.warn("S3 upload returned null details for book {}. Metadata persistence skipped.", bookId);
             return;
@@ -456,6 +423,53 @@ public class CoverUpdateNotifierService {
             .filter(url -> url != null && !url.isBlank())
             .findFirst()
             .orElse(null);
+    }
+
+    private void handleUploadSuccess(ImageDetails details, BookUpsertEvent event, UUID bookUuid, Timer.Sample sample) {
+        sample.stop(s3UploadDuration);
+        if (details == null || !StringUtils.hasText(details.getStorageKey())) {
+            s3UploadFailures.increment();
+            logger.error(
+                "S3 upload returned non-persistable details for book {}. storageKey='{}'. Treating as failure.",
+                event.getBookId(),
+                details != null ? details.getStorageKey() : null
+            );
+            return;
+        }
+        s3UploadSuccesses.increment();
+        resolveSelfProxy().persistS3MetadataInNewTransaction(bookUuid, details);
+    }
+
+    private void handleUploadError(Throwable error, BookUpsertEvent event, Timer.Sample sample) {
+        sample.stop(s3UploadDuration);
+        s3UploadFailures.increment();
+
+        switch (error) {
+            case CoverDownloadException ex -> {
+                String causeMessage = ex.getCause() != null ? ex.getCause().getMessage() : "Unknown cause";
+                logger.error("S3 upload PERMANENTLY FAILED for book {} after retries: " +
+                           "Download failed from {}. Cause: {}",
+                           event.getBookId(), ex.getImageUrl(), causeMessage);
+            }
+            case CoverProcessingException ex ->
+                logger.error("S3 upload FAILED for book {} (non-retryable): " +
+                           "Processing failed: {}",
+                           event.getBookId(), ex.getMessage());
+            case CoverTooLargeException ex ->
+                logger.error("S3 upload FAILED for book {} (non-retryable): " +
+                           "Image too large: {} bytes (max: {} bytes)",
+                           event.getBookId(), ex.getActualSize(), ex.getMaxSize());
+            case UnsafeUrlException ex ->
+                logger.error("S3 upload FAILED for book {} (non-retryable): " +
+                           "Unsafe URL blocked: {}",
+                           event.getBookId(), ex.getImageUrl());
+            default ->
+                logger.error("S3 upload FAILED for book {} after retries: {}. " +
+                           "Book persisted to database but cover image will NOT be available in S3. " +
+                           "Metrics: attempts={}, successes={}, failures={}",
+                           event.getBookId(), error.getMessage(),
+                           s3UploadAttempts.count(), s3UploadSuccesses.count(), s3UploadFailures.count(), error);
+        }
     }
 
     private CoverUpdateNotifierService resolveSelfProxy() {

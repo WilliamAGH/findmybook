@@ -9,7 +9,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import net.findmybook.dto.BookCard;
 import net.findmybook.dto.BookDetail;
@@ -47,7 +46,7 @@ public class HomePageSectionsService {
 
     public Mono<List<BookCard>> loadCurrentBestsellers(int maxBestsellers) {
         return newYorkTimesService.getCurrentBestSellersCards("hardcover-fiction", maxBestsellers)
-            .map(cards -> cards.stream().limit(maxBestsellers).collect(Collectors.toList()));
+            .map(cards -> cards.stream().limit(maxBestsellers).toList());
     }
 
     public Mono<List<BookCard>> loadRecentBooks(int maxRecentBooks) {
@@ -98,43 +97,44 @@ public class HomePageSectionsService {
     public Mono<List<Book>> loadSimilarBooks(String bookIdentifier, int recommendationLimit, int maxReturnedBooks) {
         return Mono.fromCallable(() -> bookIdentifierResolver.resolveToUuid(bookIdentifier))
             .subscribeOn(Schedulers.boundedElastic())
-            .flatMap(optionalUuid -> {
-                if (optionalUuid.isEmpty()) {
-                    return Mono.just(List.<Book>of());
-                }
-                UUID uuid = optionalUuid.get();
-                return Mono.defer(() -> {
-                    List<RecommendationCard> cards = bookSearchService.fetchRecommendationCards(uuid, recommendationLimit);
-                    if (cards == null || cards.isEmpty()) {
-                        return Mono.just(List.<Book>of());
-                    }
-                    List<Book> mapped = new ArrayList<>(cards.size());
-                    for (RecommendationCard card : cards) {
-                        if (card == null || card.card() == null) {
-                            continue;
-                        }
-                        Book book = BookDomainMapper.fromCard(card.card());
-                        if (book != null) {
-                            mapped.add(book);
-                        }
-                        if (mapped.size() >= maxReturnedBooks) {
-                            break;
-                        }
-                    }
-                    if (!mapped.isEmpty()) {
-                        Map<String, Integer> insertionOrder = new LinkedHashMap<>();
-                        for (int index = 0; index < mapped.size(); index++) {
-                            Book candidate = mapped.get(index);
-                            if (candidate != null && StringUtils.hasText(candidate.getId())) {
-                                insertionOrder.putIfAbsent(candidate.getId(), index);
-                            }
-                        }
-                        mapped.sort(CoverPrioritizer.bookComparator(insertionOrder));
-                    }
-                    return Mono.just(mapped);
-                }).subscribeOn(Schedulers.boundedElastic());
-            })
+            .flatMap(optionalUuid -> optionalUuid
+                .map(uuid -> fetchAndMapSimilarBooks(uuid, recommendationLimit, maxReturnedBooks))
+                .orElseGet(() -> Mono.just(List.<Book>of())))
             .timeout(Duration.ofMillis(1500));
+    }
+
+    private Mono<List<Book>> fetchAndMapSimilarBooks(UUID bookUuid, int recommendationLimit, int maxReturnedBooks) {
+        return Mono.fromCallable(() -> {
+            List<RecommendationCard> cards = bookSearchService.fetchRecommendationCards(bookUuid, recommendationLimit);
+            if (cards == null || cards.isEmpty()) {
+                return List.<Book>of();
+            }
+            List<Book> mapped = mapCardsToBooks(cards, maxReturnedBooks);
+            if (!mapped.isEmpty()) {
+                applyCoverPrioritization(mapped);
+            }
+            return mapped;
+        }).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    private List<Book> mapCardsToBooks(List<RecommendationCard> cards, int maxReturnedBooks) {
+        return cards.stream()
+            .filter(card -> card != null && card.card() != null)
+            .map(card -> BookDomainMapper.fromCard(card.card()))
+            .filter(Objects::nonNull)
+            .limit(maxReturnedBooks)
+            .toList();
+    }
+
+    private void applyCoverPrioritization(List<Book> books) {
+        Map<String, Integer> insertionOrder = new LinkedHashMap<>();
+        for (int index = 0; index < books.size(); index++) {
+            Book candidate = books.get(index);
+            if (candidate != null && StringUtils.hasText(candidate.getId())) {
+                insertionOrder.putIfAbsent(candidate.getId(), index);
+            }
+        }
+        books.sort(CoverPrioritizer.bookComparator(insertionOrder));
     }
 
     public Mono<Book> locateBook(String identifier) {

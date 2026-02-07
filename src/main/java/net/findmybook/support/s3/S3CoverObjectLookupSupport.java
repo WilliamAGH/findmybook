@@ -6,8 +6,10 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import net.findmybook.util.cover.S3KeyGenerator;
+import jakarta.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -24,6 +26,7 @@ import software.amazon.awssdk.services.s3.model.S3Exception;
 @Component
 public class S3CoverObjectLookupSupport {
 
+    private static final Logger log = LoggerFactory.getLogger(S3CoverObjectLookupSupport.class);
     private static final int OBJECT_CACHE_MAX_SIZE = 2000;
     private static final int OBJECT_CACHE_TTL_HOURS = 1;
     static final int HTTP_NOT_FOUND = 404;
@@ -110,7 +113,8 @@ public class S3CoverObjectLookupSupport {
             s3Client.headObject(HeadObjectRequest.builder().bucket(s3BucketName).key(s3Key).build());
             objectExistsCache.put(s3Key, true);
             return true;
-        } catch (NoSuchKeyException exception) {
+        } catch (NoSuchKeyException _) {
+            log.trace("S3 object not found: {}", s3Key);
             objectExistsCache.put(s3Key, false);
             return false;
         } catch (S3Exception s3Exception) {
@@ -122,8 +126,8 @@ public class S3CoverObjectLookupSupport {
                 "Failed to check S3 object existence for key " + s3Key + " (status " + s3Exception.statusCode() + ")",
                 s3Exception
             );
-        } catch (SdkClientException sdkClientException) {
-            throw new IllegalStateException("Failed to check S3 object existence for key " + s3Key, sdkClientException);
+        } catch (SdkClientException e) {
+            throw new IllegalStateException("Failed to check S3 object existence for key " + s3Key, e);
         }
     }
 

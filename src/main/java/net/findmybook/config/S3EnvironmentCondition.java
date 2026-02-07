@@ -1,15 +1,6 @@
 /**
- * Custom condition that checks if S3 environment variables are present
- * This enables S3 services automatically when the required environment variables are available
- *
- * @author William Callahan
- *
- * Features:
- * - Validates presence of S3_ACCESS_KEY_ID environment variable
- * - Validates presence of S3_SECRET_ACCESS_KEY environment variable
- * - Validates presence of S3_BUCKET environment variable
- * - Enables S3-dependent beans only when all required variables are present
- * - Logs S3 availability status once during startup
+ * Spring {@link org.springframework.context.annotation.Condition} that gates S3-dependent beans
+ * on the presence of required credentials and bucket configuration.
  */
 package net.findmybook.config;
 
@@ -25,6 +16,8 @@ public class S3EnvironmentCondition implements Condition {
 
     private static final Logger logger = LoggerFactory.getLogger(S3EnvironmentCondition.class);
     private static final AtomicBoolean messageLogged = new AtomicBoolean(false);
+    private static final String STATUS_MISSING = "MISSING";
+    private static final String STATUS_SET = "SET";
 
     @Override
     public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {
@@ -39,15 +32,15 @@ public class S3EnvironmentCondition implements Condition {
         // Only log the message once to avoid spam during startup
         if (messageLogged.compareAndSet(false, true)) {
             if (hasRequiredVars) {
-                logger.info("✅ S3 environment variables detected - enabling S3 services (bucket: {})", bucket);
+                logger.info("S3 environment variables detected - enabling S3 services (bucket: {})", bucket);
             } else {
-                logger.error("❌ CRITICAL: S3 environment variables MISSING - S3 services DISABLED");
-                logger.error("❌ Required configuration: s3.access-key-id/S3_ACCESS_KEY_ID, s3.secret-access-key/S3_SECRET_ACCESS_KEY, s3.bucket-name/S3_BUCKET");
-                logger.error("❌ Current status: S3_ACCESS_KEY_ID={}, S3_SECRET_ACCESS_KEY={}, S3_BUCKET={}",
-                    (hasText(accessKeyId) ? "SET" : "MISSING"),
-                    (hasText(secretAccessKey) ? "SET" : "MISSING"),
-                    (hasText(bucket) ? "SET" : "MISSING"));
-                logger.error("❌ ALL COVER UPLOADS TO S3 WILL FAIL SILENTLY");
+                logger.error("S3 environment variables MISSING - S3 services DISABLED");
+                logger.error("Required: s3.access-key-id/S3_ACCESS_KEY_ID, s3.secret-access-key/S3_SECRET_ACCESS_KEY, s3.bucket-name/S3_BUCKET");
+                logger.error("Current status: S3_ACCESS_KEY_ID={}, S3_SECRET_ACCESS_KEY={}, S3_BUCKET={}",
+                    (hasText(accessKeyId) ? STATUS_SET : STATUS_MISSING),
+                    (hasText(secretAccessKey) ? STATUS_SET : STATUS_MISSING),
+                    (hasText(bucket) ? STATUS_SET : STATUS_MISSING));
+                logger.error("All cover uploads to S3 will fail");
             }
         }
         

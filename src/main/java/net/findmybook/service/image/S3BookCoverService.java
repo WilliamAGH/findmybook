@@ -20,7 +20,7 @@ import org.springframework.util.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.lang.Nullable;
+import jakarta.annotation.Nullable;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
@@ -106,11 +106,13 @@ public class S3BookCoverService implements ExternalCoverService {
 
     /**
      * Downloads, processes, and uploads a cover image.
+     * @param provenanceData retained for API compatibility (persistence handled elsewhere)
      */
     public Mono<ImageDetails> uploadCoverToS3Async(String imageUrl,
                                                    String bookId,
                                                    String source,
-                                                   ImageProvenanceData provenanceData) {
+                                                   @Nullable ImageProvenanceData provenanceData) {
+        // Provenance data retained for API compatibility; actual persistence handled elsewhere
         try {
             s3CoverStorageGateway.ensureUploadReady(bookId, imageUrl);
             S3UploadValidation.validateUploadInput(imageUrl, bookId);
@@ -138,6 +140,7 @@ public class S3BookCoverService implements ExternalCoverService {
 
     /**
      * Captures all fields needed to upload a pre-processed cover image to S3.
+     * <p>Note: Class (not record) required for proper byte[] content comparison.</p>
      *
      * @param processedImageBytes the image payload to upload (must not be null or empty)
      * @param fileExtension       the file extension for the S3 key (e.g., "webp", "jpg")
@@ -148,16 +151,81 @@ public class S3BookCoverService implements ExternalCoverService {
      * @param originalSourceForS3Key the source label used in the S3 key path
      * @param provenanceData      optional provenance metadata for audit/tracking
      */
-    public record ProcessedCoverUploadRequest(
-        byte[] processedImageBytes,
-        String fileExtension,
-        String mimeType,
-        int width,
-        int height,
-        String bookId,
-        String originalSourceForS3Key,
-        @Nullable ImageProvenanceData provenanceData
-    ) {}
+    public static final class ProcessedCoverUploadRequest {
+        private final byte[] processedImageBytes;
+        private final String fileExtension;
+        private final String mimeType;
+        private final int width;
+        private final int height;
+        private final String bookId;
+        private final String originalSourceForS3Key;
+        private final ImageProvenanceData provenanceData;
+
+        public ProcessedCoverUploadRequest(
+            byte[] processedImageBytes,
+            String fileExtension,
+            String mimeType,
+            int width,
+            int height,
+            String bookId,
+            String originalSourceForS3Key,
+            @Nullable ImageProvenanceData provenanceData) {
+            this.processedImageBytes = processedImageBytes;
+            this.fileExtension = fileExtension;
+            this.mimeType = mimeType;
+            this.width = width;
+            this.height = height;
+            this.bookId = bookId;
+            this.originalSourceForS3Key = originalSourceForS3Key;
+            this.provenanceData = provenanceData;
+        }
+
+        public byte[] processedImageBytes() { return processedImageBytes; }
+        public String fileExtension() { return fileExtension; }
+        public String mimeType() { return mimeType; }
+        public int width() { return width; }
+        public int height() { return height; }
+        public String bookId() { return bookId; }
+        public String originalSourceForS3Key() { return originalSourceForS3Key; }
+        public ImageProvenanceData provenanceData() { return provenanceData; }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            ProcessedCoverUploadRequest that = (ProcessedCoverUploadRequest) o;
+            return width == that.width
+                && height == that.height
+                && java.util.Arrays.equals(processedImageBytes, that.processedImageBytes)
+                && java.util.Objects.equals(fileExtension, that.fileExtension)
+                && java.util.Objects.equals(mimeType, that.mimeType)
+                && java.util.Objects.equals(bookId, that.bookId)
+                && java.util.Objects.equals(originalSourceForS3Key, that.originalSourceForS3Key)
+                && java.util.Objects.equals(provenanceData, that.provenanceData);
+        }
+
+        @Override
+        public int hashCode() {
+            return java.util.Objects.hash(
+                java.util.Arrays.hashCode(processedImageBytes),
+                fileExtension, mimeType, width, height, bookId, originalSourceForS3Key, provenanceData
+            );
+        }
+
+        @Override
+        public String toString() {
+            return "ProcessedCoverUploadRequest{" +
+                "processedImageBytes=" + java.util.Arrays.toString(processedImageBytes) +
+                ", fileExtension='" + fileExtension + '\'' +
+                ", mimeType='" + mimeType + '\'' +
+                ", width=" + width +
+                ", height=" + height +
+                ", bookId='" + bookId + '\'' +
+                ", originalSourceForS3Key='" + originalSourceForS3Key + '\'' +
+                ", provenanceData=" + provenanceData +
+                '}';
+        }
+    }
 
     /**
      * Uploads a processed image payload directly to S3 without additional processing.

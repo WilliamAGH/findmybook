@@ -21,7 +21,7 @@ import net.findmybook.service.BackfillCoordinator;
 import net.findmybook.service.BookDataOrchestrator;
 import net.findmybook.service.ExternalBookIdResolver;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.lang.Nullable;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -56,11 +56,11 @@ public class ResolveController {
     public ResolveController(
         ExternalBookIdResolver resolver,
         BookDataOrchestrator bookDataOrchestrator,
-        @Nullable BackfillCoordinator backfillCoordinator
+        ObjectProvider<BackfillCoordinator> backfillCoordinatorProvider
     ) {
         this.resolver = resolver;
         this.bookDataOrchestrator = bookDataOrchestrator;
-        this.backfillCoordinator = backfillCoordinator;
+        this.backfillCoordinator = backfillCoordinatorProvider.getIfAvailable();
     }
     
     /**

@@ -18,13 +18,13 @@ import org.springframework.boot.web.server.context.WebServerInitializedEvent;
 import org.springframework.context.ApplicationListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
+import java.util.concurrent.atomic.AtomicReference;
 @Component("searchPageHealthIndicator")
 class SearchPageHealthIndicator implements ReactiveHealthIndicator, ApplicationListener<WebServerInitializedEvent> {
-    private volatile WebPageHealthIndicator delegate;
+    private final AtomicReference<WebPageHealthIndicator> delegate;
     private final WebClient.Builder webClientBuilder;
     private final boolean reportErrorsAsDown;
     private static final String HEALTHCHECK_QUERY = "healthcheck";
@@ -42,7 +42,7 @@ class SearchPageHealthIndicator implements ReactiveHealthIndicator, ApplicationL
                                    @Value("${healthcheck.report-errors-as-down:true}") boolean reportErrorsAsDown) {
         this.webClientBuilder = webClientBuilder;
         this.reportErrorsAsDown = reportErrorsAsDown;
-        this.delegate = unconfiguredDelegate();
+        this.delegate = new AtomicReference<>(unconfiguredDelegate());
     }
 
     /**
@@ -51,7 +51,7 @@ class SearchPageHealthIndicator implements ReactiveHealthIndicator, ApplicationL
      * @param event web server initialization event containing server port
      */
     @Override
-    public void onApplicationEvent(@NonNull WebServerInitializedEvent event) {
+    public void onApplicationEvent(WebServerInitializedEvent event) {
         String serverNamespace = event.getApplicationContext().getServerNamespace();
         if (serverNamespace != null && !serverNamespace.isBlank()) {
             logger.debug("Ignoring WebServerInitializedEvent for namespace '{}'", serverNamespace);
@@ -71,7 +71,7 @@ class SearchPageHealthIndicator implements ReactiveHealthIndicator, ApplicationL
                 return;
             }
             String baseUrl = "http://localhost:" + port;
-            this.delegate = new WebPageHealthIndicator(this.webClientBuilder, baseUrl, SEARCH_HEALTH_PATH, "search_page", this.reportErrorsAsDown, true);
+            this.delegate.set(new WebPageHealthIndicator(this.webClientBuilder, baseUrl, SEARCH_HEALTH_PATH, "search_page", this.reportErrorsAsDown, true));
             this.isConfigured = true;
             logger.info("SearchPageHealthIndicator configured with port: {}", port);
         } catch (RuntimeException e) {
@@ -87,10 +87,10 @@ class SearchPageHealthIndicator implements ReactiveHealthIndicator, ApplicationL
      */
     @Override
     public Mono<Health> health() {
-        if (!isConfigured || this.delegate == null) {
+        if (!isConfigured || this.delegate.get() == null) {
             return Mono.just(Health.unknown().withDetail("reason", "Server port not available or health indicator not fully configured for health check").build());
         }
-        return delegate.checkPage();
+        return delegate.get().checkPage();
     }
 
     private WebPageHealthIndicator unconfiguredDelegate() {
@@ -106,6 +106,6 @@ class SearchPageHealthIndicator implements ReactiveHealthIndicator, ApplicationL
 
     private void configureUninitialized() {
         this.isConfigured = false;
-        this.delegate = unconfiguredDelegate();
+        this.delegate.set(unconfiguredDelegate());
     }
 }

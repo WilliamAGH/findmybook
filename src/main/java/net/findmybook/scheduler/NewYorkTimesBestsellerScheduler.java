@@ -13,14 +13,13 @@ import net.findmybook.service.NewYorkTimesService;
 import net.findmybook.support.retry.AdvisoryLockRetrySupport;
 import net.findmybook.util.LoggingUtils;
 import net.findmybook.util.DateParsingUtils;
-import org.springframework.util.StringUtils;
 import lombok.extern.slf4j.Slf4j;
+import jakarta.annotation.Nullable;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.lang.Nullable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import reactor.core.publisher.Mono;
+import org.springframework.util.StringUtils;
 
 import java.time.Duration;
 import java.time.LocalDate;
@@ -120,8 +119,10 @@ public class NewYorkTimesBestsellerScheduler {
         }
 
         JsonNode results = overview.path("results");
-        LocalDate bestsellersDate = parseDate(results.path("bestsellers_date").asText(null));
-        LocalDate publishedDate = parseDate(results.path("published_date").asText(null));
+        String bestsellersDateStr = emptyToNull(results.path("bestsellers_date").asString());
+        LocalDate bestsellersDate = bestsellersDateStr == null ? null : parseDate(bestsellersDateStr);
+        String publishedDateStr = emptyToNull(results.path("published_date").asString());
+        LocalDate publishedDate = publishedDateStr == null ? null : parseDate(publishedDateStr);
         ArrayNode lists = results.has("lists") && results.get("lists").isArray() ? (ArrayNode) results.get("lists") : null;
 
         if (lists == null || lists.isEmpty()) {
@@ -135,18 +136,18 @@ public class NewYorkTimesBestsellerScheduler {
     }
 
     private void persistList(JsonNode listNode, LocalDate bestsellersDate, LocalDate publishedDate) {
-        String displayName = listNode.path("display_name").asText(null);
-        String listCode = listNode.path("list_name_encoded").asText(null);
+        String displayName = emptyToNull(listNode.path("display_name").asString());
+        String listCode = emptyToNull(listNode.path("list_name_encoded").asString());
         if (listCode == null || listCode.isBlank()) {
             log.warn("Skipping NYT list without list_name_encoded.");
             return;
         }
-
-        String providerListId = listNode.path("list_id").asText(null);
-        String description = listNode.path("list_name").asText(null);
+        String providerListId = emptyToNull(listNode.path("list_id").asString());
+        String description = emptyToNull(listNode.path("list_name").asString());
         String normalized = listCode.toLowerCase(Locale.ROOT);
 
-        LocalDate listPublishedDate = parseDate(listNode.path("published_date").asText(null));
+        String publishedDateStr = emptyToNull(listNode.path("published_date").asString());
+        LocalDate listPublishedDate = publishedDateStr == null ? null : parseDate(publishedDateStr);
         if (listPublishedDate == null) {
             listPublishedDate = publishedDate;
         }
@@ -169,8 +170,8 @@ public class NewYorkTimesBestsellerScheduler {
     }
 
     private void persistListEntry(String collectionId, String listCode, JsonNode bookNode) {
-        String isbn13 = IsbnUtils.sanitize(bookNode.path("primary_isbn13").asText(null));
-        String isbn10 = IsbnUtils.sanitize(bookNode.path("primary_isbn10").asText(null));
+        String isbn13 = IsbnUtils.sanitize(emptyToNull(bookNode.path("primary_isbn13").asString()));
+        String isbn10 = IsbnUtils.sanitize(emptyToNull(bookNode.path("primary_isbn10").asString()));
 
         // Validate ISBN formats; discard non-ISBN vendor codes (e.g., X0234484)
         if (isbn13 != null && !IsbnUtils.isValidIsbn13(isbn13)) {
@@ -185,30 +186,55 @@ public class NewYorkTimesBestsellerScheduler {
             return;
         }
 
+        String canonicalId = resolveOrCreateCanonicalBook(bookNode, listCode, isbn13, isbn10);
+        if (canonicalId == null) {
+            return;
+        }
+
+        Integer rank = bookNode.path("rank").isInt() ? bookNode.get("rank").asInt() : null;
+        Integer weeksOnList = bookNode.path("weeks_on_list").isInt() ? bookNode.get("weeks_on_list").asInt() : null;
+        Integer rankLastWeek = bookNode.path("rank_last_week").isInt() ? bookNode.get("rank_last_week").asInt() : null;
+        Integer peakPosition = calculatePeakPosition(bookNode);
+        String providerRef = emptyToNull(bookNode.path("amazon_product_url").asString());
+        String rawItem = serializeBookNode(bookNode, canonicalId);
+
+        collectionPersistenceService.upsertBestsellerMembership(
+            collectionId, canonicalId, rank, weeksOnList, rankLastWeek,
+            peakPosition, isbn13, isbn10, providerRef, rawItem
+        );
+
+        assignCoreTags(canonicalId, listCode, rank);
+    }
+
+    @Nullable
+    private String resolveOrCreateCanonicalBook(JsonNode bookNode, String listCode,
+                                                 String isbn13, String isbn10) {
         String canonicalId = resolveCanonicalBookId(isbn13, isbn10);
         boolean isNewBook = (canonicalId == null);
-        
+
         // IMPORTANT: For NYT ingestion, we DO NOT consult any external sources (Google/OpenLibrary) at all.
         // If the book is not already present in Postgres, create a minimal canonical record directly from NYT data.
         if (canonicalId == null) {
             canonicalId = createCanonicalFromNyt(bookNode, listCode, isbn13, isbn10);
         }
 
+        String title = emptyToNull(bookNode.path("title").asString());
         if (canonicalId == null) {
             log.warn("Unable to locate or create canonical book for NYT list entry (ISBN13: {}, ISBN10: {}, title: {}).",
-                isbn13, isbn10, bookNode.path("title").asText("unknown"));
-            return;
+                isbn13, isbn10, title != null ? title : "unknown");
+            return null;
         }
-        
-        log.info("Processing NYT book: canonicalId='{}', isNew={}, isbn13='{}', title='{}'",
-            canonicalId, isNewBook, isbn13, bookNode.path("title").asText("unknown"));
 
-        Integer rank = bookNode.path("rank").isInt() ? bookNode.get("rank").asInt() : null;
-        Integer weeksOnList = bookNode.path("weeks_on_list").isInt() ? bookNode.get("weeks_on_list").asInt() : null;
-        Integer rankLastWeek = bookNode.path("rank_last_week").isInt() ? bookNode.get("rank_last_week").asInt() : null;
+        log.info("Processing NYT book: canonicalId='{}', isNew={}, isbn13='{}', title='{}'",
+            canonicalId, isNewBook, isbn13, title != null ? title : "unknown");
+        return canonicalId;
+    }
+
+    @Nullable
+    private Integer calculatePeakPosition(JsonNode bookNode) {
         Integer peakPosition = null;
         JsonNode ranksHistory = bookNode.path("ranks_history");
-        if (ranksHistory.isArray() && ranksHistory.size() > 0) {
+        if (ranksHistory.isArray()) {
             for (JsonNode rh : ranksHistory) {
                 if (rh.path("rank").isInt()) {
                     int r = rh.get("rank").asInt();
@@ -225,31 +251,18 @@ public class NewYorkTimesBestsellerScheduler {
                 peakPosition = bookNode.get("rank_last_week").asInt();
             }
         }
-        String providerRef = bookNode.path("amazon_product_url").asText(null);
+        return peakPosition;
+    }
 
-        String rawItem;
+    @Nullable
+    private String serializeBookNode(JsonNode bookNode, String canonicalId) {
         try {
-            rawItem = objectMapper.writeValueAsString(bookNode);
+            return objectMapper.writeValueAsString(bookNode);
         } catch (JacksonException e) {
             log.error("Failed to serialize bestseller book node for canonicalId={}: {}",
                 canonicalId, e.getMessage(), e);
-            rawItem = null;
+            return null;
         }
-
-        collectionPersistenceService.upsertBestsellerMembership(
-            collectionId,
-            canonicalId,
-            rank,
-            weeksOnList,
-            rankLastWeek,
-            peakPosition,
-            isbn13,
-            isbn10,
-            providerRef,
-            rawItem
-        );
-
-        assignCoreTags(canonicalId, listCode, rank);
     }
 
     private String resolveCanonicalBookId(String isbn13, String isbn10) {
@@ -298,7 +311,7 @@ public class NewYorkTimesBestsellerScheduler {
         List<String> authors = extractAuthors(bookNode);
         List<String> normalizedAuthors = authors.stream()
             .map(net.findmybook.util.TextUtils::normalizeAuthorName)
-            .collect(java.util.stream.Collectors.toList());
+            .toList();
 
         List<String> categories = null;
         if (StringUtils.hasText(listCode)) {
@@ -356,9 +369,9 @@ public class NewYorkTimesBestsellerScheduler {
 
     private List<String> extractAuthors(JsonNode bookNode) {
         List<String> authors = new ArrayList<>();
-        addAuthors(authors, bookNode.path("author").asText(null));
-        addAuthors(authors, bookNode.path("contributor").asText(null));
-        addAuthors(authors, bookNode.path("contributor_note").asText(null));
+        addAuthors(authors, emptyToNull(bookNode.path("author").asString()));
+        addAuthors(authors, emptyToNull(bookNode.path("contributor").asString()));
+        addAuthors(authors, emptyToNull(bookNode.path("contributor_note").asString()));
         if (authors.isEmpty()) {
             return List.of();
         }
@@ -386,13 +399,17 @@ public class NewYorkTimesBestsellerScheduler {
     private String firstNonEmptyText(JsonNode node, String... fieldNames) {
         for (String field : fieldNames) {
             if (node.hasNonNull(field)) {
-                String value = node.get(field).asText(null);
+                String value = node.get(field).asString();
                 if (StringUtils.hasText(value)) {
                     return value.trim();
                 }
             }
         }
         return null;
+    }
+
+    private static String emptyToNull(String value) {
+        return value == null || value.isEmpty() ? null : value;
     }
 
     private void assignCoreTags(String bookId, String listCode, Integer rank) {

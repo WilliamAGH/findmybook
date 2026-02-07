@@ -106,43 +106,69 @@ class BookExternalBatchPersistenceService {
     private void executeBatchPersistence(List<Book> books, String context, Runnable searchViewRefreshTrigger) {
         logger.info("[EXTERNAL-API] [{}] Persisting {} unique books to Postgres", context, books.size());
         long start = System.currentTimeMillis();
+
+        BatchResult result = processBooks(books, context, searchViewRefreshTrigger);
+
+        long elapsed = System.currentTimeMillis() - start;
+        if (result.failureCount() > 0) {
+            String summary = String.format("[EXTERNAL-API] [%s] Batch persistence completed with failures: %d succeeded, %d failed (%d ms)",
+                context, result.successCount(), result.failureCount(), elapsed);
+            logger.warn(summary);
+            throw new IllegalStateException(summary);
+        }
+        logger.info("[EXTERNAL-API] [{}] Batch persistence complete: {} succeeded ({} ms)", context, result.successCount(), elapsed);
+    }
+
+    private record BatchResult(int successCount, int failureCount) {}
+
+    private BatchResult processBooks(List<Book> books, String context, Runnable searchViewRefreshTrigger) {
         int successCount = 0;
         int failureCount = 0;
 
         for (Book book : books) {
-            if (book == null || book.getId() == null) {
-                logger.warn("[EXTERNAL-API] [{}] Skipping book with null reference or null ID: title={}", context, book != null ? book.getTitle() : "null");
+            if (isInvalidBook(book, context)) {
                 continue;
             }
 
-            try {
-                boolean ok = persistSingleBook(book, context, searchViewRefreshTrigger);
-                if (ok) {
-                    successCount++;
-                } else {
-                    failureCount++;
-                    logger.warn("[EXTERNAL-API] [{}] Persist returned false for id={}", context, book.getId());
-                }
-            } catch (RuntimeException ex) {
-                failureCount++;
-                logger.error("[EXTERNAL-API] [{}] Failed to persist book {}: {}", context, book.getId(), ex.getMessage(), ex);
+            PersistenceOutcome outcome = attemptPersistBook(book, context, searchViewRefreshTrigger);
+            successCount += outcome.successes();
+            failureCount += outcome.failures();
 
-                if (isSystemicDatabaseError(ex)) {
-                    logger.error("[EXTERNAL-API] [{}] Aborting batch due to systemic database error ({} succeeded, {} failed before abort)",
-                        context, successCount, failureCount);
-                    throw ex instanceof IllegalStateException ? ex : new IllegalStateException("Systemic database error during batch persistence", ex);
-                }
+            if (outcome.shouldAbort()) {
+                throw new IllegalStateException(
+                    "Systemic database error during batch persistence (" + successCount + " succeeded, " + failureCount + " failed before abort)");
             }
         }
 
-        long elapsed = System.currentTimeMillis() - start;
-        if (failureCount > 0) {
-            String summary = String.format("[EXTERNAL-API] [%s] Batch persistence completed with failures: %d succeeded, %d failed (%d ms)",
-                context, successCount, failureCount, elapsed);
-            logger.warn(summary);
-            throw new IllegalStateException(summary);
+        return new BatchResult(successCount, failureCount);
+    }
+
+    private boolean isInvalidBook(Book book, String context) {
+        if (book == null || book.getId() == null) {
+            logger.warn("[EXTERNAL-API] [{}] Skipping book with null reference or null ID: title={}",
+                context, book != null ? book.getTitle() : "null");
+            return true;
         }
-        logger.info("[EXTERNAL-API] [{}] Batch persistence complete: {} succeeded ({} ms)", context, successCount, elapsed);
+        return false;
+    }
+
+    private record PersistenceOutcome(int successes, int failures, boolean shouldAbort) {}
+
+    private PersistenceOutcome attemptPersistBook(Book book, String context, Runnable searchViewRefreshTrigger) {
+        try {
+            boolean persisted = persistSingleBook(book, context, searchViewRefreshTrigger);
+            return persisted
+                ? new PersistenceOutcome(1, 0, false)
+                : new PersistenceOutcome(0, 1, false);
+        } catch (RuntimeException ex) {
+            logger.error("[EXTERNAL-API] [{}] Failed to persist book {}: {}", context, book.getId(), ex.getMessage(), ex);
+
+            if (isSystemicDatabaseError(ex)) {
+                logger.error("[EXTERNAL-API] [{}] Aborting batch due to systemic database error", context);
+                return new PersistenceOutcome(0, 1, true);
+            }
+            return new PersistenceOutcome(0, 1, false);
+        }
     }
 
     private boolean persistSingleBook(Book book, String context, Runnable searchViewRefreshTrigger) {
@@ -163,6 +189,7 @@ class BookExternalBatchPersistenceService {
     }
 
     boolean persistBook(Book book, JsonNode sourceJson, Runnable searchViewRefreshTrigger) {
+        String bookIdForLogging = book != null ? book.getId() : "null";
         try {
             if (book == null) {
                 throw new IllegalArgumentException("persistBook invoked with null book reference");
@@ -189,14 +216,14 @@ class BookExternalBatchPersistenceService {
             logger.debug("Persisted book via BookUpsertService: {}", book.getId());
             return true;
         } catch (DataAccessException | IllegalArgumentException | IllegalStateException ex) {
-            logger.error("Error persisting via BookUpsertService for book {}: {}", book.getId(), ex.getMessage(), ex);
+            logger.error("Error persisting via BookUpsertService for book {}: {}", bookIdForLogging, ex.getMessage(), ex);
             if (isSystemicDatabaseError(ex)) {
                 if (ex instanceof IllegalStateException stateException) {
                     throw stateException;
                 }
                 throw new IllegalStateException("Systemic database error during upsert", ex);
             }
-            throw new IllegalStateException("Error persisting via BookUpsertService for book " + book.getId(), ex);
+            throw new IllegalStateException("Error persisting via BookUpsertService for book " + bookIdForLogging, ex);
         }
     }
 
@@ -239,7 +266,7 @@ class BookExternalBatchPersistenceService {
         if (books == null || books.isEmpty()) {
             return List.of();
         }
-        Set<String> seenIds = new java.util.HashSet<>(books.size());
+        Set<String> seenIds = java.util.HashSet.newHashSet(books.size());
         List<Book> unique = new ArrayList<>(books.size());
         for (Book book : books) {
             if (book == null || !StringUtils.hasText(book.getId())) {
@@ -261,24 +288,26 @@ class BookExternalBatchPersistenceService {
             if (book == null) {
                 continue;
             }
-            String isbn13 = IsbnUtils.sanitize(book.getIsbn13());
-            if (StringUtils.hasText(isbn13)) {
-                deduped.putIfAbsent("ISBN13:" + isbn13, book);
-                continue;
-            }
-            String isbn10 = IsbnUtils.sanitize(book.getIsbn10());
-            if (StringUtils.hasText(isbn10)) {
-                deduped.putIfAbsent("ISBN10:" + isbn10, book);
-                continue;
-            }
-            String normalizedTitle = normalizeTitleForDedupe(book.getTitle());
-            if (normalizedTitle != null) {
-                deduped.putIfAbsent("TITLE:" + normalizedTitle, book);
-                continue;
-            }
-            deduped.putIfAbsent("FALLBACK:" + book.getId(), book);
+            String key = extractDedupeKey(book);
+            deduped.putIfAbsent(key, book);
         }
         return new ArrayList<>(deduped.values());
+    }
+
+    private String extractDedupeKey(Book book) {
+        String isbn13 = IsbnUtils.sanitize(book.getIsbn13());
+        if (StringUtils.hasText(isbn13)) {
+            return "ISBN13:" + isbn13;
+        }
+        String isbn10 = IsbnUtils.sanitize(book.getIsbn10());
+        if (StringUtils.hasText(isbn10)) {
+            return "ISBN10:" + isbn10;
+        }
+        String normalizedTitle = normalizeTitleForDedupe(book.getTitle());
+        if (normalizedTitle != null) {
+            return "TITLE:" + normalizedTitle;
+        }
+        return "FALLBACK:" + book.getId();
     }
 
     private String normalizeTitleForDedupe(String title) {
