@@ -1,6 +1,6 @@
 package net.findmybook.util.cover;
 
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 
 /**
  * Centralises cover quality scoring so that all ranking logic
@@ -65,7 +65,7 @@ public final class CoverQuality {
     }
 
     private static boolean isRenderable(String url) {
-        return ValidationUtils.hasText(url)
+        return StringUtils.hasText(url)
             && !url.contains("placeholder-book-cover.svg");
     }
 }

@@ -12,7 +12,7 @@ import net.findmybook.service.SitemapService.AuthorSection;
 import net.findmybook.service.SitemapService.BookSitemapItem;
 import net.findmybook.service.SitemapService.PagedResult;
 import net.findmybook.util.PagingUtils;
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -75,7 +75,7 @@ public class PageApiController {
      */
     @GetMapping("/book/{identifier}/affiliate-links")
     public Mono<ResponseEntity<Map<String, String>>> affiliateLinks(@PathVariable String identifier) {
-        if (!ValidationUtils.hasText(identifier)) {
+        if (!StringUtils.hasText(identifier)) {
             return Mono.just(ResponseEntity.badRequest().build());
         }
 
@@ -130,7 +130,7 @@ public class PageApiController {
     }
 
     private static String normalizeView(String view) {
-        if (!ValidationUtils.hasText(view)) {
+        if (!StringUtils.hasText(view)) {
             return "authors";
         }
         String candidate = view.trim().toLowerCase(java.util.Locale.ROOT);

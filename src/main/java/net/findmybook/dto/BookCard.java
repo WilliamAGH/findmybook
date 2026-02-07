@@ -1,7 +1,7 @@
 package net.findmybook.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import java.util.List;
 import java.util.Map;
 
@@ -65,10 +65,10 @@ public record BookCard(
      */
     public BookCard {
         authors = authors == null ? List.of() : List.copyOf(authors);
-        coverS3Key = ValidationUtils.hasText(coverS3Key) ? coverS3Key : null;
+        coverS3Key = StringUtils.hasText(coverS3Key) ? coverS3Key : null;
         // Keep fallbackCoverUrl as-is (null if not provided) to enable proper fallback cascade
         // Do NOT default to coverUrl - that breaks the fallback chain
-        fallbackCoverUrl = ValidationUtils.hasText(fallbackCoverUrl) ? fallbackCoverUrl : null;
+        fallbackCoverUrl = StringUtils.hasText(fallbackCoverUrl) ? fallbackCoverUrl : null;
         tags = tags == null ? Map.of() : Map.copyOf(tags);
     }
 

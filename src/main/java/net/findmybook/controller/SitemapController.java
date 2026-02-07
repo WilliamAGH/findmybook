@@ -8,7 +8,7 @@ import net.findmybook.service.SitemapService.BookSitemapItem;
 import net.findmybook.service.SitemapService.PagedResult;
 import net.findmybook.service.SitemapService.SitemapOverview;
 import net.findmybook.util.PagingUtils;
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -216,7 +216,7 @@ public class SitemapController {
     }
 
     private String normalizeView(String view) {
-        if (!ValidationUtils.hasText(view)) {
+        if (!StringUtils.hasText(view)) {
             return "authors";
         }
         String candidate = view.trim().toLowerCase(Locale.ROOT);

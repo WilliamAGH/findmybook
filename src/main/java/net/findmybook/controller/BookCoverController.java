@@ -4,7 +4,7 @@ import net.findmybook.service.BookDataOrchestrator;
 import net.findmybook.service.BookIdentifierResolver;
 import net.findmybook.service.BookSearchService;
 import net.findmybook.util.ApplicationConstants;
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import net.findmybook.util.cover.CoverUrlResolver;
 import net.findmybook.util.cover.UrlSourceDetector;
 import lombok.extern.slf4j.Slf4j;
@@ -85,7 +85,7 @@ public class BookCoverController {
     }
 
     private Optional<CoverPayload> resolveCover(String identifier) {
-        if (!ValidationUtils.hasText(identifier)) {
+        if (!StringUtils.hasText(identifier)) {
             return Optional.empty();
         }
 
@@ -154,7 +154,7 @@ public class BookCoverController {
             return ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH;
         }
         for (String candidate : candidates) {
-            if (ValidationUtils.hasText(candidate)) {
+            if (StringUtils.hasText(candidate)) {
                 return candidate;
             }
         }

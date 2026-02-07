@@ -6,7 +6,7 @@ import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.model.image.ImageDetails;
 import net.findmybook.model.image.ImageResolutionPreference;
 import net.findmybook.model.image.ProcessedImage;
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import net.findmybook.util.cover.CoverUrlResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -82,13 +82,13 @@ public class S3CoverUrlSupport {
     }
 
     private Optional<String> resolveCdnBase() {
-        if (ValidationUtils.hasText(s3PublicCdnUrl)) {
+        if (StringUtils.hasText(s3PublicCdnUrl)) {
             return Optional.of(normalizeBase(s3PublicCdnUrl));
         }
-        if (ValidationUtils.hasText(s3CdnUrl)) {
+        if (StringUtils.hasText(s3CdnUrl)) {
             return Optional.of(normalizeBase(s3CdnUrl));
         }
-        if (ValidationUtils.hasText(s3ServerUrl) && ValidationUtils.hasText(s3BucketName)) {
+        if (StringUtils.hasText(s3ServerUrl) && StringUtils.hasText(s3BucketName)) {
             String combined = appendPath(normalizeBase(s3ServerUrl), s3BucketName);
             return Optional.of(normalizeBase(combined));
         }

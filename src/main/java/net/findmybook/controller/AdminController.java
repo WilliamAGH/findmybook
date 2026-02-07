@@ -21,7 +21,7 @@ import net.findmybook.service.BackfillCoordinator;
 import net.findmybook.service.S3CoverCleanupService;
 import net.findmybook.service.s3.DryRunSummary;
 import net.findmybook.service.s3.MoveActionSummary;
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
@@ -89,7 +89,7 @@ public class AdminController {
             return ResponseEntity.badRequest().body(message);
         }
 
-        if (!ValidationUtils.hasText(volumeId)) {
+        if (!StringUtils.hasText(volumeId)) {
             String message = "volumeId must not be blank";
             return ResponseEntity.badRequest().body(message);
         }

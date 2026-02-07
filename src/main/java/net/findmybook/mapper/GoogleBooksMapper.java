@@ -7,7 +7,7 @@ import net.findmybook.util.DateParsingUtils;
 import net.findmybook.util.IsbnUtils;
 import net.findmybook.util.SlugGenerator;
 import net.findmybook.util.TextUtils;
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -144,7 +144,7 @@ public class GoogleBooksMapper implements ExternalBookMapper {
         JsonNode authorsNode = volumeInfo.get("authors");
         for (JsonNode authorNode : authorsNode) {
             String normalized = TextUtils.normalizeAuthorName(authorNode.asText(null));
-            if (ValidationUtils.hasText(normalized)) {
+            if (StringUtils.hasText(normalized)) {
                 authors.add(normalized);
             }
         }

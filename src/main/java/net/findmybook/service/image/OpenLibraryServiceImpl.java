@@ -16,7 +16,7 @@ import net.findmybook.model.Book;
 import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.model.image.ImageDetails;
 import net.findmybook.model.image.ImageResolutionPreference;
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import net.findmybook.util.cover.CoverIdentifierResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,7 +42,7 @@ public class OpenLibraryServiceImpl implements OpenLibraryService {
     public CompletableFuture<Optional<ImageDetails>> fetchCover(Book book) {
         String isbn = CoverIdentifierResolver.getPreferredIsbn(book);
 
-        if (!ValidationUtils.hasText(isbn)) {
+        if (!StringUtils.hasText(isbn)) {
             logger.warn("No ISBN found for book ID: {}, cannot fetch cover from OpenLibrary.", book.getId());
             return CompletableFuture.completedFuture(Optional.empty());
         }

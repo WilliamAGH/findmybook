@@ -40,7 +40,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 
 /**
  * Scheduler for book data pre-fetching (cache warming functionality disabled)
@@ -223,7 +223,7 @@ public class BookCacheWarmingScheduler {
     }
 
     private Book resolveBookForWarming(String identifier) {
-        if (!ValidationUtils.hasText(identifier)) {
+        if (!StringUtils.hasText(identifier)) {
             return null;
         }
         String trimmed = identifier.trim();

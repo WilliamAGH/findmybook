@@ -3,7 +3,7 @@ package net.findmybook.service;
 import net.findmybook.dto.BookDetail;
 import net.findmybook.repository.BookQueryRepository;
 import net.findmybook.util.UuidUtils;
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.dao.DataAccessException;
@@ -36,7 +36,7 @@ public class BookIdentifierResolver {
     }
 
     public Optional<String> resolveCanonicalId(String identifier) {
-        if (!ValidationUtils.hasText(identifier)) {
+        if (!StringUtils.hasText(identifier)) {
             return Optional.empty();
         }
 
@@ -49,7 +49,7 @@ public class BookIdentifierResolver {
 
         // Try slug resolution via Postgres projections
         Optional<BookDetail> bySlug = bookQueryRepository.fetchBookDetailBySlug(trimmed);
-        if (bySlug.isPresent() && ValidationUtils.hasText(bySlug.get().id())) {
+        if (bySlug.isPresent() && StringUtils.hasText(bySlug.get().id())) {
             return resolveToPrimaryEdition(bySlug.get().id());
         }
 
@@ -70,7 +70,7 @@ public class BookIdentifierResolver {
      * @return canonical primary edition identifier, or the original when no cluster exists
      */
     private Optional<String> resolveToPrimaryEdition(String bookId) {
-        if (!ValidationUtils.hasText(bookId) || jdbcTemplate == null) {
+        if (!StringUtils.hasText(bookId) || jdbcTemplate == null) {
             return Optional.ofNullable(bookId);
         }
 
@@ -94,7 +94,7 @@ public class BookIdentifierResolver {
                 uuid
             );
 
-            if (ValidationUtils.hasText(primaryId)) {
+            if (StringUtils.hasText(primaryId)) {
                 return Optional.of(primaryId);
             }
         } catch (DataAccessException ex) {

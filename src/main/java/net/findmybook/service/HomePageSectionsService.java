@@ -17,7 +17,7 @@ import net.findmybook.dto.RecommendationCard;
 import net.findmybook.model.Book;
 import net.findmybook.util.BookDomainMapper;
 import net.findmybook.util.UuidUtils;
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import net.findmybook.util.cover.CoverPrioritizer;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
@@ -125,7 +125,7 @@ public class HomePageSectionsService {
                         Map<String, Integer> insertionOrder = new LinkedHashMap<>();
                         for (int index = 0; index < mapped.size(); index++) {
                             Book candidate = mapped.get(index);
-                            if (candidate != null && ValidationUtils.hasText(candidate.getId())) {
+                            if (candidate != null && StringUtils.hasText(candidate.getId())) {
                                 insertionOrder.putIfAbsent(candidate.getId(), index);
                             }
                         }
@@ -138,7 +138,7 @@ public class HomePageSectionsService {
     }
 
     public Mono<Book> locateBook(String identifier) {
-        if (!ValidationUtils.hasText(identifier)) {
+        if (!StringUtils.hasText(identifier)) {
             return Mono.empty();
         }
         String trimmed = identifier.trim();

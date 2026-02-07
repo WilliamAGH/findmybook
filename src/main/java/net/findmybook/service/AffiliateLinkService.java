@@ -2,6 +2,7 @@ package net.findmybook.service;
 
 import net.findmybook.model.Book;
 import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -158,10 +159,10 @@ public class AffiliateLinkService {
 
     private void addAudibleLink(Map<String, String> links, String asin, String title) {
         String searchTerm = Optional.ofNullable(asin)
-            .filter(ValidationUtils::hasText)
+            .filter(StringUtils::hasText)
             .orElseGet(() -> Optional.ofNullable(title).orElse(""));
 
-        if (!ValidationUtils.hasText(searchTerm)) {
+        if (!StringUtils.hasText(searchTerm)) {
             return;
         }
 

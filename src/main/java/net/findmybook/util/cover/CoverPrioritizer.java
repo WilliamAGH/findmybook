@@ -2,7 +2,7 @@ package net.findmybook.util.cover;
 
 import net.findmybook.dto.BookCard;
 import net.findmybook.model.Book;
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import java.util.Comparator;
 import java.util.Locale;
 import java.util.Map;
@@ -33,11 +33,11 @@ public final class CoverPrioritizer {
     }
 
     public static int score(BookCard card) {
-        if (card == null || !ValidationUtils.hasText(card.coverUrl())) {
+        if (card == null || !StringUtils.hasText(card.coverUrl())) {
             return 0;
         }
         CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
-            ValidationUtils.hasText(card.coverS3Key()) ? card.coverS3Key() : card.coverUrl(),
+            StringUtils.hasText(card.coverS3Key()) ? card.coverS3Key() : card.coverUrl(),
             card.fallbackCoverUrl()
         );
         return CoverQuality.rankFromUrl(
@@ -98,7 +98,7 @@ public final class CoverPrioritizer {
     private static Comparator<BookCard> cardOrderComparator(Map<String, Integer> originalOrder) {
         Map<String, Integer> safeOrder = Objects.requireNonNullElse(originalOrder, Map.of());
         return Comparator.comparingInt(card -> {
-            if (card == null || !ValidationUtils.hasText(card.id())) {
+            if (card == null || !StringUtils.hasText(card.id())) {
                 return Integer.MAX_VALUE;
             }
             return safeOrder.getOrDefault(card.id(), Integer.MAX_VALUE);
@@ -156,7 +156,7 @@ public final class CoverPrioritizer {
     }
 
     private static Object qualifier(Book book, String key) {
-        if (book == null || !ValidationUtils.hasText(key)) {
+        if (book == null || !StringUtils.hasText(key)) {
             return null;
         }
         Map<String, Object> qualifiers = book.getQualifiers();

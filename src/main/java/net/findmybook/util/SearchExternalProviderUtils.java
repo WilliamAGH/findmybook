@@ -47,7 +47,7 @@ public final class SearchExternalProviderUtils {
             .replace("inauthor:", " ")
             .replace("isbn:", " ")
             .trim();
-        return ValidationUtils.hasText(withoutQualifiers) ? withoutQualifiers : normalized;
+        return StringUtils.hasText(withoutQualifiers) ? withoutQualifiers : normalized;
     }
 
     /**

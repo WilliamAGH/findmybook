@@ -28,7 +28,7 @@ import net.findmybook.service.event.SearchResultsUpdatedEvent;
 import net.findmybook.service.event.BookUpsertEvent;
 import net.findmybook.service.image.CoverPersistenceService;
 import net.findmybook.service.image.S3BookCoverService;
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.BeansException;
@@ -178,7 +178,7 @@ public class CoverUpdateNotifierService {
             .map(book -> {
                 Map<String, Object> bookData = new HashMap<>();
                 bookData.put("id", book.getId());
-                bookData.put("slug", ValidationUtils.hasText(book.getSlug()) ? book.getSlug() : book.getId());
+                bookData.put("slug", StringUtils.hasText(book.getSlug()) ? book.getSlug() : book.getId());
                 bookData.put("title", book.getTitle());
                 bookData.put("authors", book.getAuthors());
                 bookData.put("description", book.getDescription());
@@ -338,7 +338,7 @@ public class CoverUpdateNotifierService {
                 .subscribe(
                     details -> {
                         sample.stop(s3UploadDuration);
-                        if (details == null || !ValidationUtils.hasText(details.getStorageKey())) {
+                        if (details == null || !StringUtils.hasText(details.getStorageKey())) {
                             s3UploadFailures.increment();
                             logger.error(
                                 "S3 upload returned non-persistable details for book {}. storageKey='{}'. Treating as failure.",

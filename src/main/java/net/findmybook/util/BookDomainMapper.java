@@ -65,7 +65,7 @@ public final class BookDomainMapper {
             detail.coverHeight(),
             detail.coverHighResolution()
         );
-        String fallback = ValidationUtils.hasText(detail.coverFallbackUrl())
+        String fallback = StringUtils.hasText(detail.coverFallbackUrl())
             ? detail.coverFallbackUrl()
             : detail.thumbnailUrl();
         setCoverImages(book, resolved, fallback);
@@ -89,7 +89,7 @@ public final class BookDomainMapper {
             card.fallbackCoverUrl()
         );
         String fallback = card.fallbackCoverUrl();
-        if (!ValidationUtils.hasText(fallback)) {
+        if (!StringUtils.hasText(fallback)) {
             fallback = card.coverUrl();
         }
         setCoverImages(book, resolved, fallback);
@@ -127,7 +127,7 @@ public final class BookDomainMapper {
             item.coverHighResolution()
         );
         String fallback = item.coverFallbackUrl();
-        if (!ValidationUtils.hasText(fallback)) {
+        if (!StringUtils.hasText(fallback)) {
             fallback = item.coverUrl();
         }
         setCoverImages(book, resolved, fallback);
@@ -195,7 +195,7 @@ public final class BookDomainMapper {
         // Task #6: editionGroupKey removed - replaced by work_clusters system
         book.setInPostgres(false);
         String source = identifiers != null ? identifiers.getSource() : null;
-        if (ValidationUtils.hasText(source)) {
+        if (StringUtils.hasText(source)) {
             book.setRetrievedFrom(source);
             book.setDataSource(source);
         } else {
@@ -210,7 +210,7 @@ public final class BookDomainMapper {
                              List<String> authors) {
         Book book = new Book();
         book.setId(id);
-        book.setSlug(ValidationUtils.hasText(slug) ? slug : id);
+        book.setSlug(StringUtils.hasText(slug) ? slug : id);
         book.setTitle(title);
         book.setAuthors(authors);
         return book;
@@ -219,11 +219,11 @@ public final class BookDomainMapper {
     private static void setCoverImages(Book book,
                                        CoverUrlResolver.ResolvedCover resolved,
                                        String fallbackUrl) {
-        if (resolved == null || !ValidationUtils.hasText(resolved.url())) {
+        if (resolved == null || !StringUtils.hasText(resolved.url())) {
             return;
         }
-        String effectivePreferred = ValidationUtils.hasText(resolved.url()) ? resolved.url() : fallbackUrl;
-        String effectiveFallback = ValidationUtils.hasText(fallbackUrl) ? fallbackUrl : effectivePreferred;
+        String effectivePreferred = StringUtils.hasText(resolved.url()) ? resolved.url() : fallbackUrl;
+        String effectiveFallback = StringUtils.hasText(fallbackUrl) ? fallbackUrl : effectivePreferred;
 
         if (resolved.fromS3()) {
             book.setS3ImagePath(resolved.s3Key());
@@ -277,8 +277,8 @@ public final class BookDomainMapper {
             return;
         }
 
-        boolean hasCover = ValidationUtils.hasText(book.getExternalImageUrl())
-            || ValidationUtils.hasText(book.getS3ImagePath());
+        boolean hasCover = StringUtils.hasText(book.getExternalImageUrl())
+            || StringUtils.hasText(book.getS3ImagePath());
         if (!hasCover) {
             return;
         }
@@ -348,7 +348,7 @@ public final class BookDomainMapper {
         String secondary = null;
         for (String key : priorityOrder) {
             String candidate = links.get(key);
-            if (!ValidationUtils.hasText(candidate)) {
+            if (!StringUtils.hasText(candidate)) {
                 continue;
             }
             if (primary == null) {
@@ -358,7 +358,7 @@ public final class BookDomainMapper {
             }
         }
 
-        if (!ValidationUtils.hasText(secondary)) {
+        if (!StringUtils.hasText(secondary)) {
             secondary = primary;
         }
 

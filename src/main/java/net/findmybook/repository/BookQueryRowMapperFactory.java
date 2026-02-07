@@ -5,6 +5,7 @@ import net.findmybook.dto.BookDetail;
 import net.findmybook.dto.BookListItem;
 import net.findmybook.dto.EditionSummary;
 import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import net.findmybook.util.cover.CoverUrlResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -51,7 +52,7 @@ final class BookQueryRowMapperFactory {
             null
         );
         String preferredUrl = resolved.url();
-        String effectiveFallback = ValidationUtils.hasText(fallbackUrl) ? fallbackUrl : preferredUrl;
+        String effectiveFallback = StringUtils.hasText(fallbackUrl) ? fallbackUrl : preferredUrl;
         log.trace("BookCard row: id={}, title={}, authors={}, s3Key={}, fallback={}, resolved={}",
             rs.getString("id"), rs.getString("title"), authors, s3Key, fallbackUrl, preferredUrl);
         return new BookCard(
@@ -80,7 +81,7 @@ final class BookQueryRowMapperFactory {
             highRes
         );
         String fallbackUrl = resultSetSupport.getStringOrNull(rs, "cover_fallback_url");
-        String effectiveFallback = ValidationUtils.hasText(fallbackUrl) ? fallbackUrl : resolved.url();
+        String effectiveFallback = StringUtils.hasText(fallbackUrl) ? fallbackUrl : resolved.url();
         return new BookListItem(
             rs.getString("id"),
             rs.getString("slug"),
@@ -113,7 +114,7 @@ final class BookQueryRowMapperFactory {
         );
         String thumbnailUrl = resultSetSupport.getStringOrNull(rs, "thumbnail_url");
         String fallbackUrl = resultSetSupport.getStringOrNull(rs, "cover_fallback_url");
-        String effectiveFallback = ValidationUtils.hasText(fallbackUrl) ? fallbackUrl : thumbnailUrl;
+        String effectiveFallback = StringUtils.hasText(fallbackUrl) ? fallbackUrl : thumbnailUrl;
         CoverUrlResolver.ResolvedCover thumb = CoverUrlResolver.resolve(
             thumbnailUrl,
             thumbnailUrl,

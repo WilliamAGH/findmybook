@@ -73,7 +73,7 @@ public final class CategoryNormalizer {
         Map<String, String> lowercaseToOriginal = new LinkedHashMap<>();
 
         for (String category : categories) {
-            if (!ValidationUtils.hasText(category)) {
+            if (!StringUtils.hasText(category)) {
                 continue;
             }
 
@@ -124,7 +124,7 @@ public final class CategoryNormalizer {
         Set<String> normalized = new HashSet<>();
         
         for (String category : categories) {
-            if (!ValidationUtils.hasText(category)) {
+            if (!StringUtils.hasText(category)) {
                 continue;
             }
 
@@ -157,7 +157,7 @@ public final class CategoryNormalizer {
      * @return Database-safe normalized name (lowercase, hyphens, no special chars)
      */
     public static String normalizeForDatabase(String displayName) {
-        if (!ValidationUtils.hasText(displayName)) {
+        if (!StringUtils.hasText(displayName)) {
             return "";
         }
 
@@ -184,7 +184,7 @@ public final class CategoryNormalizer {
      * @return true if valid, false otherwise
      */
     public static boolean isValid(String category) {
-        if (!ValidationUtils.hasText(category)) {
+        if (!StringUtils.hasText(category)) {
             return false;
         }
 
@@ -218,7 +218,7 @@ public final class CategoryNormalizer {
      * @return true if categories are equivalent (ignoring case and whitespace)
      */
     public static boolean areEquivalent(String category1, String category2) {
-        if (!ValidationUtils.hasText(category1) || !ValidationUtils.hasText(category2)) {
+        if (!StringUtils.hasText(category1) || !StringUtils.hasText(category2)) {
             return false;
         }
 

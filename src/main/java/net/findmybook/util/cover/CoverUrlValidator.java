@@ -1,6 +1,6 @@
 package net.findmybook.util.cover;
 
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 
 import java.util.Set;
 
@@ -65,7 +65,7 @@ public final class CoverUrlValidator {
      * }</pre>
      */
     public static boolean isLikelyCoverImage(String url) {
-        if (!ValidationUtils.hasText(url)) {
+        if (!StringUtils.hasText(url)) {
             return false;
         }
         
@@ -99,7 +99,7 @@ public final class CoverUrlValidator {
      * @return true if URL is from Google Books, false otherwise
      */
     public static boolean isGoogleBooksUrl(String url) {
-        if (!ValidationUtils.hasText(url)) {
+        if (!StringUtils.hasText(url)) {
             return false;
         }
         return isGoogleBooksHost(url.toLowerCase());
@@ -112,7 +112,7 @@ public final class CoverUrlValidator {
      * @return Rejection reason or null if URL would be accepted
      */
     public static String getRejectionReason(String url) {
-        if (!ValidationUtils.hasText(url)) {
+        if (!StringUtils.hasText(url)) {
             return "Empty or null URL";
         }
         

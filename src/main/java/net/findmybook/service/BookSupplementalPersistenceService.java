@@ -8,6 +8,7 @@ import net.findmybook.util.IdGenerator;
 import net.findmybook.util.JdbcUtils;
 import net.findmybook.util.UuidUtils;
 import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -32,7 +33,7 @@ public class BookSupplementalPersistenceService {
     }
 
     public void persistAuthors(String bookId, List<String> authors) {
-        if (jdbcTemplate == null || !ValidationUtils.hasText(bookId) || ValidationUtils.isNullOrEmpty(authors)) {
+        if (jdbcTemplate == null || !StringUtils.hasText(bookId) || ValidationUtils.isNullOrEmpty(authors)) {
             return;
         }
 
@@ -44,7 +45,7 @@ public class BookSupplementalPersistenceService {
 
         int position = 0;
         for (String author : authors) {
-            if (!ValidationUtils.hasText(author)) {
+            if (!StringUtils.hasText(author)) {
                 continue;
             }
             String normalized = author.toLowerCase().replaceAll("[^a-z0-9\\s]", "").trim();
@@ -76,7 +77,7 @@ public class BookSupplementalPersistenceService {
      * @see CategoryNormalizer#normalizeAndDeduplicate(List)
      */
     public void persistCategories(String bookId, List<String> categories) {
-        if (!ValidationUtils.hasText(bookId) || ValidationUtils.isNullOrEmpty(categories)) {
+        if (!StringUtils.hasText(bookId) || ValidationUtils.isNullOrEmpty(categories)) {
             return;
         }
 
@@ -90,12 +91,12 @@ public class BookSupplementalPersistenceService {
     }
 
     public void assignQualifierTags(String bookId, Map<String, Object> qualifiers) {
-        if (!ValidationUtils.hasText(bookId) || ValidationUtils.isNullOrEmpty(qualifiers)) {
+        if (!StringUtils.hasText(bookId) || ValidationUtils.isNullOrEmpty(qualifiers)) {
             return;
         }
 
         qualifiers.forEach((key, value) -> {
-            if (!ValidationUtils.hasText(key)) {
+            if (!StringUtils.hasText(key)) {
                 return;
             }
             Double confidence = (value instanceof Boolean && (Boolean) value) ? 1.0 : null;
@@ -117,7 +118,7 @@ public class BookSupplementalPersistenceService {
                            String source,
                            Double confidence,
                            Map<String, Object> metadata) {
-        if (!ValidationUtils.hasText(bookId) || !ValidationUtils.hasText(key)) {
+        if (!StringUtils.hasText(bookId) || !StringUtils.hasText(key)) {
             return;
         }
         String resolvedDisplayName = displayName != null ? displayName : key;
@@ -204,7 +205,7 @@ public class BookSupplementalPersistenceService {
                                                  String source,
                                                  Double confidence,
                                                  String metadataJson) {
-        if (!ValidationUtils.hasText(bookId) || !ValidationUtils.hasText(key)) {
+        if (!StringUtils.hasText(bookId) || !StringUtils.hasText(key)) {
             return;
         }
 

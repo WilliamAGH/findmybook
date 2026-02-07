@@ -88,10 +88,10 @@ public class SeoUtils {
         keywords.add("summary");
 
         return keywords.stream()
-            .filter(ValidationUtils::hasText)
+            .filter(StringUtils::hasText)
             .map(String::trim)
             .map(token -> token.replaceAll("[^a-z0-9]", ""))
-            .filter(ValidationUtils::hasText)
+            .filter(StringUtils::hasText)
             .map(token -> token.toLowerCase(Locale.ROOT))
             .distinct()
             .filter(token -> token.length() > 2)

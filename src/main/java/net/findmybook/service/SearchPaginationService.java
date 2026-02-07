@@ -12,7 +12,7 @@ import net.findmybook.util.BookDomainMapper;
 import net.findmybook.util.PagingUtils;
 import net.findmybook.util.SearchExternalProviderUtils;
 import net.findmybook.util.SearchQueryUtils;
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import net.findmybook.util.cover.CoverPrioritizer;
 import net.findmybook.util.cover.ImageDimensionUtils;
 import net.findmybook.util.cover.UrlSourceDetector;
@@ -170,7 +170,7 @@ public class SearchPaginationService {
                 continue;
             }
             String id = book.getId();
-            if (!ValidationUtils.hasText(id)) {
+            if (!StringUtils.hasText(id)) {
                 continue;
             }
             if (!ordered.containsKey(id)) {
@@ -253,7 +253,7 @@ public class SearchPaginationService {
             .filter(Objects::nonNull)
             .map(BookDomainMapper::fromAggregate)
             .filter(Objects::nonNull)
-            .filter(book -> ValidationUtils.hasText(book.getId()))
+            .filter(book -> StringUtils.hasText(book.getId()))
             .map(book -> {
                 book.addQualifier("search.source", "EXTERNAL_FALLBACK");
                 book.addQualifier("search.matchType", "GOOGLE_API");

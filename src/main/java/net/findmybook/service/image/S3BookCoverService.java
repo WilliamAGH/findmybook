@@ -13,9 +13,10 @@ import net.findmybook.model.Book;
 import net.findmybook.model.image.ImageDetails;
 import net.findmybook.model.image.ImageProvenanceData;
 import net.findmybook.model.image.ProcessedImage;
+import net.findmybook.support.s3.CoverUploadPayload;
 import net.findmybook.support.s3.S3CoverStorageGateway;
 import net.findmybook.support.s3.S3CoverStorageProperties;
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -66,7 +67,7 @@ public class S3BookCoverService implements ExternalCoverService {
         }
 
         String bookKey = S3UploadValidation.resolveBookLookupKey(book);
-        if (!ValidationUtils.hasText(bookKey)) {
+        if (!StringUtils.hasText(bookKey)) {
             logger.warn("Cannot fetch S3 cover for book without a valid ID or ISBN. Title: {}", book.getTitle());
             return CompletableFuture.completedFuture(Optional.empty());
         }
@@ -79,8 +80,8 @@ public class S3BookCoverService implements ExternalCoverService {
         return s3CoverStorageGateway
             .findFirstAvailableCover(
                 bookKey,
-                s3CoverStorageProperties.getCoverDefaultFileExtension(),
-                s3CoverStorageProperties.getCoverSourceBaseLabels()
+                s3CoverStorageProperties.coverDefaultFileExtension(),
+                s3CoverStorageProperties.coverSourceBaseLabels()
             )
             .doOnTerminate(() -> logger.debug("S3 cover lookup completed for book {}.", bookKey))
             .toFuture();
@@ -189,14 +190,14 @@ public class S3BookCoverService implements ExternalCoverService {
 
         // The provenance parameter remains for API compatibility while persistence is handled elsewhere.
         return s3CoverStorageGateway
-            .uploadProcessedCover(
+            .uploadProcessedCover(new CoverUploadPayload(
                 request.bookId(),
                 request.fileExtension(),
                 s3Source,
                 request.processedImageBytes(),
                 request.mimeType(),
                 processedImage
-            )
+            ))
             .onErrorMap(error -> mapUnexpectedUploadError(error, request.bookId(), null));
     }
 
@@ -226,14 +227,14 @@ public class S3BookCoverService implements ExternalCoverService {
                     return Mono.error(new CoverTooLargeException(bookId, imageUrl, imageBytesForS3.length, this.maxFileSizeBytes));
                 }
 
-                return s3CoverStorageGateway.uploadProcessedCover(
+                return s3CoverStorageGateway.uploadProcessedCover(new CoverUploadPayload(
                     bookId,
                     processedImage.getNewFileExtension(),
                     s3Source,
                     imageBytesForS3,
                     processedImage.getNewMimeType(),
                     processedImage
-                );
+                ));
             });
     }
 

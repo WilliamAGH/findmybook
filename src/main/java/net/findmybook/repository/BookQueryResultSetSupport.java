@@ -1,6 +1,6 @@
 package net.findmybook.repository;
 
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import tools.jackson.core.JacksonException;
@@ -110,7 +110,7 @@ final class BookQueryResultSetSupport {
         Set<String> labels = new HashSet<>(columnCount);
         for (int i = 1; i <= columnCount; i++) {
             String label = metaData.getColumnLabel(i);
-            if (ValidationUtils.hasText(label)) {
+            if (StringUtils.hasText(label)) {
                 labels.add(label.toLowerCase(Locale.ROOT));
             }
         }

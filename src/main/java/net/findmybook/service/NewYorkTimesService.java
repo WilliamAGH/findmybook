@@ -16,7 +16,7 @@ import net.findmybook.dto.BookCard;
 import net.findmybook.repository.BookQueryRepository;
 import net.findmybook.util.LoggingUtils;
 import net.findmybook.util.PagingUtils;
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import net.findmybook.util.cover.CoverPrioritizer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -127,7 +127,7 @@ public class NewYorkTimesService {
                     Map<String, Integer> insertionOrder = new LinkedHashMap<>();
                     for (int idx = 0; idx < cards.size(); idx++) {
                         BookCard card = cards.get(idx);
-                        if (card != null && ValidationUtils.hasText(card.id())) {
+                        if (card != null && StringUtils.hasText(card.id())) {
                             insertionOrder.putIfAbsent(card.id(), idx);
                         }
                     }

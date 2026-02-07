@@ -1,7 +1,7 @@
 package net.findmybook.util.cover;
 
 import net.findmybook.util.ApplicationConstants;
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 
 /**
  * Centralises logic for turning S3 keys or raw cover URLs into CDN-ready URLs with sensible fallbacks,
@@ -15,7 +15,7 @@ public final class CoverUrlResolver {
     }
 
     public static void setCdnBase(String base) {
-        if (ValidationUtils.hasText(base)) {
+        if (StringUtils.hasText(base)) {
             CDN_BASE_OVERRIDE.set(normalizeBase(base));
         } else {
             CDN_BASE_OVERRIDE.set(null);
@@ -24,7 +24,7 @@ public final class CoverUrlResolver {
 
     private static String currentCdnBase() {
         String override = CDN_BASE_OVERRIDE.get();
-        if (ValidationUtils.hasText(override)) {
+        if (StringUtils.hasText(override)) {
             return override;
         }
         return resolveCdnBaseFromEnvironment();
@@ -61,28 +61,28 @@ public final class CoverUrlResolver {
 
     public static boolean isCdnUrl(String url) {
         String cdnBase = currentCdnBase();
-        return ValidationUtils.hasText(url) && ValidationUtils.hasText(cdnBase) && url.startsWith(cdnBase);
+        return StringUtils.hasText(url) && StringUtils.hasText(cdnBase) && url.startsWith(cdnBase);
     }
 
     private static UrlResolution resolveUrl(String primary, String fallbackExternal) {
-        String candidate = ValidationUtils.hasText(primary) ? primary.trim() : null;
+        String candidate = StringUtils.hasText(primary) ? primary.trim() : null;
 
-        if (ValidationUtils.hasText(candidate)) {
+        if (StringUtils.hasText(candidate)) {
             if (isHttp(candidate) || isDataUri(candidate)) {
                 return new UrlResolution(candidate, null, false);
             }
 
-            // ValidationUtils.hasText() already checks for null, but explicit check satisfies static analysis
+            // StringUtils.hasText() already checks for null, but explicit check satisfies static analysis
             String cdnBase = currentCdnBase();
-            if (candidate != null && ValidationUtils.hasText(cdnBase)) {
+            if (candidate != null && StringUtils.hasText(cdnBase)) {
                 String key = candidate.startsWith("/") ? candidate.substring(1) : candidate;
-                if (ValidationUtils.hasText(key)) {
+                if (StringUtils.hasText(key)) {
                     return new UrlResolution(cdnBase + key, key, true);
                 }
             }
         }
 
-        if (ValidationUtils.hasText(fallbackExternal)) {
+        if (StringUtils.hasText(fallbackExternal)) {
             String external = fallbackExternal.trim();
             if (isHttp(external) || isDataUri(external)) {
                 return new UrlResolution(external, null, false);
@@ -103,7 +103,7 @@ public final class CoverUrlResolver {
         int defaultWidth = ImageDimensionUtils.DEFAULT_DIMENSION;
         int defaultHeight = defaultWidth * 3 / 2;
 
-        if (!ValidationUtils.hasText(url)) {
+        if (!StringUtils.hasText(url)) {
             return new Dimensions(defaultWidth, defaultHeight, true);
         }
 
@@ -165,7 +165,7 @@ public final class CoverUrlResolver {
     }
 
     private static boolean isHttp(String value) {
-        if (!ValidationUtils.hasText(value)) {
+        if (!StringUtils.hasText(value)) {
             return false;
         }
         return value.regionMatches(true, 0, "http://", 0, 7)
@@ -178,13 +178,13 @@ public final class CoverUrlResolver {
 
     private static String resolveCdnBaseFromEnvironment() {
         String configured = System.getProperty("s3.cdn-url");
-        if (!ValidationUtils.hasText(configured)) {
+        if (!StringUtils.hasText(configured)) {
             configured = System.getProperty("S3_CDN_URL");
         }
-        if (!ValidationUtils.hasText(configured)) {
+        if (!StringUtils.hasText(configured)) {
             configured = System.getenv("S3_CDN_URL");
         }
-        if (!ValidationUtils.hasText(configured)) {
+        if (!StringUtils.hasText(configured)) {
             return "";
         }
         String trimmed = configured.trim();
@@ -192,7 +192,7 @@ public final class CoverUrlResolver {
     }
 
     private static String normalizeBase(String value) {
-        if (!ValidationUtils.hasText(value)) {
+        if (!StringUtils.hasText(value)) {
             return "";
         }
         String trimmed = value.trim();

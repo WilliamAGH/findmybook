@@ -1,14 +1,14 @@
 package net.findmybook.util.cover;
 
 import net.findmybook.model.Book;
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 
 /**
  * Single Source of Truth for resolving book identifiers for cover caching operations.
  * 
  * Consolidates logic from:
  * - Legacy cache helper getIdentifierKey()
- * - Historic ValidationUtils.BookValidator utilities for preferred ISBN selection
+ * - Historic preferred ISBN selection utilities
  * 
  * Priority order:
  * 1. ISBN-13 (most specific, internationally standardized)
@@ -35,17 +35,17 @@ public final class CoverIdentifierResolver {
         }
         
         // Priority 1: ISBN-13
-        if (ValidationUtils.hasText(book.getIsbn13())) {
+        if (StringUtils.hasText(book.getIsbn13())) {
             return book.getIsbn13().trim();
         }
         
         // Priority 2: ISBN-10
-        if (ValidationUtils.hasText(book.getIsbn10())) {
+        if (StringUtils.hasText(book.getIsbn10())) {
             return book.getIsbn10().trim();
         }
         
         // Priority 3: Google Books Volume ID
-        if (ValidationUtils.hasText(book.getId())) {
+        if (StringUtils.hasText(book.getId())) {
             return book.getId().trim();
         }
         
@@ -63,11 +63,11 @@ public final class CoverIdentifierResolver {
             return null;
         }
         
-        if (ValidationUtils.hasText(book.getIsbn13())) {
+        if (StringUtils.hasText(book.getIsbn13())) {
             return book.getIsbn13().trim();
         }
         
-        if (ValidationUtils.hasText(book.getIsbn10())) {
+        if (StringUtils.hasText(book.getIsbn10())) {
             return book.getIsbn10().trim();
         }
         

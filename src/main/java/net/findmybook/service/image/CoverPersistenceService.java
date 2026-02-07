@@ -3,7 +3,7 @@ package net.findmybook.service.image;
 import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.util.IdGenerator;
 import net.findmybook.util.UrlUtils;
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import net.findmybook.util.cover.CoverUrlResolver;
 import net.findmybook.util.cover.ImageDimensionUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -175,7 +175,7 @@ public class CoverPersistenceService {
         
         boolean highRes = ImageDimensionUtils.isHighResolution(width, height);
         String canonicalUrl = s3CdnUrl;
-        if (!ValidationUtils.hasText(canonicalUrl)) {
+        if (!StringUtils.hasText(canonicalUrl)) {
             CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(s3Key, null, width, height, highRes);
             canonicalUrl = resolved.url();
             width = resolved.width();
@@ -183,7 +183,7 @@ public class CoverPersistenceService {
             highRes = resolved.highResolution();
         }
 
-        if (!ValidationUtils.hasText(canonicalUrl)) {
+        if (!StringUtils.hasText(canonicalUrl)) {
             log.warn("Skipping S3 persistence for book {} because CDN URL resolved empty for key {}", bookId, s3Key);
             return new PersistenceResult(false, null, width, height, highRes);
         }

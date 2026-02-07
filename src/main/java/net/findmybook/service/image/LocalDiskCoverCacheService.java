@@ -10,7 +10,7 @@ import net.findmybook.model.image.ImageResolutionPreference;
 import net.findmybook.model.image.ImageSourceName;
 import net.findmybook.util.ApplicationConstants;
 import net.findmybook.util.LoggingUtils;
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import net.findmybook.util.cover.CoverSourceMapper;
 import net.findmybook.util.cover.UrlSourceDetector;
 import org.slf4j.Logger;
@@ -75,14 +75,14 @@ public class LocalDiskCoverCacheService {
         ImageSourceName sourceNameEnum = CoverSourceMapper.fromString(sourceNameString);
         AttemptedSourceInfo attemptInfo = registerAttempt(provenanceData, sourceNameEnum, imageUrl);
 
-        if (!ValidationUtils.hasText(imageUrl)) {
+        if (!StringUtils.hasText(imageUrl)) {
             markAttemptFailure(attemptInfo, ImageAttemptStatus.FAILURE_INVALID_DETAILS, "Blank image URL");
             return CompletableFuture.failedFuture(
                 new S3UploadException("Image URL is required for cover cache upload", bookIdForLog, imageUrl, false, null)
             );
         }
 
-        String normalizedSource = ValidationUtils.hasText(sourceNameString)
+        String normalizedSource = StringUtils.hasText(sourceNameString)
             ? sourceNameString
             : sourceNameEnum.name();
 
@@ -115,7 +115,7 @@ public class LocalDiskCoverCacheService {
     private void handleSuccessfulUpload(ImageDetails details,
                                         AttemptedSourceInfo attemptInfo,
                                         ImageSourceName sourceNameEnum) {
-        if (!ValidationUtils.hasText(details.getUrlOrPath())) {
+        if (!StringUtils.hasText(details.getUrlOrPath())) {
             markAttemptFailure(attemptInfo, ImageAttemptStatus.FAILURE_NOT_FOUND, "s3-url-unavailable");
             return;
         }
@@ -136,7 +136,7 @@ public class LocalDiskCoverCacheService {
         details.setCoverImageSource(sanitizedSource);
         details.setSourceName(sourceNameEnum.name());
 
-        if (details.getStorageLocation() == null && ValidationUtils.hasText(details.getUrlOrPath())) {
+        if (details.getStorageLocation() == null && StringUtils.hasText(details.getUrlOrPath())) {
             UrlSourceDetector.detectStorageLocation(details.getUrlOrPath())
                 .ifPresent(details::setStorageLocation);
         }
@@ -187,7 +187,7 @@ public class LocalDiskCoverCacheService {
     }
 
     public String getCacheDirName() {
-        if (!ValidationUtils.hasText(cacheDirString)) {
+        if (!StringUtils.hasText(cacheDirString)) {
             return DEFAULT_CACHE_DIR;
         }
         Path path = Paths.get(cacheDirString);
@@ -196,7 +196,7 @@ public class LocalDiskCoverCacheService {
     }
 
     public String getCacheDirString() {
-        return ValidationUtils.hasText(cacheDirString)
+        return StringUtils.hasText(cacheDirString)
             ? cacheDirString
             : "/tmp/" + DEFAULT_CACHE_DIR;
     }

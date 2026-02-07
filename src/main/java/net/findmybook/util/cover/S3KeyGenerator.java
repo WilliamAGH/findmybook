@@ -1,7 +1,10 @@
 package net.findmybook.util.cover;
 
-import net.findmybook.model.image.CoverImageSource;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
+import net.findmybook.model.image.CoverImageSource;
 
 /**
  * Single Source of Truth for S3 object key generation for book cover images.
@@ -102,6 +105,23 @@ public final class S3KeyGenerator {
     }
     
     /**
+     * Builds an ordered list of candidate S3 keys by generating plausible
+     * variants of the raw source label (spaces, hyphens, underscores, canonical form).
+     *
+     * @param bookId        Book identifier
+     * @param fileExtension File extension including dot
+     * @param rawSource     Raw source label from download or external API
+     * @return Ordered candidate keys, most likely match first
+     */
+    public static List<String> buildCandidateKeys(String bookId, String fileExtension, String rawSource) {
+        LinkedHashSet<String> keys = new LinkedHashSet<>();
+        for (String segment : candidateSegmentsFor(rawSource)) {
+            keys.add(generateCoverKeyFromRawSource(bookId, fileExtension, segment));
+        }
+        return new ArrayList<>(keys);
+    }
+
+    /**
      * Generates S3 object key for provenance data (debug mode).
      * 
      * @param imageS3Key The S3 key of the associated cover image
@@ -187,5 +207,28 @@ public final class S3KeyGenerator {
      */
     public static String getProvenanceDataDirectory() {
         return PROVENANCE_DATA_DIRECTORY;
+    }
+
+    private static List<String> candidateSegmentsFor(String rawSource) {
+        LinkedHashSet<String> variants = new LinkedHashSet<>();
+
+        if (rawSource != null) {
+            String trimmed = rawSource.trim().toLowerCase(Locale.ROOT);
+            if (!trimmed.isEmpty()) {
+                variants.add(trimmed);
+                variants.add(trimmed.replace(' ', '-'));
+                variants.add(trimmed.replace(' ', '_'));
+            }
+        }
+
+        String canonical = normalizeRawSource(rawSource);
+        if (canonical != null && !canonical.isBlank()) {
+            variants.add(canonical);
+            variants.add(canonical.replace('-', '_'));
+            variants.add(canonical.replace('_', '-'));
+        }
+
+        variants.removeIf(String::isBlank);
+        return new ArrayList<>(variants);
     }
 }

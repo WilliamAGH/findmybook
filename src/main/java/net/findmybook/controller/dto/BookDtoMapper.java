@@ -9,7 +9,7 @@ import net.findmybook.model.image.CoverImages;
 import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.util.ApplicationConstants;
 import net.findmybook.util.SlugGenerator;
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import net.findmybook.util.cover.CoverUrlValidator;
 import net.findmybook.util.cover.CoverUrlResolver;
 import net.findmybook.util.cover.UrlSourceDetector;
@@ -254,14 +254,14 @@ public final class BookDtoMapper {
             return null;
         }
         CoverImages coverImages = book.getCoverImages();
-        String preferredCandidate = coverImages != null && ValidationUtils.hasText(coverImages.getPreferredUrl())
+        String preferredCandidate = coverImages != null && StringUtils.hasText(coverImages.getPreferredUrl())
             ? coverImages.getPreferredUrl()
             : null;
-        String fallbackCandidate = coverImages != null && ValidationUtils.hasText(coverImages.getFallbackUrl())
+        String fallbackCandidate = coverImages != null && StringUtils.hasText(coverImages.getFallbackUrl())
             ? coverImages.getFallbackUrl()
             : book.getExternalImageUrl();
         String alternateCandidate = firstNonBlank(preferredCandidate, book.getExternalImageUrl(), fallbackCandidate);
-        String primaryCandidate = ValidationUtils.hasText(book.getS3ImagePath())
+        String primaryCandidate = StringUtils.hasText(book.getS3ImagePath())
             ? book.getS3ImagePath()
             : alternateCandidate;
         String declaredSource = coverImages != null && coverImages.getSource() != null
@@ -301,8 +301,8 @@ public final class BookDtoMapper {
         }
 
         boolean preferredLikely = CoverUrlValidator.isLikelyCoverImage(resolved.url());
-        String preferredUrl = ValidationUtils.hasText(resolved.url()) ? resolved.url() : fallbackUrl;
-        if (!ValidationUtils.hasText(preferredUrl)) {
+        String preferredUrl = StringUtils.hasText(resolved.url()) ? resolved.url() : fallbackUrl;
+        if (!StringUtils.hasText(preferredUrl)) {
             preferredUrl = fallbackUrl;
         }
 
@@ -335,12 +335,12 @@ public final class BookDtoMapper {
             }
         }
 
-        if (ValidationUtils.hasText(externalUrl) && externalUrl.contains("placeholder-book-cover.svg")) {
+        if (StringUtils.hasText(externalUrl) && externalUrl.contains("placeholder-book-cover.svg")) {
             externalUrl = null;
         }
 
         String source = declaredSource;
-        if (!ValidationUtils.hasText(source)) {
+        if (!StringUtils.hasText(source)) {
             if (resolved.fromS3() && preferredLikely) {
                 source = "S3_CACHE";
             } else {
@@ -369,7 +369,7 @@ public final class BookDtoMapper {
             return null;
         }
         for (String value : values) {
-            if (ValidationUtils.hasText(value)) {
+            if (StringUtils.hasText(value)) {
                 return value;
             }
         }

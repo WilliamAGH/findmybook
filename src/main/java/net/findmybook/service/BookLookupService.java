@@ -4,7 +4,7 @@ import net.findmybook.model.ExternalIdentifierType;
 import net.findmybook.util.IdentifierClassifier;
 import net.findmybook.util.IsbnUtils;
 import net.findmybook.util.JdbcUtils;
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -58,7 +58,7 @@ public class BookLookupService {
      * @return Optional containing the book ID if found
      */
     public Optional<String> findBookIdByIsbn13(String isbn13) {
-        if (!ValidationUtils.hasText(isbn13)) {
+        if (!StringUtils.hasText(isbn13)) {
             return Optional.empty();
         }
 
@@ -90,7 +90,7 @@ public class BookLookupService {
      * @return Optional containing the book ID if found
      */
     public Optional<String> findBookIdByIsbn10(String isbn10) {
-        if (!ValidationUtils.hasText(isbn10)) {
+        if (!StringUtils.hasText(isbn10)) {
             return Optional.empty();
         }
 
@@ -123,7 +123,7 @@ public class BookLookupService {
      * @return Optional containing the book ID if found
      */
     public Optional<String> findBookIdByExternalId(String source, String externalId) {
-        if (!ValidationUtils.hasText(source) || !ValidationUtils.hasText(externalId)) {
+        if (!StringUtils.hasText(source) || !StringUtils.hasText(externalId)) {
             return Optional.empty();
         }
 
@@ -157,7 +157,7 @@ public class BookLookupService {
      * @return Optional containing the book ID if it exists
      */
     public Optional<String> findBookById(String bookId) {
-        if (!ValidationUtils.hasText(bookId)) {
+        if (!StringUtils.hasText(bookId)) {
             return Optional.empty();
         }
 
@@ -177,7 +177,7 @@ public class BookLookupService {
      * This prevents "Incorrect result size" errors from trying slugs as ISBNs/ASINs.
      */
     public Optional<String> findBookIdByExternalIdentifier(String identifier) {
-        if (!ValidationUtils.hasText(identifier)) {
+        if (!StringUtils.hasText(identifier)) {
             return Optional.empty();
         }
 

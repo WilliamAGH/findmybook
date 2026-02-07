@@ -14,7 +14,7 @@ package net.findmybook;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.ApplicationArguments;
@@ -91,7 +91,7 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
                 System.getenv("SPRING_DATASOURCE_URL"),
                 System.getProperty("SPRING_DATASOURCE_URL")
             );
-            if (!ValidationUtils.hasText(url)) {
+            if (!StringUtils.hasText(url)) {
                 return;
             }
 
@@ -123,10 +123,10 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
             String decodedUser = decodeUrlComponent(result.username);
             String decodedPass = decodeUrlComponent(result.password);
 
-            if (!ValidationUtils.hasText(existingUser) && ValidationUtils.hasText(decodedUser)) {
+            if (!StringUtils.hasText(existingUser) && StringUtils.hasText(decodedUser)) {
                 System.setProperty("spring.datasource.username", decodedUser);
             }
-            if (!ValidationUtils.hasText(existingPass) && ValidationUtils.hasText(decodedPass)) {
+            if (!StringUtils.hasText(existingPass) && StringUtils.hasText(decodedPass)) {
                 System.setProperty("spring.datasource.password", decodedPass);
             }
 
@@ -159,8 +159,8 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
                 System.getProperty("SPRING_AI_OPENAI_API_KEY")
             );
 
-            if (ValidationUtils.hasText(openAiEnvKey)
-                && !ValidationUtils.hasText(System.getProperty("spring.ai.openai.api-key"))) {
+            if (StringUtils.hasText(openAiEnvKey)
+                && !StringUtils.hasText(System.getProperty("spring.ai.openai.api-key"))) {
                 System.setProperty("spring.ai.openai.api-key", openAiEnvKey);
             }
 
@@ -169,8 +169,8 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
                 System.getenv("SPRING_AI_OPENAI_BASE_URL"),
                 System.getProperty("SPRING_AI_OPENAI_BASE_URL")
             );
-            if (ValidationUtils.hasText(baseUrl)
-                && !ValidationUtils.hasText(System.getProperty("spring.ai.openai.base-url"))) {
+            if (StringUtils.hasText(baseUrl)
+                && !StringUtils.hasText(System.getProperty("spring.ai.openai.base-url"))) {
                 System.setProperty("spring.ai.openai.base-url", baseUrl);
             }
 
@@ -179,12 +179,12 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
                 System.getenv("SPRING_AI_OPENAI_MODEL"),
                 System.getProperty("SPRING_AI_OPENAI_MODEL")
             );
-            if (ValidationUtils.hasText(model)
-                && !ValidationUtils.hasText(System.getProperty("spring.ai.openai.chat.options.model"))) {
+            if (StringUtils.hasText(model)
+                && !StringUtils.hasText(System.getProperty("spring.ai.openai.chat.options.model"))) {
                 System.setProperty("spring.ai.openai.chat.options.model", model);
             }
 
-            boolean hasApiKey = ValidationUtils.hasText(firstText(
+            boolean hasApiKey = StringUtils.hasText(firstText(
                 System.getProperty("spring.ai.openai.api-key"),
                 openAiEnvKey
             ));
@@ -206,7 +206,7 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
             return null;
         }
         for (String value : values) {
-            if (ValidationUtils.hasText(value)) {
+            if (StringUtils.hasText(value)) {
                 return value;
             }
         }
