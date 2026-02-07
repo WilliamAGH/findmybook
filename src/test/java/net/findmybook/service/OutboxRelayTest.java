@@ -3,6 +3,7 @@ package net.findmybook.service;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataAccessResourceFailureException;
@@ -91,10 +92,10 @@ class OutboxRelayTest {
     private void stubSingleUnsentEvent(UUID eventId, String topic, String payload) {
         when(jdbcTemplate.query(
             contains("FROM events_outbox"),
-            any(RowMapper.class),
+            ArgumentMatchers.<RowMapper<Object>>any(),
             anyInt()
         )).thenAnswer(invocation -> {
-            RowMapper<?> rowMapper = invocation.getArgument(1);
+            RowMapper<Object> rowMapper = invocation.getArgument(1);
             ResultSet resultSet = mock(ResultSet.class);
             when(resultSet.getObject(eq("event_id"))).thenReturn(eventId);
             when(resultSet.getString(eq("topic"))).thenReturn(topic);
@@ -104,7 +105,7 @@ class OutboxRelayTest {
         });
     }
 
-    private Object mapRow(RowMapper<?> rowMapper, ResultSet resultSet) {
+    private Object mapRow(RowMapper<Object> rowMapper, ResultSet resultSet) {
         try {
             return rowMapper.mapRow(resultSet, 0);
         } catch (SQLException exception) {
