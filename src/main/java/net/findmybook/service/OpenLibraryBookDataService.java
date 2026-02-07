@@ -20,18 +20,30 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
 import reactor.core.publisher.Flux;
 import reactor.netty.http.client.PrematureCloseException;
 
 import tools.jackson.databind.JsonNode;
 import java.time.Duration;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Date;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 @Service
 @Slf4j
 public class OpenLibraryBookDataService {
+
+    private static final int DEFAULT_SEARCH_LIMIT = 40;
+    private static final int WORK_DETAILS_CONCURRENCY = 6;
+    private static final Duration WORK_DETAILS_TIMEOUT = Duration.ofSeconds(3);
+    private static final String SEARCH_FIELDS =
+        "key,title,author_name,isbn,cover_i,first_publish_year,number_of_pages_median,subject,publisher,language,first_sentence";
 
     private final WebClient webClient;
     private final boolean externalFallbackEnabled;
@@ -52,7 +64,7 @@ public class OpenLibraryBookDataService {
     @RateLimiter(name = "openLibraryDataService")
     @CircuitBreaker(name = "openLibraryDataService", fallbackMethod = "searchBooksFallback")
     public Flux<Book> queryBooksByTitle(String title) {
-        return queryBooks("title", title, "SEARCH_TITLE");
+        return queryBooks("title", title, "SEARCH_TITLE", false);
     }
 
     /**
@@ -64,7 +76,22 @@ public class OpenLibraryBookDataService {
     @RateLimiter(name = "openLibraryDataService")
     @CircuitBreaker(name = "openLibraryDataService", fallbackMethod = "searchBooksFallback")
     public Flux<Book> queryBooksByAuthor(String author) {
-        return queryBooks("author", author, "SEARCH_AUTHOR");
+        return queryBooks("author", author, "SEARCH_AUTHOR", false);
+    }
+
+    /**
+     * Searches OpenLibrary using the same query contract as the public web search page.
+     *
+     * <p>This uses {@code q=} with {@code mode=everything} to preserve provider ranking parity
+     * with direct OpenLibrary searches.</p>
+     *
+     * @param query the free-text query to search
+     * @return a Flux of matching books, or empty if disabled or no results found
+     */
+    @RateLimiter(name = "openLibraryDataService")
+    @CircuitBreaker(name = "openLibraryDataService", fallbackMethod = "searchBooksFallback")
+    public Flux<Book> queryBooksByEverything(String query) {
+        return queryBooks("q", query, "SEARCH_EVERYTHING", true);
     }
 
     /**
@@ -79,7 +106,10 @@ public class OpenLibraryBookDataService {
      * @param apiOperation   logging label for external API metrics (e.g. "SEARCH_TITLE")
      * @return a Flux of matching books, or empty when disabled or no results found
      */
-    private Flux<Book> queryBooks(String queryParamName, String queryValue, String apiOperation) {
+    private Flux<Book> queryBooks(String queryParamName,
+                                  String queryValue,
+                                  String apiOperation,
+                                  boolean includeEverythingMode) {
         if (queryValue == null || queryValue.trim().isEmpty()) {
             log.warn("{} is null or empty. Cannot search books on OpenLibrary.", queryParamName);
             return Flux.empty();
@@ -91,11 +121,18 @@ public class OpenLibraryBookDataService {
         log.info("Attempting to search OpenLibrary by {}: {}", queryParamName, queryValue);
         ExternalApiLogger.logApiCallAttempt(log, "OpenLibrary", apiOperation, queryValue, false);
         return webClient.get()
-                .uri(uriBuilder -> uriBuilder
+                .uri(uriBuilder -> {
+                    var requestBuilder = uriBuilder
                         .path("/search.json")
                         .queryParam(queryParamName, queryValue)
-                        .queryParam("limit", 20)
-                        .build())
+                        .queryParam("limit", DEFAULT_SEARCH_LIMIT);
+                    if (includeEverythingMode) {
+                        requestBuilder = requestBuilder
+                            .queryParam("mode", "everything")
+                            .queryParam("fields", SEARCH_FIELDS);
+                    }
+                    return requestBuilder.build();
+                })
                 .retrieve()
                 .bodyToMono(JsonNode.class)
                 .timeout(Duration.ofSeconds(5))
@@ -110,9 +147,13 @@ public class OpenLibraryBookDataService {
                     }
                     int count = responseNode.get("docs").size();
                     ExternalApiLogger.logApiCallSuccess(log, "OpenLibrary", apiOperation, queryValue, count);
-                    return Flux.fromIterable(responseNode.get("docs"))
+                    Flux<Book> parsedBooks = Flux.fromIterable(responseNode.get("docs"))
                                .map(this::parseOpenLibrarySearchDoc)
                                .filter(Objects::nonNull);
+                    if (!includeEverythingMode) {
+                        return parsedBooks;
+                    }
+                    return enrichWithWorkDetails(parsedBooks, queryValue);
                 })
                 .doOnError(e -> LoggingUtils.error(log, e, "Error searching books by {} '{}' from OpenLibrary", queryParamName, queryValue))
                 .onErrorMap(e -> {
@@ -146,7 +187,13 @@ public class OpenLibraryBookDataService {
         book.setId(extractOpenLibraryId(docNode));
         book.setTitle(TextUtils.normalizeBookTitle(emptyToNull(docNode.path("title").asString())));
         book.setAuthors(extractSearchAuthors(docNode));
+        book.setDescription(extractSearchDescription(docNode));
+        book.setPublisher(extractSearchPublisher(docNode));
+        book.setLanguage(extractSearchLanguage(docNode));
+        book.setCategories(extractSearchCategories(docNode));
+        extractSearchPageCount(docNode, book);
         extractSearchIsbns(docNode, book);
+        extractSearchPublishedDate(docNode, book);
         extractSearchCover(docNode, book);
         book.setRawJsonResponse(docNode.toString());
 
@@ -154,6 +201,48 @@ public class OpenLibraryBookDataService {
             return book;
         }
         return null;
+    }
+
+    private Flux<Book> enrichWithWorkDetails(Flux<Book> books, String queryValue) {
+        return books.flatMapSequential(
+            book -> fetchWorkDetails(book, queryValue),
+            WORK_DETAILS_CONCURRENCY
+        );
+    }
+
+    private Mono<Book> fetchWorkDetails(Book book, String queryValue) {
+        if (book == null || !StringUtils.hasText(book.getId())) {
+            return Mono.just(book);
+        }
+
+        return webClient.get()
+            .uri(uriBuilder -> uriBuilder.path("/works/{workId}.json").build(book.getId()))
+            .retrieve()
+            .bodyToMono(JsonNode.class)
+            .timeout(WORK_DETAILS_TIMEOUT)
+            .map(workNode -> mergeWorkDetails(book, workNode))
+            .onErrorResume(ex -> {
+                LoggingUtils.warn(
+                    log,
+                    ex,
+                    "OpenLibrary work detail lookup failed for work '{}' while searching '{}'; using search-doc fallback fields",
+                    book.getId(),
+                    queryValue
+                );
+                return Mono.just(book);
+            });
+    }
+
+    private Book mergeWorkDetails(Book book, JsonNode workNode) {
+        if (book == null || workNode == null || workNode.isMissingNode() || !workNode.isObject()) {
+            return book;
+        }
+
+        String fullDescription = extractWorkDescription(workNode);
+        if (shouldReplaceDescription(book.getDescription(), fullDescription)) {
+            book.setDescription(fullDescription);
+        }
+        return book;
     }
 
     private static String extractOpenLibraryId(JsonNode node) {
@@ -220,6 +309,128 @@ public class OpenLibraryBookDataService {
         String coverId = docNode.path("cover_i").asString();
         if (StringUtils.hasText(coverId)) {
             book.setExternalImageUrl("https://covers.openlibrary.org/b/id/" + coverId + "-L.jpg");
+        }
+    }
+
+    private static void extractSearchPublishedDate(JsonNode docNode, Book book) {
+        if (!docNode.has("first_publish_year") || docNode.path("first_publish_year").isNull()) {
+            return;
+        }
+        int firstPublishYear = docNode.path("first_publish_year").asInt(0);
+        if (firstPublishYear <= 0) {
+            return;
+        }
+        book.setPublishedDate(Date.from(
+            LocalDate.of(firstPublishYear, 1, 1)
+                .atStartOfDay(ZoneOffset.UTC)
+                .toInstant()
+        ));
+    }
+
+    private static String extractSearchDescription(JsonNode docNode) {
+        JsonNode firstSentenceNode = docNode.path("first_sentence");
+        if (firstSentenceNode.isMissingNode() || firstSentenceNode.isNull()) {
+            return null;
+        }
+        if (firstSentenceNode.isString()) {
+            return emptyToNull(firstSentenceNode.asString());
+        }
+        if (firstSentenceNode.isArray()) {
+            for (JsonNode sentenceNode : firstSentenceNode) {
+                if (sentenceNode == null || sentenceNode.isNull()) {
+                    continue;
+                }
+                if (sentenceNode.isString()) {
+                    String sentence = emptyToNull(sentenceNode.asString());
+                    if (StringUtils.hasText(sentence)) {
+                        return sentence;
+                    }
+                    continue;
+                }
+                String nestedValue = emptyToNull(sentenceNode.path("value").asString());
+                if (StringUtils.hasText(nestedValue)) {
+                    return nestedValue;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static String extractWorkDescription(JsonNode workNode) {
+        JsonNode descriptionNode = workNode.path("description");
+        if (descriptionNode.isMissingNode() || descriptionNode.isNull()) {
+            return null;
+        }
+        if (descriptionNode.isString()) {
+            return emptyToNull(descriptionNode.asString());
+        }
+        String nestedValue = emptyToNull(descriptionNode.path("value").asString());
+        if (StringUtils.hasText(nestedValue)) {
+            return nestedValue;
+        }
+        return null;
+    }
+
+    private static boolean shouldReplaceDescription(String currentDescription, String workDescription) {
+        if (!StringUtils.hasText(workDescription)) {
+            return false;
+        }
+        if (!StringUtils.hasText(currentDescription)) {
+            return true;
+        }
+        return workDescription.length() > currentDescription.length();
+    }
+
+    private static String extractSearchPublisher(JsonNode docNode) {
+        if (!docNode.has("publisher") || !docNode.get("publisher").isArray()) {
+            return null;
+        }
+        for (JsonNode publisherNode : docNode.get("publisher")) {
+            String publisher = emptyToNull(publisherNode.asString());
+            if (StringUtils.hasText(publisher)) {
+                return publisher;
+            }
+        }
+        return null;
+    }
+
+    private static String extractSearchLanguage(JsonNode docNode) {
+        if (!docNode.has("language") || !docNode.get("language").isArray()) {
+            return null;
+        }
+        for (JsonNode languageNode : docNode.get("language")) {
+            String language = emptyToNull(languageNode.asString());
+            if (StringUtils.hasText(language)) {
+                return language;
+            }
+        }
+        return null;
+    }
+
+    private static List<String> extractSearchCategories(JsonNode docNode) {
+        if (!docNode.has("subject") || !docNode.get("subject").isArray()) {
+            return List.of();
+        }
+        Set<String> categories = new LinkedHashSet<>();
+        for (JsonNode subjectNode : docNode.get("subject")) {
+            String category = emptyToNull(subjectNode.asString());
+            if (StringUtils.hasText(category)) {
+                categories.add(category.trim());
+            }
+        }
+        if (categories.isEmpty()) {
+            return List.of();
+        }
+        return List.copyOf(categories);
+    }
+
+    private static void extractSearchPageCount(JsonNode docNode, Book book) {
+        if (!docNode.has("number_of_pages_median") || docNode.path("number_of_pages_median").isNull()) {
+            return;
+        }
+        int pageCount = docNode.path("number_of_pages_median").asInt(0);
+        if (pageCount > 0) {
+            book.setPageCount(pageCount);
         }
     }
 

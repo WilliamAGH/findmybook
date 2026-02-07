@@ -95,6 +95,7 @@ public final class SearchExternalProviderUtils {
             return null;
         }
         book.addQualifier("search.source", "EXTERNAL_FALLBACK");
+        book.addQualifier("search.provider", source);
         book.addQualifier("search.matchType", matchType);
         book.setRetrievedFrom(source);
         book.setDataSource(source);

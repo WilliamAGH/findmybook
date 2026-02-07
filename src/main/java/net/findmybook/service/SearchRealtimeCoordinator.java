@@ -4,17 +4,16 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import net.findmybook.mapper.GoogleBooksMapper;
 import net.findmybook.model.Book;
+import net.findmybook.support.search.CandidateKeyResolver;
 import net.findmybook.support.search.GoogleExternalSearchFlow;
 import net.findmybook.support.search.SearchCandidatePersistence;
 import net.findmybook.service.event.SearchProgressEvent;
 import net.findmybook.service.event.SearchResultsUpdatedEvent;
-import net.findmybook.util.IsbnUtils;
 import net.findmybook.util.SearchExternalProviderUtils;
 import net.findmybook.util.SearchQueryUtils;
 import org.springframework.util.StringUtils;
 import java.time.Duration;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -79,11 +78,11 @@ final class SearchRealtimeCoordinator {
         }
 
         publishProgress(request.query(), SearchProgressEvent.SearchStatus.STARTING,
-            "Searching external providers for additional matches", queryHash, null);
+            "Searching Open Library (primary) with Google Books in parallel", queryHash, null);
 
         Flux<RealtimeCandidate> candidates = Flux.merge(
-            googleRealtimeCandidates(request, queryHash),
-            openLibraryRealtimeCandidates(request, queryHash)
+            openLibraryRealtimeCandidates(request, queryHash),
+            googleRealtimeCandidates(request, queryHash)
         );
 
         candidates
@@ -133,7 +132,7 @@ final class SearchRealtimeCoordinator {
                 log.warn("Realtime Google search failed for '{}' (status={}): {}", query, errorStatus, ex.getMessage());
                 publishProgress(query, errorStatus, "Google Books unavailable, continuing with other providers",
                     queryHash, "GOOGLE_BOOKS");
-                return Flux.error(new IllegalStateException("Realtime Google search failed for query '" + query + "'", ex));
+                return Flux.empty();
             });
     }
 
@@ -149,28 +148,24 @@ final class SearchRealtimeCoordinator {
         }
 
         OpenLibraryBookDataService service = openLibraryBookDataService.get();
-        int limitPerStrategy = Math.max(1, Math.min(10, request.maxResults()));
+        int limit = Math.max(1, Math.min(20, request.maxResults()));
 
-        Flux<Book> byTitle = Flux.defer(() -> {
+        return Flux.defer(() -> {
             publishProgress(request.query(), SearchProgressEvent.SearchStatus.SEARCHING_OPENLIBRARY,
                 "Searching Open Library", queryHash, "OPEN_LIBRARY");
-            return service.queryBooksByTitle(query);
-        });
-
-        Flux<Book> byAuthor = service.queryBooksByAuthor(query);
-
-        return Flux.merge(byTitle, byAuthor)
+            return service.queryBooksByEverything(query);
+        })
             .filter(Objects::nonNull)
             .filter(book -> SearchExternalProviderUtils.matchesPublishedYear(book, request.publishedYear()))
-            .take(limitPerStrategy * 2L)
+            .take(limit)
             .map(SearchExternalProviderUtils::tagOpenLibraryFallback)
             .map(book -> new RealtimeCandidate("OPEN_LIBRARY", book))
-            .onErrorMap(ex -> {
+            .onErrorResume(ex -> {
                 SearchProgressEvent.SearchStatus errorStatus = classifyProviderError(ex);
                 log.warn("Realtime Open Library search failed for '{}' (status={}): {}", request.query(), errorStatus, ex.getMessage());
                 publishProgress(request.query(), errorStatus, "Open Library unavailable, continuing with other providers",
                     queryHash, "OPEN_LIBRARY");
-                return new IllegalStateException("Realtime Open Library search failed for query '" + request.query() + "'", ex);
+                return Flux.empty();
             });
     }
 
@@ -211,32 +206,6 @@ final class SearchRealtimeCoordinator {
             + Optional.ofNullable(request.publishedYear()).map(String::valueOf).orElse("-");
     }
 
-    private String candidateKey(Book book) {
-        if (book == null) {
-            return null;
-        }
-        String isbn13 = IsbnUtils.sanitize(book.getIsbn13());
-        if (StringUtils.hasText(isbn13)) {
-            return "ISBN13:" + isbn13;
-        }
-        String isbn10 = IsbnUtils.sanitize(book.getIsbn10());
-        if (StringUtils.hasText(isbn10)) {
-            return "ISBN10:" + isbn10;
-        }
-        String id = book.getId();
-        if (StringUtils.hasText(id)) {
-            return "ID:" + id;
-        }
-        String title = Optional.ofNullable(book.getTitle()).orElse("").trim().toLowerCase(Locale.ROOT);
-        String firstAuthor = (book.getAuthors() == null || book.getAuthors().isEmpty())
-            ? ""
-            : Optional.ofNullable(book.getAuthors().get(0)).orElse("").trim().toLowerCase(Locale.ROOT);
-        if (!title.isBlank() || !firstAuthor.isBlank()) {
-            return "TITLE_AUTHOR:" + title + "::" + firstAuthor;
-        }
-        return null;
-    }
-
     private static SearchProgressEvent.SearchStatus classifyProviderError(Throwable ex) {
         if (ex instanceof WebClientResponseException webEx && webEx.getStatusCode().value() == 429) {
             return SearchProgressEvent.SearchStatus.RATE_LIMITED;
@@ -261,10 +230,7 @@ final class SearchRealtimeCoordinator {
 
             if (existingResults != null) {
                 for (Book existing : existingResults) {
-                    String key = candidateKey(existing);
-                    if (StringUtils.hasText(key)) {
-                        emittedKeys.add(key);
-                    }
+                    CandidateKeyResolver.resolve(existing).ifPresent(emittedKeys::add);
                 }
             }
 
@@ -272,8 +238,9 @@ final class SearchRealtimeCoordinator {
         }
 
         boolean registerCandidate(Book candidate) {
-            String key = candidateKey(candidate);
-            return StringUtils.hasText(key) && emittedKeys.add(key);
+            return CandidateKeyResolver.resolve(candidate)
+                .filter(emittedKeys::add)
+                .isPresent();
         }
 
         void markIdle() {

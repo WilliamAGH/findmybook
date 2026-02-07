@@ -12,11 +12,14 @@ import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * Builds stable paginated search pages from hydrated books.
@@ -25,6 +28,8 @@ import java.util.Optional;
  * search services can delegate page-shaping concerns to one shared policy.</p>
  */
 public final class SearchPageAssembler {
+
+    private static final Pattern AUTHOR_QUERY_TOKEN_PATTERN = Pattern.compile("^[\\p{L}][\\p{L}'-]{1,}$");
 
     /**
      * Creates a search page from candidate books and paging metadata.
@@ -58,6 +63,7 @@ public final class SearchPageAssembler {
 
         List<Book> uniqueResults = new ArrayList<>(ordered.values());
         List<Book> filtered = applyCoverPreferences(uniqueResults, coverSource, resolutionPreference);
+        applyAuthorIntentPenalties(filtered, query);
 
         filtered.sort(buildSearchResultComparator(insertionOrder, orderBy));
         List<Book> pageItems = PagingUtils.slice(filtered, window.startIndex(), window.limit());
@@ -119,6 +125,120 @@ public final class SearchPageAssembler {
             default -> null;
         };
         return CoverPrioritizer.bookComparator(insertionOrder, orderSpecific);
+    }
+
+    private void applyAuthorIntentPenalties(List<Book> books, String query) {
+        if (books == null || books.isEmpty() || !isLikelyAuthorQuery(query)) {
+            return;
+        }
+
+        for (Book book : books) {
+            if (book == null || hasAuthorMatch(book, query)) {
+                continue;
+            }
+            String currentMatchType = Optional.ofNullable(book.getQualifiers())
+                .map(qualifiers -> qualifiers.get("search.matchType"))
+                .map(Object::toString)
+                .orElse("");
+            if ("EXACT_TITLE".equalsIgnoreCase(currentMatchType)) {
+                book.addQualifier("search.matchType", "FUZZY");
+            } else if (!StringUtils.hasText(currentMatchType)) {
+                book.addQualifier("search.matchType", "UNKNOWN");
+            }
+
+            Double currentScore = parseNumericQualifier(book, "search.relevanceScore");
+            if (currentScore != null && currentScore > 0.95d) {
+                book.addQualifier("search.relevanceScore", 0.65d);
+            }
+        }
+    }
+
+    private Double parseNumericQualifier(Book book, String key) {
+        if (book == null || !StringUtils.hasText(key) || book.getQualifiers() == null) {
+            return null;
+        }
+        Object value = book.getQualifiers().get(key);
+        if (value instanceof Number number) {
+            return number.doubleValue();
+        }
+        if (value instanceof String stringValue) {
+            try {
+                return Double.parseDouble(stringValue);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private boolean hasAuthorMatch(Book book, String query) {
+        if (book == null || book.getAuthors() == null || book.getAuthors().isEmpty()) {
+            return false;
+        }
+        String normalizedQuery = normalizeForComparison(query);
+        if (!StringUtils.hasText(normalizedQuery)) {
+            return false;
+        }
+        Set<String> queryTokens = tokenSet(normalizedQuery);
+        if (queryTokens.isEmpty()) {
+            return false;
+        }
+
+        for (String author : book.getAuthors()) {
+            String normalizedAuthor = normalizeForComparison(author);
+            if (!StringUtils.hasText(normalizedAuthor)) {
+                continue;
+            }
+            if (normalizedAuthor.contains(normalizedQuery) || normalizedQuery.contains(normalizedAuthor)) {
+                return true;
+            }
+            Set<String> authorTokens = tokenSet(normalizedAuthor);
+            if (authorTokens.containsAll(queryTokens)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isLikelyAuthorQuery(String query) {
+        String normalized = normalizeForComparison(query);
+        if (!StringUtils.hasText(normalized)) {
+            return false;
+        }
+        String[] tokens = normalized.split(" ");
+        if (tokens.length < 2 || tokens.length > 3) {
+            return false;
+        }
+        for (String token : tokens) {
+            if (!AUTHOR_QUERY_TOKEN_PATTERN.matcher(token).matches()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static String normalizeForComparison(String value) {
+        if (!StringUtils.hasText(value)) {
+            return "";
+        }
+        return value
+            .toLowerCase(Locale.ROOT)
+            .replaceAll("[^\\p{L}0-9\\s'-]", " ")
+            .trim()
+            .replaceAll("\\s+", " ");
+    }
+
+    private static Set<String> tokenSet(String value) {
+        Set<String> tokens = new HashSet<>();
+        if (!StringUtils.hasText(value)) {
+            return tokens;
+        }
+        for (String token : value.split(" ")) {
+            if (StringUtils.hasText(token)) {
+                tokens.add(token);
+            }
+        }
+        return tokens;
     }
 
     private List<Book> applyCoverPreferences(List<Book> books,
