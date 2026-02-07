@@ -53,7 +53,7 @@ public class NytBestsellerBackfillRunner implements CommandLineRunner {
         LocalDate cursor = start;
         while (!cursor.isAfter(end)) {
             log.info("=== NYT backfill for {} ===", cursor);
-            scheduler.processNewYorkTimesBestsellers(cursor, true);
+            scheduler.forceProcessNewYorkTimesBestsellers(cursor);
             if (delayMillis > 0) {
                 Thread.sleep(delayMillis);
             }

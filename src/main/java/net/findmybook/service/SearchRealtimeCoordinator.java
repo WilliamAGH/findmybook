@@ -11,7 +11,7 @@ import net.findmybook.util.BookDomainMapper;
 import net.findmybook.util.IsbnUtils;
 import net.findmybook.util.SearchExternalProviderUtils;
 import net.findmybook.util.SearchQueryUtils;
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
@@ -93,7 +93,7 @@ final class SearchRealtimeCoordinator {
 
         candidates
             .filter(candidate -> candidate.book() != null)
-            .filter(candidate -> ValidationUtils.hasText(candidate.book().getId()))
+            .filter(candidate -> StringUtils.hasText(candidate.book().getId()))
             .filter(candidate -> state.registerCandidate(candidate.book()))
             .doOnNext(candidate -> {
                 persistSearchCandidates(List.of(candidate.book()), "SEARCH");
@@ -191,7 +191,7 @@ final class SearchRealtimeCoordinator {
         }
 
         String query = SearchExternalProviderUtils.normalizeExternalQuery(request.query());
-        if (!ValidationUtils.hasText(query) || SearchQueryUtils.isWildcard(query)) {
+        if (!StringUtils.hasText(query) || SearchQueryUtils.isWildcard(query)) {
             return Flux.empty();
         }
 
@@ -206,10 +206,10 @@ final class SearchRealtimeCoordinator {
                 queryHash,
                 "OPEN_LIBRARY"
             );
-            return service.searchBooks(query, false);
+            return service.searchBooksByTitle(query);
         });
 
-        Flux<Book> byAuthor = service.searchBooks(query, true);
+        Flux<Book> byAuthor = service.searchBooksByAuthor(query);
 
         return Flux.merge(byTitle, byAuthor)
             .filter(Objects::nonNull)
@@ -290,15 +290,15 @@ final class SearchRealtimeCoordinator {
             return null;
         }
         String isbn13 = IsbnUtils.sanitize(book.getIsbn13());
-        if (ValidationUtils.hasText(isbn13)) {
+        if (StringUtils.hasText(isbn13)) {
             return "ISBN13:" + isbn13;
         }
         String isbn10 = IsbnUtils.sanitize(book.getIsbn10());
-        if (ValidationUtils.hasText(isbn10)) {
+        if (StringUtils.hasText(isbn10)) {
             return "ISBN10:" + isbn10;
         }
         String id = book.getId();
-        if (ValidationUtils.hasText(id)) {
+        if (StringUtils.hasText(id)) {
             return "ID:" + id;
         }
         String title = Optional.ofNullable(book.getTitle()).orElse("").trim().toLowerCase(Locale.ROOT);
@@ -342,7 +342,7 @@ final class SearchRealtimeCoordinator {
             if (existingResults != null) {
                 for (Book existing : existingResults) {
                     String key = candidateKey(existing);
-                    if (ValidationUtils.hasText(key)) {
+                    if (StringUtils.hasText(key)) {
                         emittedKeys.add(key);
                     }
                 }
@@ -353,7 +353,7 @@ final class SearchRealtimeCoordinator {
 
         boolean registerCandidate(Book candidate) {
             String key = candidateKey(candidate);
-            return ValidationUtils.hasText(key) && emittedKeys.add(key);
+            return StringUtils.hasText(key) && emittedKeys.add(key);
         }
 
         void markIdle() {

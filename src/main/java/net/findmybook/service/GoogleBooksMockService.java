@@ -69,18 +69,19 @@ public class GoogleBooksMockService {
     private final Map<String, JsonNode> mockBookResponses = new ConcurrentHashMap<>();
     private final Map<String, List<Book>> mockSearchResults = new ConcurrentHashMap<>();
     
-    @Value("${app.mock.response.directory:src/test/resources/mock-responses}")
-    private String mockResponseDirectory;
-    
-    @Value("${google.books.api.mock-enabled:true}")
-    private boolean mockEnabled;
-    
+    private final String mockResponseDirectory;
+    private final boolean mockEnabled;
     private final ObjectMapper objectMapper;
     private final ResourceLoader resourceLoader;
-    
-    public GoogleBooksMockService(ObjectMapper objectMapper, ResourceLoader resourceLoader) {
+
+    public GoogleBooksMockService(ObjectMapper objectMapper,
+                                  ResourceLoader resourceLoader,
+                                  @Value("${app.mock.response.directory:src/test/resources/mock-responses}") String mockResponseDirectory,
+                                  @Value("${google.books.api.mock-enabled:true}") boolean mockEnabled) {
         this.objectMapper = objectMapper;
         this.resourceLoader = resourceLoader;
+        this.mockResponseDirectory = mockResponseDirectory;
+        this.mockEnabled = mockEnabled;
     }
     
     /**
@@ -103,35 +104,23 @@ public class GoogleBooksMockService {
      * Loads mock responses from files for common book requests
      */
     private void loadMockResponses() {
-        try {
-            // Load from classpath resources (for tests)
-            loadMockResponsesFromClasspath();
-            
-            // Load from filesystem (for dev)
-            loadMockResponsesFromFilesystem();
-            
-            // Load search responses
-            loadMockSearchResponses();
-            
-        } catch (RuntimeException e) {
-            logger.warn("Error loading mock responses: {}", e.getMessage());
-        }
+        // Load from classpath resources (for tests)
+        loadMockResponsesFromClasspath();
+
+        // Load from filesystem (for dev)
+        loadMockResponsesFromFilesystem();
+
+        // Load search responses
+        loadMockSearchResponses();
     }
     
     /**
      * Loads mock responses from classpath resources for tests
      */
     private void loadMockResponsesFromClasspath() {
-        try {
-            // Try loading from classpath mock-responses/books directory
-            Resource mockDirResource = resourceLoader.getResource("classpath:mock-responses/books");
-            if (mockDirResource.exists()) {
-                // This is more complicated as we need to list files in a classpath directory
-                // We'd need Spring's PathMatchingResourcePatternResolver to list all files
-                logger.info("Found classpath mock responses directory");
-            }
-        } catch (RuntimeException e) {
-            logger.debug("Could not load mock responses from classpath: {}", e.getMessage());
+        Resource mockDirResource = resourceLoader.getResource("classpath:mock-responses/books");
+        if (mockDirResource.exists()) {
+            logger.info("Found classpath mock responses directory");
         }
     }
     
@@ -295,7 +284,7 @@ public class GoogleBooksMockService {
      * @param bookId The book ID to look up
      * @return {@link Book} object if found in mock data, null otherwise
      */
-    @Cacheable(value = "mockBooks", key = "#bookId", condition = "#root.target.mockEnabled")
+    @Cacheable(value = "mockBooks", key = "#bookId", condition = "#root.target.isMockEnabled()")
     public Book getBookById(String bookId) {
         if (!mockEnabled) return null;
         
@@ -323,9 +312,9 @@ public class GoogleBooksMockService {
      * @implNote Uses the {@link SearchQueryUtils#cacheKey(String)} for cache alignment with the filesystem store.
      */
     @Cacheable(
-        value = "mockSearches", 
-        key = "T(net.findmybook.util.SearchQueryUtils).cacheKey(#searchQuery)", 
-        condition = "#root.target.mockEnabled"
+        value = "mockSearches",
+        key = "T(net.findmybook.util.SearchQueryUtils).cacheKey(#searchQuery)",
+        condition = "#root.target.isMockEnabled()"
     )
     public List<Book> searchBooks(String searchQuery) {
         if (!mockEnabled || searchQuery == null) return Collections.emptyList();
@@ -347,6 +336,10 @@ public class GoogleBooksMockService {
      * @param bookId The book ID to check
      * @return true if mock data exists, false otherwise
      */
+    public boolean isMockEnabled() {
+        return mockEnabled;
+    }
+
     public boolean hasMockDataForBook(String bookId) {
         return mockEnabled && mockBookResponses.containsKey(bookId);
     }

@@ -21,7 +21,7 @@ import net.findmybook.util.ApplicationConstants;
 import net.findmybook.util.PagingUtils;
 import net.findmybook.util.ReactiveControllerUtils;
 import net.findmybook.util.SearchQueryUtils;
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import net.findmybook.util.SlugGenerator;
 import net.findmybook.util.EnumParsingUtils;
 import net.findmybook.util.cover.CoverPrioritizer;
@@ -69,35 +69,43 @@ public class BookController {
         this.bookDataOrchestrator = bookDataOrchestrator;
     }
 
+    /**
+     * Pagination and filter parameters for the book search endpoint.
+     * Spring MVC binds query parameters to record fields by name.
+     */
+    record SearchFilters(Integer startIndex, Integer maxResults, String orderBy,
+                         Integer publishedYear, String coverSource, String resolution) {
+        int effectiveStartIndex() { return startIndex != null ? startIndex : 0; }
+        int effectiveMaxResults() { return maxResults != null ? maxResults : 12; }
+        String effectiveOrderBy() { return orderBy != null && !orderBy.isBlank() ? orderBy : "newest"; }
+        String effectiveCoverSource() { return coverSource != null && !coverSource.isBlank() ? coverSource : "ANY"; }
+        String effectiveResolution() { return resolution != null && !resolution.isBlank() ? resolution : "ANY"; }
+    }
+
     @GetMapping("/search")
     public Mono<ResponseEntity<SearchResponse>> searchBooks(@RequestParam String query,
-                                                            @RequestParam(name = "startIndex", defaultValue = "0") int startIndex,
-                                                            @RequestParam(name = "maxResults", defaultValue = "12") int maxResults,
-                                                            @RequestParam(name = "orderBy", defaultValue = "newest") String orderBy,
-                                                            @RequestParam(name = "publishedYear", required = false) Integer publishedYear,
-                                                            @RequestParam(name = "coverSource", defaultValue = "ANY") String coverSource,
-                                                            @RequestParam(name = "resolution", defaultValue = "ANY") String resolution) {
+                                                            SearchFilters filters) {
         String normalizedQuery = SearchQueryUtils.normalize(query);
         CoverImageSource coverSourcePreference = EnumParsingUtils.parseOrDefault(
-            coverSource,
+            filters.effectiveCoverSource(),
             CoverImageSource.class,
             CoverImageSource.ANY,
             raw -> log.debug("Invalid coverSource '{}' supplied to search endpoint, defaulting to ANY", raw)
         );
         ImageResolutionPreference resolutionPreference = EnumParsingUtils.parseOrDefault(
-            resolution,
+            filters.effectiveResolution(),
             ImageResolutionPreference.class,
             ImageResolutionPreference.ANY,
             raw -> log.debug("Invalid resolution '{}' supplied to search endpoint, defaulting to ANY", raw)
         );
         SearchPaginationService.SearchRequest request = new SearchPaginationService.SearchRequest(
             normalizedQuery,
-            startIndex,
-            maxResults,
-            orderBy,
+            filters.effectiveStartIndex(),
+            filters.effectiveMaxResults(),
+            filters.effectiveOrderBy(),
             coverSourcePreference,
             resolutionPreference,
-            publishedYear
+            filters.publishedYear()
         );
 
         Mono<SearchResponse> responseMono = searchPaginationService.search(request)
@@ -192,7 +200,7 @@ public class BookController {
 
     private AuthorHitDto toAuthorHit(AuthorResult authorResult) {
         String effectiveId = authorResult.authorId();
-        if (!ValidationUtils.hasText(effectiveId)) {
+        if (!StringUtils.hasText(effectiveId)) {
             String slug = SlugGenerator.slugify(authorResult.authorName());
             if (slug == null || slug.isBlank()) {
                 slug = "unknown";
@@ -264,7 +272,7 @@ public class BookController {
     }
 
     private BookDetail enrichWithEditions(BookDetail detail) {
-        if (detail == null || !ValidationUtils.hasText(detail.id())) {
+        if (detail == null || !StringUtils.hasText(detail.id())) {
             return detail;
         }
         UUID uuid = UuidUtils.parseUuidOrNull(detail.id());
@@ -304,7 +312,7 @@ public class BookController {
     }
 
     private Mono<BookDto> findBookDto(String identifier) {
-        if (!ValidationUtils.hasText(identifier)) {
+        if (!StringUtils.hasText(identifier)) {
             return Mono.empty();
         }
 
@@ -354,10 +362,10 @@ public class BookController {
         if (card.score() != null) {
             extras.put("recommendation.score", card.score());
         }
-        if (ValidationUtils.hasText(card.reason())) {
+        if (StringUtils.hasText(card.reason())) {
             extras.put("recommendation.reason", card.reason());
         }
-        if (ValidationUtils.hasText(card.source())) {
+        if (StringUtils.hasText(card.source())) {
             extras.put("recommendation.source", card.source());
         }
         return BookDtoMapper.fromCard(card.card(), extras);
@@ -374,7 +382,7 @@ public class BookController {
         int index = 0;
 
         for (RecommendationCard card : cards) {
-            if (card == null || card.card() == null || !ValidationUtils.hasText(card.card().id())) {
+            if (card == null || card.card() == null || !StringUtils.hasText(card.card().id())) {
                 continue;
             }
             String id = card.card().id();

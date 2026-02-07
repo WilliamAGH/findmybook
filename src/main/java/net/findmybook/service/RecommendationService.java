@@ -44,6 +44,7 @@ import net.findmybook.util.LoggingUtils;
 import net.findmybook.util.PagingUtils;
 import net.findmybook.util.BookDomainMapper;
 import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import net.findmybook.util.CategoryNormalizer;
 import net.findmybook.util.cover.CoverPrioritizer;
 import reactor.core.publisher.Flux;
@@ -54,6 +55,8 @@ import reactor.core.scheduler.Schedulers;
 public class RecommendationService {
     private static final int MAX_SEARCH_RESULTS = 40;
     private static final int DEFAULT_RECOMMENDATION_COUNT = 6;
+    private static final int FETCH_CONCURRENCY = 4;
+    private static final int FETCH_PREFETCH = 8;
     private static final Set<String> STOP_WORDS = new HashSet<>(Arrays.asList(
             "the", "and", "for", "with", "are", "was", "from", "that", "this", "but", "not",
             "you", "your", "get", "will", "all", "any", "uses", "using", "learn", "what",
@@ -146,7 +149,7 @@ public class RecommendationService {
     }
 
     private Mono<Book> fetchCanonicalBook(String identifier) {
-        if (!ValidationUtils.hasText(identifier) || bookDataOrchestrator == null) {
+        if (!StringUtils.hasText(identifier) || bookDataOrchestrator == null) {
             return Mono.empty();
         }
         Mono<Book> canonical = bookDataOrchestrator.fetchCanonicalBookReactive(identifier);
@@ -180,7 +183,7 @@ public class RecommendationService {
         Collections.shuffle(idsToFetch);
 
         return Flux.fromIterable(idsToFetch)
-                .flatMapSequential(this::fetchCanonicalBookSafe, 4, 8)
+                .flatMapSequential(this::fetchCanonicalBookSafe, FETCH_CONCURRENCY, FETCH_PREFETCH)
                 .filter(Objects::nonNull)
                 .filter(recommended -> sourceBook.getId() == null || !sourceBook.getId().equals(recommended.getId()))
                 .distinct(Book::getId)
@@ -208,7 +211,7 @@ public class RecommendationService {
             ))
             .flatMap(recommendationMap -> {
                 String sourceLang = sourceBook.getLanguage();
-                boolean filterByLanguage = ValidationUtils.hasText(sourceLang);
+                boolean filterByLanguage = StringUtils.hasText(sourceLang);
 
                 Comparator<ScoredBook> comparator = Comparator
                     .comparingInt((ScoredBook scored) -> CoverPrioritizer.score(scored.getBook()) > 0 ? 1 : 0)
@@ -304,7 +307,7 @@ public class RecommendationService {
             return false;
         }
         String candidateId = candidate.getId();
-        if (!ValidationUtils.hasText(candidateId)) {
+        if (!StringUtils.hasText(candidateId)) {
             return false;
         }
         String sourceId = sourceBook != null ? sourceBook.getId() : null;
@@ -437,8 +440,8 @@ public class RecommendationService {
      * Score based on quantity of matching keywords
      */
     private Flux<ScoredBook> findBooksByTextReactive(Book sourceBook) {
-        boolean titleMissing = !ValidationUtils.hasText(sourceBook.getTitle());
-        boolean descriptionMissing = !ValidationUtils.hasText(sourceBook.getDescription());
+        boolean titleMissing = !StringUtils.hasText(sourceBook.getTitle());
+        boolean descriptionMissing = !StringUtils.hasText(sourceBook.getDescription());
         if (titleMissing && descriptionMissing) {
             return Flux.empty();
         }
@@ -487,7 +490,7 @@ public class RecommendationService {
     }
 
     private Mono<List<Book>> searchBooks(String query, String langCode, int limit) {
-        if (!ValidationUtils.hasText(query) || bookSearchService == null || bookQueryRepository == null) {
+        if (!StringUtils.hasText(query) || bookSearchService == null || bookQueryRepository == null) {
             return Mono.just(Collections.emptyList());
         }
 
@@ -529,7 +532,7 @@ public class RecommendationService {
         }
         return books.stream()
                 .filter(Objects::nonNull)
-                .filter(book -> ValidationUtils.hasText(book.getId()))
+                .filter(book -> StringUtils.hasText(book.getId()))
                 .limit(limit)
                 .collect(Collectors.toList());
     }
@@ -543,7 +546,7 @@ public class RecommendationService {
 
         Map<String, Book> booksById = BookDomainMapper.fromListItems(items).stream()
             .filter(Objects::nonNull)
-            .filter(book -> ValidationUtils.hasText(book.getId()))
+            .filter(book -> StringUtils.hasText(book.getId()))
             .collect(Collectors.toMap(Book::getId, book -> book, (first, second) -> first, LinkedHashMap::new));
 
         if (booksById.isEmpty()) {
@@ -595,7 +598,7 @@ public class RecommendationService {
         public ScoredBook(Book book, double score, String reason) {
             this.book = book;
             this.score = score;
-            if (ValidationUtils.hasText(reason)) {
+            if (StringUtils.hasText(reason)) {
                 this.reasons.add(reason);
             }
         }
