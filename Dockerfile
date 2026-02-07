@@ -37,19 +37,28 @@ COPY src ./src
 # -q reduces noise, -x test skips tests for faster build
 RUN ./gradlew bootJar --no-daemon -q -x test
 
+# ---------- Extractor stage for layered JAR ----------
+FROM ${BASE_REGISTRY}/eclipse-temurin:25-jdk AS extractor
+WORKDIR /app
+COPY --from=build /app/build/libs/findmybook-*.jar app.jar
+RUN java -Djarmode=tools -jar app.jar extract --layers --destination extracted
+
 # ---------- Runtime stage ----------
 FROM ${BASE_REGISTRY}/eclipse-temurin:25-jre AS runtime
 WORKDIR /app
 ENV SERVER_PORT=8095
-ENV JAVA_OPTS="--enable-preview -Dio.netty.noUnsafe=true"
+ENV JAVA_OPTS="--enable-preview -XX:MaxRAMPercentage=75.0 -Dio.netty.noUnsafe=true"
 EXPOSE 8095
 
 RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
 
-# Copy the built jar from the build stage
-COPY --from=build --chown=appuser:appgroup /app/build/libs/findmybook-*.jar app.jar
+# Copy the extracted layers individually for optimal Docker caching
+COPY --from=extractor --chown=appuser:appgroup /app/extracted/dependencies/ ./
+COPY --from=extractor --chown=appuser:appgroup /app/extracted/spring-boot-loader/ ./
+COPY --from=extractor --chown=appuser:appgroup /app/extracted/snapshot-dependencies/ ./
+COPY --from=extractor --chown=appuser:appgroup /app/extracted/application/ ./
 
 USER appuser
 
 # Run the application using JSON array for better signal handling
-ENTRYPOINT ["java", "-enable-preview", "-Dio.netty.noUnsafe=true", "-jar", "app.jar"]
+ENTRYPOINT ["java", "--enable-preview", "-XX:MaxRAMPercentage=75.0", "-Dio.netty.noUnsafe=true", "org.springframework.boot.loader.launch.JarLauncher"]
