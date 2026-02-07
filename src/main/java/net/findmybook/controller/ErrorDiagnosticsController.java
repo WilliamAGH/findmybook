@@ -1,19 +1,5 @@
-/**
- * Controller for handling application errors and providing diagnostic information
- *
- * @author William Callahan
- *
- * Features:
- * - Implements Spring Boot's ErrorController interface
- * - Captures detailed error information including stack traces
- * - Renders user-friendly error diagnostic page
- * - Provides enhanced error details for debugging
- * - Extracts exception type information when available
- */
-
 package net.findmybook.controller;
 
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,19 +8,18 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplicat
 import org.springframework.boot.web.error.ErrorAttributeOptions;
 import org.springframework.boot.webmvc.error.ErrorAttributes;
 import org.springframework.boot.webmvc.error.ErrorController;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.InvalidMediaTypeException;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.context.request.WebRequest;
-import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
+/**
+ * Handles the shared error endpoint for both HTML pages and JSON API clients.
+ */
 @Controller
 @ConditionalOnWebApplication
 public class ErrorDiagnosticsController implements ErrorController {
@@ -53,22 +38,61 @@ public class ErrorDiagnosticsController implements ErrorController {
         this.includeStackTrace = includeStackTrace;
     }
 
-    /**
-     * Handles all application errors and prepares diagnostic information
-     * - Extracts error attributes from the request
-     * - Includes stack traces and exception details
-     * - Populates model with error information for template rendering
-     * - Extracts exception class name when available
-     * 
-     * @param request WebRequest containing error information
-     * @param model Spring MVC model for view rendering
-     * @return Template name for error page
-     */
+    @RequestMapping(value = "/error", produces = {MediaType.APPLICATION_JSON_VALUE, "application/*+json"})
+    public ResponseEntity<ErrorJsonResponse> handleJsonError(HttpServletResponse response, WebRequest webRequest) {
+        ErrorContext context = readErrorContext(webRequest);
+        response.setStatus(context.statusCode());
+        ErrorJsonResponse payload = new ErrorJsonResponse(
+            context.timestamp(),
+            context.statusCode(),
+            context.error(),
+            context.message(),
+            context.path()
+        );
+        return ResponseEntity.status(context.statusCode())
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(payload);
+    }
+
     @RequestMapping("/error")
-    public Object handleError(HttpServletRequest request,
-                              HttpServletResponse response,
-                              WebRequest webRequest,
-                              Model model) {
+    public String handleHtmlError(HttpServletResponse response,
+                                  WebRequest webRequest,
+                                  Model model) {
+        ErrorContext context = readErrorContext(webRequest);
+        response.setStatus(context.statusCode());
+
+        model.addAttribute("timestamp", context.timestamp());
+        model.addAttribute("status", context.statusCode());
+        model.addAttribute("error", context.error());
+        model.addAttribute("message", context.message());
+        model.addAttribute("trace", context.trace());
+        model.addAttribute("path", context.path());
+
+        if (missingDiagnosticMessage(context.message()) && !context.exceptionClassName().isBlank()) {
+            try {
+                model.addAttribute("exceptionType", Class.forName(context.exceptionClassName()).getSimpleName());
+            } catch (ClassNotFoundException e) {
+                log.warn("Unable to resolve exception class '{}': {}", context.exceptionClassName(), e.getMessage());
+            }
+        }
+
+        if (context.statusCode() == HttpStatus.NOT_FOUND.value()) {
+            if (spaFrontendEnabled) {
+                String requestPath = !context.path().isBlank() ? context.path() : "/";
+                model.addAttribute("title", "Page Not Found");
+                model.addAttribute("description", "The page you requested could not be found.");
+                model.addAttribute("keywords", "404, page not found");
+                model.addAttribute("canonicalUrl", "https://findmybook.net" + requestPath);
+                model.addAttribute("ogImage", "/images/og-logo.png");
+                model.addAttribute("status", context.statusCode());
+                return "spa/index";
+            }
+            return "error/404";
+        }
+        return "error_diagnostics";
+    }
+
+    private ErrorContext readErrorContext(WebRequest webRequest) {
         ErrorAttributeOptions options = ErrorAttributeOptions.of(
             ErrorAttributeOptions.Include.MESSAGE,
             ErrorAttributeOptions.Include.EXCEPTION,
@@ -77,61 +101,25 @@ public class ErrorDiagnosticsController implements ErrorController {
         if (includeStackTrace) {
             options = options.including(ErrorAttributeOptions.Include.STACK_TRACE);
         }
-        Map<String, Object> errors = errorAttributes.getErrorAttributes(webRequest, options);
-        int statusCode = resolveStatusCode(errors.get("status"));
-        response.setStatus(statusCode);
-
-        if (clientPrefersJson(request)) {
-            Map<String, Object> safeResponse = new LinkedHashMap<>();
-            safeResponse.put("timestamp", errors.get("timestamp"));
-            safeResponse.put("status", statusCode);
-            safeResponse.put("error", errors.get("error"));
-            safeResponse.put("message", errors.get("message"));
-            safeResponse.put("path", errors.get("path"));
-            return ResponseEntity.status(statusCode)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(safeResponse);
-        }
-
-        model.addAttribute("timestamp", errors.get("timestamp"));
-        model.addAttribute("status", errors.get("status"));
-        model.addAttribute("error", errors.get("error"));
-        model.addAttribute("message", errors.get("message"));
-        model.addAttribute("trace", includeStackTrace ? errors.get("trace") : null);
-        model.addAttribute("path", errors.get("path"));
-
-        Object message = errors.get("message");
-        if ((message == null || message.toString().isEmpty() || "No message available".equals(message)) && errors.get("exception") != null) {
-            try {
-                String exceptionClassName = (String) errors.get("exception");
-                model.addAttribute("exceptionType", Class.forName(exceptionClassName).getSimpleName());
-            } catch (ClassNotFoundException e) {
-                log.warn("Unable to resolve exception class '{}': {}", errors.get("exception"), e.getMessage());
-            }
-        }
-        
-        if (statusCode == HttpStatus.NOT_FOUND.value()) {
-            if (spaFrontendEnabled) {
-                String requestPath = request.getRequestURI() != null ? request.getRequestURI() : "/";
-                model.addAttribute("title", "Page Not Found");
-                model.addAttribute("description", "The page you requested could not be found.");
-                model.addAttribute("keywords", "404, page not found");
-                model.addAttribute("canonicalUrl", "https://findmybook.net" + requestPath);
-                model.addAttribute("ogImage", "/images/og-logo.png");
-                model.addAttribute("status", statusCode);
-                return "spa/index";
-            }
-            return "error/404";
-        }
-
-        return "error_diagnostics";
+        Map<String, ?> errors = errorAttributes.getErrorAttributes(webRequest, options);
+        int statusCode = resolveStatusCode(errors);
+        return new ErrorContext(
+            statusCode,
+            textOrEmpty(errors, "timestamp"),
+            textOrEmpty(errors, "error"),
+            textOrEmpty(errors, "message"),
+            textOrEmpty(errors, "path"),
+            includeStackTrace ? textOrEmpty(errors, "trace") : "",
+            textOrEmpty(errors, "exception")
+        );
     }
 
-    private int resolveStatusCode(Object statusValue) {
-        if (statusValue instanceof Number numericStatus) {
+    private int resolveStatusCode(Map<String, ?> errors) {
+        if (errors.get("status") instanceof Number numericStatus) {
             return numericStatus.intValue();
         }
-        if (statusValue instanceof String stringStatus) {
+        String stringStatus = textOrEmpty(errors, "status");
+        if (!stringStatus.isBlank()) {
             try {
                 return Integer.parseInt(stringStatus);
             } catch (NumberFormatException ex) {
@@ -142,26 +130,31 @@ public class ErrorDiagnosticsController implements ErrorController {
         return HttpStatus.INTERNAL_SERVER_ERROR.value();
     }
 
-    private boolean clientPrefersJson(HttpServletRequest request) {
-        String acceptHeader = request.getHeader(HttpHeaders.ACCEPT);
-        if (acceptHeader == null || acceptHeader.isBlank()) {
-            return false;
-        }
-        try {
-            List<MediaType> acceptedTypes = MediaType.parseMediaTypes(acceptHeader);
-            for (MediaType acceptedType : acceptedTypes) {
-                if (acceptedType.isCompatibleWith(MediaType.TEXT_HTML)) {
-                    return false;
-                }
-                if (acceptedType.isCompatibleWith(MediaType.APPLICATION_JSON)
-                    || acceptedType.getSubtype().endsWith("+json")) {
-                    return true;
-                }
-            }
-            return false;
-        } catch (InvalidMediaTypeException ex) {
-            log.debug("Malformed Accept header '{}': {}", acceptHeader, ex.getMessage());
-            return false;
-        }
+    private String textOrEmpty(Map<String, ?> source, String key) {
+        return source.get(key) != null ? String.valueOf(source.get(key)) : "";
+    }
+
+    private boolean missingDiagnosticMessage(String message) {
+        return message.isBlank() || "No message available".equals(message);
+    }
+
+    private record ErrorContext(
+        int statusCode,
+        String timestamp,
+        String error,
+        String message,
+        String path,
+        String trace,
+        String exceptionClassName
+    ) {
+    }
+
+    private record ErrorJsonResponse(
+        String timestamp,
+        int status,
+        String error,
+        String message,
+        String path
+    ) {
     }
 }
