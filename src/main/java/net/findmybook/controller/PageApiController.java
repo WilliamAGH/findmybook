@@ -1,5 +1,6 @@
 package net.findmybook.controller;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -12,6 +13,9 @@ import net.findmybook.service.SitemapService.AuthorSection;
 import net.findmybook.service.SitemapService.BookSitemapItem;
 import net.findmybook.service.SitemapService.PagedResult;
 import net.findmybook.util.PagingUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.util.StringUtils;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,6 +24,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
+import org.springframework.web.server.ResponseStatusException;
 
 /**
  * REST endpoints that provide typed payloads for SPA-rendered public pages.
@@ -28,6 +33,7 @@ import reactor.core.publisher.Mono;
 @RequestMapping("/api/pages")
 public class PageApiController {
 
+    private static final Logger log = LoggerFactory.getLogger(PageApiController.class);
     private static final int MAX_BESTSELLERS = 8;
     private static final int MAX_RECENT_BOOKS = 8;
 
@@ -61,10 +67,17 @@ public class PageApiController {
      */
     @GetMapping("/home")
     public Mono<HomePayload> homePayload() {
-        return Mono.zip(
-            homePageSectionsService.loadCurrentBestsellers(MAX_BESTSELLERS),
-            homePageSectionsService.loadRecentBooks(MAX_RECENT_BOOKS)
-        ).map(tuple -> new HomePayload(tuple.getT1(), tuple.getT2()));
+        Mono<List<BookCard>> bestsellers = homePageSectionsService.loadCurrentBestsellers(MAX_BESTSELLERS)
+            .timeout(Duration.ofSeconds(3));
+        Mono<List<BookCard>> recentBooks = homePageSectionsService.loadRecentBooks(MAX_RECENT_BOOKS)
+            .timeout(Duration.ofSeconds(3));
+
+        return Mono.zip(bestsellers, recentBooks)
+            .map(tuple -> new HomePayload(tuple.getT1(), tuple.getT2()))
+            .onErrorMap(ex -> {
+                log.warn("Failed to build /api/pages/home payload: {}", ex.getMessage());
+                return new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Homepage payload load failed", ex);
+            });
     }
 
     /**
