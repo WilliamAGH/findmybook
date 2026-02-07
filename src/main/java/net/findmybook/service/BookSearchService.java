@@ -15,16 +15,12 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 @Service
 @Slf4j
@@ -37,25 +33,27 @@ public class BookSearchService {
     private final ExternalBookIdResolver externalBookIdResolver;
     private final BackfillCoordinator backfillCoordinator;
     private final BookQueryRepository bookQueryRepository;
-    
-    @Value("${app.features.async-backfill.enabled:false}")
-    private boolean asyncBackfillEnabled;
+    private final SearchResultDeduplicator deduplicator;
+    private final boolean asyncBackfillEnabled;
 
     public BookSearchService(
         JdbcTemplate jdbcTemplate,
         Optional<ExternalBookIdResolver> externalBookIdResolver,
         Optional<BackfillCoordinator> backfillCoordinator,
-        Optional<BookQueryRepository> bookQueryRepository
+        Optional<BookQueryRepository> bookQueryRepository,
+        @Value("${app.features.async-backfill.enabled:false}") boolean asyncBackfillEnabled
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.externalBookIdResolver = externalBookIdResolver.orElse(null);
         this.backfillCoordinator = backfillCoordinator.orElse(null);
         this.bookQueryRepository = bookQueryRepository.orElse(null);
+        this.deduplicator = new SearchResultDeduplicator(jdbcTemplate);
+        this.asyncBackfillEnabled = asyncBackfillEnabled;
     }
 
     public List<SearchResult> searchBooks(String query, Integer limit) {
         if (jdbcTemplate == null) {
-            return List.of();
+            throw new IllegalStateException("BookSearchService requires JdbcTemplate but it is null — database may be unavailable");
         }
         String sanitizedQuery = SearchQueryUtils.normalize(query);
         if (SearchQueryUtils.isWildcard(sanitizedQuery)) {
@@ -85,7 +83,7 @@ public class BookSearchService {
              .filter(result -> result != null)
              .toList();
 
-        List<SearchResult> deduplicated = deduplicateSearchResults(rawResults);
+        List<SearchResult> deduplicated = deduplicator.deduplicate(rawResults);
 
         if (asyncBackfillEnabled && !deduplicated.isEmpty()) {
             enqueueBackfillForResults(deduplicated);
@@ -96,7 +94,7 @@ public class BookSearchService {
 
     public Optional<IsbnSearchResult> searchByIsbn(String isbnQuery) {
         if (jdbcTemplate == null) {
-            return Optional.empty();
+            throw new IllegalStateException("BookSearchService requires JdbcTemplate but it is null — database may be unavailable");
         }
         String sanitized = IsbnUtils.sanitize(isbnQuery);
         if (sanitized == null) {
@@ -121,7 +119,7 @@ public class BookSearchService {
 
     public List<AuthorResult> searchAuthors(String query, Integer limit) {
         if (jdbcTemplate == null) {
-            return List.of();
+            throw new IllegalStateException("BookSearchService requires JdbcTemplate but it is null — database may be unavailable");
         }
         String sanitizedQuery = SearchQueryUtils.normalize(query);
         if (SearchQueryUtils.isWildcard(sanitizedQuery)) {
@@ -217,206 +215,6 @@ public class BookSearchService {
         }
 
         log.debug("Enqueued backfill for {} search results", results.size());
-    }
-
-    /**
-     * Collapses multiple editions returned by the search function so each work
-     * appears at most once in the final result list.
-     * 
-     * Two-pass deduplication:
-     * 1. Cluster-based: Group books by work_cluster_id
-     * 2. Title+Author-based: Group remaining unclustered books by normalized title+authors
-     */
-    private List<SearchResult> deduplicateSearchResults(List<SearchResult> rawResults) {
-        if (rawResults == null || rawResults.isEmpty()) {
-            return List.of();
-        }
-
-        List<UUID> editionIds = rawResults.stream()
-            .map(SearchResult::bookId)
-            .filter(Objects::nonNull)
-            .distinct()
-            .collect(Collectors.toList());
-
-        Map<UUID, ClusterMapping> clusterMappings = fetchClusterMappings(editionIds);
-        Map<UUID, TitleAuthorKey> titleAuthorKeys = fetchTitleAuthorKeys(editionIds);
-
-        // Pass 1: Deduplicate by cluster
-        Map<UUID, SearchResult> byCluster = new LinkedHashMap<>();
-        Map<UUID, UUID> clusterCanonical = new HashMap<>();
-        for (SearchResult result : rawResults) {
-            UUID editionId = result.bookId();
-            if (editionId == null) {
-                continue;
-            }
-            ClusterMapping mapping = clusterMappings.get(editionId);
-            UUID clusterId = mapping != null ? mapping.clusterId() : result.clusterId();
-            UUID canonicalId = null;
-            if (mapping != null && mapping.primaryId() != null) {
-                canonicalId = mapping.primaryId();
-                if (clusterId != null) {
-                    clusterCanonical.putIfAbsent(clusterId, canonicalId);
-                    if (!mapping.hasExplicitPrimary() && mapping.editionCount() > 1 && log.isDebugEnabled()) {
-                        log.debug("Cluster {} lacks explicit primary edition; using {} as canonical for search dedupe", clusterId, canonicalId);
-                    }
-                }
-            }
-            if (canonicalId == null && clusterId != null) {
-                canonicalId = clusterCanonical.computeIfAbsent(clusterId, id -> editionId);
-            }
-            if (canonicalId == null) {
-                canonicalId = editionId;
-            }
-            int editionCount = mapping != null ? mapping.editionCount() : result.editionCount();
-            editionCount = Math.max(editionCount, 1);
-
-            SearchResult existing = byCluster.get(canonicalId);
-            if (existing == null) {
-                byCluster.put(canonicalId, new SearchResult(canonicalId, result.relevanceScore(), result.matchType(), editionCount, clusterId));
-            } else {
-                double bestScore = Math.max(existing.relevanceScore(), result.relevanceScore());
-                String matchType = bestScore == existing.relevanceScore() ? existing.matchType() : result.matchType();
-                int combinedEditionCount = Math.max(existing.editionCount(), editionCount);
-                UUID effectiveClusterId = existing.clusterId() != null ? existing.clusterId() : clusterId;
-                byCluster.put(canonicalId, new SearchResult(canonicalId, bestScore, matchType, combinedEditionCount, effectiveClusterId));
-            }
-        }
-
-        // Pass 2: Deduplicate by title+author (catches books in different clusters or unclustered)
-        Map<String, SearchResult> byTitleAuthor = new LinkedHashMap<>();
-        for (SearchResult result : byCluster.values()) {
-            TitleAuthorKey key = titleAuthorKeys.get(result.bookId());
-            if (key == null || key.normalizedKey() == null) {
-                // No title/author data, keep as-is
-                byTitleAuthor.put(result.bookId().toString(), result);
-                continue;
-            }
-            
-            SearchResult existing = byTitleAuthor.get(key.normalizedKey());
-            if (existing == null) {
-                byTitleAuthor.put(key.normalizedKey(), result);
-            } else {
-                // Merge: keep higher relevance, sum edition counts
-                double bestScore = Math.max(existing.relevanceScore(), result.relevanceScore());
-                String matchType = bestScore == existing.relevanceScore() ? existing.matchType() : result.matchType();
-                int combinedEditionCount = existing.editionCount() + result.editionCount();
-                UUID canonicalId = bestScore == existing.relevanceScore() ? existing.bookId() : result.bookId();
-                UUID clusterId = existing.clusterId() != null ? existing.clusterId() : result.clusterId();
-                byTitleAuthor.put(key.normalizedKey(), new SearchResult(canonicalId, bestScore, matchType, combinedEditionCount, clusterId));
-            }
-        }
-
-        return List.copyOf(byTitleAuthor.values());
-    }
-
-    /**
-     * Fetches normalized title+author keys for deduplication.
-     */
-    private Map<UUID, TitleAuthorKey> fetchTitleAuthorKeys(List<UUID> bookIds) {
-        if (bookIds == null || bookIds.isEmpty() || jdbcTemplate == null) {
-            return Map.of();
-        }
-
-        String placeholders = bookIds.stream()
-            .map(id -> "?")
-            .collect(Collectors.joining(","));
-
-        String sql = """
-            SELECT
-                b.id AS book_id,
-                normalize_title_for_clustering(b.title) AS normalized_title,
-                get_normalized_authors(b.id) AS normalized_authors
-            FROM books b
-            WHERE b.id IN (%s)
-            """.formatted(placeholders);
-
-        return jdbcTemplate.query(sql, ps -> {
-            for (int i = 0; i < bookIds.size(); i++) {
-                ps.setObject(i + 1, bookIds.get(i));
-            }
-        }, rs -> {
-            Map<UUID, TitleAuthorKey> map = new HashMap<>();
-            while (rs.next()) {
-                UUID bookId = (UUID) rs.getObject("book_id");
-                String title = rs.getString("normalized_title");
-                String authors = rs.getString("normalized_authors");
-                String key = (title != null ? title : "") + "::" + (authors != null ? authors : "");
-                map.put(bookId, new TitleAuthorKey(key));
-            }
-            return map;
-        });
-    }
-
-    /**
-     * Looks up work-cluster metadata for a set of book identifiers.
-     *
-     * @param bookIds edition identifiers returned from the search function
-     * @return mapping from edition id to cluster metadata (primary id + edition count)
-     */
-    private Map<UUID, ClusterMapping> fetchClusterMappings(List<UUID> bookIds) {
-        if (bookIds == null || bookIds.isEmpty() || jdbcTemplate == null) {
-            return Map.of();
-        }
-
-        String placeholders = bookIds.stream()
-            .map(id -> "?")
-            .collect(Collectors.joining(","));
-
-        String sql = """
-            SELECT
-                wcm.book_id AS edition_id,
-                COALESCE(primary_wcm.book_id, fallback_wcm.book_id, wcm.book_id) AS resolved_primary_book_id,
-                wcm.cluster_id,
-                COALESCE(wc.member_count, 1) AS edition_count,
-                primary_wcm.book_id IS NOT NULL AS has_primary
-            FROM work_cluster_members wcm
-            LEFT JOIN work_cluster_members primary_wcm
-              ON primary_wcm.cluster_id = wcm.cluster_id
-             AND primary_wcm.is_primary = true
-            LEFT JOIN LATERAL (
-                SELECT wcm2.book_id
-                FROM work_cluster_members wcm2
-                WHERE wcm2.cluster_id = wcm.cluster_id
-                ORDER BY wcm2.confidence DESC NULLS LAST, wcm2.book_id
-                LIMIT 1
-            ) fallback_wcm ON TRUE
-            LEFT JOIN work_clusters wc ON wc.id = wcm.cluster_id
-            WHERE wcm.book_id IN (%s)
-            """.formatted(placeholders);
-
-        return jdbcTemplate.query(
-            sql,
-            ps -> {
-                for (int i = 0; i < bookIds.size(); i++) {
-                    ps.setObject(i + 1, bookIds.get(i));
-                }
-            },
-            rs -> {
-                Map<UUID, ClusterMapping> mappings = new HashMap<>();
-                while (rs.next()) {
-                    UUID editionId = (UUID) rs.getObject("edition_id");
-                    UUID primaryId = (UUID) rs.getObject("resolved_primary_book_id");
-                    UUID clusterId = (UUID) rs.getObject("cluster_id");
-                    int editionCount = rs.getInt("edition_count");
-                    boolean hasPrimary = rs.getBoolean("has_primary");
-                    if (editionId != null) {
-                        mappings.put(editionId, new ClusterMapping(
-                            primaryId != null ? primaryId : editionId,
-                            clusterId,
-                            editionCount > 0 ? editionCount : 1,
-                            hasPrimary
-                        ));
-                    }
-                }
-                return mappings;
-            }
-        );
-    }
-
-    private record ClusterMapping(UUID primaryId, UUID clusterId, int editionCount, boolean hasExplicitPrimary) {
-    }
-
-    private record TitleAuthorKey(String normalizedKey) {
     }
 
     /**
