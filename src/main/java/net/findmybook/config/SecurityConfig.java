@@ -50,29 +50,20 @@ public class SecurityConfig {
 
     private final AuthenticationEntryPoint customBasicAuthenticationEntryPoint;
     private final Environment environment;
-
-    @Value("${app.security.headers.content-security-policy.enabled:true}")
-    private boolean cspEnabled;
-
-    @Value("${app.security.headers.referrer-policy:ORIGIN_WHEN_CROSS_ORIGIN}")
-    private String referrerPolicy;
-
-    @Value("${app.clicky.enabled:true}")
-    private boolean clickyEnabled;
-
-    @Value("${app.clicky.site-id:101484793}")
-    private String clickySiteId;
-    
-    @Value("${app.book.covers.cdn-domain:https://book-finder.sfo3.digitaloceanspaces.com}")
-    private String bookCoversCdnDomain;
-    
-    @Value("${app.book.covers.additional-domains:}")
-    private String bookCoversAdditionalDomains;
+    private final boolean cspEnabled;
+    private final String referrerPolicy;
+    private final boolean clickyEnabled;
 
     public SecurityConfig(CustomBasicAuthenticationEntryPoint customBasicAuthenticationEntryPoint,
-                          Environment environment) {
+                          Environment environment,
+                          @Value("${app.security.headers.content-security-policy.enabled:true}") boolean cspEnabled,
+                          @Value("${app.security.headers.referrer-policy:ORIGIN_WHEN_CROSS_ORIGIN}") String referrerPolicy,
+                          @Value("${app.clicky.enabled:true}") boolean clickyEnabled) {
         this.customBasicAuthenticationEntryPoint = customBasicAuthenticationEntryPoint;
         this.environment = environment;
+        this.cspEnabled = cspEnabled;
+        this.referrerPolicy = referrerPolicy;
+        this.clickyEnabled = clickyEnabled;
     }
 
     @Bean

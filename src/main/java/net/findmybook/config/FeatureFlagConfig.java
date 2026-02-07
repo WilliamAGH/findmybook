@@ -20,11 +20,15 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class FeatureFlagConfig {
 
-    @Value("${app.feature.year-filtering.enabled:true}")
-    private boolean yearFilteringEnabled;
+    private final boolean yearFilteringEnabled;
+    private final boolean embeddingServiceEnabled;
 
-    @Value("${app.feature.embedding-service.enabled:false}") // Default to false
-    private boolean embeddingServiceEnabled;
+    public FeatureFlagConfig(
+            @Value("${app.feature.year-filtering.enabled:true}") boolean yearFilteringEnabled,
+            @Value("${app.feature.embedding-service.enabled:false}") boolean embeddingServiceEnabled) {
+        this.yearFilteringEnabled = yearFilteringEnabled;
+        this.embeddingServiceEnabled = embeddingServiceEnabled;
+    }
 
     /**
      * Provides the year filtering feature state

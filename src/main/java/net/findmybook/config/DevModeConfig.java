@@ -38,19 +38,19 @@ import java.time.Duration;
 public class DevModeConfig {
     private static final Logger logger = LoggerFactory.getLogger(DevModeConfig.class);
 
-    @Value("${google.books.api.cache.ttl-minutes:1440}")
-    private int googleBooksCacheTtlMinutes;
-
-    @Value("${app.cache.search-results.ttl-minutes:10}")
-    private int searchResultsCacheTtlMinutes;
-
-    @Value("${google.books.api.request-limit-per-minute:10}")
-    private int googleBooksRequestLimitPerMinute;
-    
-    @Value("${app.mock.response.directory:src/test/resources/mock-responses}")
-    private String mockResponseDirectory;
-    
+    private final int googleBooksCacheTtlMinutes;
+    private final int searchResultsCacheTtlMinutes;
+    private final int googleBooksRequestLimitPerMinute;
     private CacheManager cacheManager;
+
+    public DevModeConfig(
+            @Value("${google.books.api.cache.ttl-minutes:1440}") int googleBooksCacheTtlMinutes,
+            @Value("${app.cache.search-results.ttl-minutes:10}") int searchResultsCacheTtlMinutes,
+            @Value("${google.books.api.request-limit-per-minute:10}") int googleBooksRequestLimitPerMinute) {
+        this.googleBooksCacheTtlMinutes = googleBooksCacheTtlMinutes;
+        this.searchResultsCacheTtlMinutes = searchResultsCacheTtlMinutes;
+        this.googleBooksRequestLimitPerMinute = googleBooksRequestLimitPerMinute;
+    }
 
     /**
      * Enhanced cache manager for development with longer retention periods

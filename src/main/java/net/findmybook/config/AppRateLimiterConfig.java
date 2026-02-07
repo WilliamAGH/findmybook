@@ -29,8 +29,12 @@ import java.time.Duration;
 public class AppRateLimiterConfig {
     private static final Logger logger = LoggerFactory.getLogger(AppRateLimiterConfig.class);
 
-    @Value("${google.books.api.request-limit-per-minute:10}")
-    private int googleBooksRequestLimitPerMinute;
+    private final int googleBooksRequestLimitPerMinute;
+
+    public AppRateLimiterConfig(
+            @Value("${google.books.api.request-limit-per-minute:10}") int googleBooksRequestLimitPerMinute) {
+        this.googleBooksRequestLimitPerMinute = googleBooksRequestLimitPerMinute;
+    }
 
     /**
      * Rate limiter for Google Books API

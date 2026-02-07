@@ -5,7 +5,7 @@ import org.springframework.boot.health.contributor.Status;
 import org.springframework.boot.web.server.context.WebServerApplicationContext;
 import org.springframework.boot.web.server.context.WebServerInitializedEvent;
 import org.springframework.boot.web.server.WebServer;
-import org.springframework.test.util.ReflectionTestUtils;
+
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.test.StepVerifier;
 import io.github.resilience4j.ratelimiter.RateLimiter;
@@ -84,8 +84,8 @@ class S3HealthIndicatorTest {
         S3HealthIndicator indicator = new S3HealthIndicator(mockClient, "covers", true);
 
         StepVerifier.create(indicator.health())
-            .expectError(RuntimeException.class)
-            .verify();
+            .assertNext(health -> assertEquals(Status.DOWN, health.getStatus()))
+            .verifyComplete();
     }
 
     @Test
@@ -103,11 +103,7 @@ class S3HealthIndicatorTest {
 
     @Test
     void s3ClientCreation_shouldAllowMissingEndpointOverride() {
-        S3Config config = new S3Config();
-        ReflectionTestUtils.setField(config, "accessKeyId", "test-access-key");
-        ReflectionTestUtils.setField(config, "secretAccessKey", "test-secret");
-        ReflectionTestUtils.setField(config, "s3ServerUrl", "");
-        ReflectionTestUtils.setField(config, "s3Region", "us-east-1");
+        S3Config config = new S3Config("test-access-key", "test-secret", "", "us-east-1");
 
         S3Client client = config.s3Client();
 
@@ -162,8 +158,7 @@ class S3HealthIndicatorTest {
 
     @Test
     void appRateLimiter_shouldUsePerMinuteRefreshPeriod() {
-        AppRateLimiterConfig config = new AppRateLimiterConfig();
-        ReflectionTestUtils.setField(config, "googleBooksRequestLimitPerMinute", 10);
+        AppRateLimiterConfig config = new AppRateLimiterConfig(10);
 
         RateLimiter limiter = config.googleBooksRateLimiter();
 
@@ -172,7 +167,7 @@ class S3HealthIndicatorTest {
 
     @Test
     void appRateLimiter_openLibraryShouldUseFiveSecondPacing() {
-        AppRateLimiterConfig config = new AppRateLimiterConfig();
+        AppRateLimiterConfig config = new AppRateLimiterConfig(10);
 
         RateLimiter limiter = config.openLibraryRateLimiter();
 
@@ -182,8 +177,7 @@ class S3HealthIndicatorTest {
 
     @Test
     void devRateLimiter_shouldUseServiceNameAndPerMinuteRefreshPeriod() {
-        DevModeConfig config = new DevModeConfig();
-        ReflectionTestUtils.setField(config, "googleBooksRequestLimitPerMinute", 10);
+        DevModeConfig config = new DevModeConfig(1440, 10, 10);
 
         RateLimiter limiter = config.googleBooksRateLimiter();
 

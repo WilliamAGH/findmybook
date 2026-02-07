@@ -21,17 +21,21 @@ import org.springframework.web.reactive.function.client.WebClient;
 @Configuration
 public class GoogleBooksConfig {
 
-    @Value("${google.books.api.base-url:https://www.googleapis.com/books/v1}")
-    private String googleBooksApiBaseUrl;
+    private final String googleBooksApiBaseUrl;
+    private final int maxResults;
+    private final int connectTimeout;
+    private final int readTimeout;
 
-    @Value("${google.books.api.max-results:40}")
-    private int maxResults;
-
-    @Value("${google.books.api.connect-timeout:5000}")
-    private int connectTimeout;
-
-    @Value("${google.books.api.read-timeout:5000}")
-    private int readTimeout;
+    public GoogleBooksConfig(
+            @Value("${google.books.api.base-url:https://www.googleapis.com/books/v1}") String googleBooksApiBaseUrl,
+            @Value("${google.books.api.max-results:40}") int maxResults,
+            @Value("${google.books.api.connect-timeout:5000}") int connectTimeout,
+            @Value("${google.books.api.read-timeout:5000}") int readTimeout) {
+        this.googleBooksApiBaseUrl = googleBooksApiBaseUrl;
+        this.maxResults = maxResults;
+        this.connectTimeout = connectTimeout;
+        this.readTimeout = readTimeout;
+    }
 
     /**
      * Creates and configures the WebClient for Google Books API

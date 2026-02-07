@@ -30,17 +30,20 @@ import java.net.URI;
 public class S3Config {
     private static final Logger logger = LoggerFactory.getLogger(S3Config.class);
 
-    @Value("${s3.access-key-id:${S3_ACCESS_KEY_ID:}}")
-    private String accessKeyId;
+    private final String accessKeyId;
+    private final String secretAccessKey;
+    private final String s3ServerUrl;
+    private final String s3Region;
 
-    @Value("${s3.secret-access-key:${S3_SECRET_ACCESS_KEY:}}")
-    private String secretAccessKey;
-
-    @Value("${s3.server-url:${S3_SERVER_URL:}}")
-    private String s3ServerUrl;
-
-    @Value("${s3.region:${AWS_REGION:us-west-2}}") // Default to us-west-2 if not specified
-    private String s3Region;
+    public S3Config(@Value("${s3.access-key-id:${S3_ACCESS_KEY_ID:}}") String accessKeyId,
+                    @Value("${s3.secret-access-key:${S3_SECRET_ACCESS_KEY:}}") String secretAccessKey,
+                    @Value("${s3.server-url:${S3_SERVER_URL:}}") String s3ServerUrl,
+                    @Value("${s3.region:${AWS_REGION:us-west-2}}") String s3Region) {
+        this.accessKeyId = accessKeyId;
+        this.secretAccessKey = secretAccessKey;
+        this.s3ServerUrl = s3ServerUrl;
+        this.s3Region = s3Region;
+    }
 
     /**
      * Creates and configures S3Client bean for AWS S3 interactions

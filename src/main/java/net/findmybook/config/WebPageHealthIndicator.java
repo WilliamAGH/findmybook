@@ -127,6 +127,12 @@ public class WebPageHealthIndicator {
                         .withDetail("path", path)
                         .withDetail("error", ex.getClass().getName())
                         .withDetail("message", ex.getMessage())
+                        .build()))
+                .onErrorResume(Throwable.class, ex -> Mono.just(Health.down()
+                        .withDetail(healthCheckName + "_status", "unexpected_error")
+                        .withDetail("path", path)
+                        .withDetail("error", ex.getClass().getName())
+                        .withDetail("message", ex.getMessage())
                         .build()));
     }
 }
