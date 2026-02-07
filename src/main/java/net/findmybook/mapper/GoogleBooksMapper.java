@@ -119,8 +119,8 @@ public class GoogleBooksMapper implements ExternalBookMapper {
         }
 
         for (JsonNode id : identifiers) {
-            if (id.has("type") && type.equals(id.get("type").asText())) {
-                String identifier = id.get("identifier").asText();
+            if (id.has("type") && id.has("identifier") && type.equals(id.get("type").asText())) {
+                String identifier = id.get("identifier").asText(null);
                 String sanitized = IsbnUtils.sanitize(identifier);
                 if (sanitized != null) {
                     return sanitized;
