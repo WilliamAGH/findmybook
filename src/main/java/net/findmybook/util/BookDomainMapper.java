@@ -57,16 +57,22 @@ public final class BookDomainMapper {
         book.setInfoLink(detail.infoLink());
         book.setQualifiers(copyMap(detail.tags()));
         book.setOtherEditions(toEditionInfo(detail.editions()));
+        String primaryCover = StringUtils.hasText(detail.coverS3Key())
+            ? detail.coverS3Key()
+            : detail.coverUrl();
+        String fallback = StringUtils.hasText(detail.coverFallbackUrl())
+            ? detail.coverFallbackUrl()
+            : detail.thumbnailUrl();
+        if (!StringUtils.hasText(fallback)) {
+            fallback = detail.coverUrl();
+        }
         CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
-            detail.coverS3Key(),
-            detail.coverFallbackUrl(),
+            primaryCover,
+            fallback,
             detail.coverWidth(),
             detail.coverHeight(),
             detail.coverHighResolution()
         );
-        String fallback = StringUtils.hasText(detail.coverFallbackUrl())
-            ? detail.coverFallbackUrl()
-            : detail.thumbnailUrl();
         setCoverImages(book, resolved, fallback);
         applyCoverMetadata(book, resolved.width(), resolved.height(), resolved.highResolution(), false);
         book.setDataSource(detail.dataSource());
@@ -83,14 +89,16 @@ public final class BookDomainMapper {
         book.setAverageRating(card.averageRating());
         book.setRatingsCount(card.ratingsCount());
         book.setQualifiers(copyMap(card.tags()));
+        String primaryCover = StringUtils.hasText(card.coverS3Key())
+            ? card.coverS3Key()
+            : card.coverUrl();
+        String fallback = StringUtils.hasText(card.fallbackCoverUrl())
+            ? card.fallbackCoverUrl()
+            : card.coverUrl();
         CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
-            card.coverS3Key(),
-            card.fallbackCoverUrl()
+            primaryCover,
+            fallback
         );
-        String fallback = card.fallbackCoverUrl();
-        if (!StringUtils.hasText(fallback)) {
-            fallback = card.coverUrl();
-        }
         setCoverImages(book, resolved, fallback);
         applyCoverMetadata(book, resolved.width(), resolved.height(), resolved.highResolution(), true);
         book.setRetrievedFrom("POSTGRES");
@@ -118,17 +126,19 @@ public final class BookDomainMapper {
         book.setAverageRating(item.averageRating());
         book.setRatingsCount(item.ratingsCount());
         book.setQualifiers(copyMap(item.tags()));
+        String primaryCover = StringUtils.hasText(item.coverS3Key())
+            ? item.coverS3Key()
+            : item.coverUrl();
+        String fallback = StringUtils.hasText(item.coverFallbackUrl())
+            ? item.coverFallbackUrl()
+            : item.coverUrl();
         CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
-            item.coverS3Key(),
-            item.coverFallbackUrl(),
+            primaryCover,
+            fallback,
             item.coverWidth(),
             item.coverHeight(),
             item.coverHighResolution()
         );
-        String fallback = item.coverFallbackUrl();
-        if (!StringUtils.hasText(fallback)) {
-            fallback = item.coverUrl();
-        }
         setCoverImages(book, resolved, fallback);
         applyCoverMetadata(book, resolved.width(), resolved.height(), resolved.highResolution(), true);
         book.setRetrievedFrom("POSTGRES");
@@ -265,9 +275,11 @@ public final class BookDomainMapper {
             : ImageDimensionUtils.isHighResolution(width, height);
         book.setIsCoverHighResolution(derivedHighRes);
 
-        if (enforceSearchThreshold
-            && !ImageDimensionUtils.meetsDisplayRequirements(width, height)) {
-            suppressCover(book, "image-below-display-requirements");
+        boolean hasDimensions = width != null && height != null;
+        boolean dimensionsInvalid = hasDimensions && !ImageDimensionUtils.areValid(width, height);
+        boolean aspectRatioInvalid = hasDimensions && !ImageDimensionUtils.hasValidAspectRatio(width, height);
+        if (enforceSearchThreshold && (dimensionsInvalid || aspectRatioInvalid)) {
+            suppressCover(book, dimensionsInvalid ? "image-invalid-dimensions" : "image-invalid-aspect-ratio");
         }
     }
 

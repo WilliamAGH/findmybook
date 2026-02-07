@@ -10,6 +10,7 @@ import net.findmybook.exception.CoverDownloadException;
 import net.findmybook.exception.CoverProcessingException;
 import net.findmybook.exception.CoverTooLargeException;
 import net.findmybook.exception.S3CoverUploadException;
+import net.findmybook.exception.S3UploadException;
 import net.findmybook.exception.UnsafeUrlException;
 import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.model.image.ImageDetails;
@@ -78,6 +79,11 @@ public class CoverS3UploadCoordinator {
                 event.getBookId());
             return;
         }
+        if (!s3BookCoverService.get().isUploadEnabled()) {
+            logger.debug("Skipping S3 upload for book {} because S3 uploads are disabled or unavailable.",
+                event.getBookId());
+            return;
+        }
 
         String canonicalImageUrl = CoverImageUrlSelector.resolveCanonicalImageUrl(
             event.getCanonicalImageUrl(),
@@ -103,6 +109,10 @@ public class CoverS3UploadCoordinator {
                                String canonicalImageUrl,
                                String source,
                                S3BookCoverService service) {
+        if (!service.isUploadEnabled()) {
+            logger.debug("Skipping S3 upload for book {} because upload availability changed before execution.", bookId);
+            return;
+        }
         s3UploadAttempts.increment();
         Timer.Sample sample = Timer.start();
 
@@ -209,6 +219,10 @@ public class CoverS3UploadCoordinator {
                 logger.error("S3 upload failed for book {} (non-retryable): unsafe URL blocked: {}",
                     bookId,
                     unsafeUrlException.getImageUrl());
+            case S3UploadException s3UploadException ->
+                logger.warn("S3 upload skipped for book {} due to runtime configuration: {}",
+                    bookId,
+                    s3UploadException.getMessage());
             default ->
                 logger.error("S3 upload failed for book {} after retries: {}. Metrics: attempts={}, successes={}, failures={}",
                     bookId,

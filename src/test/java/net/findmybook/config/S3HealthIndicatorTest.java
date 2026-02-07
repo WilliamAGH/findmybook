@@ -5,6 +5,12 @@ import org.springframework.boot.health.contributor.Status;
 import org.springframework.boot.web.server.context.WebServerApplicationContext;
 import org.springframework.boot.web.server.context.WebServerInitializedEvent;
 import org.springframework.boot.web.server.WebServer;
+import org.springframework.mock.web.MockServletContext;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.context.support.StaticWebApplicationContext;
+import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
+import org.springframework.web.servlet.handler.SimpleUrlHandlerMapping;
+import org.springframework.web.servlet.resource.ResourceHttpRequestHandler;
 
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.test.StepVerifier;
@@ -16,8 +22,10 @@ import software.amazon.awssdk.services.s3.model.HeadBucketResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 
 import java.time.Duration;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -183,5 +191,28 @@ class S3HealthIndicatorTest {
 
         assertEquals("googleBooksServiceRateLimiter", limiter.getName());
         assertEquals(Duration.ofMinutes(1), limiter.getRateLimiterConfig().getLimitRefreshPeriod());
+    }
+
+    @Test
+    void webConfig_shouldSetNoCacheForFrontendAssets() {
+        MockServletContext servletContext = new MockServletContext();
+        StaticWebApplicationContext applicationContext = new StaticWebApplicationContext();
+        applicationContext.setServletContext(servletContext);
+        applicationContext.refresh();
+
+        ResourceHandlerRegistry registry = new ResourceHandlerRegistry(applicationContext, servletContext);
+        new WebConfig("book-covers").addResourceHandlers(registry);
+
+        Object rawHandlerMapping = ReflectionTestUtils.invokeMethod(registry, "getHandlerMapping");
+        assertNotNull(rawHandlerMapping);
+
+        SimpleUrlHandlerMapping handlerMapping = assertInstanceOf(SimpleUrlHandlerMapping.class, rawHandlerMapping);
+        Map<String, ?> urlMap = handlerMapping.getUrlMap();
+        Object frontendHandler = urlMap.get("/frontend/**");
+        assertNotNull(frontendHandler);
+
+        ResourceHttpRequestHandler resourceHandler = assertInstanceOf(ResourceHttpRequestHandler.class, frontendHandler);
+        assertNotNull(resourceHandler.getCacheControl());
+        assertEquals("no-cache, must-revalidate", resourceHandler.getCacheControl().getHeaderValue());
     }
 }

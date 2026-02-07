@@ -30,7 +30,9 @@ class CoverUpdateNotifierServiceTest {
 
     @BeforeEach
     void setUp() {
-        messagingTemplate = Mockito.mock(MessageSendingOperations.class);
+        @SuppressWarnings("unchecked")
+        MessageSendingOperations<String> mockedTemplate = Mockito.mock(MessageSendingOperations.class);
+        messagingTemplate = mockedTemplate;
         payloadFactory = Mockito.mock(CoverRealtimePayloadFactory.class);
         coverS3UploadCoordinator = Mockito.mock(CoverS3UploadCoordinator.class);
         service = new CoverUpdateNotifierService(messagingTemplate, payloadFactory, coverS3UploadCoordinator);

@@ -106,6 +106,13 @@ public class S3CoverStorageGateway {
     }
 
     /**
+     * Indicates if S3 uploads are currently available (read path plus write flag).
+     */
+    public boolean isUploadAvailable() {
+        return isReadAvailable() && s3CoverStorageProperties.writeEnabled();
+    }
+
+    /**
      * Fails fast when upload preconditions are not met.
      */
     public void ensureUploadReady(String bookId, String imageUrl) {

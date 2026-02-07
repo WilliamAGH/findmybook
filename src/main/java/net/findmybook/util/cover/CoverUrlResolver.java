@@ -10,6 +10,7 @@ import org.springframework.util.StringUtils;
 public final class CoverUrlResolver {
 
     private static final java.util.concurrent.atomic.AtomicReference<String> CDN_BASE_OVERRIDE = new java.util.concurrent.atomic.AtomicReference<>();
+    private static final String PLACEHOLDER_FILENAME = "placeholder-book-cover.svg";
 
     private CoverUrlResolver() {
     }
@@ -61,20 +62,26 @@ public final class CoverUrlResolver {
 
     public static boolean isCdnUrl(String url) {
         String cdnBase = currentCdnBase();
-        return StringUtils.hasText(url) && StringUtils.hasText(cdnBase) && url.startsWith(cdnBase);
+        return StringUtils.hasText(url)
+            && StringUtils.hasText(cdnBase)
+            && isHttp(cdnBase)
+            && url.startsWith(cdnBase);
     }
 
     private static UrlResolution resolveUrl(String primary, String fallbackExternal) {
         String candidate = StringUtils.hasText(primary) ? primary.trim() : null;
 
         if (StringUtils.hasText(candidate)) {
+            if (isPlaceholderPath(candidate)) {
+                return new UrlResolution(ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH, null, false);
+            }
             if (isHttp(candidate) || isDataUri(candidate)) {
                 return new UrlResolution(candidate, null, false);
             }
 
             // StringUtils.hasText() already checks for null, but explicit check satisfies static analysis
             String cdnBase = currentCdnBase();
-            if (candidate != null && StringUtils.hasText(cdnBase)) {
+            if (candidate != null && StringUtils.hasText(cdnBase) && isHttp(cdnBase)) {
                 String key = candidate.startsWith("/") ? candidate.substring(1) : candidate;
                 if (StringUtils.hasText(key)) {
                     return new UrlResolution(cdnBase + key, key, true);
@@ -84,6 +91,9 @@ public final class CoverUrlResolver {
 
         if (StringUtils.hasText(fallbackExternal)) {
             String external = fallbackExternal.trim();
+            if (isPlaceholderPath(external)) {
+                return new UrlResolution(ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH, null, false);
+            }
             if (isHttp(external) || isDataUri(external)) {
                 return new UrlResolution(external, null, false);
             }
@@ -176,6 +186,13 @@ public final class CoverUrlResolver {
         return value.startsWith("data:image");
     }
 
+    private static boolean isPlaceholderPath(String value) {
+        if (!StringUtils.hasText(value)) {
+            return false;
+        }
+        return value.contains(PLACEHOLDER_FILENAME);
+    }
+
     private static String resolveCdnBaseFromEnvironment() {
         String configured = System.getProperty("s3.cdn-url");
         if (!StringUtils.hasText(configured)) {
@@ -188,6 +205,9 @@ public final class CoverUrlResolver {
             return "";
         }
         String trimmed = configured.trim();
+        if (!isHttp(trimmed)) {
+            return "";
+        }
         return trimmed.endsWith("/") ? trimmed : trimmed + "/";
     }
 

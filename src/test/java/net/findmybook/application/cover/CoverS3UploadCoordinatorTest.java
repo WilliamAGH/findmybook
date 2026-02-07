@@ -34,6 +34,7 @@ class CoverS3UploadCoordinatorTest {
     void setUp() {
         s3BookCoverService = Mockito.mock(S3BookCoverService.class);
         coverPersistenceService = Mockito.mock(CoverPersistenceService.class);
+        when(s3BookCoverService.isUploadEnabled()).thenReturn(true);
         coordinator = new CoverS3UploadCoordinator(
             Optional.of(s3BookCoverService),
             coverPersistenceService,
@@ -105,6 +106,27 @@ class CoverS3UploadCoordinatorTest {
             false,
             "GOOGLE_BOOKS",
             Map.of(),
+            null,
+            "GOOGLE_BOOKS"
+        );
+
+        coordinator.triggerUpload(event);
+
+        verify(s3BookCoverService, never()).uploadCoverToS3Async(any(), any(), any());
+        verify(coverPersistenceService, never()).updateAfterS3Upload(any(), any());
+    }
+
+    @Test
+    void should_SkipUpload_When_S3UploadsDisabled() {
+        UUID bookId = UUID.randomUUID();
+        when(s3BookCoverService.isUploadEnabled()).thenReturn(false);
+        BookUpsertEvent event = new BookUpsertEvent(
+            bookId.toString(),
+            "legacy-code",
+            "Legacy Code",
+            true,
+            "GOOGLE_BOOKS",
+            Map.of("thumbnail", "https://covers.example.com/thumb.jpg"),
             null,
             "GOOGLE_BOOKS"
         );

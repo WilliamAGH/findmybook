@@ -3,7 +3,6 @@ package net.findmybook.dto;
 import net.findmybook.model.Book;
 import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.util.BookDomainMapper;
-import net.findmybook.util.cover.ImageDimensionUtils;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -38,8 +37,8 @@ class BookDomainMapperCoverSourceTest {
     }
 
     @Test
-    @DisplayName("toBook(BookCard) suppresses covers that do not meet display requirements")
-    void toBookFromCard_suppressesUndersizedCover() {
+    @DisplayName("toBook(BookCard) keeps valid non-Google covers even when dimensions are small")
+    void toBookFromCard_keepsUndersizedCoverWhenUrlIsValid() {
         BookCard card = new BookCard(
             "undersized-card",
             "undersized-slug",
@@ -56,13 +55,10 @@ class BookDomainMapperCoverSourceTest {
         Book book = BookDomainMapper.fromCard(card);
 
         assertThat(book).isNotNull();
-        assertThat(book.getCoverImages()).isNull();
-        assertThat(book.getExternalImageUrl()).isNull();
+        assertThat(book.getCoverImages()).isNotNull();
+        assertThat(book.getExternalImageUrl()).isEqualTo("https://cdn.example.com/covers/undersized-fallback.jpg?w=120&h=160");
         assertThat(book.getS3ImagePath()).isNull();
-        assertThat(book.getQualifiers())
-            .containsEntry("cover.suppressed", true)
-            .containsEntry("cover.suppressed.reason", "image-below-display-requirements")
-            .containsEntry("cover.suppressed.minHeight", ImageDimensionUtils.MIN_SEARCH_RESULT_HEIGHT);
+        assertThat(book.getQualifiers()).doesNotContainKey("cover.suppressed");
     }
 
     @Test
@@ -108,6 +104,36 @@ class BookDomainMapperCoverSourceTest {
         assertThat(book).isNotNull();
         assertThat(book.getCoverImages()).isNotNull();
         assertThat(book.getCoverImages().getSource()).isEqualTo(CoverImageSource.UNDEFINED);
+    }
+
+    @Test
+    @DisplayName("toBook(BookListItem) uses primary coverUrl when fallback URL is absent")
+    void toBookFromListItem_usesPrimaryCoverUrlWhenFallbackMissing() {
+        BookListItem item = new BookListItem(
+            "list-item-id",
+            "list-item-slug",
+            "List Item Title",
+            "Description",
+            List.of("Author"),
+            List.of("Category"),
+            "https://covers.openlibrary.org/b/id/9323420-L.jpg",
+            null,
+            null,
+            128,
+            192,
+            false,
+            4.1,
+            55,
+            Map.<String, Object>of()
+        );
+
+        Book book = BookDomainMapper.fromListItem(item);
+
+        assertThat(book).isNotNull();
+        assertThat(book.getCoverImages()).isNotNull();
+        assertThat(book.getCoverImages().getPreferredUrl()).isEqualTo("https://covers.openlibrary.org/b/id/9323420-L.jpg");
+        assertThat(book.getExternalImageUrl()).isEqualTo("https://covers.openlibrary.org/b/id/9323420-L.jpg");
+        assertThat(book.getQualifiers()).doesNotContainKey("cover.suppressed");
     }
 
     @Test

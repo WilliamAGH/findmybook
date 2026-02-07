@@ -111,13 +111,37 @@ public final class CoverPrioritizer {
 
     private static int sourceRank(Book book) {
         if (book == null) {
-            return 1;
+            return 5;
         }
         if (Boolean.TRUE.equals(book.getInPostgres())) {
             return 0;
         }
+        String provider = resolveExternalProvider(book);
+        if ("OPEN_LIBRARY".equals(provider) || "OPEN_LIBRARY_API".equals(provider)) {
+            return 1;
+        }
+        if ("GOOGLE_BOOKS".equals(provider) || "GOOGLE_BOOKS_API".equals(provider) || "GOOGLE_API".equals(provider)) {
+            return 2;
+        }
         String source = qualifierAsString(book, "search.source");
-        return "EXTERNAL_FALLBACK".equals(source) ? 2 : 1;
+        return "EXTERNAL_FALLBACK".equals(source) ? 3 : 4;
+    }
+
+    private static String resolveExternalProvider(Book book) {
+        if (book == null) {
+            return null;
+        }
+        String provider = qualifierAsString(book, "search.provider");
+        if (!StringUtils.hasText(provider)) {
+            provider = book.getDataSource();
+        }
+        if (!StringUtils.hasText(provider)) {
+            provider = book.getRetrievedFrom();
+        }
+        if (!StringUtils.hasText(provider)) {
+            return null;
+        }
+        return provider.trim().toUpperCase(Locale.ROOT);
     }
 
     private static int matchTypeRank(Book book) {

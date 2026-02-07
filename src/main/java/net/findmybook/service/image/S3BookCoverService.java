@@ -68,6 +68,13 @@ public class S3BookCoverService implements ExternalCoverService {
     }
 
     /**
+     * Indicates whether uploads are expected to run in the current runtime configuration.
+     */
+    public boolean isUploadEnabled() {
+        return s3CoverStorageGateway.isUploadAvailable();
+    }
+
+    /**
      * Resolves the first available S3-backed cover for a book.
      */
     @Override
@@ -117,7 +124,7 @@ public class S3BookCoverService implements ExternalCoverService {
             s3CoverStorageGateway.ensureUploadReady(bookId, imageUrl);
             S3UploadValidation.validateUploadInput(imageUrl, bookId);
         } catch (S3UploadException exception) {
-            logger.error("Invalid S3 upload request for book {}: {}", bookId, exception.getMessage(), exception);
+            logger.warn("Skipping S3 upload for book {}: {}", bookId, exception.getMessage());
             return Mono.error(exception);
         }
 
@@ -241,7 +248,7 @@ public class S3BookCoverService implements ExternalCoverService {
                 request.bookId()
             );
         } catch (S3UploadException exception) {
-            logger.error("Invalid processed S3 upload request for book {}: {}", request.bookId(), exception.getMessage(), exception);
+            logger.warn("Skipping processed S3 upload for book {}: {}", request.bookId(), exception.getMessage());
             return Mono.error(exception);
         }
 
