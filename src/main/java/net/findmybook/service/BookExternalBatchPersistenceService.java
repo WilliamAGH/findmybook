@@ -1,5 +1,6 @@
 package net.findmybook.service;
 
+import jakarta.annotation.PreDestroy;
 import net.findmybook.dto.BookAggregate;
 import net.findmybook.model.Book;
 import net.findmybook.support.retry.AdvisoryLockRetrySupport;
@@ -55,6 +56,7 @@ class BookExternalBatchPersistenceService {
     private final ObjectMapper objectMapper;
     private final GoogleBooksMapper googleBooksMapper;
     private final BookUpsertService bookUpsertService;
+    private volatile boolean shutdownInProgress = false;
 
     BookExternalBatchPersistenceService(ObjectMapper objectMapper, GoogleBooksMapper googleBooksMapper, BookUpsertService bookUpsertService) {
         this.objectMapper = objectMapper;
@@ -63,6 +65,10 @@ class BookExternalBatchPersistenceService {
     }
 
     void persistBooksAsync(List<Book> books, String context, Runnable searchViewRefreshTrigger) {
+        if (shutdownInProgress) {
+            logger.info("[EXTERNAL-API] [{}] Skipping async persistence because shutdown is in progress", context);
+            return;
+        }
         if (books == null) {
             throw new IllegalArgumentException("persistBooksAsync requires a non-null books list (context=" + context + ")");
         }
@@ -113,6 +119,10 @@ class BookExternalBatchPersistenceService {
         if (result.failureCount() > 0) {
             String summary = String.format("[EXTERNAL-API] [%s] Batch persistence completed with failures: %d succeeded, %d failed (%d ms)",
                 context, result.successCount(), result.failureCount(), elapsed);
+            if (shutdownInProgress) {
+                logger.info("[EXTERNAL-API] [{}] {} (suppressed during shutdown)", context, summary);
+                return;
+            }
             logger.warn(summary);
             throw new IllegalStateException(summary);
         }
@@ -126,6 +136,11 @@ class BookExternalBatchPersistenceService {
         int failureCount = 0;
 
         for (Book book : books) {
+            if (shutdownInProgress) {
+                logger.info("[EXTERNAL-API] [{}] Shutdown in progress; ending batch early ({} succeeded, {} failed)",
+                    context, successCount, failureCount);
+                break;
+            }
             if (isInvalidBook(book, context)) {
                 continue;
             }
@@ -135,6 +150,11 @@ class BookExternalBatchPersistenceService {
             failureCount += outcome.failures();
 
             if (outcome.shouldAbort()) {
+                if (shutdownInProgress) {
+                    logger.info("[EXTERNAL-API] [{}] Stopping batch due to systemic error during shutdown ({} succeeded, {} failed)",
+                        context, successCount, failureCount);
+                    break;
+                }
                 throw new IllegalStateException(
                     "Systemic database error during batch persistence (" + successCount + " succeeded, " + failureCount + " failed before abort)");
             }
@@ -161,6 +181,11 @@ class BookExternalBatchPersistenceService {
                 ? new PersistenceOutcome(1, 0, false)
                 : new PersistenceOutcome(0, 1, false);
         } catch (RuntimeException ex) {
+            if (shutdownInProgress && isSystemicDatabaseError(ex)) {
+                logger.info("[EXTERNAL-API] [{}] Skipping book {} during shutdown after systemic error: {}",
+                    context, book.getId(), ex.getMessage());
+                return new PersistenceOutcome(0, 0, true);
+            }
             logger.error("[EXTERNAL-API] [{}] Failed to persist book {}: {}", context, book.getId(), ex.getMessage(), ex);
 
             if (isSystemicDatabaseError(ex)) {
@@ -218,6 +243,11 @@ class BookExternalBatchPersistenceService {
         } catch (DataAccessException | IllegalArgumentException | IllegalStateException ex) {
             logger.error("Error persisting via BookUpsertService for book {}: {}", bookIdForLogging, ex.getMessage(), ex);
             if (isSystemicDatabaseError(ex)) {
+                if (shutdownInProgress) {
+                    logger.info("Skipping persistence for book {} during shutdown because database connectivity is unavailable",
+                        bookIdForLogging);
+                    return false;
+                }
                 if (ex instanceof IllegalStateException stateException) {
                     throw stateException;
                 }
@@ -225,6 +255,12 @@ class BookExternalBatchPersistenceService {
             }
             throw new IllegalStateException("Error persisting via BookUpsertService for book " + bookIdForLogging, ex);
         }
+    }
+
+    @PreDestroy
+    void markShutdownInProgress() {
+        shutdownInProgress = true;
+        logger.info("[EXTERNAL-API] Marked batch persistence service as shutting down");
     }
 
     boolean isSystemicDatabaseError(Throwable ex) {

@@ -187,6 +187,29 @@ class BookDataOrchestratorPersistenceScenariosTest {
     }
 
     @Test
+    void persistBook_returnsFalseDuringShutdown_When_SystemicDatabaseErrorOccurs() {
+        when(googleBooksMapper.map(any())).thenReturn(BookAggregate.builder()
+            .title("Shutdown Fixture")
+            .slugBase("shutdown-fixture")
+            .identifiers(BookAggregate.ExternalIdentifiers.builder()
+                .source("OPEN_LIBRARY")
+                .externalId("OL-SHUTDOWN-1")
+                .build())
+            .build());
+        when(bookUpsertService.upsert(any()))
+            .thenThrow(new DataAccessResourceFailureException("Connection closed"));
+        ReflectionTestUtils.invokeMethod(batchPersistenceService, "markShutdownInProgress");
+
+        Book incoming = new Book();
+        incoming.setId("OL-SHUTDOWN-1");
+        incoming.setTitle("Shutdown Fixture");
+
+        boolean persisted = batchPersistenceService.persistBook(incoming, null, null);
+
+        assertThat(persisted).isFalse();
+    }
+
+    @Test
     void bookUpsertService_findExistingBookId_acquiresAdvisoryLockWithQueryExecution() {
         JdbcTemplate lockJdbcTemplate = mock(JdbcTemplate.class);
         BookUpsertTransactionService transactionService = mock(BookUpsertTransactionService.class);

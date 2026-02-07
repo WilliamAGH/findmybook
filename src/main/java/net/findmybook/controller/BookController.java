@@ -333,6 +333,11 @@ public class BookController {
     }
 
     private BookDto locateBookDto(String identifier) {
+        Optional<BookDto> canonicalBook = resolveCanonicalBookDto(identifier);
+        if (canonicalBook.isPresent()) {
+            return canonicalBook.get();
+        }
+
         Optional<BookDetail> bySlug = bookSearchService.fetchBookDetailBySlug(identifier);
         if (bySlug.isPresent()) {
             return BookDtoMapper.fromDetail(enrichWithEditions(bySlug.get()));
@@ -352,6 +357,19 @@ public class BookController {
             .map(this::enrichWithEditions)
             .map(BookDtoMapper::fromDetail)
             .orElse(null);
+    }
+
+    private Optional<BookDto> resolveCanonicalBookDto(String identifier) {
+        if (!StringUtils.hasText(identifier) || bookDataOrchestrator == null) {
+            return Optional.empty();
+        }
+
+        Optional<Book> bySlug = bookDataOrchestrator.getBookFromDatabaseBySlug(identifier);
+        if (bySlug.isPresent()) {
+            return bySlug.map(BookDtoMapper::toDto);
+        }
+
+        return bookDataOrchestrator.getBookFromDatabase(identifier).map(BookDtoMapper::toDto);
     }
 
     private Mono<BookDto> fetchBookViaFallback(String identifier) {

@@ -33,15 +33,18 @@ public class HomePageSectionsService {
     private final NewYorkTimesService newYorkTimesService;
     private final BookSearchService bookSearchService;
     private final BookIdentifierResolver bookIdentifierResolver;
+    private final BookDataOrchestrator bookDataOrchestrator;
 
     public HomePageSectionsService(RecentlyViewedService recentlyViewedService,
                                    NewYorkTimesService newYorkTimesService,
                                    BookSearchService bookSearchService,
-                                   BookIdentifierResolver bookIdentifierResolver) {
+                                   BookIdentifierResolver bookIdentifierResolver,
+                                   BookDataOrchestrator bookDataOrchestrator) {
         this.recentlyViewedService = recentlyViewedService;
         this.newYorkTimesService = newYorkTimesService;
         this.bookSearchService = bookSearchService;
         this.bookIdentifierResolver = bookIdentifierResolver;
+        this.bookDataOrchestrator = bookDataOrchestrator;
     }
 
     public Mono<List<BookCard>> loadCurrentBestsellers(int maxBestsellers) {
@@ -92,6 +95,17 @@ public class HomePageSectionsService {
             return ordered;
         })
             .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /**
+     * Loads top category facets for the categories SPA route.
+     *
+     * @param limit maximum number of facets to return
+     * @param minBooks minimum number of books required for inclusion
+     * @return ordered category facet list
+     */
+    public List<BookSearchService.CategoryFacet> loadCategoryFacets(int limit, int minBooks) {
+        return bookSearchService.fetchCategoryFacets(limit, minBooks);
     }
 
     public Mono<List<Book>> loadSimilarBooks(String bookIdentifier, int recommendationLimit, int maxReturnedBooks) {
@@ -155,6 +169,16 @@ public class HomePageSectionsService {
     }
 
     private Optional<Book> findBook(String identifier) {
+        Optional<Book> canonicalBySlug = bookDataOrchestrator.getBookFromDatabaseBySlug(identifier);
+        if (canonicalBySlug.isPresent()) {
+            return canonicalBySlug;
+        }
+
+        Optional<Book> canonicalById = bookDataOrchestrator.getBookFromDatabase(identifier);
+        if (canonicalById.isPresent()) {
+            return canonicalById;
+        }
+
         Optional<BookDetail> bySlug = bookSearchService.fetchBookDetailBySlug(identifier);
         if (bySlug.isPresent()) {
             return Optional.of(BookDomainMapper.fromDetail(bySlug.get()));

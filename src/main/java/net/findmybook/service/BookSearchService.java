@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.util.StringUtils;
 
 @Service
 @Slf4j
@@ -28,6 +29,9 @@ public class BookSearchService {
 
     private static final int DEFAULT_LIMIT = 20;
     private static final int MAX_LIMIT = 200;
+    private static final int DEFAULT_CATEGORY_FACET_LIMIT = 24;
+    private static final int MIN_CATEGORY_FACET_LIMIT = 1;
+    private static final int MAX_CATEGORY_FACET_MIN_BOOKS = 10_000;
 
     private final JdbcTemplate jdbcTemplate;
     private final ExternalBookIdResolver externalBookIdResolver;
@@ -141,6 +145,50 @@ public class BookSearchService {
         );
     }
 
+    /**
+     * Loads the most populated category/genre facets for the categories route.
+     *
+     * @param limit maximum number of facets to return
+     * @param minBooks minimum number of books required for a category to be included
+     * @return descending list of category facets
+     */
+    public List<CategoryFacet> fetchCategoryFacets(Integer limit, Integer minBooks) {
+        if (jdbcTemplate == null) {
+            throw new IllegalStateException("BookSearchService requires JdbcTemplate but it is null — database may be unavailable");
+        }
+        int safeLimit = PagingUtils.safeLimit(
+            limit != null ? limit : 0,
+            DEFAULT_CATEGORY_FACET_LIMIT,
+            MIN_CATEGORY_FACET_LIMIT,
+            MAX_LIMIT
+        );
+        int safeMinBooks = minBooks == null ? 1 : Math.max(0, Math.min(minBooks, MAX_CATEGORY_FACET_MIN_BOOKS));
+        String sql = """
+            SELECT bc.display_name AS category_name,
+                   COUNT(DISTINCT bcj.book_id)::int AS book_count
+            FROM book_collections bc
+            JOIN book_collections_join bcj ON bcj.collection_id = bc.id
+            WHERE bc.collection_type = 'CATEGORY'
+              AND bc.display_name IS NOT NULL
+              AND TRIM(bc.display_name) <> ''
+            GROUP BY bc.display_name
+            HAVING COUNT(DISTINCT bcj.book_id) >= ?
+            ORDER BY COUNT(DISTINCT bcj.book_id) DESC, bc.display_name ASC
+            LIMIT ?
+            """;
+        return jdbcTemplate.query(
+            sql,
+            ps -> {
+                ps.setInt(1, safeMinBooks);
+                ps.setInt(2, safeLimit);
+            },
+            (rs, rowNum) -> new CategoryFacet(
+                rs.getString("category_name"),
+                rs.getInt("book_count")
+            )
+        );
+    }
+
     public List<BookCard> fetchBookCards(List<UUID> bookIds) {
         return requireBookQueryRepository().fetchBookCards(bookIds);
     }
@@ -250,6 +298,16 @@ public class BookSearchService {
     }
 
     public record AuthorResult(String authorId, String authorName, long bookCount, double relevanceScore) {
+    }
+
+    public record CategoryFacet(String name, int bookCount) {
+        public CategoryFacet {
+            name = name == null ? null : name.trim();
+            if (!StringUtils.hasText(name)) {
+                throw new IllegalArgumentException("Category facet name cannot be blank");
+            }
+            bookCount = Math.max(0, bookCount);
+        }
     }
 
     public record IsbnSearchResult(UUID bookId,

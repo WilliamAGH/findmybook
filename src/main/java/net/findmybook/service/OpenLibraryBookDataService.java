@@ -41,6 +41,7 @@ public class OpenLibraryBookDataService {
 
     private static final int DEFAULT_SEARCH_LIMIT = 40;
     private static final int WORK_DETAILS_CONCURRENCY = 6;
+    private static final int WORK_DETAILS_MAX_ENRICHMENTS = 12;
     private static final Duration WORK_DETAILS_TIMEOUT = Duration.ofSeconds(3);
     private static final String SEARCH_FIELDS =
         "key,title,author_name,isbn,cover_i,first_publish_year,number_of_pages_median,subject,publisher,language,first_sentence";
@@ -204,15 +205,21 @@ public class OpenLibraryBookDataService {
     }
 
     private Flux<Book> enrichWithWorkDetails(Flux<Book> books, String queryValue) {
-        return books.flatMapSequential(
-            book -> fetchWorkDetails(book, queryValue),
-            WORK_DETAILS_CONCURRENCY
-        );
+        return books
+            .index()
+            .flatMapSequential(indexedBook -> {
+                long resultIndex = indexedBook.getT1();
+                Book book = indexedBook.getT2();
+                if (resultIndex >= WORK_DETAILS_MAX_ENRICHMENTS) {
+                    return Mono.just(book);
+                }
+                return fetchWorkDetails(book, queryValue);
+            }, WORK_DETAILS_CONCURRENCY);
     }
 
     private Mono<Book> fetchWorkDetails(Book book, String queryValue) {
         if (book == null || !StringUtils.hasText(book.getId())) {
-            return Mono.just(book);
+            return Mono.justOrEmpty(book);
         }
 
         return webClient.get()
@@ -337,23 +344,23 @@ public class OpenLibraryBookDataService {
         }
         if (firstSentenceNode.isArray()) {
             for (JsonNode sentenceNode : firstSentenceNode) {
-                if (sentenceNode == null || sentenceNode.isNull()) {
-                    continue;
-                }
-                if (sentenceNode.isString()) {
-                    String sentence = emptyToNull(sentenceNode.asString());
-                    if (StringUtils.hasText(sentence)) {
-                        return sentence;
-                    }
-                    continue;
-                }
-                String nestedValue = emptyToNull(sentenceNode.path("value").asString());
-                if (StringUtils.hasText(nestedValue)) {
-                    return nestedValue;
+                String result = extractFromSentenceNode(sentenceNode);
+                if (StringUtils.hasText(result)) {
+                    return result;
                 }
             }
         }
         return null;
+    }
+
+    private static String extractFromSentenceNode(JsonNode sentenceNode) {
+        if (sentenceNode == null || sentenceNode.isNull()) {
+            return null;
+        }
+        if (sentenceNode.isString()) {
+            return emptyToNull(sentenceNode.asString());
+        }
+        return emptyToNull(sentenceNode.path("value").asString());
     }
 
     private static String extractWorkDescription(JsonNode workNode) {

@@ -28,6 +28,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -297,6 +298,7 @@ class SearchPaginationServiceTest {
             .build();
 
         when(bookSearchService.searchBooks("fallback", 24)).thenReturn(List.of());
+        when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
         when(googleApiFetcher.streamSearchItems("fallback", 24, "newest", null, true))
             .thenAnswer(inv -> Flux.just(node));
         when(googleApiFetcher.streamSearchItems("fallback", 24, "newest", null, false))
@@ -388,6 +390,7 @@ class SearchPaginationServiceTest {
 
         when(bookSearchService.searchBooks("fallback", 4)).thenReturn(List.of());
         when(openLibraryBookDataService.queryBooksByEverything("fallback")).thenReturn(Flux.just(openLibraryOnly));
+        when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
         when(googleApiFetcher.streamSearchItems("fallback", 3, "newest", null, true)).thenReturn(Flux.just(node));
         when(googleApiFetcher.isFallbackAllowed()).thenReturn(false);
         when(googleBooksMapper.map(node)).thenReturn(aggregate);
@@ -471,6 +474,7 @@ class SearchPaginationServiceTest {
 
         when(bookSearchService.searchBooks("fallback", 4)).thenReturn(List.of());
         when(openLibraryBookDataService.queryBooksByEverything("fallback")).thenReturn(Flux.just(openLibraryOnly));
+        when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
         when(googleApiFetcher.streamSearchItems("fallback", 3, "newest", null, true))
             .thenReturn(Flux.error(new IllegalStateException("rate limited")));
         when(googleApiFetcher.isFallbackAllowed()).thenReturn(false);
@@ -550,6 +554,7 @@ class SearchPaginationServiceTest {
         assertThat(page).isNotNull();
         assertThat(page.pageItems()).extracting(Book::getId)
             .containsExactly(postgresCovered.toString(), "OL-OPEN-1", postgresSuppressed.toString());
+        verify(eventPublisher, timeout(300).times(0)).publishEvent(any());
         verifyNoInteractions(googleApiFetcher);
     }
 
@@ -653,6 +658,67 @@ class SearchPaginationServiceTest {
     }
 
     @Test
+    @DisplayName("search() uses unauthenticated Google fallback when API key is unavailable")
+    void should_UseUnauthenticatedGoogleFallback_When_ApiKeyMissing() {
+        when(bookSearchService.searchBooks("distributed systems", 24)).thenReturn(List.of());
+        when(openLibraryBookDataService.queryBooksByEverything("distributed systems"))
+            .thenReturn(Flux.empty());
+
+        ObjectMapper mapper = new ObjectMapper();
+        ObjectNode node = mapper.createObjectNode();
+        node.put("id", "google-vol-unauth");
+        ObjectNode volumeInfo = node.putObject("volumeInfo");
+        volumeInfo.put("title", "Pragmatic Distributed Systems");
+
+        BookAggregate aggregate = BookAggregate.builder()
+            .title("Pragmatic Distributed Systems")
+            .authors(List.of("Distributed Author"))
+            .slugBase("pragmatic-distributed-systems")
+            .identifiers(BookAggregate.ExternalIdentifiers.builder()
+                .source("GOOGLE_BOOKS")
+                .externalId("google-vol-unauth")
+                .imageLinks(Map.of("thumbnail", "https://example.test/google-unauth.jpg"))
+                .build())
+            .build();
+
+        when(googleApiFetcher.isApiKeyAvailable()).thenReturn(false);
+        when(googleApiFetcher.isFallbackAllowed()).thenReturn(true);
+        when(googleApiFetcher.streamSearchItems("distributed systems", 24, "relevance", null, false))
+            .thenReturn(Flux.just(node));
+        when(googleBooksMapper.map(node)).thenReturn(aggregate);
+
+        SearchPaginationService fallbackService = new SearchPaginationService(
+            bookSearchService,
+            bookQueryRepository,
+            Optional.of(googleApiFetcher),
+            Optional.of(googleBooksMapper),
+            Optional.of(openLibraryBookDataService),
+            Optional.of(bookDataOrchestrator),
+            Optional.of(eventPublisher),
+            true
+        );
+
+        SearchPaginationService.SearchRequest request = new SearchPaginationService.SearchRequest(
+            "distributed systems",
+            0,
+            12,
+            "author",
+            CoverImageSource.ANY,
+            ImageResolutionPreference.ANY
+        );
+
+        SearchPaginationService.SearchPage page = fallbackService.search(request).block();
+
+        assertThat(page).isNotNull();
+        assertThat(page.totalUnique()).isEqualTo(1);
+        assertThat(page.pageItems()).extracting(Book::getId).containsExactly("google-vol-unauth");
+        verify(googleApiFetcher, times(0))
+            .streamSearchItems("distributed systems", 24, "relevance", null, true);
+        verify(googleApiFetcher, times(1))
+            .streamSearchItems("distributed systems", 24, "relevance", null, false);
+    }
+
+    @Test
     @DisplayName("search() publishes realtime external candidates when Postgres has baseline results")
     void searchPublishesRealtimeExternalCandidates() {
         UUID postgresId = UUID.randomUUID();
@@ -680,6 +746,7 @@ class SearchPaginationServiceTest {
                 .build())
             .build();
 
+        when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
         when(googleApiFetcher.streamSearchItems("distributed systems", 12, "relevance", null, true))
             .thenReturn(Flux.just(node));
         when(googleApiFetcher.isFallbackAllowed()).thenReturn(false);
@@ -721,8 +788,8 @@ class SearchPaginationServiceTest {
     }
 
     @Test
-    @DisplayName("search() keeps Open Library realtime updates flowing when Google realtime fails")
-    void should_KeepOpenLibraryRealtime_When_GoogleRealtimeFails() {
+    @DisplayName("search() skips realtime updates when fallback already merged external results")
+    void should_SkipRealtime_When_FallbackAlreadyProvidedExternalResults() {
         UUID postgresId = UUID.randomUUID();
         Book openRealtime = buildOpenLibraryCandidate("OL-REALTIME-1", "Open Realtime Result");
 
@@ -732,9 +799,6 @@ class SearchPaginationServiceTest {
         when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(List.of(
             buildListItem(postgresId, "Designing Data-Intensive Applications")
         ));
-        when(googleApiFetcher.streamSearchItems("distributed systems", 12, "relevance", null, true))
-            .thenReturn(Flux.error(new IllegalStateException("quota exceeded")));
-        when(googleApiFetcher.isFallbackAllowed()).thenReturn(false);
         when(openLibraryBookDataService.queryBooksByEverything("distributed systems"))
             .thenReturn(Flux.just(openRealtime));
 
@@ -760,13 +824,7 @@ class SearchPaginationServiceTest {
 
         SearchPaginationService.SearchPage page = realtimeService.search(request).block();
         assertThat(page).isNotNull();
-
-        verify(eventPublisher, timeout(2000).atLeastOnce()).publishEvent((Object) argThat(event ->
-            event instanceof SearchResultsUpdatedEvent
-                && "OPEN_LIBRARY".equals(((SearchResultsUpdatedEvent) event).getSource())
-                && ((SearchResultsUpdatedEvent) event).getNewResults() != null
-                && !((SearchResultsUpdatedEvent) event).getNewResults().isEmpty()
-        ));
+        verify(eventPublisher, timeout(300).times(0)).publishEvent(any());
     }
 
     @Test

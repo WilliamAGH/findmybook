@@ -32,6 +32,9 @@ import reactor.core.publisher.Flux;
 @Slf4j
 final class SearchRealtimeCoordinator {
 
+    private static final String SEARCH_SOURCE_QUALIFIER = "search.source";
+    private static final String EXTERNAL_FALLBACK_SOURCE = "EXTERNAL_FALLBACK";
+
     private final Optional<OpenLibraryBookDataService> openLibraryBookDataService;
     private final Optional<ApplicationEventPublisher> eventPublisher;
     private final GoogleExternalSearchFlow googleExternalSearchFlow;
@@ -57,6 +60,9 @@ final class SearchRealtimeCoordinator {
         if (request.startIndex() != 0
             || SearchQueryUtils.isWildcard(request.query())
             || eventPublisher.isEmpty()) {
+            return;
+        }
+        if (hasExternalFallbackResults(page.uniqueResults())) {
             return;
         }
         boolean hasPostgresResults = page.uniqueResults().stream()
@@ -211,6 +217,22 @@ final class SearchRealtimeCoordinator {
             return SearchProgressEvent.SearchStatus.RATE_LIMITED;
         }
         return SearchProgressEvent.SearchStatus.PROVIDER_UNAVAILABLE;
+    }
+
+    private boolean hasExternalFallbackResults(List<Book> results) {
+        if (results == null || results.isEmpty()) {
+            return false;
+        }
+        for (Book book : results) {
+            if (book == null || book.getQualifiers() == null) {
+                continue;
+            }
+            Object qualifierValue = book.getQualifiers().get(SEARCH_SOURCE_QUALIFIER);
+            if (qualifierValue != null && EXTERNAL_FALLBACK_SOURCE.equalsIgnoreCase(qualifierValue.toString())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private record RealtimeCandidate(String source, Book book) {}

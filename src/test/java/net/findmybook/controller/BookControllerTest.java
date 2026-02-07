@@ -95,6 +95,10 @@ class BookControllerTest {
 
         lenient().when(bookDataOrchestrator.fetchCanonicalBookReactive(any()))
             .thenReturn(Mono.empty());
+        lenient().when(bookDataOrchestrator.getBookFromDatabaseBySlug(any()))
+            .thenReturn(Optional.empty());
+        lenient().when(bookDataOrchestrator.getBookFromDatabase(any()))
+            .thenReturn(Optional.empty());
         lenient().when(bookSearchService.fetchBookEditions(any(UUID.class)))
             .thenReturn(List.of());
     }
@@ -174,6 +178,27 @@ class BookControllerTest {
             .andExpect(jsonPath("$.descriptionContent.format", equalTo("PLAIN_TEXT")))
             .andExpect(jsonPath("$.descriptionContent.html", equalTo("<p>Fixture Description</p>")))
             .andExpect(jsonPath("$.descriptionContent.text", equalTo("Fixture Description")));
+    }
+
+    @Test
+    @DisplayName("GET /api/books/{identifier} prefers canonical Postgres detail when present")
+    void getBookByIdentifier_prefersCanonicalPostgresDetail() throws Exception {
+        Book canonical = buildBook(fixtureBook.getId(), fixtureBook.getSlug());
+        canonical.setDescription("Canonical Description");
+        canonical.setLanguage("eng");
+        canonical.setPublisher("Canonical Publisher");
+        canonical.setPageCount(416);
+
+        when(bookDataOrchestrator.getBookFromDatabaseBySlug(fixtureBook.getSlug()))
+            .thenReturn(Optional.of(canonical));
+
+        performAsync(get("/api/books/" + fixtureBook.getSlug()))
+            .andExpect(status().isOk())
+            .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+            .andExpect(jsonPath("$.description", equalTo("Canonical Description")))
+            .andExpect(jsonPath("$.publication.language", equalTo("eng")))
+            .andExpect(jsonPath("$.publication.publisher", equalTo("Canonical Publisher")))
+            .andExpect(jsonPath("$.publication.pageCount", equalTo(416)));
     }
 
     @Test

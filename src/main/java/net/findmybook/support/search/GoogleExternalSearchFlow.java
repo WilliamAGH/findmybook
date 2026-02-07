@@ -69,7 +69,10 @@ public final class GoogleExternalSearchFlow {
         GoogleBooksMapper mapper = googleBooksMapper.get();
         String externalOrderBy = SearchExternalProviderUtils.normalizeGoogleOrderBy(orderBy);
 
-        Flux<JsonNode> authenticated = fetcher.streamSearchItems(query, maxResults, externalOrderBy, null, true);
+        Flux<JsonNode> authenticated = fetcher.isApiKeyAvailable()
+            ? fetcher.streamSearchItems(query, maxResults, externalOrderBy, null, true)
+                .onErrorResume(ex -> fetcher.isFallbackAllowed() ? Flux.empty() : Flux.error(ex))
+            : Flux.empty();
         Flux<JsonNode> unauthenticated = fetcher.isFallbackAllowed()
             ? fetcher.streamSearchItems(query, maxResults, externalOrderBy, null, false)
             : Flux.empty();

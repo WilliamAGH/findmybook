@@ -282,9 +282,15 @@ public class HomeController {
         return Mono.just("search");
     }
 
-    /** Redirects `/explore` to search with a random curated query. */
+    /** Handles `/explore` route for SPA and server-rendered modes. */
     @GetMapping("/explore")
-    public ResponseEntity<Void> explore() {
+    public Object explore(Model model) {
+        if (spaFrontendEnabled) {
+            applyBaseAttributes(model, "explore");
+            bookSeoMetadataService.apply(model, bookSeoMetadataService.searchMetadata());
+            return "spa/index";
+        }
+
         String selectedQuery = EXPLORE_QUERIES.get(ThreadLocalRandom.current().nextInt(EXPLORE_QUERIES.size()));
         log.info("Explore page requested, redirecting to search with query: '{}'", selectedQuery);
         String encodedQuery = URLEncoder.encode(selectedQuery, StandardCharsets.UTF_8);
@@ -293,9 +299,15 @@ public class HomeController {
             .build();
     }
 
-    /** Redirects `/categories` to search with a random curated query. */
+    /** Handles `/categories` route for SPA and server-rendered modes. */
     @GetMapping("/categories")
-    public ResponseEntity<Void> categories() {
+    public Object categories(Model model) {
+        if (spaFrontendEnabled) {
+            applyBaseAttributes(model, "categories");
+            bookSeoMetadataService.apply(model, bookSeoMetadataService.searchMetadata());
+            return "spa/index";
+        }
+
         String selectedQuery = EXPLORE_QUERIES.get(ThreadLocalRandom.current().nextInt(EXPLORE_QUERIES.size()));
         log.info("Categories page requested, redirecting to search with query: '{}'", selectedQuery);
         String encodedQuery = URLEncoder.encode(selectedQuery, StandardCharsets.UTF_8);
