@@ -17,12 +17,11 @@ import org.springframework.stereotype.Service;
 import net.findmybook.model.Book;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.lang.Nullable;
+import jakarta.annotation.Nullable;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -102,10 +101,9 @@ public class BookDataOrchestrator {
 
     private Optional<Book> queryDatabase(Function<PostgresBookRepository, Optional<Book>> resolver) {
         if (postgresBookRepository == null) {
-            return Optional.empty();
+            throw new IllegalStateException("PostgresBookRepository is not available — database lookups cannot proceed");
         }
-        Optional<Book> result = resolver.apply(postgresBookRepository);
-        return result != null ? result : Optional.empty();
+        return resolver.apply(postgresBookRepository);
     }
 
     public Mono<Book> fetchCanonicalBookReactive(String identifier) {
@@ -117,9 +115,9 @@ public class BookDataOrchestrator {
         // Prevents cascading fallbacks that could trigger API calls unnecessarily
         return Mono.fromCallable(() -> {
             if (postgresBookRepository == null) {
-                return null;
+                throw new IllegalStateException("PostgresBookRepository is not available — database lookups cannot proceed");
             }
-            
+
             // Try all lookup methods in one go
             Book result = findInDatabaseBySlug(identifier).orElse(null);
             if (result != null) return result;
@@ -188,42 +186,4 @@ public class BookDataOrchestrator {
 
     // Edition relationships are now handled by work_cluster_members table
     // See schema.sql for clustering logic
-
-    /**
-     * Backward-compatible wrapper kept for focused unit tests.
-     */
-    private boolean persistBook(Book book, tools.jackson.databind.JsonNode sourceJson) {
-        return bookExternalBatchPersistenceService.persistBook(book, sourceJson, () -> triggerSearchViewRefresh(false));
-    }
-
-    /**
-     * Backward-compatible wrapper kept for focused unit tests.
-     */
-    private boolean isSystemicDatabaseError(Throwable ex) {
-        return bookExternalBatchPersistenceService.isSystemicDatabaseError(ex);
-    }
-
-    // Kept private for focused unit tests that validate UUID parsing behavior.
-    private static boolean looksLikeUuid(String value) {
-        if (value == null) return false;
-        return value.matches("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
-    }
-
-    // Kept private for focused unit tests that validate strict JSON payload parsing.
-    private static tools.jackson.databind.JsonNode parseBookJsonPayload(String payload, String fallbackId) {
-        try {
-            tools.jackson.databind.ObjectMapper mapper = new tools.jackson.databind.ObjectMapper();
-            try (tools.jackson.core.JsonParser parser = mapper.createParser(payload)) {
-                tools.jackson.databind.JsonNode node = mapper.readTree(parser);
-                if (parser.nextToken() != null) {
-                    logger.warn("Book JSON payload for '{}' contains trailing content — ignoring", fallbackId);
-                    return null;
-                }
-                return node;
-            }
-        } catch (tools.jackson.core.JacksonException ex) {
-            logger.warn("Failed to parse book JSON payload for fallback id '{}': {}", fallbackId, ex.getMessage());
-            return null;
-        }
-    }
 }

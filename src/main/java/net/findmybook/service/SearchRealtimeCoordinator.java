@@ -26,6 +26,10 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Flux;
 
+/**
+ * Streams book results from external providers (Google Books, Open Library) into the
+ * active search session via application events, deduplicating against already-emitted results.
+ */
 @Slf4j
 final class SearchRealtimeCoordinator {
 
@@ -169,10 +173,10 @@ final class SearchRealtimeCoordinator {
         Flux<Book> byTitle = Flux.defer(() -> {
             publishProgress(request.query(), SearchProgressEvent.SearchStatus.SEARCHING_OPENLIBRARY,
                 "Searching Open Library", queryHash, "OPEN_LIBRARY");
-            return service.searchBooksByTitle(query);
+            return service.queryBooksByTitle(query);
         });
 
-        Flux<Book> byAuthor = service.searchBooksByAuthor(query);
+        Flux<Book> byAuthor = service.queryBooksByAuthor(query);
 
         return Flux.merge(byTitle, byAuthor)
             .filter(Objects::nonNull)

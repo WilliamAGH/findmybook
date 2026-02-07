@@ -56,7 +56,7 @@ public class SitemapRefreshScheduler {
             log.debug("Sitemap refresh applying startup jitter: {}s", jitterSeconds);
             try {
                 Thread.sleep(jitterSeconds * 1000L);
-            } catch (InterruptedException ex) {
+            } catch (InterruptedException _) {
                 Thread.currentThread().interrupt();
             }
         }
@@ -79,19 +79,14 @@ public class SitemapRefreshScheduler {
         }
 
         int coverSampleSize = PagingUtils.atLeast(sitemapProperties.getSchedulerCoverSampleSize(), 0);
-        int externalHydrationLimit = PagingUtils.atLeast(sitemapProperties.getSchedulerExternalHydrationSize(), 0);
 
-        BookSitemapService.ExternalHydrationSummary hydrationSummary =
-                new BookSitemapService.ExternalHydrationSummary(externalHydrationLimit, 0, 0, 0);
         int coverWarmups = warmCoverAssets(books, coverSampleSize);
 
         Duration elapsed = Duration.between(start, Instant.now());
-        log.info("Sitemap refresh scheduler finished in {}s (books={}, s3Upload={}, hydration={{attempted:{}, success:{}}}, coverWarmups={}, cachesRefreshed={}).",
+        log.info("Sitemap refresh scheduler finished in {}s (books={}, s3Upload={}, coverWarmups={}, cachesRefreshed={}).",
                 elapsed.toSeconds(),
                 books.size(),
                 snapshotResult.uploaded(),
-                hydrationSummary.attempted(),
-                hydrationSummary.succeeded(),
                 coverWarmups,
                 cachesCleared);
     }
@@ -113,7 +108,7 @@ public class SitemapRefreshScheduler {
             book.setId(item.bookId());
             book.setTitle(item.title());
             Optional<?> result = coverService.fetchCover(book).join();
-            if (result != null && result.isPresent()) {
+            if (result.isPresent()) {
                 successes++;
             }
         }

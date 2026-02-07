@@ -79,16 +79,16 @@ public class SearchPaginationService {
                                    @Value("${app.features.persist-search-results:true}") boolean persistSearchResultsEnabled) {
         this.bookSearchService = bookSearchService;
         this.bookQueryRepository = bookQueryRepository;
-        this.googleApiFetcher = googleApiFetcher != null ? googleApiFetcher : Optional.empty();
-        this.googleBooksMapper = googleBooksMapper != null ? googleBooksMapper : Optional.empty();
-        this.bookDataOrchestrator = bookDataOrchestrator != null ? bookDataOrchestrator : Optional.empty();
+        this.googleApiFetcher = googleApiFetcher;
+        this.googleBooksMapper = googleBooksMapper;
+        this.bookDataOrchestrator = bookDataOrchestrator;
         this.persistSearchResultsEnabled = persistSearchResultsEnabled;
         this.searchRealtimeCoordinator = new SearchRealtimeCoordinator(
             this.googleApiFetcher,
             this.googleBooksMapper,
-            openLibraryBookDataService != null ? openLibraryBookDataService : Optional.empty(),
+            openLibraryBookDataService,
             this.bookDataOrchestrator,
-            eventPublisher != null ? eventPublisher : Optional.empty(),
+            eventPublisher,
             persistSearchResultsEnabled
         );
     }
@@ -115,7 +115,7 @@ public class SearchPaginationService {
             .map(results -> filterResultsByPublishedYear(results, request.publishedYear()))
             .map(this::mapPostgresResults)
             .map(list -> dedupeAndSlice(list, window, request))
-            .flatMap(page -> maybeFallback(request, window, startNanos, page))
+            .flatMap(page -> maybeFallback(request, window, page))
             .doOnNext(page -> searchRealtimeCoordinator.trigger(request, page))
             .doOnNext(page -> logPageMetrics(request, window, page, startNanos));
     }
@@ -137,24 +137,20 @@ public class SearchPaginationService {
             .collect(Collectors.toMap(BookListItem::id, item -> item, (first, second) -> first, LinkedHashMap::new));
         List<Book> ordered = new ArrayList<>(bookIds.size());
         for (BookSearchService.SearchResult result : results) {
-            if (result.bookId() == null) {
-                continue;
+            UUID bookId = result.bookId();
+            if (bookId != null) {
+                BookListItem item = itemsById.get(bookId.toString());
+                if (item != null) {
+                    Book book = BookDomainMapper.fromListItem(item);
+                    book.addQualifier("search.matchType", result.matchTypeNormalized());
+                    book.addQualifier("search.relevanceScore", result.relevanceScore());
+                    book.addQualifier("search.editionCount", result.editionCount());
+                    if (result.clusterId() != null) {
+                        book.addQualifier("search.clusterId", result.clusterId().toString());
+                    }
+                    ordered.add(book);
+                }
             }
-            BookListItem item = itemsById.get(result.bookId().toString());
-            if (item == null) {
-                continue;
-            }
-            Book book = BookDomainMapper.fromListItem(item);
-            if (book == null) {
-                continue;
-            }
-            book.addQualifier("search.matchType", result.matchTypeNormalized());
-            book.addQualifier("search.relevanceScore", result.relevanceScore());
-            book.addQualifier("search.editionCount", result.editionCount());
-            if (result.clusterId() != null) {
-                book.addQualifier("search.clusterId", result.clusterId().toString());
-            }
-            ordered.add(book);
         }
         return ordered;
     }
@@ -166,17 +162,11 @@ public class SearchPaginationService {
         Map<String, Integer> insertionOrder = new LinkedHashMap<>();
         int position = 0;
         for (Book book : rawResults) {
-            if (book == null) {
+            if (book == null || !StringUtils.hasText(book.getId()) || ordered.containsKey(book.getId())) {
                 continue;
             }
-            String id = book.getId();
-            if (!StringUtils.hasText(id)) {
-                continue;
-            }
-            if (!ordered.containsKey(id)) {
-                ordered.put(id, book);
-                insertionOrder.put(id, position++);
-            }
+            ordered.put(book.getId(), book);
+            insertionOrder.put(book.getId(), position++);
         }
 
         List<Book> uniqueResults = new ArrayList<>(ordered.values());
@@ -214,7 +204,6 @@ public class SearchPaginationService {
      */
     private Mono<SearchPage> maybeFallback(SearchRequest request,
                                            PagingUtils.Window window,
-                                           long startNanos,
                                            SearchPage currentPage) {
         boolean shouldFallback = currentPage.totalUnique() == 0
             && googleApiFetcher.isPresent()
@@ -363,20 +352,6 @@ public class SearchPaginationService {
             .filter(book -> matchesSourcePreference(book, effectiveSource))
             .filter(book -> matchesResolutionPreference(book, effectiveResolution))
             .collect(Collectors.toCollection(ArrayList::new));
-    }
-
-    private boolean isCoverSuppressed(Book book) {
-        if (book == null || book.getQualifiers() == null) {
-            return false;
-        }
-        Object suppressed = book.getQualifiers().get("cover.suppressed");
-        if (suppressed instanceof Boolean booleanValue) {
-            return booleanValue;
-        }
-        if (suppressed instanceof String stringValue) {
-            return Boolean.parseBoolean(stringValue);
-        }
-        return false;
     }
 
     private boolean matchesSourcePreference(Book book, CoverImageSource preference) {

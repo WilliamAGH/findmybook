@@ -1,11 +1,8 @@
 package net.findmybook.scheduler;
 
-import org.springframework.lang.NonNull;
-
 import tools.jackson.databind.ObjectMapper;
 import net.findmybook.config.SitemapProperties;
 import net.findmybook.model.Book;
-import net.findmybook.service.BookDataOrchestrator;
 import net.findmybook.service.BookSitemapService;
 import net.findmybook.service.S3StorageService;
 import net.findmybook.service.SitemapService;
@@ -19,6 +16,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.ObjectProvider;
+
+import jakarta.annotation.Nonnull;
 
 import java.io.UncheckedIOException;
 import java.time.Instant;
@@ -38,7 +37,6 @@ class SitemapRefreshSchedulerIntegrationTest {
 
     private SitemapProperties sitemapProperties;
     private SitemapService sitemapService;
-    private BookDataOrchestrator bookDataOrchestrator;
     private S3StorageService s3StorageService;
     private S3BookCoverService coverService;
 
@@ -51,7 +49,6 @@ class SitemapRefreshSchedulerIntegrationTest {
         sitemapProperties.setS3AccumulatedIdsKey("sitemaps/books.json");
 
         sitemapService = Mockito.mock(SitemapService.class);
-        bookDataOrchestrator = Mockito.mock(BookDataOrchestrator.class);
         s3StorageService = Mockito.mock(S3StorageService.class);
         coverService = Mockito.mock(S3BookCoverService.class);
     }
@@ -74,13 +71,12 @@ class SitemapRefreshSchedulerIntegrationTest {
                 sitemapService,
                 sitemapProperties,
                 new ObjectMapper(),
-                bookDataOrchestrator,
                 s3StorageService
         );
 
         ObjectProvider<S3BookCoverService> coverProvider = new ObjectProvider<>() {
             @Override
-            public @NonNull S3BookCoverService getObject(@NonNull Object... args) {
+            public @Nonnull S3BookCoverService getObject(@Nonnull Object... args) {
                 return coverService;
             }
 
@@ -95,7 +91,7 @@ class SitemapRefreshSchedulerIntegrationTest {
             }
 
             @Override
-            public @NonNull S3BookCoverService getObject() {
+            public @Nonnull S3BookCoverService getObject() {
                 return coverService;
             }
         };

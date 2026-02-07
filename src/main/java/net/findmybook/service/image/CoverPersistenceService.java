@@ -3,7 +3,7 @@ package net.findmybook.service.image;
 import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.util.IdGenerator;
 import net.findmybook.util.UrlUtils;
-import org.springframework.lang.Nullable;
+import jakarta.annotation.Nullable;
 import org.springframework.util.StringUtils;
 import net.findmybook.util.cover.CoverUrlResolver;
 import net.findmybook.util.cover.ImageDimensionUtils;
@@ -105,11 +105,10 @@ public class CoverPersistenceService {
             
             try {
                 // Upsert book_image_links row
-                upsertImageLink(bookId, imageType, httpsUrl, source, 
-                    estimate.width(), estimate.height(), estimate.highRes());
+                upsertImageLink(new ImageLinkParams(bookId, imageType, httpsUrl, source, estimate.width(), estimate.height(), estimate.highRes()));
                 
                 // Track best quality image for canonical cover
-                int priority = getImageTypePriority(imageType);
+                int priority = ImageDimensionUtils.getTypePriority(imageType);
                 if (priority < bestPriority) {
                     bestPriority = priority;
                     canonicalCoverUrl = httpsUrl;
@@ -134,8 +133,7 @@ public class CoverPersistenceService {
                 canonicalHighRes
             );
 
-            upsertImageLink(bookId, "canonical", resolved.url(), source,
-                resolved.width(), resolved.height(), resolved.highResolution());
+            upsertImageLink(new ImageLinkParams(bookId, "canonical", resolved.url(), source, resolved.width(), resolved.height(), resolved.highResolution()));
 
             log.info("Persisted cover metadata for book {}: {} ({}x{}, highRes={})",
                 bookId, resolved.url(), resolved.width(), resolved.height(), resolved.highResolution());
@@ -203,7 +201,7 @@ public class CoverPersistenceService {
 
         try {
             // Upsert canonical S3 row as authoritative cover
-            upsertImageLink(bookId, "canonical", canonicalUrl, source.name(), width, height, highRes, s3Key);
+            upsertImageLink(new ImageLinkParams(bookId, "canonical", canonicalUrl, source.name(), width, height, highRes, s3Key));
             
             log.info("Updated cover metadata for book {} after S3 upload: {} ({}x{}, highRes={})",
                 bookId, s3Key, width, height, highRes);
@@ -251,8 +249,8 @@ public class CoverPersistenceService {
         );
 
         try {
-            upsertImageLink(bookId, "canonical", resolved.url(), source,
-                resolved.width(), resolved.height(), resolved.highResolution());
+            upsertImageLink(new ImageLinkParams(bookId, "canonical", resolved.url(), source,
+                resolved.width(), resolved.height(), resolved.highResolution()));
             
             log.info("Persisted external cover for book {} from {}: {}x{}", 
                 bookId, source, resolved.width(), resolved.height());
@@ -266,35 +264,10 @@ public class CoverPersistenceService {
     }
     
     /**
-     * Internal method to upsert a row in book_image_links.
-     * Handles conflict resolution with ON CONFLICT DO UPDATE.
-     */
-    private void upsertImageLink(
-        UUID bookId,
-        String imageType,
-        String url,
-        String source,
-        Integer width,
-        Integer height,
-        Boolean highRes
-    ) {
-        upsertImageLink(bookId, imageType, url, source, width, height, highRes, null);
-    }
-
-    /**
      * Internal method to upsert a row in book_image_links with optional S3 path.
      * Handles conflict resolution with ON CONFLICT DO UPDATE.
      */
-    private void upsertImageLink(
-        UUID bookId,
-        String imageType,
-        String url,
-        String source,
-        Integer width,
-        Integer height,
-        Boolean highRes,
-        String s3ImagePath
-    ) {
+    private void upsertImageLink(ImageLinkParams params) {
         jdbcTemplate.update("""
             INSERT INTO book_image_links (
                 id, book_id, image_type, url, source,
@@ -310,43 +283,38 @@ public class CoverPersistenceService {
                 s3_image_path = COALESCE(EXCLUDED.s3_image_path, book_image_links.s3_image_path)
             """,
             IdGenerator.generate(),
-            bookId,
-            imageType,
-            url,
-            source,
-            width,
-            height,
-            highRes,
-            s3ImagePath
+            params.bookId(),
+            params.imageType(),
+            params.url(),
+            params.source(),
+            params.width(),
+            params.height(),
+            params.highRes(),
+            params.s3ImagePath()
         );
     }
-    
+
     /**
-     * Returns priority ranking for Google Books image types (lower = better quality).
-     * 
-     * @deprecated Use {@link net.findmybook.util.cover.ImageDimensionUtils#getTypePriority(String)} instead.
-     * This method duplicates image type ranking logic that is now centralized in ImageDimensionUtils.
-     * Will be removed in version 1.0.0.
-     * 
-     * <p><b>Migration Example:</b></p>
-     * <pre>{@code
-     * // Old:
-     * int priority = getImageTypePriority(imageType);
-     * 
-     * // New:
-     * int priority = ImageDimensionUtils.getTypePriority(imageType);
-     * }</pre>
+     * Record for upsertImageLink parameters to avoid excessive parameter count.
      */
-    @Deprecated(since = "0.9.0", forRemoval = true)
-    private int getImageTypePriority(String imageType) {
-        return switch (imageType.toLowerCase()) {
-            case "extralarge" -> 1;
-            case "large" -> 2;
-            case "medium" -> 3;
-            case "small" -> 4;
-            case "thumbnail" -> 5;
-            case "smallthumbnail" -> 6;
-            default -> 7;
-        };
+    private record ImageLinkParams(
+        UUID bookId,
+        String imageType,
+        String url,
+        String source,
+        Integer width,
+        Integer height,
+        Boolean highRes,
+        String s3ImagePath
+    ) {
+        ImageLinkParams {
+            java.util.Objects.requireNonNull(bookId, "bookId cannot be null");
+            java.util.Objects.requireNonNull(imageType, "imageType cannot be null");
+        }
+
+        ImageLinkParams(UUID bookId, String imageType, String url, String source,
+                        Integer width, Integer height, Boolean highRes) {
+            this(bookId, imageType, url, source, width, height, highRes, null);
+        }
     }
 }

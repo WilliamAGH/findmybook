@@ -18,11 +18,8 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.contains;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -91,16 +88,16 @@ class OutboxRelayTest {
 
     private void stubSingleUnsentEvent(UUID eventId, String topic, String payload) {
         when(jdbcTemplate.query(
-            contains("FROM events_outbox"),
+            ArgumentMatchers.contains("FROM events_outbox"),
             ArgumentMatchers.<RowMapper<Object>>any(),
             anyInt()
         )).thenAnswer(invocation -> {
             RowMapper<Object> rowMapper = invocation.getArgument(1);
             ResultSet resultSet = mock(ResultSet.class);
-            when(resultSet.getObject(eq("event_id"))).thenReturn(eventId);
-            when(resultSet.getString(eq("topic"))).thenReturn(topic);
-            when(resultSet.getString(eq("payload"))).thenReturn(payload);
-            when(resultSet.getInt(eq("retry_count"))).thenReturn(0);
+            when(resultSet.getObject("event_id")).thenReturn(eventId);
+            when(resultSet.getString("topic")).thenReturn(topic);
+            when(resultSet.getString("payload")).thenReturn(payload);
+            when(resultSet.getInt("retry_count")).thenReturn(0);
             return List.of(mapRow(rowMapper, resultSet));
         });
     }

@@ -27,11 +27,8 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.argThat;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
-import static org.mockito.Mockito.atLeastOnce;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -84,7 +81,7 @@ class SearchPaginationServiceTest {
             new BookSearchService.SearchResult(uuid1, 0.95, "TSVECTOR")  // duplicate
         );
 
-        when(bookSearchService.searchBooks(eq("java"), eq(24))).thenReturn(searchResults);
+        when(bookSearchService.searchBooks("java", 24)).thenReturn(searchResults);
         when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(List.of(
             buildListItem(uuid1, "Postgres One"),
             buildListItem(uuid2, "Postgres Two")
@@ -125,7 +122,7 @@ class SearchPaginationServiceTest {
             listItems.add(buildListItem(id, String.format("Book %02d", i)));
         }
 
-        when(bookSearchService.searchBooks(eq("java"), eq(36))).thenReturn(searchResults);
+        when(bookSearchService.searchBooks("java", 36)).thenReturn(searchResults);
         when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(listItems);
 
         SearchPaginationService.SearchRequest request = new SearchPaginationService.SearchRequest(
@@ -181,7 +178,7 @@ class SearchPaginationServiceTest {
             new BookSearchService.SearchResult(idThree, 0.72, "TSVECTOR")
         );
 
-        when(bookSearchService.searchBooks(eq("miss"), eq(34))).thenReturn(results);
+        when(bookSearchService.searchBooks("miss", 34)).thenReturn(results);
         when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(List.of(
             buildListItem(idOne, "First"),
             buildListItem(idTwo, "Second"),
@@ -217,7 +214,7 @@ class SearchPaginationServiceTest {
             new BookSearchService.SearchResult(olderHighQuality, 0.60, "TSVECTOR")
         );
 
-        when(bookSearchService.searchBooks(eq("cover-newest"), eq(24))).thenReturn(searchResults);
+        when(bookSearchService.searchBooks("cover-newest", 24)).thenReturn(searchResults);
         when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(List.of(
             buildListItem(newerLowQuality, "Newest Low Quality", 160, 220, false, "https://example.test/low.jpg"),
             buildListItem(olderHighQuality, "Older High Quality", 900, 1400, true, "https://cdn.test/high.jpg")
@@ -245,7 +242,7 @@ class SearchPaginationServiceTest {
         UUID withCover = UUID.randomUUID();
         UUID suppressed = UUID.randomUUID();
 
-        when(bookSearchService.searchBooks(eq("suppressed"), eq(24))).thenReturn(List.of(
+        when(bookSearchService.searchBooks("suppressed", 24)).thenReturn(List.of(
             new BookSearchService.SearchResult(withCover, 0.95, "TSVECTOR"),
             new BookSearchService.SearchResult(suppressed, 0.90, "TSVECTOR")
         ));
@@ -295,10 +292,10 @@ class SearchPaginationServiceTest {
                 .build())
             .build();
 
-        when(bookSearchService.searchBooks(eq("fallback"), eq(24))).thenReturn(List.of());
-        when(googleApiFetcher.streamSearchItems(eq("fallback"), eq(24), eq("newest"), isNull(), eq(true)))
+        when(bookSearchService.searchBooks("fallback", 24)).thenReturn(List.of());
+        when(googleApiFetcher.streamSearchItems("fallback", 24, "newest", null, true))
             .thenAnswer(inv -> Flux.just(node));
-        when(googleApiFetcher.streamSearchItems(eq("fallback"), eq(24), eq("newest"), isNull(), eq(false)))
+        when(googleApiFetcher.streamSearchItems("fallback", 24, "newest", null, false))
             .thenReturn(Flux.empty());
         when(googleApiFetcher.isFallbackAllowed()).thenReturn(true);
         when(googleBooksMapper.map(node)).thenReturn(aggregate);
@@ -323,7 +320,7 @@ class SearchPaginationServiceTest {
         assertThat(page).isNotNull();
         assertThat(page.totalUnique()).isEqualTo(1);
         assertThat(page.pageItems()).extracting(Book::getId).containsExactly(fallbackId.toString());
-        verify(googleApiFetcher, times(1)).streamSearchItems(eq("fallback"), eq(24), eq("newest"), isNull(), eq(true));
+        verify(googleApiFetcher, times(1)).streamSearchItems("fallback", 24, "newest", null, true);
     }
 
     @Test
@@ -332,7 +329,7 @@ class SearchPaginationServiceTest {
         UUID matchingYear = UUID.randomUUID();
         UUID differentYear = UUID.randomUUID();
 
-        when(bookSearchService.searchBooks(eq("history"), eq(24))).thenReturn(List.of(
+        when(bookSearchService.searchBooks("history", 24)).thenReturn(List.of(
             new BookSearchService.SearchResult(matchingYear, 0.91, "FULLTEXT"),
             new BookSearchService.SearchResult(differentYear, 0.83, "FULLTEXT")
         ));
@@ -366,7 +363,7 @@ class SearchPaginationServiceTest {
     void searchPublishesRealtimeExternalCandidates() {
         UUID postgresId = UUID.randomUUID();
 
-        when(bookSearchService.searchBooks(eq("distributed systems"), eq(24))).thenReturn(List.of(
+        when(bookSearchService.searchBooks("distributed systems", 24)).thenReturn(List.of(
             new BookSearchService.SearchResult(postgresId, 0.96, "FULLTEXT")
         ));
         when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(List.of(
@@ -389,12 +386,14 @@ class SearchPaginationServiceTest {
                 .build())
             .build();
 
-        when(googleApiFetcher.streamSearchItems(eq("distributed systems"), eq(12), eq("relevance"), isNull(), eq(true)))
+        when(googleApiFetcher.streamSearchItems("distributed systems", 12, "relevance", null, true))
             .thenReturn(Flux.just(node));
         when(googleApiFetcher.isFallbackAllowed()).thenReturn(false);
         when(googleBooksMapper.map(node)).thenReturn(aggregate);
-        when(openLibraryBookDataService.searchBooksByTitle(eq("distributed systems"))).thenReturn(Flux.empty());
-        when(openLibraryBookDataService.searchBooksByAuthor(eq("distributed systems"))).thenReturn(Flux.empty());
+        when(openLibraryBookDataService.queryBooksByTitle("distributed systems"))
+            .thenReturn(Flux.empty());
+        when(openLibraryBookDataService.queryBooksByAuthor("distributed systems"))
+            .thenReturn(Flux.empty());
 
         SearchPaginationService realtimeService = new SearchPaginationService(
             bookSearchService,
@@ -420,7 +419,7 @@ class SearchPaginationServiceTest {
 
         assertThat(page).isNotNull();
         verify(googleApiFetcher, times(1))
-            .streamSearchItems(eq("distributed systems"), eq(12), eq("relevance"), isNull(), eq(true));
+            .streamSearchItems("distributed systems", 12, "relevance", null, true);
         verify(eventPublisher, timeout(2000).atLeastOnce()).publishEvent((Object) argThat(event ->
             event instanceof SearchResultsUpdatedEvent
                 && "GOOGLE_BOOKS".equals(((SearchResultsUpdatedEvent) event).getSource())

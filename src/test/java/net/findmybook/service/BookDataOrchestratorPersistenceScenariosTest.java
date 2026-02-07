@@ -1,7 +1,5 @@
 package net.findmybook.service;
 
-import tools.jackson.databind.JsonNode;
-import java.util.Objects;
 import tools.jackson.databind.ObjectMapper;
 import net.findmybook.dto.BookAggregate;
 import net.findmybook.model.Book;
@@ -55,6 +53,7 @@ class BookDataOrchestratorPersistenceScenariosTest {
     private JdbcTemplate jdbcTemplate;
 
     private BookDataOrchestrator orchestrator;
+    private BookExternalBatchPersistenceService batchPersistenceService;
 
     // Concrete dependencies instantiated in setUp()
     private PostgresBookRepository postgresBookRepository;
@@ -63,7 +62,7 @@ class BookDataOrchestratorPersistenceScenariosTest {
     void setUp() {
         ObjectMapper om = new ObjectMapper();
         postgresBookRepository = new PostgresBookRepository(jdbcTemplate, om);
-        BookExternalBatchPersistenceService batchPersistenceService =
+        batchPersistenceService =
             new BookExternalBatchPersistenceService(om, googleBooksMapper, bookUpsertService);
 
         orchestrator = new BookDataOrchestrator(
@@ -105,27 +104,6 @@ class BookDataOrchestratorPersistenceScenariosTest {
     }
 
     @Test
-    void parseBookJsonPayload_returnsNullForConcatenatedPayloads() {
-        String payload = "{\"id\":\"-0UZAAAAYAAJ\",\"title\":\"-0UZAAAAYAAJ\",\"authors\":[\"Ralph Tate\",\"Samuel Peckworth Woodward\"],\"publisher\":\"C. Lockwood and Company\",\"publishedDate\":\"1830\",\"pageCount\":627,\"rawJsonResponse\":\"{\\\"kind\\\":\\\"books#volume\\\",\\\"id\\\":\\\"-0UZAAAAYAAJ\\\",\\\"etag\\\":\\\"PAlEva08Grw\\\",\\\"selfLink\\\":\\\"https://www.googleapis.com/books/v1/volumes/-0UZAAAAYAAJ\\\",\\\"volumeInfo\\\":{\\\"title\\\":\\\"A Manual of the Mollusca\\\",\\\"subtitle\\\":\\\"Being a Treatise on Recent and Fossil Shells\\\",\\\"authors\\\":[\\\"Samuel Peckworth Woodward\\\",\\\"Ralph Tate\\\"],\\\"publisher\\\":\\\"C. Lockwood and Company\\\",\\\"publishedDate\\\":\\\"1830\\\",\\\"pageCount\\\":627}}\",\"rawJsonSource\":\"GoogleBooks\",\"contributingSources\":[\"GoogleBooks\"]}{\"id\":\"-0UZAAAAYAAJ\",\"title\":\"-0UZAAAAYAAJ\",\"authors\":[\"Ralph Tate\",\"Samuel Peckworth Woodward\"],\"publisher\":\"C. Lockwood and Company\",\"publishedDate\":\"1830\",\"pageCount\":627,\"rawJsonResponse\":\"{\\\"kind\\\":\\\"books#volume\\\",\\\"id\\\":\\\"-0UZAAAAYAAJ\\\",\\\"volumeInfo\\\":{\\\"title\\\":\\\"A Manual of the Mollusca\\\"}}\",\"rawJsonSource\":\"GoogleBooks\",\"contributingSources\":[\"GoogleBooks\"]}";
-
-        JsonNode result = ReflectionTestUtils.invokeMethod(BookDataOrchestrator.class, "parseBookJsonPayload", payload, "test.json");
-
-        assertThat(result).isNull();
-    }
-
-    @Test
-    void parseBookJsonPayload_unwrapsRawJsonResponse() {
-        String payload = "{\"id\":\"--AMEAAAQBAJ\",\"title\":\"--AMEAAAQBAJ\",\"authors\":[\"Gabriel Gambetta\"],\"description\":\"Computer graphics book\",\"publisher\":\"No Starch Press\",\"publishedDate\":\"2021-05-18\",\"pageCount\":248,\"rawJsonResponse\":\"{\\\"volumeInfo\\\":{\\\"title\\\":\\\"Computer Graphics from Scratch\\\",\\\"authors\\\":[\\\"Gabriel Gambetta\\\"]}}\",\"rawJsonSource\":\"GoogleBooks\"}";
-
-        JsonNode result = ReflectionTestUtils.invokeMethod(BookDataOrchestrator.class, "parseBookJsonPayload", payload, "single.json");
-
-        assertThat(result).isNotNull();
-        JsonNode safeResult = Objects.requireNonNull(result);
-        assertThat(safeResult.path("id").asText()).isEqualTo("--AMEAAAQBAJ");
-        assertThat(safeResult.path("rawJsonResponse").isTextual()).isTrue();
-    }
-
-    @Test
     void persistBook_usesFallbackAggregateWhenMapperReturnsNull() {
         when(googleBooksMapper.map(any())).thenReturn(null);
         when(bookUpsertService.upsert(any())).thenReturn(BookUpsertService.UpsertResult.builder()
@@ -146,7 +124,7 @@ class BookDataOrchestratorPersistenceScenariosTest {
         fallback.setPageCount(321);
         fallback.setPublishedDate(Date.from(Instant.parse("2020-01-01T00:00:00Z")));
 
-        Boolean persisted = ReflectionTestUtils.invokeMethod(orchestrator, "persistBook", fallback, (JsonNode) null);
+        boolean persisted = batchPersistenceService.persistBook(fallback, null, null);
 
         assertThat(persisted).isTrue();
         ArgumentCaptor<BookAggregate> aggregateCaptor = ArgumentCaptor.forClass(BookAggregate.class);
@@ -164,7 +142,7 @@ class BookDataOrchestratorPersistenceScenariosTest {
         java.net.ConnectException rootCause = new java.net.ConnectException("Connection refused");
         RuntimeException wrapped = new RuntimeException("Systemic database error during upsert", rootCause);
 
-        Boolean systemic = ReflectionTestUtils.invokeMethod(orchestrator, "isSystemicDatabaseError", wrapped);
+        boolean systemic = batchPersistenceService.isSystemicDatabaseError(wrapped);
 
         assertThat(systemic).isTrue();
     }

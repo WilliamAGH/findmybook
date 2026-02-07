@@ -1,40 +1,33 @@
 /**
- * Service for interacting with OpenLibrary's data API to fetch book information
+ * Service for interacting with OpenLibrary's data API to fetch book information.
+ *
+ * <p>Provides title-based and author-based search against the OpenLibrary Search API,
+ * with resilience patterns (circuit breakers and rate limiting) and reactive return types.</p>
  *
  * @author William Callahan
- *
- * Features:
- * - Provides methods to fetch book data from OpenLibrary using ISBN
- * - Enables book title-based search against OpenLibrary API
- * - Implements resilience patterns with circuit breakers and rate limiting
- * - Handles API response mapping to Book domain objects
- * - Provides fallback behavior for API failures
- * - Uses reactive programming model with Mono/Flux return types
  */
 package net.findmybook.service;
 
 import net.findmybook.model.Book;
-import net.findmybook.util.CategoryNormalizer;
+import net.findmybook.util.ExternalApiLogger;
 import net.findmybook.util.IsbnUtils;
 import net.findmybook.util.LoggingUtils;
-import net.findmybook.util.ExternalApiLogger;
-import net.findmybook.util.DateParsingUtils;
+import net.findmybook.util.TextUtils;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
 import reactor.netty.http.client.PrematureCloseException;
 
 import tools.jackson.databind.JsonNode;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Date;
-import java.util.Objects; // Added import
-import java.time.Duration;
+import java.util.Objects;
 
 @Service
 @Slf4j
@@ -51,77 +44,17 @@ public class OpenLibraryBookDataService {
     }
 
     /**
-     * Fetches book data from OpenLibrary by ISBN
+     * Searches OpenLibrary for books matching the given title.
      *
-     * @param isbn The ISBN of the book
-     * @return A Mono emitting the Book object if found, or Mono.empty() otherwise
-     */
-    /**
-     * @deprecated Prefer {@link BookSearchService#searchByIsbn(String)} combined with
-     * {@link net.findmybook.repository.BookQueryRepository#fetchBookDetail(java.util.UUID)}
-     * so consumers work with Postgres-backed DTOs instead of mutable {@link Book} entities.
-     */
-    @Deprecated(since = "2025-10-01", forRemoval = true)
-    @RateLimiter(name = "openLibraryDataService")
-    @CircuitBreaker(name = "openLibraryDataService", fallbackMethod = "fetchBookFallback")
-    public Mono<Book> fetchBookByIsbn(String isbn) {
-        if (isbn == null || isbn.trim().isEmpty()) {
-            log.warn("ISBN is null or empty. Cannot fetch book from OpenLibrary.");
-            return Mono.empty();
-        }
-        if (!externalFallbackEnabled) {
-            log.debug("External fallback disabled; skipping OpenLibrary fetch for ISBN {}.", isbn);
-            return Mono.empty();
-        }
-        log.info("Attempting to fetch book data from OpenLibrary for ISBN: {}", isbn);
-
-        String bibkey = "ISBN:" + isbn;
-
-        return webClient.get()
-                .uri(uriBuilder -> uriBuilder
-                        .path("/api/books")
-                        .queryParam("bibkeys", bibkey)
-                        .queryParam("format", "json")
-                        .queryParam("jscmd", "data")
-                        .build())
-                .retrieve()
-                .bodyToMono(JsonNode.class)
-                .timeout(Duration.ofSeconds(5))
-                .onErrorMap(PrematureCloseException.class, e -> {
-                    log.debug("OpenLibrary connection closed early for ISBN {}: {}", isbn, e.toString());
-                    return new IllegalStateException("OpenLibrary connection closed early for ISBN " + isbn, e);
-                })
-                .flatMap(responseNode -> {
-                    JsonNode bookDataNode = responseNode.path(bibkey);
-                    if (bookDataNode.isMissingNode() || bookDataNode.isEmpty()) {
-                        log.warn("No data found in OpenLibrary response for bibkey: {}", bibkey);
-                        return Mono.empty();
-                    }
-                    Book book = parseOpenLibraryBook(bookDataNode, isbn);
-                    return book != null ? Mono.just(book) : Mono.empty();
-                })
-                .doOnError(e -> LoggingUtils.error(log, e, "Error fetching book by ISBN {} from OpenLibrary", isbn))
-                .onErrorMap(e -> { // Ensure errors propagate and are visible before circuit breaker handling
-                    LoggingUtils.warn(log, e, "Error during OpenLibrary fetch for ISBN {}, returning empty", isbn);
-                    return new IllegalStateException("OpenLibrary ISBN lookup failed for " + isbn, e);
-                });
-    }
-
-    /**
-     * Searches for books on OpenLibrary by title (and optionally author)
+     * <p>Uses the OpenLibrary Search API with a title-specific parameter for precise results.
+     * Results are mapped to {@link Book} domain objects with normalized fields.</p>
      *
-     * @param title The title of the book
-     * @return A Flux emitting Book objects matching the search query
+     * @param title the book title to search for
+     * @return a Flux of matching books, or empty if disabled or no results found
      */
-    /**
-     * @deprecated Use {@link BookSearchService#searchBooks(String, Integer)} with
-     * {@link net.findmybook.repository.BookQueryRepository#fetchBookCards(java.util.List)}
-     * to return DTO projections.
-     */
-    @Deprecated(since = "2025-10-01", forRemoval = true)
     @RateLimiter(name = "openLibraryDataService")
     @CircuitBreaker(name = "openLibraryDataService", fallbackMethod = "searchBooksFallback")
-    public Flux<Book> searchBooksByTitle(String title) {
+    public Flux<Book> queryBooksByTitle(String title) {
         if (title == null || title.trim().isEmpty()) {
             log.warn("Title is null or empty. Cannot search books on OpenLibrary.");
             return Flux.empty();
@@ -130,25 +63,13 @@ public class OpenLibraryBookDataService {
             log.debug("External fallback disabled; skipping OpenLibrary search for title: {}", title);
             return Flux.empty();
         }
-        // Example endpoint: /search.json?q={title} or /search.json?title={title}&author={author}
         log.info("Attempting to search books from OpenLibrary for title: {}", title);
         ExternalApiLogger.logApiCallAttempt(log, "OpenLibrary", "SEARCH_TITLE", title, false);
-        // Placeholder:
-        // return webClient.get().uri("/search.json?q=" + title)
-        // .retrieve()
-        // .bodyToFlux(Book.class) // This will need proper mapping and extraction from search results
-        // .doOnError(e -> log.error("Error searching books by title '{}' from OpenLibrary: {}", title, e.getMessage()));
-        // return Flux.empty(); // Placeholder
-        // Bug #6 Fix: OpenLibrary search URLs use only supported parameters
-        // We do NOT use sort=newest with q+author combination as it causes KeyError
-        // We use specific params (title or author) instead of generic q param
         return webClient.get()
                 .uri(uriBuilder -> uriBuilder
                         .path("/search.json")
-                        .queryParam("title", title) // Using title parameter for more specific search
-                        // .queryParam("q", title) // General query, 'title' is often more direct
-                        .queryParam("limit", 20) // Limit results for now
-                        // NEVER add sort=newest here - it's unsupported with these params
+                        .queryParam("title", title)
+                        .queryParam("limit", 20)
                         .build())
                 .retrieve()
                 .bodyToMono(JsonNode.class)
@@ -177,14 +98,17 @@ public class OpenLibraryBookDataService {
     }
 
     /**
-     * @deprecated Use {@link BookSearchService#searchAuthors(String, Integer)} together with
-     * {@link net.findmybook.repository.BookQueryRepository#fetchBookCards(java.util.List)}
-     * for DTOs instead of legacy {@link Book} models.
+     * Searches OpenLibrary for books by the given author name.
+     *
+     * <p>Uses the OpenLibrary Search API with an author-specific parameter.
+     * Results are mapped to {@link Book} domain objects with normalized fields.</p>
+     *
+     * @param author the author name to search for
+     * @return a Flux of matching books, or empty if disabled or no results found
      */
-    @Deprecated(since = "2025-10-01", forRemoval = true)
     @RateLimiter(name = "openLibraryDataService")
     @CircuitBreaker(name = "openLibraryDataService", fallbackMethod = "searchBooksFallback")
-    public Flux<Book> searchBooksByAuthor(String author) {
+    public Flux<Book> queryBooksByAuthor(String author) {
         if (author == null || author.trim().isEmpty()) {
             log.warn("Author is null or empty. Cannot search books on OpenLibrary.");
             return Flux.empty();
@@ -231,161 +155,19 @@ public class OpenLibraryBookDataService {
                 });
     }
 
-    // --- Fallback Methods ---
-
     /**
-     * @deprecated See {@link #fetchBookByIsbn(String)}; downstream code should no longer rely on legacy
-     * {@link Book} hydration from OpenLibrary.
+     * Circuit-breaker fallback for title and author search methods.
+     *
+     * <p>Propagates the failure explicitly so callers can handle the unavailability
+     * rather than receiving silent empty results.</p>
+     *
+     * @param query the search query that triggered the circuit breaker
+     * @param cause the throwable that triggered the fallback
+     * @return a Flux.error wrapping the circuit breaker cause
      */
-    @Deprecated(since = "2025-10-01", forRemoval = true)
-    public Mono<Book> fetchBookFallback(String isbn, Throwable t) {
-        LoggingUtils.warn(log, t, "OpenLibraryBookDataService.fetchBookByIsbn fallback triggered for ISBN: {}", isbn);
-        return Mono.error(new IllegalStateException("OpenLibrary fallback triggered for ISBN " + isbn, t));
-    }
-
-    public Flux<Book> searchBooksFallback(String title, Throwable t) {
-        LoggingUtils.warn(log, t, "OpenLibraryBookDataService.searchBooksByTitle fallback triggered for title: '{}'", title);
-        return Flux.error(new IllegalStateException("OpenLibrary fallback triggered for search '" + title + "'", t));
-    }
-
-    private Book parseOpenLibraryBook(JsonNode bookDataNode, String originalIsbn) {
-        if (bookDataNode == null || bookDataNode.isMissingNode() || !bookDataNode.isObject()) {
-            log.warn("Book data node is null, missing, or not an object for ISBN: {}", originalIsbn);
-            return null;
-        }
-
-        Book book = new Book();
-
-        String olid = bookDataNode.path("key").asText(null);
-        if (olid != null && olid.contains("/")) {
-            olid = olid.substring(olid.lastIndexOf('/') + 1);
-        }
-        book.setId(olid);
-
-        // Normalize title to proper case
-        String rawTitle = bookDataNode.path("title").asText(null);
-        book.setTitle(net.findmybook.util.TextUtils.normalizeBookTitle(rawTitle));
-
-        List<String> authors = new ArrayList<>();
-        if (bookDataNode.has("authors")) {
-            for (JsonNode authorNode : bookDataNode.path("authors")) {
-                String rawAuthor = authorNode.path("name").asText(null);
-                // Normalize author name to proper case
-                authors.add(net.findmybook.util.TextUtils.normalizeAuthorName(rawAuthor));
-            }
-        }
-        book.setAuthors(authors.isEmpty() ? null : authors);
-
-        String publisher = null;
-        if (bookDataNode.has("publishers") && bookDataNode.path("publishers").isArray() && bookDataNode.path("publishers").size() > 0) {
-            publisher = bookDataNode.path("publishers").get(0).path("name").asText(null);
-        }
-        book.setPublisher(publisher);
-
-        String publishedDateStr = bookDataNode.path("publish_date").asText(null);
-        if (publishedDateStr != null && !publishedDateStr.trim().isEmpty()) {
-            Date parsedDate = DateParsingUtils.parseFlexibleDate(publishedDateStr);
-            if (parsedDate == null) {
-                log.warn("Could not parse OpenLibrary publish_date '{}' for ISBN {} via DateParsingUtils.", publishedDateStr, originalIsbn);
-            }
-            book.setPublishedDate(parsedDate);
-        }
-
-
-        // Description is often not in the 'data' view, might be in 'details' view.
-        // book.setDescription(bookDataNode.path("description").path("value").asText(null));
-
-        // Task #9: Extract and sanitize ISBNs to prevent duplicate books from formatting differences
-        // OpenLibrary may send "978-0-545-01022-1" while Google sends "9780545010221"
-        String isbn10 = null;
-        String isbn13 = null;
-        if (bookDataNode.has("identifiers")) {
-            JsonNode identifiers = bookDataNode.path("identifiers");
-            if (identifiers.has("isbn_10") && identifiers.path("isbn_10").isArray() && identifiers.path("isbn_10").size() > 0) {
-                isbn10 = IsbnUtils.sanitize(identifiers.path("isbn_10").get(0).asText(null));
-            }
-            if (identifiers.has("isbn_13") && identifiers.path("isbn_13").isArray() && identifiers.path("isbn_13").size() > 0) {
-                isbn13 = IsbnUtils.sanitize(identifiers.path("isbn_13").get(0).asText(null));
-            }
-        }
-         // Fallback to original ISBN if not found in identifiers
-        if (isbn10 == null && originalIsbn != null) {
-            isbn10 = IsbnUtils.sanitize(originalIsbn);
-            // Only use if it's actually valid ISBN-10 length after sanitization
-            if (isbn10 != null && isbn10.length() != 10) {
-                isbn10 = null;
-            }
-        }
-        if (isbn13 == null && originalIsbn != null) {
-            isbn13 = IsbnUtils.sanitize(originalIsbn);
-            // Only use if it's actually valid ISBN-13 length after sanitization
-            if (isbn13 != null && isbn13.length() != 13) {
-                isbn13 = null;
-            }
-        }
-        book.setIsbn10(isbn10);
-        book.setIsbn13(isbn13);
-
-        Integer pageCount = bookDataNode.has("number_of_pages") ? bookDataNode.path("number_of_pages").asInt(0) : null;
-        if (pageCount != null && pageCount == 0) { // Distinguish missing from actual zero
-             book.setPageCount(null);
-        } else {
-            book.setPageCount(pageCount);
-        }
-
-
-        // Extract and normalize categories from Open Library subjects
-        List<String> rawCategories = new ArrayList<>();
-        if (bookDataNode.has("subjects")) {
-            for (JsonNode subjectNode : bookDataNode.path("subjects")) {
-                String subject = subjectNode.path("name").asText(subjectNode.asText(null));
-                if (subject != null && !subject.isBlank()) {
-                    rawCategories.add(subject);
-                }
-            }
-        }
-        // Normalize, split compound categories, and deduplicate (DRY principle)
-        List<String> normalizedCategories = CategoryNormalizer.normalizeAndDeduplicate(rawCategories);
-        book.setCategories(normalizedCategories.isEmpty() ? null : normalizedCategories);
-
-        String thumbnailUrl = null;
-        String smallThumbnailUrl = null;
-        if (bookDataNode.has("cover")) {
-            JsonNode coverNode = bookDataNode.path("cover");
-            thumbnailUrl = coverNode.path("medium").asText(null); // Typically used as primary cover
-            smallThumbnailUrl = coverNode.path("small").asText(null);
-        }
-        book.setExternalImageUrl(thumbnailUrl); // original external source
-        // s3ImagePath remains null here; S3 upload may occur later in orchestration
-        // Keep small thumbnail as fallback external URL if main is null
-        if (book.getExternalImageUrl() == null) {
-            book.setExternalImageUrl(smallThumbnailUrl);
-        }
-
-        book.setInfoLink(bookDataNode.path("url").asText(null));
-        book.setRawJsonResponse(bookDataNode.toString());
-
-        // Fields not typically in OpenLibrary 'data' view or not parsed yet:
-        // book.setGoogleBookId(null); // This is an OpenLibrary sourced book
-        // book.setDescription(null); // Handled above, usually not in this view
-        // book.setAverageRating(null);
-        // book.setRatingsCount(null);
-        // book.setLanguage(null);
-        // book.setPreviewLink(null);
-        // book.setPurchaseLink(null);
-        // book.setListPrice(null);
-        // book.setCurrencyCode(null);
-        // book.setWebReaderLink(null);
-        // book.setPdfAvailable(null);
-        // book.setEpubAvailable(null);
-        // book.setCoverImageWidth(null);
-        // book.setCoverImageHeight(null);
-        // book.setIsCoverHighResolution(null);
-        // book.setCoverImages(null); // This is a complex object, might need separate mapping
-        // book.setOtherEditions(null);
-        // book.setAsin(null);
-
-        return book;
+    public Flux<Book> searchBooksFallback(String query, Throwable cause) {
+        LoggingUtils.warn(log, cause, "OpenLibrary search fallback triggered for query: '{}'", query);
+        return Flux.error(new IllegalStateException("OpenLibrary fallback triggered for search '" + query + "'", cause));
     }
 
     private Book parseOpenLibrarySearchDoc(JsonNode docNode) {
@@ -394,71 +176,87 @@ public class OpenLibraryBookDataService {
         }
 
         Book book = new Book();
-        String key = docNode.path("key").asText(null);
-        if (key != null && key.contains("/")) {
-            book.setId(key.substring(key.lastIndexOf('/') + 1)); // Use OLID as ID
-        }
-
-        // Normalize title to proper case
-        String rawTitle = docNode.path("title").asText(null);
-        book.setTitle(net.findmybook.util.TextUtils.normalizeBookTitle(rawTitle));
-
-        List<String> authors = new ArrayList<>();
-        if (docNode.has("author_name") && docNode.get("author_name").isArray()) {
-            for (JsonNode authorNameNode : docNode.get("author_name")) {
-                String rawAuthor = authorNameNode.asText(null);
-                // Normalize author name to proper case
-                authors.add(net.findmybook.util.TextUtils.normalizeAuthorName(rawAuthor));
-            }
-        }
-        book.setAuthors(authors.isEmpty() ? null : authors);
-
-        // Search results often don't have detailed publisher/date directly
-        // book.setPublisher(docNode.path("publisher").get(0).asText(null)); // Example if available
-        // book.setPublishedDate(parsePublishedDate(docNode.path("first_publish_year").asText(null))); // Example
-
-        // Task #9: Sanitize ISBNs during search result parsing to prevent duplicates
-        List<String> sanitizedIsbnList = new ArrayList<>();
-        if (docNode.has("isbn") && docNode.get("isbn").isArray()) {
-            for (JsonNode isbnNode : docNode.get("isbn")) {
-                String rawIsbn = isbnNode.asText(null);
-                String sanitized = IsbnUtils.sanitize(rawIsbn);
-                if (sanitized != null) {
-                    sanitizedIsbnList.add(sanitized);
-                    if (sanitized.length() == 13 && book.getIsbn13() == null) {
-                        book.setIsbn13(sanitized);
-                    } else if (sanitized.length() == 10 && book.getIsbn10() == null) {
-                        book.setIsbn10(sanitized);
-                    }
-                }
-            }
-        }
-        // If specific ISBNs not set, try to pick first valid ones from the list
-        if (book.getIsbn13() == null && book.getIsbn10() == null && !sanitizedIsbnList.isEmpty()) {
-            for (String sanitized : sanitizedIsbnList) {
-                 if (sanitized.length() == 13) { book.setIsbn13(sanitized); break; }
-            }
-            for (String sanitized : sanitizedIsbnList) {
-                 if (sanitized.length() == 10) { book.setIsbn10(sanitized); break; }
-            }
-        }
-
-
-        // Cover ID might be present, construct URL if needed
-        if (docNode.has("cover_i") && !docNode.path("cover_i").isNull()) {
-            String coverId = docNode.path("cover_i").asText();
-            // OpenLibrary cover URL: -S (small), -M (medium), -L (large)
-            String coverUrl = "https://covers.openlibrary.org/b/id/" + coverId + "-L.jpg";
-            book.setExternalImageUrl(coverUrl);
-        }
-
-        // Raw JSON for search result item might be useful for debugging or further processing
+        book.setId(extractOpenLibraryId(docNode));
+        book.setTitle(TextUtils.normalizeBookTitle(emptyToNull(docNode.path("title").asString())));
+        book.setAuthors(extractSearchAuthors(docNode));
+        extractSearchIsbns(docNode, book);
+        extractSearchCover(docNode, book);
         book.setRawJsonResponse(docNode.toString());
-        
-        // Only return book if it has at least an ID and title
+
         if (book.getId() != null && book.getTitle() != null) {
             return book;
         }
         return null;
+    }
+
+    private static String extractOpenLibraryId(JsonNode node) {
+        String key = node.path("key").asString();
+        if (key == null || key.isEmpty()) {
+            return null;
+        }
+        int slashIndex = key.lastIndexOf('/');
+        return slashIndex >= 0 ? key.substring(slashIndex + 1) : key;
+    }
+
+    private static List<String> extractSearchAuthors(JsonNode docNode) {
+        if (!docNode.has("author_name") || !docNode.get("author_name").isArray()) {
+            return List.of();
+        }
+        List<String> authors = new ArrayList<>();
+        for (JsonNode authorNameNode : docNode.get("author_name")) {
+            String normalized = TextUtils.normalizeAuthorName(emptyToNull(authorNameNode.asString()));
+            if (StringUtils.hasText(normalized)) {
+                authors.add(normalized);
+            }
+        }
+        return authors.isEmpty() ? List.of() : authors;
+    }
+
+    private static void extractSearchIsbns(JsonNode docNode, Book book) {
+        if (!docNode.has("isbn") || !docNode.get("isbn").isArray()) {
+            return;
+        }
+        List<String> sanitizedIsbns = new ArrayList<>();
+        for (JsonNode isbnNode : docNode.get("isbn")) {
+            String sanitized = IsbnUtils.sanitize(emptyToNull(isbnNode.asString()));
+            if (sanitized != null) {
+                sanitizedIsbns.add(sanitized);
+                classifyIsbn(sanitized, book);
+            }
+        }
+        if (book.getIsbn13() == null && book.getIsbn10() == null) {
+            assignFirstMatchingIsbns(sanitizedIsbns, book);
+        }
+    }
+
+    private static void classifyIsbn(String sanitized, Book book) {
+        if (sanitized.length() == 13 && book.getIsbn13() == null) {
+            book.setIsbn13(sanitized);
+        } else if (sanitized.length() == 10 && book.getIsbn10() == null) {
+            book.setIsbn10(sanitized);
+        }
+    }
+
+    private static void assignFirstMatchingIsbns(List<String> isbns, Book book) {
+        for (String isbn : isbns) {
+            if (isbn.length() == 13) { book.setIsbn13(isbn); break; }
+        }
+        for (String isbn : isbns) {
+            if (isbn.length() == 10) { book.setIsbn10(isbn); break; }
+        }
+    }
+
+    private static void extractSearchCover(JsonNode docNode, Book book) {
+        if (!docNode.has("cover_i") || docNode.path("cover_i").isNull()) {
+            return;
+        }
+        String coverId = docNode.path("cover_i").asString();
+        if (StringUtils.hasText(coverId)) {
+            book.setExternalImageUrl("https://covers.openlibrary.org/b/id/" + coverId + "-L.jpg");
+        }
+    }
+
+    private static String emptyToNull(String value) {
+        return (value == null || value.isEmpty()) ? null : value;
     }
 }

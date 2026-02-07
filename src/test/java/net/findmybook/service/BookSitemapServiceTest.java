@@ -31,9 +31,6 @@ class BookSitemapServiceTest {
     private SitemapService sitemapService;
 
     @Mock
-    private BookDataOrchestrator bookDataOrchestrator;
-
-    @Mock
     private S3StorageService s3StorageService;
 
     private SitemapProperties sitemapProperties;
@@ -50,7 +47,6 @@ class BookSitemapServiceTest {
                 sitemapService,
                 sitemapProperties,
                 new ObjectMapper(),
-                bookDataOrchestrator,
                 s3StorageService
         );
     }
@@ -82,17 +78,17 @@ class BookSitemapServiceTest {
         JsonNode root = new ObjectMapper().readTree(payload);
         assertThat(root.size()).isEqualTo(3);
         assertThat(root.get("totalBooks").asInt()).isEqualTo(1);
-        assertThat(root.get("generatedAt").asText(null)).isNotBlank();
+        assertThat(root.get("generatedAt").asString()).isNotBlank();
         JsonNode booksNode = root.get("books");
         assertThat(booksNode).isNotNull();
         assertThat(booksNode.isArray()).isTrue();
         assertThat(booksNode.size()).isEqualTo(1);
 
         JsonNode first = booksNode.get(0);
-        assertThat(first.get("id").asText(null)).isEqualTo("book-1");
-        assertThat(first.get("slug").asText(null)).isEqualTo("slug-1");
-        assertThat(first.get("title").asText(null)).isEqualTo("Title");
-        assertThat(first.get("updatedAt").asText(null)).isEqualTo("2024-01-01T00:00:00Z");
+        assertThat(first.get("id").asString()).isEqualTo("book-1");
+        assertThat(first.get("slug").asString()).isEqualTo("slug-1");
+        assertThat(first.get("title").asString()).isEqualTo("Title");
+        assertThat(first.get("updatedAt").asString()).isEqualTo("2024-01-01T00:00:00Z");
         assertThat(collectFieldNames(first)).containsExactlyInAnyOrder("id", "slug", "title", "updatedAt");
     }
 

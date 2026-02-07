@@ -15,10 +15,6 @@
 package net.findmybook.service;
 
 import tools.jackson.databind.JsonNode;
-import net.findmybook.dto.BookAggregate;
-import net.findmybook.mapper.GoogleBooksMapper;
-import net.findmybook.model.Book;
-import net.findmybook.util.BookDomainMapper;
 import net.findmybook.util.LoggingUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -34,22 +30,12 @@ public class GoogleBooksService {
 
     private final ApiRequestMonitor apiRequestMonitor;
     private final GoogleApiFetcher googleApiFetcher;
-    private final GoogleBooksMapper googleBooksMapper;
 
-    /**
-     * Constructs a GoogleBooksService with necessary dependencies.
-     *
-     * @param apiRequestMonitor Service for monitoring API usage metrics
-     * @param googleApiFetcher Service for direct Google API calls
-     * @param googleBooksMapper Mapper for converting Google Books JSON into domain aggregates
-     */
     public GoogleBooksService(
             ApiRequestMonitor apiRequestMonitor,
-            GoogleApiFetcher googleApiFetcher,
-            GoogleBooksMapper googleBooksMapper) {
+            GoogleApiFetcher googleApiFetcher) {
         this.apiRequestMonitor = apiRequestMonitor;
         this.googleApiFetcher = googleApiFetcher;
-        this.googleBooksMapper = googleBooksMapper;
     }
 
     /**
@@ -92,10 +78,13 @@ public class GoogleBooksService {
             .map(responseNode -> {
                 if (responseNode != null && responseNode.has("items") && responseNode.get("items").isArray() && responseNode.get("items").size() > 0) {
                     JsonNode firstItem = responseNode.get("items").get(0);
-                    if (firstItem.has("id")) {
-                        String googleId = firstItem.get("id").asText();
-                        log.info("Found Google Book ID: {} for ISBN: {}", googleId, isbn);
-                        return googleId;
+                    JsonNode idNode = firstItem.get("id");
+                    if (idNode != null && !idNode.isNull()) {
+                        String googleId = idNode.asString();
+                        if (googleId != null) {
+                            log.info("Found Google Book ID: {} for ISBN: {}", googleId, isbn);
+                            return googleId;
+                        }
                     }
                 }
                 log.warn("No Google Book ID found for ISBN: {}", isbn);
@@ -161,20 +150,4 @@ public class GoogleBooksService {
         ));
     }
 
-    private Book convertJsonToBook(JsonNode item) {
-        if (item == null) {
-            return null;
-        }
-
-        try {
-            BookAggregate aggregate = googleBooksMapper.map(item);
-            Book book = BookDomainMapper.fromAggregate(aggregate);
-            if (book != null) {
-                book.setRawJsonResponse(item.toString());
-            }
-            return book;
-        } catch (IllegalArgumentException ex) {
-            throw new IllegalStateException("Failed to map Google Books JSON node into domain book", ex);
-        }
-    }
 }

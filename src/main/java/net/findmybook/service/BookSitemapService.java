@@ -5,23 +5,18 @@ import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 import net.findmybook.config.SitemapProperties;
-import net.findmybook.model.Book;
 import net.findmybook.service.SitemapService.BookSitemapItem;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.lang.Nullable;
+import jakarta.annotation.Nullable;
 import org.springframework.stereotype.Service;
-import reactor.core.publisher.Mono;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Collectors;
 
 /**
  * Builds sitemap snapshots from Postgres and synchronizes supporting artifacts (S3 JSON, cover probes, API warmups).
@@ -34,18 +29,15 @@ public class BookSitemapService {
     private final SitemapService sitemapService;
     private final SitemapProperties sitemapProperties;
     private final ObjectMapper objectMapper;
-    private final BookDataOrchestrator bookDataOrchestrator;
     private final S3StorageService s3StorageService;
 
     public BookSitemapService(SitemapService sitemapService,
                               SitemapProperties sitemapProperties,
                               ObjectMapper objectMapper,
-                              @Nullable BookDataOrchestrator bookDataOrchestrator,
                               @Nullable S3StorageService s3StorageService) {
         this.sitemapService = sitemapService;
         this.sitemapProperties = sitemapProperties;
         this.objectMapper = objectMapper;
-        this.bookDataOrchestrator = bookDataOrchestrator;
         this.s3StorageService = s3StorageService;
     }
 
@@ -119,49 +111,6 @@ public class BookSitemapService {
         }
     }
 
-    /**
-     * @deprecated Remove tiered Book hydration from sitemap sync; rely on
-     * {@link net.findmybook.repository.BookQueryRepository#fetchBookDetail(java.util.UUID)}
-     * for any required detail lookups.
-     */
-    @Deprecated(since = "2025-10-01", forRemoval = true)
-    public ExternalHydrationSummary hydrateExternally(List<BookSitemapItem> items, int limit) {
-        if (items == null || items.isEmpty() || limit <= 0) {
-            return new ExternalHydrationSummary(0, 0, 0, 0);
-        }
-        if (bookDataOrchestrator == null) {
-            log.debug("Skipping external hydration – BookDataOrchestrator not available.");
-            return new ExternalHydrationSummary(limit, 0, 0, 0);
-        }
-
-        List<BookSitemapItem> slice = items.stream()
-                .filter(item -> item.bookId() != null && !item.bookId().isBlank())
-                .limit(limit)
-                .collect(Collectors.toList());
-        AtomicInteger succeeded = new AtomicInteger();
-        AtomicInteger failures = new AtomicInteger();
-
-        for (BookSitemapItem item : slice) {
-            Mono<Book> mono = bookDataOrchestrator.fetchCanonicalBookReactive(item.bookId());
-            boolean present = mono.timeout(Duration.ofSeconds(15))
-                    .map(book -> Boolean.TRUE)
-                    .onErrorResume(ex -> {
-                        log.warn("Hydration attempt failed for book {}: {}", item.bookId(), ex.getMessage());
-                        return Mono.just(Boolean.FALSE);
-                    })
-                    .defaultIfEmpty(Boolean.FALSE)
-                    .blockOptional(Duration.ofSeconds(20))
-                    .orElse(Boolean.FALSE);
-            if (present) {
-                succeeded.incrementAndGet();
-            } else {
-                failures.incrementAndGet();
-            }
-        }
-
-        return new ExternalHydrationSummary(limit, slice.size(), succeeded.get(), failures.get());
-    }
-
     private String buildSnapshotPayload(SitemapSnapshot snapshot) throws JacksonException {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("generatedAt", snapshot.generatedAt().toString());
@@ -184,5 +133,5 @@ public class BookSitemapService {
 
     public record SnapshotSyncResult(SitemapSnapshot snapshot, boolean uploaded, String s3Key) {}
 
-    public record ExternalHydrationSummary(int requested, int attempted, int succeeded, int failed) {}
+    public record ExternalHydrationSummary(int attempted, int succeeded, int failed, int skipped) {}
 }
