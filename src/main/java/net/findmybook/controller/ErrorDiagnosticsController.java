@@ -43,11 +43,14 @@ public class ErrorDiagnosticsController implements ErrorController {
 
     private final ErrorAttributes errorAttributes;
     private final boolean spaFrontendEnabled;
+    private final boolean includeStackTrace;
 
     public ErrorDiagnosticsController(ErrorAttributes errorAttributes,
-                                      @Value("${app.frontend.spa.enabled:true}") boolean spaFrontendEnabled) {
+                                      @Value("${app.frontend.spa.enabled:true}") boolean spaFrontendEnabled,
+                                      @Value("${app.error-diagnostics.include-stacktrace:false}") boolean includeStackTrace) {
         this.errorAttributes = errorAttributes;
         this.spaFrontendEnabled = spaFrontendEnabled;
+        this.includeStackTrace = includeStackTrace;
     }
 
     /**
@@ -66,13 +69,15 @@ public class ErrorDiagnosticsController implements ErrorController {
                               HttpServletResponse response,
                               WebRequest webRequest,
                               Model model) {
-        Map<String, Object> errors = errorAttributes.getErrorAttributes(webRequest, 
-            ErrorAttributeOptions.of(
-                ErrorAttributeOptions.Include.STACK_TRACE, 
-                ErrorAttributeOptions.Include.MESSAGE, 
-                ErrorAttributeOptions.Include.EXCEPTION,
-                ErrorAttributeOptions.Include.BINDING_ERRORS
-            ));
+        ErrorAttributeOptions options = ErrorAttributeOptions.of(
+            ErrorAttributeOptions.Include.MESSAGE,
+            ErrorAttributeOptions.Include.EXCEPTION,
+            ErrorAttributeOptions.Include.BINDING_ERRORS
+        );
+        if (includeStackTrace) {
+            options = options.including(ErrorAttributeOptions.Include.STACK_TRACE);
+        }
+        Map<String, Object> errors = errorAttributes.getErrorAttributes(webRequest, options);
         int statusCode = resolveStatusCode(errors.get("status"));
         response.setStatus(statusCode);
 
@@ -92,7 +97,7 @@ public class ErrorDiagnosticsController implements ErrorController {
         model.addAttribute("status", errors.get("status"));
         model.addAttribute("error", errors.get("error"));
         model.addAttribute("message", errors.get("message"));
-        model.addAttribute("trace", errors.get("trace"));
+        model.addAttribute("trace", includeStackTrace ? errors.get("trace") : null);
         model.addAttribute("path", errors.get("path"));
 
         Object message = errors.get("message");
