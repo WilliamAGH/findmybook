@@ -64,11 +64,12 @@ public class ErrorDiagnosticsController implements ErrorController {
         populateErrorModel(model, context);
 
         if (missingDiagnosticMessage(context.message()) && !context.exceptionClassName().isBlank()) {
-            try {
-                model.addAttribute("exceptionType", Class.forName(context.exceptionClassName()).getSimpleName());
-            } catch (ClassNotFoundException e) {
-                log.warn("Unable to resolve exception class '{}': {}", context.exceptionClassName(), e.getMessage());
+            String exceptionType = context.exceptionClassName();
+            int lastDot = exceptionType.lastIndexOf('.');
+            if (lastDot >= 0 && lastDot < exceptionType.length() - 1) {
+                exceptionType = exceptionType.substring(lastDot + 1);
             }
+            model.addAttribute("exceptionType", exceptionType);
         }
 
         if (context.statusCode() == HttpStatus.NOT_FOUND.value()) {

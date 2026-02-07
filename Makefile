@@ -10,7 +10,7 @@ MIGRATE_SKIP ?= 0
 MIGRATE_PREFIX ?= books/v1/
 MIGRATE_DEBUG ?= false
 
-.PHONY: run build test lint kill-port migrate-books migrate-books-spring cluster-books check-s3-in-db
+.PHONY: run build test lint kill-port migrate-books cluster-books check-s3-in-db
 
 # Kill any process currently listening on $(PORT)
 kill-port:
