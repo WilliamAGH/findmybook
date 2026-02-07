@@ -19,3 +19,8 @@ Use manual SQL migration scripts and controlled data-loading steps instead of bo
 - Controlled data load: run the explicit migration tool directly:
   `node frontend/scripts/migrate-s3-to-db-v2.js --prefix books/v1/ --limit 1000`
 - Verification and rollback guidance: follow `docs/troubleshooting.md` and `docs/edition_clustering.md` after each batch.
+
+## Description Formatting Contract
+- Book description transformation is backend-only.
+- `/api/books/**` and `/api/books/search` expose canonical `descriptionContent.html` (sanitized) and `descriptionContent.text` (plain text).
+- Frontend clients must render API-provided fields and must not run independent markdown/html transformation logic.

@@ -10,7 +10,7 @@ MIGRATE_SKIP ?= 0
 MIGRATE_PREFIX ?= books/v1/
 MIGRATE_DEBUG ?= false
 
-.PHONY: run build test lint kill-port migrate-books migrate-books-spring cluster-books
+.PHONY: run build test lint kill-port migrate-books migrate-books-spring cluster-books check-s3-in-db
 
 # Kill any process currently listening on $(PORT)
 kill-port:
@@ -135,6 +135,62 @@ cluster-books:
 		echo "Getting statistics..." && \
 		psql "$$SPRING_DATASOURCE_URL" -c "SELECT * FROM get_clustering_stats();" && \
 		echo "✅ Book clustering complete"; \
+	else \
+		echo "❌ Error: .env file not found"; \
+		exit 1; \
+	fi
+
+# Validate every DB-referenced S3 key and clear stale s3_image_path values when missing
+check-s3-in-db:
+	@echo "Checking book_image_links.s3_image_path against object storage..."
+	@if [ -f .env ]; then \
+		set -a && . ./.env && set +a; \
+		if [ -z "$$SPRING_DATASOURCE_URL" ]; then \
+			echo "❌ Error: SPRING_DATASOURCE_URL not found in .env"; \
+			exit 1; \
+		fi; \
+		if [ -z "$$S3_BUCKET" ]; then \
+			echo "❌ Error: S3_BUCKET not found in .env"; \
+			exit 1; \
+		fi; \
+		if ! command -v aws >/dev/null 2>&1; then \
+			echo "❌ Error: aws CLI not found. Install AWS CLI to run this check."; \
+			exit 1; \
+		fi; \
+		total=$$(psql "$$SPRING_DATASOURCE_URL" -At -c "SELECT count(*) FROM book_image_links WHERE s3_image_path IS NOT NULL AND btrim(s3_image_path) <> ''"); \
+		if [ "$$total" -eq 0 ] 2>/dev/null; then \
+			echo "✅ No non-empty s3_image_path values found."; \
+			exit 0; \
+		fi; \
+		tmp_rows=$$(mktemp); \
+		trap 'rm -f "$$tmp_rows"' EXIT INT TERM; \
+		psql "$$SPRING_DATASOURCE_URL" -At -F "|" -c "SELECT id, s3_image_path FROM book_image_links WHERE s3_image_path IS NOT NULL AND btrim(s3_image_path) <> '' ORDER BY id" > "$$tmp_rows"; \
+		checked=0; \
+		found=0; \
+		missing=0; \
+		update_errors=0; \
+		endpoint_flag=""; \
+		if [ -n "$$S3_SERVER_URL" ]; then \
+			endpoint_flag="--endpoint-url $$S3_SERVER_URL"; \
+		fi; \
+		while IFS='|' read -r row_id s3_key; do \
+			checked=$$((checked + 1)); \
+			printf '[%s/%s] %s ... ' "$$checked" "$$total" "$$s3_key"; \
+			if AWS_PAGER="" aws s3api head-object --bucket "$$S3_BUCKET" --key "$$s3_key" $$endpoint_flag >/dev/null 2>&1; then \
+				found=$$((found + 1)); \
+				echo "OK"; \
+			else \
+				missing=$$((missing + 1)); \
+				echo "MISSING -> clearing DB value"; \
+				escaped_row_id=$$(printf "%s" "$$row_id" | sed "s/'/''/g"); \
+				escaped_s3_key=$$(printf "%s" "$$s3_key" | sed "s/'/''/g"); \
+				if ! psql "$$SPRING_DATASOURCE_URL" -v ON_ERROR_STOP=1 -c "UPDATE book_image_links SET s3_image_path = NULL WHERE id = '$$escaped_row_id' AND s3_image_path = '$$escaped_s3_key'" >/dev/null; then \
+					update_errors=$$((update_errors + 1)); \
+					echo "   ❌ Failed DB update for row $$row_id"; \
+				fi; \
+			fi; \
+		done < "$$tmp_rows"; \
+		echo "✅ Done. checked=$$checked found=$$found missing=$$missing updateErrors=$$update_errors"; \
 	else \
 		echo "❌ Error: .env file not found"; \
 		exit 1; \

@@ -10,6 +10,7 @@ Key variables in `.env`:
 | `SPRING_AI_OPENAI_API_KEY` | OpenAI integration |
 | `GOOGLE_BOOKS_API_KEY` | Book data source |
 | `S3_*` | S3 storage (if used) |
+| `S3_WRITE_ENABLED` | Enables/disables S3 cover uploads at runtime (`false` skips upload attempts) |
 | `APP_ADMIN_PASSWORD` | Admin user password |
 | `APP_USER_PASSWORD` | Basic user password |
 | `APP_ERROR_DIAGNOSTICS_INCLUDE_STACKTRACE` | Include stack traces in HTML diagnostics (`false` by default) |
@@ -29,3 +30,9 @@ export SPRING_DATASOURCE_URL="jdbc:postgresql://<host>:<port>/<db>?sslmode=prefe
 export SPRING_DATASOURCE_USERNAME="<user>"
 export SPRING_DATASOURCE_PASSWORD="<pass>"
 ```
+
+## Frontend Static Asset Caching
+
+- The Spring resource handler serves `/frontend/**` with `Cache-Control: no-cache, must-revalidate`.
+- This prevents stale SPA bundles when entry filenames remain stable (`app.js`, `app.css`).
+- Browser validation happens on each request while still allowing conditional responses (`Last-Modified`/`ETag` semantics).

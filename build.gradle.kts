@@ -105,6 +105,12 @@ dependencies {
     implementation("io.github.resilience4j:resilience4j-micrometer:${property("resilience4jVersion")}")
 
     implementation("com.google.errorprone:error_prone_annotations:2.36.0")
+    implementation("org.jsoup:jsoup:1.22.1")
+    implementation("com.vladsch.flexmark:flexmark:0.64.8")
+    implementation("com.vladsch.flexmark:flexmark-ext-autolink:0.64.8")
+    implementation("com.vladsch.flexmark:flexmark-ext-gfm-strikethrough:0.64.8")
+    implementation("com.vladsch.flexmark:flexmark-ext-gfm-tasklist:0.64.8")
+    implementation("com.vladsch.flexmark:flexmark-ext-tables:0.64.8")
 
     compileOnly("org.projectlombok:lombok:1.18.40")
     annotationProcessor("org.projectlombok:lombok:1.18.40")

@@ -22,6 +22,13 @@
   - `coverSource` (default `ANY`)
   - `resolution` (default `ANY`)
 - Response includes deterministic pagination metadata plus `queryHash` for realtime routing.
+- `GET /api/books/{identifier}` and search hit payloads include canonical description fields:
+  - `description` (legacy string; retained for backward compatibility)
+  - `descriptionContent` (backend-formatted source of truth):
+    - `raw: string | null` (original provider/database value)
+    - `format: "HTML" | "MARKDOWN" | "PLAIN_TEXT" | "UNKNOWN"`
+    - `html: string` (sanitized deterministic HTML for rendering)
+    - `text: string` (plain text for snippets and metadata)
 
 ## Search Pagination
 - The `/api/books/search` endpoint defaults to 12 results per page.
@@ -51,6 +58,10 @@
 - Topic for progress: `/topic/search/{queryHash}/progress`
 - Topic for opportunistic external candidates: `/topic/search/{queryHash}/results`
 - The `queryHash` is returned by `/api/books/search` and should be used as the subscription key.
+- Provider priority for opportunistic enrichment:
+  - Open Library is the primary external provider.
+  - Google Books runs in parallel for realtime enrichment and contributes additional candidates when available.
+  - Provider failures are isolated; one provider failure does not terminate the other provider stream.
 
 ## External Book Provider Contracts (Top 4 Public APIs)
 - **Google Books Volumes Search API**
@@ -59,8 +70,8 @@
   - Notes: `orderBy` accepts only `relevance` or `newest`; unsupported values must be normalized server-side.
 - **Open Library Search API**
   - Endpoint: `GET https://openlibrary.org/search.json`
-  - Required/important params: one of `q|title|author|isbn`, `limit`, `offset`, `fields`
-  - Notes: request explicit `fields` for stable parsing (`key,title,author_name,isbn,cover_i,first_publish_year,subject,publisher,language`).
+  - Required/important params: `q`, `mode=everything`, `limit`, `fields`
+  - Notes: backend search uses OpenLibrary web-style query semantics (`q` + `mode=everything`) with explicit fields (`key,title,author_name,isbn,cover_i,first_publish_year,subject,publisher,language`) to keep ranking consistent with direct Open Library search.
 - **Open Library Books API**
   - Endpoint: `GET https://openlibrary.org/api/books`
   - Required/important params: `bibkeys`, `format=json`, `jscmd=data|details`
@@ -69,6 +80,14 @@
   - Endpoint pattern: `https://covers.openlibrary.org/b/{idType}/{id}-{size}.jpg`
   - Identifiers: `idType` in `isbn|olid|id`; sizes `S|M|L`
   - Notes: treat this as a cover-only endpoint and pair with search/details APIs for bibliographic fields.
+
+## External Fallback Ordering (Synchronous Search)
+- On page 1, Open Library can augment Postgres results when the page has cover gaps (for example, many no-cover placeholders).
+  - Result ordering remains: Postgres results with covers first, then Open Library cover-bearing results, then lower-quality/no-cover results.
+- When Postgres returns zero matches:
+  - Open Library fallback runs first.
+  - Google Books fallback runs immediately after only for remaining slots not filled by Open Library.
+- Combined external candidates are deduplicated before persistence and response assembly.
 
 ## Admin API
 Admin endpoints require HTTP Basic Authentication.

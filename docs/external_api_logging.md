@@ -4,6 +4,14 @@
 
 Comprehensive console logging has been added for all external API calls during opportunistic backfill/supplementation. All logs use the `[EXTERNAL-API]` prefix for easy filtering.
 
+## Provider Priority and Failure Isolation
+
+- Open Library is the primary external provider for search fallback/enrichment.
+- Google Books is a secondary provider:
+  - Runs in parallel during realtime enrichment.
+  - Runs after Open Library during synchronous fallback to fill remaining slots.
+- Provider failures are isolated. If one provider fails (for example Google 429), the other provider continues processing.
+
 ## Log Format
 
 All console logs follow this pattern:
