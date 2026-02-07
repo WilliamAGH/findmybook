@@ -1,13 +1,13 @@
 package net.findmybook.service;
 
-import tools.jackson.databind.JsonNode;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import net.findmybook.mapper.GoogleBooksMapper;
 import net.findmybook.model.Book;
+import net.findmybook.support.search.GoogleExternalSearchFlow;
+import net.findmybook.support.search.SearchCandidatePersistence;
 import net.findmybook.service.event.SearchProgressEvent;
 import net.findmybook.service.event.SearchResultsUpdatedEvent;
-import net.findmybook.util.BookDomainMapper;
 import net.findmybook.util.IsbnUtils;
 import net.findmybook.util.SearchExternalProviderUtils;
 import net.findmybook.util.SearchQueryUtils;
@@ -33,12 +33,10 @@ import reactor.core.publisher.Flux;
 @Slf4j
 final class SearchRealtimeCoordinator {
 
-    private final Optional<GoogleApiFetcher> googleApiFetcher;
-    private final Optional<GoogleBooksMapper> googleBooksMapper;
     private final Optional<OpenLibraryBookDataService> openLibraryBookDataService;
-    private final Optional<BookDataOrchestrator> bookDataOrchestrator;
     private final Optional<ApplicationEventPublisher> eventPublisher;
-    private final boolean persistSearchResultsEnabled;
+    private final GoogleExternalSearchFlow googleExternalSearchFlow;
+    private final SearchCandidatePersistence searchCandidatePersistence;
     private static final int REALTIME_STATE_CACHE_MAX_SIZE = 2_000;
     private static final Duration REALTIME_STATE_CACHE_TTL = Duration.ofMinutes(15);
 
@@ -50,12 +48,10 @@ final class SearchRealtimeCoordinator {
     SearchRealtimeCoordinator(Optional<GoogleApiFetcher> googleApiFetcher, Optional<GoogleBooksMapper> googleBooksMapper,
                               Optional<OpenLibraryBookDataService> openLibraryBookDataService, Optional<BookDataOrchestrator> bookDataOrchestrator,
                               Optional<ApplicationEventPublisher> eventPublisher, boolean persistSearchResultsEnabled) {
-        this.googleApiFetcher = googleApiFetcher != null ? googleApiFetcher : Optional.empty();
-        this.googleBooksMapper = googleBooksMapper != null ? googleBooksMapper : Optional.empty();
         this.openLibraryBookDataService = openLibraryBookDataService != null ? openLibraryBookDataService : Optional.empty();
-        this.bookDataOrchestrator = bookDataOrchestrator != null ? bookDataOrchestrator : Optional.empty();
         this.eventPublisher = eventPublisher != null ? eventPublisher : Optional.empty();
-        this.persistSearchResultsEnabled = persistSearchResultsEnabled;
+        this.googleExternalSearchFlow = new GoogleExternalSearchFlow(googleApiFetcher, googleBooksMapper);
+        this.searchCandidatePersistence = new SearchCandidatePersistence(bookDataOrchestrator, persistSearchResultsEnabled);
     }
 
     void trigger(SearchPaginationService.SearchRequest request, SearchPaginationService.SearchPage page) {
@@ -70,7 +66,7 @@ final class SearchRealtimeCoordinator {
             return;
         }
 
-        if (googleApiFetcher.isEmpty() && openLibraryBookDataService.isEmpty()) {
+        if (!googleExternalSearchFlow.isAvailable() && openLibraryBookDataService.isEmpty()) {
             return;
         }
 
@@ -95,7 +91,7 @@ final class SearchRealtimeCoordinator {
             .filter(candidate -> StringUtils.hasText(candidate.book().getId()))
             .filter(candidate -> state.registerCandidate(candidate.book()))
             .doOnNext(candidate -> {
-                persistSearchCandidates(List.of(candidate.book()), "SEARCH");
+                searchCandidatePersistence.persist(List.of(candidate.book()), "SEARCH");
                 int totalNow = state.incrementTotalAndGet();
                 publishResults(request.query(), List.of(candidate.book()), candidate.source(), totalNow, queryHash, false);
             })
@@ -113,46 +109,31 @@ final class SearchRealtimeCoordinator {
 
     private Flux<RealtimeCandidate> googleRealtimeCandidates(SearchPaginationService.SearchRequest request,
                                                               String queryHash) {
-        if (googleApiFetcher.isEmpty() || googleBooksMapper.isEmpty()) {
+        if (!googleExternalSearchFlow.isAvailable()) {
             return Flux.empty();
         }
 
-        GoogleApiFetcher fetcher = googleApiFetcher.get();
-        GoogleBooksMapper mapper = googleBooksMapper.get();
         String query = request.query();
-        String orderBy = SearchExternalProviderUtils.normalizeGoogleOrderBy(request.orderBy());
         int limit = Math.max(1, Math.min(20, request.maxResults()));
 
-        Flux<JsonNode> authenticated = Flux.defer(() -> {
+        return Flux.defer(() -> {
             publishProgress(query, SearchProgressEvent.SearchStatus.SEARCHING_GOOGLE,
                 "Searching Google Books", queryHash, "GOOGLE_BOOKS");
-            return fetcher.streamSearchItems(query, limit, orderBy, null, true);
-        });
-
-        Flux<JsonNode> unauthenticated = fetcher.isFallbackAllowed()
-            ? fetcher.streamSearchItems(query, limit, orderBy, null, false)
-            : Flux.empty();
-
-        return Flux.concat(authenticated, unauthenticated)
-            .map(mapper::map)
-            .filter(Objects::nonNull)
-            .map(BookDomainMapper::fromAggregate)
-            .filter(Objects::nonNull)
-            .filter(book -> SearchExternalProviderUtils.matchesPublishedYear(book, request.publishedYear()))
-            .map(book -> {
-                book.addQualifier("search.source", "EXTERNAL_FALLBACK");
-                book.addQualifier("search.matchType", "GOOGLE_API");
-                book.setRetrievedFrom("GOOGLE_BOOKS");
-                book.setDataSource("GOOGLE_BOOKS");
-                return new RealtimeCandidate("GOOGLE_BOOKS", book);
-            })
+            return googleExternalSearchFlow.streamCandidates(
+                request.query(),
+                request.orderBy(),
+                request.publishedYear(),
+                limit
+            );
+        })
+            .map(book -> new RealtimeCandidate("GOOGLE_BOOKS", book))
             .take(limit)
-            .onErrorMap(ex -> {
+            .onErrorResume(ex -> {
                 SearchProgressEvent.SearchStatus errorStatus = classifyProviderError(ex);
                 log.warn("Realtime Google search failed for '{}' (status={}): {}", query, errorStatus, ex.getMessage());
                 publishProgress(query, errorStatus, "Google Books unavailable, continuing with other providers",
                     queryHash, "GOOGLE_BOOKS");
-                return new IllegalStateException("Realtime Google search failed for query '" + query + "'", ex);
+                return Flux.error(new IllegalStateException("Realtime Google search failed for query '" + query + "'", ex));
             });
     }
 
@@ -182,13 +163,8 @@ final class SearchRealtimeCoordinator {
             .filter(Objects::nonNull)
             .filter(book -> SearchExternalProviderUtils.matchesPublishedYear(book, request.publishedYear()))
             .take(limitPerStrategy * 2L)
-            .map(book -> {
-                book.addQualifier("search.source", "EXTERNAL_FALLBACK");
-                book.addQualifier("search.matchType", "OPEN_LIBRARY_API");
-                book.setRetrievedFrom("OPEN_LIBRARY");
-                book.setDataSource("OPEN_LIBRARY");
-                return new RealtimeCandidate("OPEN_LIBRARY", book);
-            })
+            .map(SearchExternalProviderUtils::tagOpenLibraryFallback)
+            .map(book -> new RealtimeCandidate("OPEN_LIBRARY", book))
             .onErrorMap(ex -> {
                 SearchProgressEvent.SearchStatus errorStatus = classifyProviderError(ex);
                 log.warn("Realtime Open Library search failed for '{}' (status={}): {}", request.query(), errorStatus, ex.getMessage());
@@ -196,13 +172,6 @@ final class SearchRealtimeCoordinator {
                     queryHash, "OPEN_LIBRARY");
                 return new IllegalStateException("Realtime Open Library search failed for query '" + request.query() + "'", ex);
             });
-    }
-
-    private void persistSearchCandidates(List<Book> books, String context) {
-        if (!persistSearchResultsEnabled || books == null || books.isEmpty() || bookDataOrchestrator.isEmpty()) {
-            return;
-        }
-        bookDataOrchestrator.get().persistBooksAsync(books, context);
     }
 
     private void publishProgress(String searchQuery,

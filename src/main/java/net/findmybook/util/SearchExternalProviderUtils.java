@@ -69,4 +69,35 @@ public final class SearchExternalProviderUtils {
             .getYear();
         return year == publishedYear;
     }
+
+    /**
+     * Tags a book as a Google Books external fallback candidate.
+     *
+     * @param book candidate book
+     * @return the same book instance with search-source qualifiers set
+     */
+    public static Book tagGoogleFallback(Book book) {
+        return tagExternalFallback(book, "GOOGLE_API", "GOOGLE_BOOKS");
+    }
+
+    /**
+     * Tags a book as an Open Library external fallback candidate.
+     *
+     * @param book candidate book
+     * @return the same book instance with search-source qualifiers set
+     */
+    public static Book tagOpenLibraryFallback(Book book) {
+        return tagExternalFallback(book, "OPEN_LIBRARY_API", "OPEN_LIBRARY");
+    }
+
+    private static Book tagExternalFallback(Book book, String matchType, String source) {
+        if (book == null) {
+            return null;
+        }
+        book.addQualifier("search.source", "EXTERNAL_FALLBACK");
+        book.addQualifier("search.matchType", matchType);
+        book.setRetrievedFrom(source);
+        book.setDataSource(source);
+        return book;
+    }
 }

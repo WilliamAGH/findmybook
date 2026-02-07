@@ -1,40 +1,29 @@
 package net.findmybook.service;
 
-import tools.jackson.databind.JsonNode;
-import net.findmybook.dto.BookListItem;
 import net.findmybook.mapper.GoogleBooksMapper;
 import net.findmybook.model.Book;
 import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.model.image.ImageResolutionPreference;
 import net.findmybook.repository.BookQueryRepository;
+import net.findmybook.support.search.GoogleExternalSearchFlow;
+import net.findmybook.support.search.PostgresSearchResultHydrator;
+import net.findmybook.support.search.SearchCandidatePersistence;
+import net.findmybook.support.search.SearchPageAssembler;
 import net.findmybook.util.ApplicationConstants;
-import net.findmybook.util.BookDomainMapper;
 import net.findmybook.util.PagingUtils;
-import net.findmybook.util.SearchExternalProviderUtils;
 import net.findmybook.util.SearchQueryUtils;
-import org.springframework.util.StringUtils;
-import net.findmybook.util.cover.CoverPrioritizer;
-import net.findmybook.util.cover.ImageDimensionUtils;
-import net.findmybook.util.cover.UrlSourceDetector;
-import java.time.Duration;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.UUID;
-import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
+
+import java.time.Duration;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Coordinates paginated search using repository-backed DTO projections.
@@ -45,11 +34,10 @@ import reactor.core.scheduler.Schedulers;
 public class SearchPaginationService {
 
     private final BookSearchService bookSearchService;
-    private final BookQueryRepository bookQueryRepository;
-    private final Optional<GoogleApiFetcher> googleApiFetcher;
-    private final Optional<GoogleBooksMapper> googleBooksMapper;
-    private final Optional<BookDataOrchestrator> bookDataOrchestrator;
-    private final boolean persistSearchResultsEnabled;
+    private final PostgresSearchResultHydrator postgresSearchResultHydrator;
+    private final SearchPageAssembler searchPageAssembler;
+    private final GoogleExternalSearchFlow googleExternalSearchFlow;
+    private final SearchCandidatePersistence searchCandidatePersistence;
     private final SearchRealtimeCoordinator searchRealtimeCoordinator;
 
     SearchPaginationService(BookSearchService bookSearchService,
@@ -77,22 +65,27 @@ public class SearchPaginationService {
                                    Optional<BookDataOrchestrator> bookDataOrchestrator,
                                    Optional<ApplicationEventPublisher> eventPublisher,
                                    @Value("${app.features.persist-search-results:true}") boolean persistSearchResultsEnabled) {
-        this.bookSearchService = bookSearchService;
-        this.bookQueryRepository = bookQueryRepository;
-        this.googleApiFetcher = googleApiFetcher;
-        this.googleBooksMapper = googleBooksMapper;
-        this.bookDataOrchestrator = bookDataOrchestrator;
-        this.persistSearchResultsEnabled = persistSearchResultsEnabled;
+        this.bookSearchService = Objects.requireNonNull(bookSearchService, "bookSearchService");
+        this.postgresSearchResultHydrator = new PostgresSearchResultHydrator(bookQueryRepository);
+        this.searchPageAssembler = new SearchPageAssembler();
+        this.googleExternalSearchFlow = new GoogleExternalSearchFlow(googleApiFetcher, googleBooksMapper);
+        this.searchCandidatePersistence = new SearchCandidatePersistence(bookDataOrchestrator, persistSearchResultsEnabled);
         this.searchRealtimeCoordinator = new SearchRealtimeCoordinator(
-            this.googleApiFetcher,
-            this.googleBooksMapper,
+            googleApiFetcher,
+            googleBooksMapper,
             openLibraryBookDataService,
-            this.bookDataOrchestrator,
+            bookDataOrchestrator,
             eventPublisher,
             persistSearchResultsEnabled
         );
     }
 
+    /**
+     * Executes a postgres-first paginated search and optionally backfills empty pages from Google Books.
+     *
+     * @param request normalized search request
+     * @return page payload containing ordered items and pagination metadata
+     */
     public Mono<SearchPage> search(SearchRequest request) {
         PagingUtils.Window window = PagingUtils.window(
             request.startIndex(),
@@ -111,89 +104,19 @@ public class SearchPaginationService {
                                            long startNanos) {
         return Mono.fromCallable(() -> bookSearchService.searchBooks(request.query(), window.totalRequested()))
             .subscribeOn(Schedulers.boundedElastic())
-            .map(results -> results == null ? List.<BookSearchService.SearchResult>of() : results)
-            .map(results -> filterResultsByPublishedYear(results, request.publishedYear()))
-            .map(this::mapPostgresResults)
-            .map(list -> dedupeAndSlice(list, window, request))
+            .map(results -> postgresSearchResultHydrator.filterByPublishedYear(results, request.publishedYear()))
+            .map(postgresSearchResultHydrator::mapOrderedResults)
+            .map(list -> searchPageAssembler.buildPage(
+                request.query(),
+                request.orderBy(),
+                request.coverSource(),
+                request.resolutionPreference(),
+                list,
+                window
+            ))
             .flatMap(page -> maybeFallback(request, window, page))
             .doOnNext(page -> searchRealtimeCoordinator.trigger(request, page))
             .doOnNext(page -> logPageMetrics(request, window, page, startNanos));
-    }
-
-    private List<Book> mapPostgresResults(List<BookSearchService.SearchResult> results) {
-        if (results.isEmpty()) {
-            return List.of();
-        }
-        List<UUID> bookIds = results.stream()
-            .map(BookSearchService.SearchResult::bookId)
-            .filter(Objects::nonNull)
-            .toList();
-        if (bookIds.isEmpty()) {
-            return List.of();
-        }
-        List<BookListItem> items = bookQueryRepository.fetchBookListItems(bookIds);
-        Map<String, BookListItem> itemsById = items.stream()
-            .filter(Objects::nonNull)
-            .collect(Collectors.toMap(BookListItem::id, item -> item, (first, second) -> first, LinkedHashMap::new));
-        List<Book> ordered = new ArrayList<>(bookIds.size());
-        for (BookSearchService.SearchResult result : results) {
-            UUID bookId = result.bookId();
-            if (bookId != null) {
-                BookListItem item = itemsById.get(bookId.toString());
-                if (item != null) {
-                    Book book = BookDomainMapper.fromListItem(item);
-                    book.addQualifier("search.matchType", result.matchTypeNormalized());
-                    book.addQualifier("search.relevanceScore", result.relevanceScore());
-                    book.addQualifier("search.editionCount", result.editionCount());
-                    if (result.clusterId() != null) {
-                        book.addQualifier("search.clusterId", result.clusterId().toString());
-                    }
-                    ordered.add(book);
-                }
-            }
-        }
-        return ordered;
-    }
-
-    private SearchPage dedupeAndSlice(List<Book> rawResults,
-                                      PagingUtils.Window window,
-                                      SearchRequest request) {
-        LinkedHashMap<String, Book> ordered = new LinkedHashMap<>();
-        Map<String, Integer> insertionOrder = new LinkedHashMap<>();
-        int position = 0;
-        for (Book book : rawResults) {
-            if (book == null || !StringUtils.hasText(book.getId()) || ordered.containsKey(book.getId())) {
-                continue;
-            }
-            ordered.put(book.getId(), book);
-            insertionOrder.put(book.getId(), position++);
-        }
-
-        List<Book> uniqueResults = new ArrayList<>(ordered.values());
-        List<Book> filtered = applyCoverPreferences(uniqueResults, request.coverSource(), request.resolutionPreference());
-
-        filtered.sort(buildSearchResultComparator(insertionOrder, request));
-        List<Book> pageItems = PagingUtils.slice(filtered, window.startIndex(), window.limit());
-        int totalUnique = filtered.size();
-        boolean hasMore = PagingUtils.hasMore(totalUnique, window.startIndex(), window.limit());
-        int prefetched = PagingUtils.prefetchedCount(totalUnique, window.startIndex(), window.limit());
-        int nextStartIndex = hasMore ? window.startIndex() + window.limit() : window.startIndex();
-
-        return new SearchPage(
-            request.query(),
-            window.startIndex(),
-            window.limit(),
-            window.totalRequested(),
-            totalUnique,
-            pageItems,
-            filtered,
-            hasMore,
-            nextStartIndex,
-            prefetched,
-            request.orderBy(),
-            request.coverSource(),
-            request.resolutionPreference()
-        );
     }
 
     /**
@@ -206,8 +129,7 @@ public class SearchPaginationService {
                                            PagingUtils.Window window,
                                            SearchPage currentPage) {
         boolean shouldFallback = currentPage.totalUnique() == 0
-            && googleApiFetcher.isPresent()
-            && googleBooksMapper.isPresent()
+            && googleExternalSearchFlow.isAvailable()
             && !SearchQueryUtils.isWildcard(request.query())
             && window.totalRequested() > 0;
 
@@ -215,196 +137,35 @@ public class SearchPaginationService {
             return Mono.just(currentPage);
         }
 
-        GoogleApiFetcher fetcher = googleApiFetcher.get();
-        GoogleBooksMapper mapper = googleBooksMapper.get();
-        int desired = window.totalRequested();
-
-        return buildFallbackFlux(fetcher, mapper, request, desired)
+        return googleExternalSearchFlow
+            .streamCandidates(request.query(), request.orderBy(), request.publishedYear(), window.totalRequested())
             .collectList()
             .map(fallbackBooks -> mergeFallbackResults(fallbackBooks, currentPage, window, request))
-            .onErrorMap(ex -> {
+            .onErrorResume(ex -> {
                 log.warn("Fallback search processing failed for '{}': {}", request.query(), ex.getMessage());
-                return new IllegalStateException("Fallback search processing failed for query '" + request.query() + "'", ex);
+                return Mono.error(new IllegalStateException(
+                    "Fallback search processing failed for query '" + request.query() + "'",
+                    ex
+                ));
             });
-    }
-
-    private Flux<Book> buildFallbackFlux(GoogleApiFetcher fetcher,
-                                          GoogleBooksMapper mapper,
-                                          SearchRequest request,
-                                          int desired) {
-        String externalOrderBy = SearchExternalProviderUtils.normalizeGoogleOrderBy(request.orderBy());
-
-        Flux<JsonNode> authenticated = fetcher.streamSearchItems(request.query(), desired, externalOrderBy, null, true)
-            .onErrorMap(ex -> {
-                log.warn("Authenticated Google fallback failed for '{}': {}", request.query(), ex.getMessage());
-                return new IllegalStateException("Authenticated Google fallback failed for query '" + request.query() + "'", ex);
-            });
-
-        Flux<JsonNode> unauthenticated = fetcher.isFallbackAllowed()
-            ? fetcher.streamSearchItems(request.query(), desired, externalOrderBy, null, false)
-                .onErrorMap(ex -> {
-                    log.warn("Unauthenticated Google fallback failed for '{}': {}", request.query(), ex.getMessage());
-                    return new IllegalStateException("Unauthenticated Google fallback failed for query '" + request.query() + "'", ex);
-                })
-            : Flux.defer(() -> {
-                log.info("Skipping unauthenticated Google fallback for '{}' because fallback circuit is open", request.query());
-                return Flux.empty();
-            });
-
-        return Flux.concat(authenticated, unauthenticated)
-            .map(mapper::map)
-            .filter(Objects::nonNull)
-            .map(BookDomainMapper::fromAggregate)
-            .filter(Objects::nonNull)
-            .filter(book -> StringUtils.hasText(book.getId()))
-            .map(book -> {
-                book.addQualifier("search.source", "EXTERNAL_FALLBACK");
-                book.addQualifier("search.matchType", "GOOGLE_API");
-                book.setRetrievedFrom("GOOGLE_BOOKS");
-                book.setDataSource("GOOGLE_BOOKS");
-                return book;
-            })
-            .take(desired);
     }
 
     private SearchPage mergeFallbackResults(List<Book> fallbackBooks,
-                                             SearchPage currentPage,
-                                             PagingUtils.Window window,
-                                             SearchRequest request) {
-        if (fallbackBooks.isEmpty()) {
+                                            SearchPage currentPage,
+                                            PagingUtils.Window window,
+                                            SearchRequest request) {
+        if (fallbackBooks == null || fallbackBooks.isEmpty()) {
             return currentPage;
         }
-        List<Book> yearFiltered = fallbackBooks.stream()
-            .filter(book -> SearchExternalProviderUtils.matchesPublishedYear(book, request.publishedYear()))
-            .toList();
-        if (yearFiltered.isEmpty()) {
-            return currentPage;
-        }
-        persistSearchCandidates(yearFiltered, "SEARCH");
-        return dedupeAndSlice(yearFiltered, window, request);
-    }
-
-    private List<BookSearchService.SearchResult> filterResultsByPublishedYear(List<BookSearchService.SearchResult> results,
-                                                                               Integer publishedYear) {
-        if (results == null || results.isEmpty() || publishedYear == null) {
-            return results == null ? List.of() : results;
-        }
-
-        List<UUID> ids = results.stream()
-            .map(BookSearchService.SearchResult::bookId)
-            .filter(Objects::nonNull)
-            .toList();
-        if (ids.isEmpty()) {
-            return List.of();
-        }
-
-        Map<UUID, Integer> yearsByBookId = bookQueryRepository.fetchPublishedYears(ids);
-        if (yearsByBookId.isEmpty()) {
-            return List.of();
-        }
-
-        return results.stream()
-            .filter(result -> result != null && result.bookId() != null)
-            .filter(result -> Objects.equals(yearsByBookId.get(result.bookId()), publishedYear))
-            .toList();
-    }
-
-    private void persistSearchCandidates(List<Book> books, String context) {
-        if (!persistSearchResultsEnabled || books == null || books.isEmpty() || bookDataOrchestrator.isEmpty()) {
-            return;
-        }
-        bookDataOrchestrator.get().persistBooksAsync(books, context);
-    }
-
-    private Comparator<Book> buildSearchResultComparator(Map<String, Integer> insertionOrder,
-                                                         SearchRequest request) {
-        if (request == null || request.orderBy() == null) {
-            return CoverPrioritizer.bookComparator(insertionOrder);
-        }
-
-        String orderBy = request.orderBy().toLowerCase(Locale.ROOT);
-        Comparator<Book> orderSpecific = switch (orderBy) {
-            case "newest" -> Comparator
-                .comparing(Book::getPublishedDate, Comparator.nullsLast(java.util.Date::compareTo))
-                .reversed();
-            case "title" -> Comparator.comparing(
-                book -> Optional.ofNullable(book.getTitle()).orElse(""),
-                String.CASE_INSENSITIVE_ORDER
-            );
-            case "author" -> Comparator.comparing(
-                book -> {
-                    if (book == null || book.getAuthors() == null || book.getAuthors().isEmpty()) {
-                        return "";
-                    }
-                    return Optional.ofNullable(book.getAuthors().get(0)).orElse("");
-                },
-                String.CASE_INSENSITIVE_ORDER
-            );
-            case "rating" -> Comparator
-                .comparing((Book book) -> Optional.ofNullable(book.getAverageRating()).orElse(0.0), Comparator.reverseOrder())
-                .thenComparing(book -> Optional.ofNullable(book.getRatingsCount()).orElse(0), Comparator.reverseOrder());
-            case "cover-quality", "quality", "relevance" -> null;
-            default -> null;
-        };
-        return CoverPrioritizer.bookComparator(insertionOrder, orderSpecific);
-    }
-
-    private List<Book> applyCoverPreferences(List<Book> books,
-                                             CoverImageSource coverSource,
-                                             ImageResolutionPreference resolutionPreference) {
-        if (books.isEmpty()) {
-            return books;
-        }
-
-        CoverImageSource effectiveSource = coverSource == null ? CoverImageSource.ANY : coverSource;
-        ImageResolutionPreference effectiveResolution = resolutionPreference == null
-            ? ImageResolutionPreference.ANY
-            : resolutionPreference;
-
-        return books.stream()
-            .filter(book -> matchesSourcePreference(book, effectiveSource))
-            .filter(book -> matchesResolutionPreference(book, effectiveResolution))
-            .collect(Collectors.toCollection(ArrayList::new));
-    }
-
-    private boolean matchesSourcePreference(Book book, CoverImageSource preference) {
-        if (preference == null || preference == CoverImageSource.ANY) {
-            return true;
-        }
-
-        CoverImageSource source = null;
-        if (book.getCoverImages() != null) {
-            source = book.getCoverImages().getSource();
-        }
-
-        if (source == null || source == CoverImageSource.UNDEFINED || source == CoverImageSource.ANY) {
-            source = UrlSourceDetector.detectSource(book.getExternalImageUrl());
-        }
-
-        return source == preference;
-    }
-
-    private boolean matchesResolutionPreference(Book book, ImageResolutionPreference preference) {
-        if (preference == null || preference == ImageResolutionPreference.ANY || preference == ImageResolutionPreference.HIGH_FIRST) {
-            return true;
-        }
-
-        Integer width = book.getCoverImageWidth();
-        Integer height = book.getCoverImageHeight();
-        boolean highResolution = Boolean.TRUE.equals(book.getIsCoverHighResolution())
-            || ImageDimensionUtils.isHighResolution(width, height);
-
-        return switch (preference) {
-            case HIGH_ONLY -> highResolution;
-            case LARGE -> ImageDimensionUtils.meetsThreshold(width, height, ImageDimensionUtils.MIN_ACCEPTABLE_NON_GOOGLE);
-            case MEDIUM -> ImageDimensionUtils.meetsThreshold(width, height, ImageDimensionUtils.MIN_ACCEPTABLE_CACHED);
-            case SMALL -> width != null && height != null
-                && width < ImageDimensionUtils.MIN_ACCEPTABLE_CACHED
-                && height < ImageDimensionUtils.MIN_ACCEPTABLE_CACHED;
-            case ORIGINAL -> highResolution;
-            case UNKNOWN -> false;
-            case ANY, HIGH_FIRST -> true;
-        };
+        searchCandidatePersistence.persist(fallbackBooks, "SEARCH");
+        return searchPageAssembler.buildPage(
+            request.query(),
+            request.orderBy(),
+            request.coverSource(),
+            request.resolutionPreference(),
+            fallbackBooks,
+            window
+        );
     }
 
     private void logPageMetrics(SearchRequest request,
@@ -424,6 +185,9 @@ public class SearchPaginationService {
         );
     }
 
+    /**
+     * Immutable request contract for paginated search.
+     */
     public record SearchRequest(String query,
                                 int startIndex,
                                 int maxResults,
@@ -449,6 +213,9 @@ public class SearchPaginationService {
         }
     }
 
+    /**
+     * Immutable paginated response payload for search endpoints.
+     */
     public record SearchPage(String query,
                              int startIndex,
                              int maxResults,
