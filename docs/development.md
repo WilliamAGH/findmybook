@@ -8,7 +8,7 @@
 ## Shortcuts
 
 | Command | Description |
-|---------|-------------|
+| ------- | ----------- |
 | `SPRING_PROFILES_ACTIVE=dev SERVER_PORT=8095 ./gradlew bootRun` | Run in dev mode |
 | `npm --prefix frontend run dev` | Run Svelte SPA with Vite dev server |
 | `npm --prefix frontend run check` | Type-check Svelte/TS frontend |
