@@ -7,14 +7,20 @@ import net.findmybook.service.BookIdentifierResolver;
 import net.findmybook.service.RecentlyViewedService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -111,5 +117,68 @@ class BookCacheWarmingSchedulerTest {
         singleBookScheduler.warmPopularBookCaches();
 
         verify(bookQueryRepository).fetchBookDetailBySlug("slug-123");
+    }
+}
+
+class WorkClusterSchedulerTest {
+
+    private JdbcTemplate jdbcTemplate;
+    private WorkClusterScheduler scheduler;
+
+    @BeforeEach
+    void setUp() {
+        jdbcTemplate = mock(JdbcTemplate.class);
+        scheduler = new WorkClusterScheduler(jdbcTemplate);
+    }
+
+    @Test
+    void clusterBooks_should_SkipGoogleClustering_When_KnownConstraintFailureOccurs() {
+        when(jdbcTemplate.queryForObject(
+            eq("SELECT * FROM cluster_books_by_isbn()"),
+            org.mockito.ArgumentMatchers.<RowMapper<Integer[]>>any()
+        )).thenReturn(new Integer[]{2, 8});
+
+        when(jdbcTemplate.queryForObject(
+            eq("SELECT * FROM cluster_books_by_google_canonical()"),
+            org.mockito.ArgumentMatchers.<RowMapper<Integer[]>>any()
+        )).thenThrow(new DataIntegrityViolationException(
+            "ERROR: check_reasonable_member_count violated in cluster_books_by_google_canonical"
+        ));
+
+        assertDoesNotThrow(() -> scheduler.clusterBooks());
+
+        verify(jdbcTemplate).queryForObject(
+            eq("SELECT * FROM cluster_books_by_isbn()"),
+            org.mockito.ArgumentMatchers.<RowMapper<Integer[]>>any()
+        );
+        verify(jdbcTemplate).queryForObject(
+            eq("SELECT * FROM cluster_books_by_google_canonical()"),
+            org.mockito.ArgumentMatchers.<RowMapper<Integer[]>>any()
+        );
+    }
+
+    @Test
+    void clusterBooks_should_ThrowIllegalStateException_When_IsbnClusteringFails() {
+        when(jdbcTemplate.queryForObject(
+            eq("SELECT * FROM cluster_books_by_isbn()"),
+            org.mockito.ArgumentMatchers.<RowMapper<Integer[]>>any()
+        )).thenThrow(new DataIntegrityViolationException("isbn clustering failure"));
+
+        assertThrows(IllegalStateException.class, () -> scheduler.clusterBooks());
+    }
+
+    @Test
+    void clusterBooks_should_ThrowIllegalStateException_When_GoogleClusteringFailsForUnknownReason() {
+        when(jdbcTemplate.queryForObject(
+            eq("SELECT * FROM cluster_books_by_isbn()"),
+            org.mockito.ArgumentMatchers.<RowMapper<Integer[]>>any()
+        )).thenReturn(new Integer[]{1, 3});
+
+        when(jdbcTemplate.queryForObject(
+            eq("SELECT * FROM cluster_books_by_google_canonical()"),
+            org.mockito.ArgumentMatchers.<RowMapper<Integer[]>>any()
+        )).thenThrow(new DataIntegrityViolationException("google clustering failure"));
+
+        assertThrows(IllegalStateException.class, () -> scheduler.clusterBooks());
     }
 }

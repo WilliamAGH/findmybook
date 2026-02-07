@@ -1,5 +1,6 @@
 package net.findmybook.scheduler;
 
+import java.util.Locale;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -19,6 +20,12 @@ import org.springframework.stereotype.Component;
 public class WorkClusterScheduler {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(WorkClusterScheduler.class);
+    private static final String ISBN_CLUSTER_SQL = "SELECT * FROM cluster_books_by_isbn()";
+    private static final String GOOGLE_CLUSTER_SQL = "SELECT * FROM cluster_books_by_google_canonical()";
+    private static final String GOOGLE_CLUSTER_FUNCTION_NAME = "cluster_books_by_google_canonical";
+    private static final String MEMBER_COUNT_CONSTRAINT_NAME = "check_reasonable_member_count";
+    private static final Integer[] ZERO_CLUSTER_RESULTS = new Integer[] {0, 0};
+    private static final String DB_MIGRATION_COMMAND = "make db-migrate";
     
     private final JdbcTemplate jdbcTemplate;
 
@@ -34,31 +41,72 @@ public class WorkClusterScheduler {
      */
     @Scheduled(fixedDelay = 6 * 60 * 60 * 1000, initialDelay = 5 * 60 * 1000) // Every 6 hours, start after 5 min
     public void clusterBooks() {
-        try {
-            LOGGER.info("Starting scheduled work clustering...");
-            
-            // Cluster by ISBN prefix
-            Integer[] isbnResults = jdbcTemplate.queryForObject(
-                "SELECT * FROM cluster_books_by_isbn()",
-                (rs, rowNum) -> new Integer[]{rs.getInt("clusters_created"), rs.getInt("books_clustered")}
+        LOGGER.info("Starting scheduled work clustering...");
+
+        Integer[] isbnResults = runRequiredClustering(ISBN_CLUSTER_SQL, "ISBN");
+        Integer[] googleResults = runGoogleCanonicalClustering();
+
+        if (isbnResults != null && googleResults != null) {
+            int totalClusters = isbnResults[0] + googleResults[0];
+            int totalBooks = isbnResults[1] + googleResults[1];
+            LOGGER.info(
+                "Work clustering completed: {} clusters created/updated, {} books grouped into editions",
+                totalClusters,
+                totalBooks
             );
-            
-            // Cluster by Google canonical ID
-            Integer[] googleResults = jdbcTemplate.queryForObject(
-                "SELECT * FROM cluster_books_by_google_canonical()",
-                (rs, rowNum) -> new Integer[]{rs.getInt("clusters_created"), rs.getInt("books_clustered")}
-            );
-            
-            if (isbnResults != null && googleResults != null) {
-                int totalClusters = isbnResults[0] + googleResults[0];
-                int totalBooks = isbnResults[1] + googleResults[1];
-                LOGGER.info("Work clustering completed: {} clusters created/updated, {} books grouped into editions", 
-                    totalClusters, totalBooks);
-            }
-            
-        } catch (DataAccessException e) {
-            throw new IllegalStateException("Failed to run scheduled work clustering", e);
         }
+    }
+
+    private Integer[] runRequiredClustering(String clusteringSql, String clusteringName) {
+        try {
+            return jdbcTemplate.queryForObject(
+                clusteringSql,
+                (rs, rowNum) -> new Integer[]{rs.getInt("clusters_created"), rs.getInt("books_clustered")}
+            );
+        } catch (DataAccessException exception) {
+            throw new IllegalStateException(
+                "Failed to run " + clusteringName + " work clustering",
+                exception
+            );
+        }
+    }
+
+    private Integer[] runGoogleCanonicalClustering() {
+        try {
+            return jdbcTemplate.queryForObject(
+                GOOGLE_CLUSTER_SQL,
+                (rs, rowNum) -> new Integer[]{rs.getInt("clusters_created"), rs.getInt("books_clustered")}
+            );
+        } catch (DataAccessException exception) {
+            if (isKnownGoogleCanonicalConstraintFailure(exception)) {
+                LOGGER.error(
+                    "Skipping Google canonical clustering for this scheduler cycle due to stale database "
+                        + "function definition. Apply the latest schema with '{}' to repair "
+                        + "cluster_books_by_google_canonical() and rerun clustering.",
+                    DB_MIGRATION_COMMAND,
+                    exception
+                );
+                return ZERO_CLUSTER_RESULTS;
+            }
+            throw new IllegalStateException("Failed to run Google canonical work clustering", exception);
+        }
+    }
+
+    private boolean isKnownGoogleCanonicalConstraintFailure(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null) {
+                String normalized = message.toLowerCase(Locale.ROOT);
+                boolean hasConstraint = normalized.contains(MEMBER_COUNT_CONSTRAINT_NAME);
+                boolean hasFunction = normalized.contains(GOOGLE_CLUSTER_FUNCTION_NAME);
+                if (hasConstraint && hasFunction) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     /**

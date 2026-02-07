@@ -24,7 +24,7 @@ import java.net.ConnectException;
 import java.net.SocketException;
 import java.sql.SQLException;
 import java.time.LocalDate;
-import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -324,7 +324,7 @@ class BookExternalBatchPersistenceService {
 
         LocalDate publishedDate = null;
         if (book.getPublishedDate() != null) {
-            publishedDate = book.getPublishedDate().toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
+            publishedDate = book.getPublishedDate().toInstant().atZone(ZoneOffset.UTC).toLocalDate();
         }
 
         return BookAggregate.builder()

@@ -163,6 +163,7 @@ create table if not exists work_clusters (
 
   -- Statistics
   member_count integer default 0,
+  constraint check_reasonable_member_count check (member_count <= 100),
 
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -1376,7 +1377,7 @@ begin
         is_primary = excluded.is_primary,
         confidence = excluded.confidence,
         join_reason = excluded.join_reason,
-        updated_at = now();
+        joined_at = now();
 
       books_count := books_count + 1;
     end loop;
@@ -1481,7 +1482,7 @@ begin
       is_primary = excluded.is_primary,
       confidence = excluded.confidence,
       join_reason = excluded.join_reason,
-      updated_at = now();
+      joined_at = now();
   end loop;
 end;
 $$ language plpgsql;
@@ -1504,6 +1505,10 @@ begin
     and source = 'GOOGLE_BOOKS'
   limit 1;
 
+  if canonical_id is not null then
+    canonical_id := nullif(regexp_replace(canonical_id, '[[:cntrl:]]', '', 'g'), '');
+  end if;
+
   if canonical_id is null then
     select canonical_volume_link into canonical_id
     from book_external_ids
@@ -1513,7 +1518,8 @@ begin
     limit 1;
 
     if canonical_id is not null then
-      canonical_id := regexp_replace(canonical_id, '.*[?&]id=([^&]+).*', '\1');
+      canonical_id := (regexp_match(canonical_id, '[?&]id=([^&]+)'))[1];
+      canonical_id := nullif(regexp_replace(canonical_id, '[[:cntrl:]]', '', 'g'), '');
     end if;
   end if;
 
@@ -1558,10 +1564,10 @@ begin
     join books b on b.id = bei.book_id
     where bei.source = 'GOOGLE_BOOKS'
       and (
-        bei.google_canonical_id = canonical_id
+        nullif(regexp_replace(bei.google_canonical_id, '[[:cntrl:]]', '', 'g'), '') = canonical_id
         or (
           bei.canonical_volume_link is not null
-          and regexp_replace(bei.canonical_volume_link, '.*[?&]id=([^&]+).*', '\1') = canonical_id
+          and (regexp_match(bei.canonical_volume_link, '[?&]id=([^&]+)'))[1] = canonical_id
         )
       )
   ) ranked;
@@ -1605,7 +1611,7 @@ begin
       is_primary = excluded.is_primary,
       confidence = excluded.confidence,
       join_reason = excluded.join_reason,
-      updated_at = now();
+      joined_at = now();
   end loop;
 end;
 $$ language plpgsql;
@@ -1712,8 +1718,8 @@ begin
     from (
       select distinct
         coalesce(
-          bei.google_canonical_id,
-          regexp_replace(bei.canonical_volume_link, '.*[?&]id=([^&]+).*', '\1')
+          nullif(regexp_replace(bei.google_canonical_id, '[[:cntrl:]]', '', 'g'), ''),
+          (regexp_match(bei.canonical_volume_link, '[?&]id=([^&]+)'))[1]
         ) as canonical_id,
         b.id as book_id,
         b.title,
@@ -1751,6 +1757,8 @@ begin
         )
     ) candidate
     where canonical_id is not null
+      and canonical_id <> ''
+      and canonical_id !~ '[[:cntrl:]]'
     group by canonical_id
     having count(*) > 1
   loop
@@ -1793,7 +1801,7 @@ begin
         is_primary = excluded.is_primary,
         confidence = excluded.confidence,
         join_reason = excluded.join_reason,
-        updated_at = now();
+        joined_at = now();
 
       books_count := books_count + 1;
     end loop;
