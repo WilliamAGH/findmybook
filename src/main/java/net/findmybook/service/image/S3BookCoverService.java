@@ -43,6 +43,16 @@ public class S3BookCoverService implements ExternalCoverService {
     private final S3CoverStorageProperties s3CoverStorageProperties;
     private final long maxFileSizeBytes;
 
+    /**
+     * Creates the cover workflow orchestrator for HTTP fetch, image processing, and S3 storage.
+     *
+     * @param webClientBuilder shared WebClient builder for outbound image downloads
+     * @param imageProcessingService service that validates/transcodes downloaded image payloads
+     * @param coverUrlSafetyValidator validator that blocks unsafe remote image URLs
+     * @param s3CoverStorageGateway gateway for S3 metadata lookup and object uploads
+     * @param s3CoverStorageProperties typed storage configuration for key naming/lookup
+     * @param maxFileSizeBytes maximum allowed image size for downloads before processing
+     */
     public S3BookCoverService(WebClient.Builder webClientBuilder,
                               ImageProcessingService imageProcessingService,
                               CoverUrlSafetyValidator coverUrlSafetyValidator,
