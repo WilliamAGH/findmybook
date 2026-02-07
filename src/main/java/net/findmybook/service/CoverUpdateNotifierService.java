@@ -46,10 +46,10 @@ import io.micrometer.core.instrument.Timer;
 import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
 
+import jakarta.annotation.Nullable;
 import java.time.Duration;
-import java.util.HashMap;
+import java.util.Date;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -124,26 +124,22 @@ public class CoverUpdateNotifierService {
     @EventListener
     public void handleBookCoverUpdated(BookCoverUpdatedEvent event) {
         if (event.getGoogleBookId() == null || event.getNewCoverUrl() == null) {
-            logger.warn("Received BookCoverUpdatedEvent with null googleBookId or newCoverUrl. IdentifierKey: {}, URL: {}, GoogleBookId: {}", 
+            logger.warn("Received BookCoverUpdatedEvent with null googleBookId or newCoverUrl. IdentifierKey: {}, URL: {}, GoogleBookId: {}",
                 event.getIdentifierKey(), event.getNewCoverUrl(), event.getGoogleBookId());
             return;
         }
 
         String destination = "/topic/book/" + event.getGoogleBookId() + "/coverUpdate";
-        
-        Map<String, Object> payload = new HashMap<>();
-        payload.put("googleBookId", event.getGoogleBookId());
-        payload.put("newCoverUrl", event.getNewCoverUrl());
-        payload.put("identifierKey", event.getIdentifierKey());
-        if (event.getSource() != null) {
-            payload.put("sourceName", event.getSource().name()); // e.g., GOOGLE_BOOKS
-            payload.put("sourceDisplayName", event.getSource().getDisplayName()); // e.g., "Google Books"
-        } else {
-            payload.put("sourceName", CoverImageSource.UNDEFINED.name());
-            payload.put("sourceDisplayName", CoverImageSource.UNDEFINED.getDisplayName());
-        }
+        CoverImageSource source = event.getSource() != null ? event.getSource() : CoverImageSource.UNDEFINED;
+        var payload = new CoverUpdatePayload(
+            event.getGoogleBookId(),
+            event.getNewCoverUrl(),
+            event.getIdentifierKey(),
+            source.name(),
+            source.getDisplayName()
+        );
 
-        logger.info("Sending cover update to {}: URL = {}, Source = {}", destination, event.getNewCoverUrl(), event.getSource() != null ? event.getSource().name() : "UNDEFINED");
+        logger.info("Sending cover update to {}: URL = {}, Source = {}", destination, event.getNewCoverUrl(), source.name());
         this.messagingTemplate.convertAndSend(destination, (Object) payload);
     }
 
@@ -158,67 +154,26 @@ public class CoverUpdateNotifierService {
     @EventListener
     public void handleSearchResultsUpdated(SearchResultsUpdatedEvent event) {
         if (event.getQueryHash() == null || event.getNewResults() == null) {
-            logger.warn("Received SearchResultsUpdatedEvent with null queryHash or newResults. Query: {}, Source: {}", 
+            logger.warn("Received SearchResultsUpdatedEvent with null queryHash or newResults. Query: {}, Source: {}",
                 event.getSearchQuery(), event.getSource());
             return;
         }
 
         String destination = "/topic/search/" + event.getQueryHash() + "/results";
-        
-        Map<String, Object> payload = new HashMap<>();
-        payload.put("searchQuery", event.getSearchQuery());
-        payload.put("source", event.getSource());
-        payload.put("totalResultsNow", event.getTotalResultsNow());
-        payload.put("isComplete", event.isComplete());
-        payload.put("newResultsCount", event.getNewResults().size());
-        
-        // Convert books into the same shape expected by search.html rendering.
-        payload.put("newResults", event.getNewResults().stream()
-            .map(book -> {
-                Map<String, Object> bookData = new HashMap<>();
-                bookData.put("id", book.getId());
-                bookData.put("slug", StringUtils.hasText(book.getSlug()) ? book.getSlug() : book.getId());
-                bookData.put("title", book.getTitle());
-                bookData.put("authors", book.getAuthors());
-                bookData.put("description", book.getDescription());
-                bookData.put("publishedDate", book.getPublishedDate());
-                bookData.put("pageCount", book.getPageCount());
-                bookData.put("categories", book.getCategories());
-                bookData.put("isbn10", book.getIsbn10());
-                bookData.put("isbn13", book.getIsbn13());
-                bookData.put("publisher", book.getPublisher());
-                bookData.put("language", book.getLanguage());
-                bookData.put("source", event.getSource());
+        List<SearchResultBookSnapshot> bookSnapshots = event.getNewResults().stream()
+            .map(book -> toBookSnapshot(book, event.getSource()))
+            .toList();
 
-                Object matchType = null;
-                Object relevance = null;
-                if (book.getQualifiers() != null) {
-                    matchType = book.getQualifiers().get("search.matchType");
-                    relevance = book.getQualifiers().get("search.relevanceScore");
-                }
-                if (matchType != null) {
-                    bookData.put("matchType", matchType.toString());
-                }
-                if (relevance != null) {
-                    bookData.put("relevanceScore", relevance);
-                }
+        var payload = new SearchResultsPayload(
+            event.getSearchQuery(),
+            event.getSource(),
+            event.getTotalResultsNow(),
+            event.isComplete(),
+            event.getNewResults().size(),
+            bookSnapshots
+        );
 
-                Map<String, Object> coverData = new HashMap<>();
-                coverData.put("s3ImagePath", book.getS3ImagePath());
-                coverData.put("externalImageUrl", book.getExternalImageUrl());
-                if (book.getCoverImages() != null) {
-                    coverData.put("preferredUrl", book.getCoverImages().getPreferredUrl());
-                    coverData.put("fallbackUrl", book.getCoverImages().getFallbackUrl());
-                    if (book.getCoverImages().getSource() != null) {
-                        coverData.put("source", book.getCoverImages().getSource().name());
-                    }
-                }
-                bookData.put("cover", coverData);
-                return bookData;
-            })
-            .toList());
-
-        logger.info("Sending search results update to {}: {} new results from {}, complete: {}", 
+        logger.info("Sending search results update to {}: {} new results from {}, complete: {}",
             destination, event.getNewResults().size(), event.getSource(), event.isComplete());
         this.messagingTemplate.convertAndSend(destination, (Object) payload);
     }
@@ -234,18 +189,18 @@ public class CoverUpdateNotifierService {
     @EventListener
     public void handleSearchProgress(SearchProgressEvent event) {
         if (event.getQueryHash() == null) {
-            logger.warn("Received SearchProgressEvent with null queryHash. Query: {}, Status: {}", 
+            logger.warn("Received SearchProgressEvent with null queryHash. Query: {}, Status: {}",
                 event.getSearchQuery(), event.getStatus());
             return;
         }
 
         String destination = "/topic/search/" + event.getQueryHash() + "/progress";
-        
-        Map<String, Object> payload = new HashMap<>();
-        payload.put("searchQuery", event.getSearchQuery());
-        payload.put("status", event.getStatus().name());
-        payload.put("message", event.getMessage());
-        payload.put("source", event.getSource());
+        var payload = new SearchProgressPayload(
+            event.getSearchQuery(),
+            event.getStatus().name(),
+            event.getMessage(),
+            event.getSource()
+        );
 
         logger.debug("Sending search progress to {}: {} - {}", destination, event.getStatus(), event.getMessage());
         this.messagingTemplate.convertAndSend(destination, (Object) payload);
@@ -261,15 +216,14 @@ public class CoverUpdateNotifierService {
             return;
         }
         String destination = "/topic/book/" + event.getBookId() + "/upsert";
-        Map<String, Object> payload = new HashMap<>();
-        payload.put("bookId", event.getBookId());
-        payload.put("slug", event.getSlug());
-        payload.put("title", event.getTitle());
-        payload.put("isNew", event.isNew());
-        payload.put("context", event.getContext());
-        if (event.getCanonicalImageUrl() != null) {
-            payload.put("canonicalImageUrl", event.getCanonicalImageUrl());
-        }
+        var payload = new BookUpsertPayload(
+            event.getBookId(),
+            event.getSlug(),
+            event.getTitle(),
+            event.isNew(),
+            event.getContext(),
+            event.getCanonicalImageUrl()
+        );
         logger.info("Sending book upsert to {}: {} (new={})", destination, event.getTitle(), event.isNew());
         this.messagingTemplate.convertAndSend(destination, (Object) payload);
 
@@ -479,4 +433,109 @@ public class CoverUpdateNotifierService {
             throw new IllegalStateException("Failed to resolve transactional self-proxy for CoverUpdateNotifierService", ex);
         }
     }
+
+    private SearchResultBookSnapshot toBookSnapshot(net.findmybook.model.Book book, String eventSource) {
+        String matchType = null;
+        Object relevance = null;
+        if (book.getQualifiers() != null) {
+            Object mt = book.getQualifiers().get("search.matchType");
+            if (mt != null) { matchType = mt.toString(); }
+            relevance = book.getQualifiers().get("search.relevanceScore");
+        }
+        CoverSnapshot cover = buildCoverSnapshot(book);
+        return new SearchResultBookSnapshot(
+            book.getId(),
+            StringUtils.hasText(book.getSlug()) ? book.getSlug() : book.getId(),
+            book.getTitle(),
+            book.getAuthors(),
+            book.getDescription(),
+            book.getPublishedDate(),
+            book.getPageCount(),
+            book.getCategories(),
+            book.getIsbn10(),
+            book.getIsbn13(),
+            book.getPublisher(),
+            book.getLanguage(),
+            eventSource,
+            matchType,
+            relevance,
+            cover
+        );
+    }
+
+    private CoverSnapshot buildCoverSnapshot(net.findmybook.model.Book book) {
+        String preferredUrl = null;
+        String fallbackUrl = null;
+        String coverSource = null;
+        if (book.getCoverImages() != null) {
+            preferredUrl = book.getCoverImages().getPreferredUrl();
+            fallbackUrl = book.getCoverImages().getFallbackUrl();
+            if (book.getCoverImages().getSource() != null) {
+                coverSource = book.getCoverImages().getSource().name();
+            }
+        }
+        return new CoverSnapshot(book.getS3ImagePath(), book.getExternalImageUrl(), preferredUrl, fallbackUrl, coverSource);
+    }
+
+    // ── WebSocket payload records ──────────────────────────────────────────────
+
+    record CoverUpdatePayload(
+        String googleBookId,
+        String newCoverUrl,
+        String identifierKey,
+        String sourceName,
+        String sourceDisplayName
+    ) {}
+
+    record SearchResultsPayload(
+        String searchQuery,
+        String source,
+        int totalResultsNow,
+        boolean isComplete,
+        int newResultsCount,
+        List<SearchResultBookSnapshot> newResults
+    ) {}
+
+    record SearchProgressPayload(
+        String searchQuery,
+        String status,
+        String message,
+        String source
+    ) {}
+
+    record BookUpsertPayload(
+        String bookId,
+        @Nullable String slug,
+        @Nullable String title,
+        boolean isNew,
+        @Nullable String context,
+        @Nullable String canonicalImageUrl
+    ) {}
+
+    record SearchResultBookSnapshot(
+        String id,
+        String slug,
+        @Nullable String title,
+        @Nullable List<String> authors,
+        @Nullable String description,
+        @Nullable Date publishedDate,
+        @Nullable Integer pageCount,
+        @Nullable List<String> categories,
+        @Nullable String isbn10,
+        @Nullable String isbn13,
+        @Nullable String publisher,
+        @Nullable String language,
+        @Nullable String source,
+        @Nullable String matchType,
+        @Nullable Object relevanceScore,
+        CoverSnapshot cover
+    ) {}
+
+    record CoverSnapshot(
+        @Nullable String s3ImagePath,
+        @Nullable String externalImageUrl,
+        @Nullable String preferredUrl,
+        @Nullable String fallbackUrl,
+        @Nullable String source
+    ) {}
 }

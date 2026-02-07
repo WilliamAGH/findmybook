@@ -44,9 +44,15 @@
       }
 
       const topicIdentifier = loadedBook.id;
-      unsubscribeRealtime = await subscribeToBookCoverUpdates(topicIdentifier, (coverUrl) => {
-        liveCoverUrl = coverUrl;
-      });
+      unsubscribeRealtime = await subscribeToBookCoverUpdates(
+        topicIdentifier,
+        (coverUrl) => {
+          liveCoverUrl = coverUrl;
+        },
+        (error) => {
+          console.error("Realtime cover update error:", error.message);
+        },
+      );
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : "Unable to load this book";
       book = null;

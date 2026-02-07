@@ -74,7 +74,8 @@ export async function ensureRealtimeClient(): Promise<Client> {
       reject(new Error(frame.body || "STOMP connection failed"));
     };
     client.onWebSocketError = (event) => {
-      console.error("WebSocket error", event);
+      connection = { status: "idle" };
+      reject(new Error("WebSocket connection failed"));
     };
     client.activate();
   }).catch((error) => {
@@ -90,16 +91,14 @@ export async function subscribeToSearchTopics(
   queryHash: string,
   onProgress: (message: string) => void,
   onResults: (results: unknown[]) => void,
+  onError: (error: Error) => void,
 ): Promise<() => void> {
   const client = await ensureRealtimeClient();
 
   const progressSub = client.subscribe(`/topic/search/${queryHash}/progress`, (message) => {
     const payload = parseMessagePayload(message.body, "searchProgressEvent", SearchProgressEventSchema);
     if (!payload) {
-      // Intentional non-critical graceful degradation: progress messages are informational-only,
-      // so a parse failure falls back to a generic message rather than breaking the search flow.
-      console.warn("Failed to parse search progress event, falling back to default message");
-      onProgress("Searching...");
+      onError(new Error("Failed to parse search progress event"));
       return;
     }
     onProgress(payload.message ?? "Searching...");
@@ -108,10 +107,7 @@ export async function subscribeToSearchTopics(
   const resultsSub = client.subscribe(`/topic/search/${queryHash}/results`, (message) => {
     const payload = parseMessagePayload(message.body, "searchResultsEvent", SearchResultsEventSchema);
     if (!payload) {
-      // Intentional non-critical graceful degradation: a malformed results frame is dropped rather
-      // than surfaced as an error, because the HTTP search response is the authoritative source.
-      console.warn("Failed to parse search results event, falling back to empty results");
-      onResults([]);
+      onError(new Error("Failed to parse search results event"));
       return;
     }
     onResults(payload.newResults);
@@ -126,12 +122,13 @@ export async function subscribeToSearchTopics(
 export async function subscribeToBookCoverUpdates(
   bookId: string,
   onCoverUpdate: (coverUrl: string) => void,
+  onError: (error: Error) => void,
 ): Promise<() => void> {
   const client = await ensureRealtimeClient();
   const sub = client.subscribe(`/topic/book/${bookId}/coverUpdate`, (message) => {
     const payload = parseMessagePayload(message.body, "bookCoverUpdateEvent", BookCoverUpdateEventSchema);
     if (!payload) {
-      console.warn("Failed to parse book cover update event, ignoring message");
+      onError(new Error("Failed to parse book cover update event"));
       return;
     }
     if (payload.newCoverUrl) {

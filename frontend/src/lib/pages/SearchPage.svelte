@@ -180,6 +180,10 @@
         (results) => {
           mergeRealtimeHits(results);
         },
+        (error) => {
+          console.error("Realtime search subscription error:", error.message);
+          realtimeMessage = null;
+        },
       );
 
       void prefetchWindow(params, response);
