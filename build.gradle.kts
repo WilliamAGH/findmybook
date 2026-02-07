@@ -30,6 +30,7 @@ java {
 
 tasks.withType<JavaCompile>().configureEach {
     options.release.set(targetRelease)
+    options.compilerArgs.add("--enable-preview")
 }
 
 val toolchains = project.extensions.getByType(JavaToolchainService::class)
@@ -41,6 +42,9 @@ tasks.withType<Test>().configureEach {
         }
     )
     jvmArgs("--enable-preview")
+    jvmArgs("-Djdk.attach.allowAttachSelf=true")
+    jvmArgs("-XX:+EnableDynamicAgentLoading")
+    jvmArgs("-Dmockito.mock-maker=subclass")
     systemProperty("io.netty.noUnsafe", "true")
 }
 
