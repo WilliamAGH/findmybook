@@ -26,8 +26,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 public class CacheSourceEnumsGuardTest {
 
     private static final Set<String> ALLOWED_PATHS = Set.of(
-        normalize("java/net/findmybook/model/image/CoverImageSource.java"),
-        normalize("java/net/findmybook/model/image/ImageSourceName.java")
+        normalize("src/main/java/net/findmybook/model/image/CoverImageSource.java"),
+        normalize("src/main/java/net/findmybook/model/image/ImageSourceName.java")
     );
 
     private static final List<String> FORBIDDEN_PATTERNS = List.of(
