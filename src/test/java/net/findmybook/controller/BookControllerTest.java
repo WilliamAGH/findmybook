@@ -367,7 +367,7 @@ class BookControllerTest {
     @DisplayName("GET /error returns JSON with matching status for API clients")
     void errorDiagnostics_returnsJsonAndStatusForApiAcceptHeader() throws Exception {
         ErrorAttributes errorAttributes = Mockito.mock(ErrorAttributes.class);
-        ErrorDiagnosticsController controller = new ErrorDiagnosticsController(errorAttributes, false);
+        ErrorDiagnosticsController controller = new ErrorDiagnosticsController(errorAttributes, false, false);
         MockMvc errorMvc = MockMvcBuilders.standaloneSetup(controller).build();
 
         Map<String, Object> attributes = new HashMap<>();
@@ -388,7 +388,7 @@ class BookControllerTest {
     @DisplayName("GET /error returns 404 view with 404 status for HTML clients")
     void errorDiagnostics_returns404TemplateAndStatusForHtml() throws Exception {
         ErrorAttributes errorAttributes = Mockito.mock(ErrorAttributes.class);
-        ErrorDiagnosticsController controller = new ErrorDiagnosticsController(errorAttributes, false);
+        ErrorDiagnosticsController controller = new ErrorDiagnosticsController(errorAttributes, false, false);
         MockMvc errorMvc = MockMvcBuilders.standaloneSetup(controller).build();
 
         Map<String, Object> attributes = new HashMap<>();
