@@ -1,12 +1,12 @@
 package net.findmybook.service;
 
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import net.findmybook.dto.BookAggregate;
 import net.findmybook.service.image.CoverPersistenceService;
+import net.findmybook.support.cover.CoverImageUrlSelector;
 import net.findmybook.util.UrlUtils;
 import net.findmybook.util.cover.CoverQuality;
 import net.findmybook.util.cover.ImageDimensionUtils;
@@ -60,7 +60,7 @@ public class BookImageLinkPersistenceService {
                 incomingQuality.score(),
                 incomingQuality.pixelArea()
             );
-            return new ImageLinkPersistenceResult(false, normalizedImageLinks, selectPreferredImageUrl(normalizedImageLinks));
+            return new ImageLinkPersistenceResult(false, normalizedImageLinks, CoverImageUrlSelector.selectPreferredImageUrl(normalizedImageLinks));
         }
 
         String source = identifiers.getSource() != null ? identifiers.getSource() : "GOOGLE_BOOKS";
@@ -76,7 +76,7 @@ public class BookImageLinkPersistenceService {
 
             String canonicalImageUrl = result.canonicalUrl() != null && !result.canonicalUrl().isBlank()
                 ? result.canonicalUrl()
-                : selectPreferredImageUrl(normalizedImageLinks);
+                : CoverImageUrlSelector.selectPreferredImageUrl(normalizedImageLinks);
             return new ImageLinkPersistenceResult(true, normalizedImageLinks, canonicalImageUrl);
         } catch (DataAccessException exception) {
             log.error("Cover persistence data access failure for book {}: {}", bookId, exception.getMessage(), exception);
@@ -149,29 +149,6 @@ public class BookImageLinkPersistenceService {
             }
         });
         return sanitized.isEmpty() ? Map.of() : Map.copyOf(sanitized);
-    }
-
-    private String selectPreferredImageUrl(Map<String, String> imageLinks) {
-        List<String> priorityOrder = List.of(
-            "canonical",
-            "extraLarge",
-            "large",
-            "medium",
-            "small",
-            "thumbnail",
-            "smallThumbnail"
-        );
-
-        for (String key : priorityOrder) {
-            String candidate = imageLinks.get(key);
-            if (candidate != null && !candidate.isBlank()) {
-                return candidate;
-            }
-        }
-        return imageLinks.values().stream()
-            .filter(value -> value != null && !value.isBlank())
-            .findFirst()
-            .orElse(null);
     }
 
     private record CoverQualitySnapshot(int score,
