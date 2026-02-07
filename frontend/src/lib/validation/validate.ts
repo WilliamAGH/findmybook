@@ -10,6 +10,20 @@ const MAX_REPORTED_ISSUES = 8;
 
 export type ValidationResult<T> = { success: true; data: T } | { success: false; error: z.ZodError };
 
+function summarizePayload(payload: unknown): string {
+  if (payload === null) {
+    return "null";
+  }
+  if (Array.isArray(payload)) {
+    return `array(length=${payload.length})`;
+  }
+  if (typeof payload === "object") {
+    const keys = Object.keys(payload as Record<string, unknown>).slice(0, 6);
+    return `object(keys=${keys.join(",")})`;
+  }
+  return typeof payload;
+}
+
 export function validateWithSchema<T>(schema: z.ZodType<T>, payload: unknown, recordId: string): ValidationResult<T> {
   const result = schema.safeParse(payload);
   if (!result.success) {
@@ -21,7 +35,7 @@ export function validateWithSchema<T>(schema: z.ZodType<T>, payload: unknown, re
       })
       .join("; ");
 
-    console.error(`[zod] ${recordId} validation failed`, issueText, payload);
+    console.error(`[zod] ${recordId} validation failed`, issueText, summarizePayload(payload));
     return { success: false, error: result.error };
   }
   return { success: true, data: result.data };
