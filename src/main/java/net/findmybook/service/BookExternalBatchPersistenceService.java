@@ -70,8 +70,11 @@ class BookExternalBatchPersistenceService {
     }
 
     void persistBooksAsync(List<Book> books, String context, Runnable searchViewRefreshTrigger) {
-        if (books == null || books.isEmpty()) {
-            logger.info("[EXTERNAL-API] [{}] persistBooksAsync called but books list is null or empty", context);
+        if (books == null) {
+            throw new IllegalArgumentException("persistBooksAsync requires a non-null books list (context=" + context + ")");
+        }
+        if (books.isEmpty()) {
+            logger.debug("[EXTERNAL-API] [{}] persistBooksAsync called with empty books list; nothing to persist", context);
             return;
         }
 
@@ -179,6 +182,7 @@ class BookExternalBatchPersistenceService {
 
             BookAggregate aggregate = googleBooksMapper.map(sourceJson);
             if (aggregate == null) {
+                logger.warn("GoogleBooksMapper returned null for book {}; attempting fallback aggregate", book.getId());
                 aggregate = buildFallbackAggregate(book);
                 if (aggregate == null) {
                     throw new IllegalStateException("Unable to map external payload for book " + book.getId());

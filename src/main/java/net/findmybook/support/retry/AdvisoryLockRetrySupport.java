@@ -39,25 +39,26 @@ public final class AdvisoryLockRetrySupport {
                 "maxAttempts must be at least 1 for operation '" + operationLabel + "' but was " + maxAttempts
             );
         }
+        AdvisoryLockAcquisitionException lastException = null;
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
                 return action.get();
             } catch (AdvisoryLockAcquisitionException exception) {
-                if (attempt == maxAttempts) {
-                    throw exception;
+                lastException = exception;
+                if (attempt < maxAttempts) {
+                    long backoff = Math.max(config.baseBackoffMillis(), 1L) * attempt;
+                    config.logger().warn(
+                        "Advisory lock contention during {} (attempt {}/{}). Retrying in {}ms",
+                        operationLabel,
+                        attempt,
+                        maxAttempts,
+                        backoff
+                    );
+                    sleepUnchecked(backoff);
                 }
-                long backoff = Math.max(config.baseBackoffMillis(), 1L) * attempt;
-                config.logger().warn(
-                    "Advisory lock contention during {} (attempt {}/{}). Retrying in {}ms",
-                    operationLabel,
-                    attempt,
-                    maxAttempts,
-                    backoff
-                );
-                sleepUnchecked(backoff);
             }
         }
-        throw new IllegalStateException("Unreachable advisory lock retry path");
+        throw lastException;
     }
 
     private static void sleepUnchecked(long durationMillis) {

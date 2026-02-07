@@ -27,6 +27,7 @@ import java.util.stream.Collectors;
 final class BookRecommendationQuerySupport {
 
     private static final Logger log = LoggerFactory.getLogger(BookRecommendationQuerySupport.class);
+    private static final int MAX_PER_SOURCE_PRIORITY = 3;
 
     private final JdbcTemplate jdbcTemplate;
     private final BookQueryResultSetSupport resultSetSupport;
@@ -178,8 +179,8 @@ final class BookRecommendationQuerySupport {
 
         var acc = new MergeAccumulator(limit);
         acc.append(pipeline, pipeline.size());
-        acc.append(sameAuthor, Math.min(3, acc.remaining));
-        acc.append(sameCategory, Math.min(3, acc.remaining));
+        acc.append(sameAuthor, Math.min(MAX_PER_SOURCE_PRIORITY, acc.remaining));
+        acc.append(sameCategory, Math.min(MAX_PER_SOURCE_PRIORITY, acc.remaining));
         acc.append(others, acc.remaining);
         return acc.toList();
     }

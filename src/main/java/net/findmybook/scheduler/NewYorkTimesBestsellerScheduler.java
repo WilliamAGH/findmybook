@@ -58,15 +58,8 @@ public class NewYorkTimesBestsellerScheduler {
     private final BookCollectionPersistenceService collectionPersistenceService;
     private final BookSupplementalPersistenceService supplementalPersistenceService;
     private final BookUpsertService bookUpsertService;
-
-    @Value("${app.nyt.scheduler.cron:0 0 4 * * SUN}")
-    private String cronExpression;
-
-    @Value("${app.nyt.scheduler.enabled:true}")
-    private boolean schedulerEnabled;
-
-    @Value("${app.nyt.scheduler.nyt-only:true}")
-    private boolean nytOnly;
+    private final boolean schedulerEnabled;
+    private final boolean nytOnly;
 
     public NewYorkTimesBestsellerScheduler(NewYorkTimesService newYorkTimesService,
                                            BookLookupService bookLookupService,
@@ -74,7 +67,9 @@ public class NewYorkTimesBestsellerScheduler {
                                            JdbcTemplate jdbcTemplate,
                                            BookCollectionPersistenceService collectionPersistenceService,
                                            BookSupplementalPersistenceService supplementalPersistenceService,
-                                           BookUpsertService bookUpsertService) {
+                                           BookUpsertService bookUpsertService,
+                                           @Value("${app.nyt.scheduler.enabled:true}") boolean schedulerEnabled,
+                                           @Value("${app.nyt.scheduler.nyt-only:true}") boolean nytOnly) {
         this.newYorkTimesService = newYorkTimesService;
         this.bookLookupService = bookLookupService;
         this.objectMapper = objectMapper;
@@ -82,6 +77,8 @@ public class NewYorkTimesBestsellerScheduler {
         this.collectionPersistenceService = collectionPersistenceService;
         this.supplementalPersistenceService = supplementalPersistenceService;
         this.bookUpsertService = bookUpsertService;
+        this.schedulerEnabled = schedulerEnabled;
+        this.nytOnly = nytOnly;
     }
 
     @Scheduled(cron = "${app.nyt.scheduler.cron:0 0 4 * * SUN}")
@@ -419,6 +416,9 @@ public class NewYorkTimesBestsellerScheduler {
             return null;
         }
         LocalDate parsed = DateParsingUtils.parseBestsellerDate(date);
+        if (parsed == null) {
+            log.warn("Failed to parse date from non-blank input: '{}'", date);
+        }
         return parsed;
     }
 
