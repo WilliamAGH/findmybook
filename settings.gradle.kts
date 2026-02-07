@@ -8,4 +8,4 @@ plugins {
     id("org.gradle.toolchains.foojay-resolver-convention")
 }
 
-rootProject.name = "book_recommendation_engine"
+rootProject.name = "findmybook"
