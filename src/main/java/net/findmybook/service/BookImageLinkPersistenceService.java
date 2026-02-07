@@ -10,9 +10,9 @@ import net.findmybook.service.image.CoverPersistenceService;
 import net.findmybook.util.UrlUtils;
 import net.findmybook.util.cover.CoverQuality;
 import net.findmybook.util.cover.ImageDimensionUtils;
+import jakarta.annotation.Nullable;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 
 /**

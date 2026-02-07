@@ -9,7 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.findmybook.service.event.BookUpsertEvent;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.lang.Nullable;
+import jakarta.annotation.Nullable;
 import org.springframework.stereotype.Service;
 
 /**

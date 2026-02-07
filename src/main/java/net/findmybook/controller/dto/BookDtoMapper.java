@@ -335,7 +335,7 @@ public final class BookDtoMapper {
             }
         }
 
-        if (StringUtils.hasText(externalUrl) && externalUrl.contains("placeholder-book-cover.svg")) {
+        if (externalUrl != null && externalUrl.contains("placeholder-book-cover.svg")) {
             externalUrl = null;
         }
 

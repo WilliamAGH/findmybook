@@ -143,7 +143,7 @@ class BookControllerPaginationIntegrationTest {
     private List<String> extractIds(MvcResult result) throws Exception {
         JsonNode root = objectMapper.readTree(result.getResponse().getContentAsString());
         List<String> ids = new ArrayList<>();
-        root.path("results").forEach(node -> ids.add(node.path("id").asText()));
+        root.path("results").forEach(node -> ids.add(node.path("id").asString()));
         return ids;
     }
 

@@ -1,8 +1,6 @@
 package net.findmybook.repository;
 
 import org.springframework.util.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
@@ -22,7 +20,6 @@ import java.util.Set;
 import java.util.WeakHashMap;
 
 final class BookQueryResultSetSupport {
-    private static final Logger log = LoggerFactory.getLogger(BookQueryResultSetSupport.class);
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
 
     /**
@@ -107,7 +104,7 @@ final class BookQueryResultSetSupport {
     private Set<String> loadColumnLabels(ResultSet rs) throws SQLException {
         ResultSetMetaData metaData = rs.getMetaData();
         int columnCount = metaData.getColumnCount();
-        Set<String> labels = new HashSet<>(columnCount);
+        Set<String> labels = HashSet.newHashSet(columnCount);
         for (int i = 1; i <= columnCount; i++) {
             String label = metaData.getColumnLabel(i);
             if (StringUtils.hasText(label)) {

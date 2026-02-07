@@ -6,7 +6,6 @@ import org.springframework.web.servlet.config.annotation.AsyncSupportConfigurer;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.core.task.AsyncTaskExecutor;
-import org.springframework.lang.NonNull;
 
 /**
  * Configuration for asynchronous request handling in the Spring MVC framework.
@@ -54,7 +53,7 @@ public class AsyncConfig implements WebMvcConfigurer {
      * - Assigns custom task executor with optimized thread pool
      */
     @Override
-    public void configureAsyncSupport(@NonNull AsyncSupportConfigurer configurer) {
+    public void configureAsyncSupport(AsyncSupportConfigurer configurer) {
         configurer.setDefaultTimeout(MVC_ASYNC_TIMEOUT_MS);
         configurer.setTaskExecutor(mvcAsyncTaskExecutor());
     }

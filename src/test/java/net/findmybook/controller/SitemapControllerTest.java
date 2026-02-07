@@ -26,7 +26,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.servlet.ViewResolver;
 import org.springframework.web.servlet.view.AbstractView;
-import org.springframework.lang.NonNull;
+import jakarta.annotation.Nonnull;
 
 import java.time.Instant;
 import java.util.List;
@@ -174,9 +174,9 @@ class SitemapControllerTest {
                 }
                 return new AbstractView() {
                     @Override
-                    protected void renderMergedOutputModel(@NonNull Map<String, Object> model,
-                                                          @NonNull jakarta.servlet.http.HttpServletRequest request,
-                                                          @NonNull jakarta.servlet.http.HttpServletResponse response) {
+                    protected void renderMergedOutputModel(@Nonnull Map<String, Object> model,
+                                                          @Nonnull jakarta.servlet.http.HttpServletRequest request,
+                                                          @Nonnull jakarta.servlet.http.HttpServletResponse response) {
                         response.setContentType(MediaType.TEXT_HTML_VALUE);
                     }
                 };

@@ -8,7 +8,6 @@ import net.findmybook.dto.EditionSummary;
 import net.findmybook.model.Book;
 import net.findmybook.model.Book.EditionInfo;
 import net.findmybook.model.image.CoverImages;
-import net.findmybook.util.ApplicationConstants;
 import net.findmybook.util.cover.CoverUrlResolver;
 import net.findmybook.util.cover.CoverUrlValidator;
 import net.findmybook.util.cover.ImageDimensionUtils;

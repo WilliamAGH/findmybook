@@ -129,7 +129,7 @@ final class GoogleBooksIdentifierExtractor {
         String[] sizeKeys = {"smallThumbnail", "thumbnail", "small", "medium", "large", "extraLarge"};
         for (String key : sizeKeys) {
             if (imageLinksNode.has(key)) {
-                String url = imageLinksNode.get(key).asText();
+                String url = imageLinksNode.get(key).asString();
                 if (url != null && !url.isBlank()) {
                     String enhancedUrl = ImageUrlEnhancer.enhanceGoogleImageUrl(url, key);
 
@@ -146,9 +146,7 @@ final class GoogleBooksIdentifierExtractor {
         return imageLinks;
     }
 
-    /**
-     * Extract reading mode availability from volumeInfo.readingModes.
-     */
+    @SuppressWarnings("java:S2447") // Intentional null for optional Boolean field (builder accepts nullable)
     private static Boolean extractReadingMode(JsonNode volumeInfo, String mode) {
         if (!volumeInfo.has("readingModes")) {
             return null;
@@ -161,6 +159,7 @@ final class GoogleBooksIdentifierExtractor {
     /**
      * Extract format availability (PDF/EPUB) from accessInfo.
      */
+    @SuppressWarnings("java:S2447") // Intentional null for optional Boolean field (builder accepts nullable)
     private static Boolean extractFormatAvailability(JsonNode accessInfo, String format) {
         if (accessInfo == null || !accessInfo.has(format)) {
             return null;
@@ -191,6 +190,6 @@ final class GoogleBooksIdentifierExtractor {
         }
 
         JsonNode priceNode = saleInfo.get(priceField);
-        return priceNode.has("currencyCode") ? priceNode.get("currencyCode").asText() : null;
+        return priceNode.has("currencyCode") ? priceNode.get("currencyCode").asString() : null;
     }
 }

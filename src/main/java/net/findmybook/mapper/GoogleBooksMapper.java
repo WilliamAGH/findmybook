@@ -44,7 +44,7 @@ public class GoogleBooksMapper implements ExternalBookMapper {
         JsonNode accessInfo = json.has("accessInfo") ? json.get("accessInfo") : null;
 
         // Extract primary ID
-        String externalId = json.has("id") ? json.get("id").asText() : null;
+        String externalId = json.has("id") ? json.get("id").asString() : null;
         if (externalId == null) {
             log.warn("Google Books volume missing 'id' field");
             return null;
@@ -119,8 +119,8 @@ public class GoogleBooksMapper implements ExternalBookMapper {
         }
 
         for (JsonNode id : identifiers) {
-            if (id.has("type") && id.has("identifier") && type.equals(id.get("type").asText())) {
-                String identifier = id.get("identifier").asText(null);
+            if (id.has("type") && id.has("identifier") && type.equals(id.get("type").asString())) {
+                String identifier = id.get("identifier").asString(null);
                 String sanitized = IsbnUtils.sanitize(identifier);
                 if (sanitized != null) {
                     return sanitized;
@@ -143,7 +143,7 @@ public class GoogleBooksMapper implements ExternalBookMapper {
 
         JsonNode authorsNode = volumeInfo.get("authors");
         for (JsonNode authorNode : authorsNode) {
-            String normalized = TextUtils.normalizeAuthorName(authorNode.asText(null));
+            String normalized = TextUtils.normalizeAuthorName(authorNode.asString(null));
             if (StringUtils.hasText(normalized)) {
                 authors.add(normalized);
             }
@@ -167,7 +167,7 @@ public class GoogleBooksMapper implements ExternalBookMapper {
 
         JsonNode categoriesNode = volumeInfo.get("categories");
         for (JsonNode categoryNode : categoriesNode) {
-            String category = categoryNode.asText();
+            String category = categoryNode.asString();
             if (category != null && !category.isBlank()) {
                 rawCategories.add(category.trim());
             }
@@ -185,7 +185,7 @@ public class GoogleBooksMapper implements ExternalBookMapper {
             return null;
         }
 
-        String dateStr = volumeInfo.get("publishedDate").asText();
+        String dateStr = volumeInfo.get("publishedDate").asString();
         if (dateStr == null || dateStr.isBlank()) {
             return null;
         }

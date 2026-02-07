@@ -1,22 +1,21 @@
 package net.findmybook.util;
 
-import org.springframework.lang.Nullable;
+import jakarta.annotation.Nullable;
 
 import java.net.URI;
 import java.net.URISyntaxException;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
- * URL manipulation utilities using modern Java features.
- * <p>
- * Provides zero-boilerplate URL operations with proper null-safety
- * and error handling using Java 21 patterns.
- * 
- * @since 1.0.0
+ * URL validation, normalization, and extraction utilities.
  */
 public final class UrlUtils {
-    
+
+    private static final Logger log = LoggerFactory.getLogger(UrlUtils.class);
+
     private UrlUtils() {
-        // Utility class - prevent instantiation
     }
     
     /**
@@ -74,7 +73,8 @@ public final class UrlUtils {
             // Normalize to HTTPS
             return normalizeToHttps(uri.toString());
             
-        } catch (URISyntaxException e) {
+        } catch (URISyntaxException ex) {
+            log.debug("Invalid URL syntax '{}': {}", url, ex.getMessage());
             return null;
         }
     }

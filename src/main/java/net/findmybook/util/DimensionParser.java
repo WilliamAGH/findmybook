@@ -1,6 +1,6 @@
 package net.findmybook.util;
 
-import org.springframework.lang.Nullable;
+import jakarta.annotation.Nullable;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -112,7 +112,7 @@ public final class DimensionParser {
                 return value;
             }
             
-        } catch (NumberFormatException e) {
+        } catch (NumberFormatException _) {
             return null;
         }
     }

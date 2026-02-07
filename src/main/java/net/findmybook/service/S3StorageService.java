@@ -9,7 +9,7 @@ import net.findmybook.service.s3.S3FetchResult;
 import net.findmybook.support.s3.S3ObjectStorageGateway;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Conditional;
-import org.springframework.lang.Nullable;
+import jakarta.annotation.Nullable;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.s3.S3Client;
 

@@ -3,7 +3,6 @@ package net.findmybook.config;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.health.contributor.Health;
 import org.springframework.boot.health.contributor.ReactiveHealthIndicator;
-import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -23,8 +22,15 @@ public class S3HealthIndicator implements ReactiveHealthIndicator {
     private final boolean s3Enabled;
     private static final Duration S3_TIMEOUT = Duration.ofSeconds(5);
 
+    /**
+     * Constructs S3HealthIndicator with optional S3Client.
+     *
+     * @param s3Client the S3 client, or null if S3 is disabled
+     * @param bucketName the S3 bucket name
+     * @param s3Enabled whether S3 is enabled
+     */
     public S3HealthIndicator(
-            @Nullable S3Client s3Client,
+            S3Client s3Client,
             @Value("${s3.bucket-name:}") String bucketName,
             @Value("${s3.enabled:false}") boolean s3Enabled) {
         this.s3Client = s3Client; // reference only; not exposing mutable rep
@@ -83,6 +89,12 @@ public class S3HealthIndicator implements ReactiveHealthIndicator {
                         .build()))
                 .onErrorResume(SdkClientException.class, ex -> Mono.just(Health.down()
                         .withDetail("s3_status", "sdk_client_error")
+                        .withDetail("bucket", bucketName)
+                        .withDetail("error", ex.getClass().getName())
+                        .withDetail("message", ex.getMessage())
+                        .build()))
+                .onErrorResume(Throwable.class, ex -> Mono.just(Health.down()
+                        .withDetail("s3_status", "unexpected_error")
                         .withDetail("bucket", bucketName)
                         .withDetail("error", ex.getClass().getName())
                         .withDetail("message", ex.getMessage())

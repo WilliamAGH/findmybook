@@ -10,14 +10,12 @@ import net.findmybook.util.cover.UrlSourceDetector;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.lang.Nullable;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
-import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 import java.util.Optional;
@@ -38,12 +36,21 @@ public class BookCoverController {
 
     private final BookSearchService bookSearchService;
     private final BookIdentifierResolver bookIdentifierResolver;
-    @Nullable
+    /**
+     * The book data orchestrator, may be null when disabled.
+     */
     private final BookDataOrchestrator bookDataOrchestrator;
 
+    /**
+     * Constructs BookCoverController with optional orchestrator.
+     *
+     * @param bookSearchService the book search service
+     * @param bookIdentifierResolver the identifier resolver
+     * @param bookDataOrchestrator the data orchestrator, or null when disabled
+     */
     public BookCoverController(BookSearchService bookSearchService,
                                BookIdentifierResolver bookIdentifierResolver,
-                               @Nullable BookDataOrchestrator bookDataOrchestrator) {
+                               BookDataOrchestrator bookDataOrchestrator) {
         this.bookSearchService = bookSearchService;
         this.bookIdentifierResolver = bookIdentifierResolver;
         this.bookDataOrchestrator = bookDataOrchestrator;

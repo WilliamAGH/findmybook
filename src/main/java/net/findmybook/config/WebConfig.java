@@ -14,7 +14,6 @@ package net.findmybook.config;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.lang.NonNull;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
@@ -24,8 +23,11 @@ import java.nio.file.Paths;
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
 
-    @Value("${app.cover-cache.dir:book-covers}")
-    private String coverCacheDirName; // This should match the directory name used in URLs, e.g., "book-covers"
+    private final String coverCacheDirName;
+
+    public WebConfig(@Value("${app.cover-cache.dir:book-covers}") String coverCacheDirName) {
+        this.coverCacheDirName = coverCacheDirName;
+    }
 
     /**
      * Configures resource handlers for static content serving
@@ -36,7 +38,7 @@ public class WebConfig implements WebMvcConfigurer {
      * @param registry The Spring MVC resource handler registry
      */
     @Override
-    public void addResourceHandlers(@NonNull ResourceHandlerRegistry registry) {
+    public void addResourceHandlers(ResourceHandlerRegistry registry) {
         // Resolve the absolute path to the cache directory.
         // This assumes 'coverCacheDirName' is a relative path from the application's working directory.
         Path cachePath = Paths.get(coverCacheDirName).toAbsolutePath();

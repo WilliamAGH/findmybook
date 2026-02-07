@@ -1,6 +1,6 @@
 package net.findmybook.util;
 
-import org.springframework.lang.Nullable;
+import jakarta.annotation.Nullable;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.util.regex.Pattern;
@@ -92,7 +92,7 @@ public final class ImageUrlEnhancer {
             String result = builder.build().toUriString();
             return UrlUtils.cleanTrailingSeparators(result);
             
-        } catch (IllegalArgumentException e) {
+        } catch (IllegalArgumentException _) {
             // Fallback if URL is malformed
             return UrlUtils.cleanTrailingSeparators(normalized);
         }
@@ -161,7 +161,7 @@ public final class ImageUrlEnhancer {
 
         try {
             return Integer.parseInt(zoomValue);
-        } catch (NumberFormatException ex) {
+        } catch (NumberFormatException _) {
             return null;
         }
     }

@@ -8,7 +8,6 @@ import org.springframework.scheduling.TaskScheduler;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
-import org.springframework.lang.NonNull;
 
 /**
  * WebSocket configuration for real-time communication
@@ -26,16 +25,16 @@ import org.springframework.lang.NonNull;
 @EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
-    @Value("${app.cors.allowed-origins:*}")
-    private String allowedOrigins;
-    
+    private final String allowedOrigins;
     private final TaskScheduler messageBrokerTaskScheduler;
-    
+
     /**
      * Inject TaskScheduler with @Lazy to avoid circular dependency.
      * TaskScheduler is used for WebSocket heartbeat keepalive.
      */
-    public WebSocketConfig(@Lazy TaskScheduler messageBrokerTaskScheduler) {
+    public WebSocketConfig(@Value("${app.cors.allowed-origins:*}") String allowedOrigins,
+                           @Lazy TaskScheduler messageBrokerTaskScheduler) {
+        this.allowedOrigins = allowedOrigins;
         this.messageBrokerTaskScheduler = messageBrokerTaskScheduler;
     }
 
@@ -48,7 +47,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
      * @param config the message broker registry
      */
     @Override
-    public void configureMessageBroker(@NonNull MessageBrokerRegistry config) {
+    public void configureMessageBroker(MessageBrokerRegistry config) {
         config.enableSimpleBroker("/topic")
             .setHeartbeatValue(new long[]{10000, 20000})  // Server sends every 10s, expects client every 20s
             .setTaskScheduler(messageBrokerTaskScheduler); // Use dedicated scheduler for heartbeats
@@ -65,7 +64,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
      * @param registry the STOMP endpoint registry
      */
     @Override
-    public void registerStompEndpoints(@NonNull StompEndpointRegistry registry) {
+    public void registerStompEndpoints(StompEndpointRegistry registry) {
         registry.addEndpoint("/ws")
                 .setAllowedOriginPatterns(allowedOrigins)
                 .withSockJS();

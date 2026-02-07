@@ -11,7 +11,7 @@ import net.findmybook.service.s3.S3FetchResult;
 import net.findmybook.util.CompressionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.lang.Nullable;
+import jakarta.annotation.Nullable;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 import software.amazon.awssdk.core.ResponseBytes;
@@ -189,7 +189,7 @@ public final class S3ObjectStorageGateway {
             );
             logger.info("Successfully downloaded {} from bucket {}", key, bucketName);
             return objectBytes.asByteArray();
-        } catch (NoSuchKeyException exception) {
+        } catch (NoSuchKeyException _) {
             logger.warn("S3 key not found: bucket={}, key={}", bucketName, key);
             return null;
         } catch (S3Exception exception) {

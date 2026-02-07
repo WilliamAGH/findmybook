@@ -33,7 +33,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.lang.Nullable;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
@@ -56,13 +55,23 @@ public class BookController {
     private final BookSearchService bookSearchService;
     private final BookIdentifierResolver bookIdentifierResolver;
     private final SearchPaginationService searchPaginationService;
-    @Nullable
+    /**
+     * The book data orchestrator, may be null when disabled.
+     */
     private final BookDataOrchestrator bookDataOrchestrator;
 
+    /**
+     * Constructs BookController with optional orchestrator.
+     *
+     * @param bookSearchService the book search service
+     * @param bookIdentifierResolver the identifier resolver
+     * @param searchPaginationService the pagination service
+     * @param bookDataOrchestrator the data orchestrator, or null when disabled
+     */
     public BookController(BookSearchService bookSearchService,
                           BookIdentifierResolver bookIdentifierResolver,
                           SearchPaginationService searchPaginationService,
-                          @Nullable BookDataOrchestrator bookDataOrchestrator) {
+                          BookDataOrchestrator bookDataOrchestrator) {
         this.bookSearchService = bookSearchService;
         this.bookIdentifierResolver = bookIdentifierResolver;
         this.searchPaginationService = searchPaginationService;
@@ -301,7 +310,7 @@ public class BookController {
                 }
                 try {
                     return Double.parseDouble(value.toString());
-                } catch (NumberFormatException ex) {
+                } catch (IllegalArgumentException _) {
                     return null;
                 }
             })

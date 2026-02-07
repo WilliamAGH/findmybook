@@ -31,9 +31,10 @@ class BookCacheWarmingSchedulerTest {
     private BookIdentifierResolver bookIdentifierResolver;
 
     @BeforeEach
+    @SuppressWarnings("unchecked")
     void setUp() {
         recentlyViewedService = mock(RecentlyViewedService.class);
-        apiRequestMonitorProvider = mock(ObjectProvider.class);
+        apiRequestMonitorProvider = (ObjectProvider<ApiRequestMonitor>) org.mockito.Mockito.mock(ObjectProvider.class);
         bookQueryRepository = mock(BookQueryRepository.class);
         bookIdentifierResolver = mock(BookIdentifierResolver.class);
 

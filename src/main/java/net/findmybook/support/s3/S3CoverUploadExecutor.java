@@ -5,7 +5,7 @@ import net.findmybook.model.image.ImageDetails;
 import net.findmybook.util.cover.S3KeyGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.lang.Nullable;
+import jakarta.annotation.Nullable;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;

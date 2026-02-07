@@ -1,7 +1,7 @@
 package net.findmybook.mapper;
 
-import org.springframework.lang.Nullable;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.JsonNodeType;
 
 /**
  * Package-private static utilities for extracting typed values from Google Books JSON nodes.
@@ -11,17 +11,16 @@ final class GoogleBooksJsonSupport {
     private GoogleBooksJsonSupport() {
     }
 
-    @Nullable
     static String getTextValue(JsonNode node, String field) {
         if (node == null || !node.has(field)) {
             return null;
         }
         JsonNode fieldNode = node.get(field);
-        if (!fieldNode.isTextual()) {
+        if (fieldNode.getNodeType() != JsonNodeType.STRING) {
             return null;
         }
 
-        String value = fieldNode.asText();
+        String value = fieldNode.asString();
         if (value == null || value.isEmpty()) {
             return value;
         }
@@ -31,7 +30,6 @@ final class GoogleBooksJsonSupport {
         return value.replaceAll("^\"|\"$", "");
     }
 
-    @Nullable
     static Integer getIntValue(JsonNode node, String field) {
         if (node == null || !node.has(field)) {
             return null;
@@ -40,7 +38,6 @@ final class GoogleBooksJsonSupport {
         return fieldNode.isInt() ? fieldNode.asInt() : null;
     }
 
-    @Nullable
     static Double getDoubleValue(JsonNode node, String field) {
         if (node == null || !node.has(field)) {
             return null;
@@ -49,7 +46,6 @@ final class GoogleBooksJsonSupport {
         return fieldNode.isNumber() ? fieldNode.asDouble() : null;
     }
 
-    @Nullable
     static Boolean getBooleanValue(JsonNode node, String field) {
         if (node == null || !node.has(field)) {
             return null;

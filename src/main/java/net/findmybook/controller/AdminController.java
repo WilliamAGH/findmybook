@@ -23,10 +23,10 @@ import net.findmybook.service.s3.DryRunSummary;
 import net.findmybook.service.s3.MoveActionSummary;
 import org.springframework.util.StringUtils;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.lang.Nullable;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -54,20 +54,32 @@ public class AdminController {
     private final ApiCircuitBreakerService apiCircuitBreakerService;
     private final BackfillCoordinator backfillCoordinator;
 
-    public AdminController(@Nullable S3CoverCleanupService s3CoverCleanupService,
-                           @Nullable NewYorkTimesBestsellerScheduler newYorkTimesBestsellerScheduler,
-                           @Nullable BackfillCoordinator backfillCoordinator,
+    /**
+     * Constructs AdminController with optional services that may be null when disabled.
+     *
+     * @param s3CoverCleanupService the S3 cleanup service, or null if S3 is disabled
+     * @param newYorkTimesBestsellerScheduler the NYT scheduler, or null if disabled
+     * @param backfillCoordinatorProvider provider for optional backfill coordinator bean
+     * @param bookCacheWarmingScheduler the cache warming scheduler
+     * @param apiCircuitBreakerService the circuit breaker service
+     * @param configuredS3Prefix configured source prefix for S3 cleanup
+     * @param defaultBatchLimit configured default batch size for cleanup operations
+     * @param configuredQuarantinePrefix configured quarantine prefix for moved objects
+     */
+    public AdminController(ObjectProvider<S3CoverCleanupService> s3CoverCleanupServiceProvider,
+                           NewYorkTimesBestsellerScheduler newYorkTimesBestsellerScheduler,
+                           ObjectProvider<BackfillCoordinator> backfillCoordinatorProvider,
                            BookCacheWarmingScheduler bookCacheWarmingScheduler,
                            ApiCircuitBreakerService apiCircuitBreakerService,
                            @Value("${app.s3.cleanup.prefix:images/book-covers/}") String configuredS3Prefix,
                            @Value("${app.s3.cleanup.default-batch-limit:100}") int defaultBatchLimit,
                            @Value("${app.s3.cleanup.quarantine-prefix:images/non-covers-pages/}") String configuredQuarantinePrefix) {
-        this.s3CoverCleanupService = s3CoverCleanupService;
+        this.s3CoverCleanupService = s3CoverCleanupServiceProvider.getIfAvailable();
         this.newYorkTimesBestsellerScheduler = newYorkTimesBestsellerScheduler;
         this.bookCacheWarmingScheduler = bookCacheWarmingScheduler;
         this.apiCircuitBreakerService = apiCircuitBreakerService;
         this.s3CleanupConfig = new S3CleanupConfig(configuredS3Prefix, defaultBatchLimit, configuredQuarantinePrefix);
-        this.backfillCoordinator = backfillCoordinator;
+        this.backfillCoordinator = backfillCoordinatorProvider.getIfAvailable();
     }
 
     /**
@@ -94,7 +106,7 @@ public class AdminController {
             return ResponseEntity.badRequest().body(message);
         }
 
-        int clampedPriority = Math.max(1, Math.min(priority, 10));
+        int clampedPriority = Math.clamp(priority, 1, 10);
         String normalizedVolume = volumeId.trim();
 
         backfillCoordinator.enqueue("GOOGLE_BOOKS", normalizedVolume, clampedPriority);
@@ -189,7 +201,7 @@ public class AdminController {
      * @return A ResponseEntity containing the MoveActionSummary as JSON
      */
     @PostMapping(value = "/s3-cleanup/move-flagged", produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<?> triggerS3CoverMoveAction(
+    public ResponseEntity<Object> triggerS3CoverMoveAction(
             @RequestParam(name = "prefix", required = false) String prefixOptional,
             @RequestParam(name = "limit", required = false) Integer limitOptional,
             @RequestParam(name = "quarantinePrefix", required = false) String quarantinePrefixOptional) {

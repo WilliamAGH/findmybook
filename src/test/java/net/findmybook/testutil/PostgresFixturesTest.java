@@ -10,7 +10,7 @@ class PostgresFixturesTest {
     @Test
     void loadNode_returnsFixtureTree() {
         JsonNode fixture = PostgresFixtures.loadNode("book_with_collections_and_tags");
-        assertThat(fixture.get("book").get("title").asText()).isEqualTo("Fixture Book of Secrets");
+        assertThat(fixture.get("book").get("title").asString()).isEqualTo("Fixture Book of Secrets");
         assertThat(fixture.get("collections")).isNotNull();
         assertThat(fixture.get("tags")).isNotNull();
     }
