@@ -14,18 +14,13 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Enriches a {@link Book} with supplemental section data from independent Postgres queries.
- *
- * <p><strong>Graceful degradation contract:</strong> Each hydration method independently queries a
- * supplemental section (authors, categories, collections, etc.). If a section query fails, the book
- * is returned with an empty/default value for that section rather than aborting the entire book
- * lookup. This is intentional non-critical graceful degradation — failures are logged at WARN level
- * so operators can detect persistent data access issues without degrading the user experience for
- * the primary book record.</p>
+ * Enriches a {@link Book} with supplemental section data from Postgres.
  */
 final class PostgresBookSectionHydrator {
     private static final Logger LOG = LoggerFactory.getLogger(PostgresBookSectionHydrator.class);
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
+    /** Sentinel value for COALESCE in ORDER BY so rows without a position sort last. */
+    private static final int POSITION_SORT_LAST = Integer.MAX_VALUE;
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
@@ -41,14 +36,13 @@ final class PostgresBookSectionHydrator {
                 FROM book_authors_join baj
                 JOIN authors a ON a.id = baj.author_id
                 WHERE baj.book_id = ?::uuid
-                ORDER BY COALESCE(baj.position, 2147483647), lower(a.name)
-                """;
+                ORDER BY COALESCE(baj.position, %d), lower(a.name)
+                """.formatted(POSITION_SORT_LAST);
         try {
             List<String> authors = jdbcTemplate.query(sql, ps -> ps.setObject(1, canonicalId), (rs, rowNum) -> rs.getString("name"));
             book.setAuthors(authors == null || authors.isEmpty() ? List.of() : authors);
         } catch (DataAccessException ex) {
-            LOG.warn("Non-critical: failed to hydrate authors for {}: {}", canonicalId, ex.getMessage());
-            book.setAuthors(List.of());
+            throw hydrationFailure("authors", canonicalId, ex);
         }
     }
 
@@ -59,14 +53,13 @@ final class PostgresBookSectionHydrator {
                 JOIN book_collections bc ON bc.id = bcj.collection_id
                 WHERE bcj.book_id = ?::uuid
                   AND bc.collection_type = 'CATEGORY'
-                ORDER BY COALESCE(bcj.position, 9999), lower(bc.display_name)
-                """;
+                ORDER BY COALESCE(bcj.position, %d), lower(bc.display_name)
+                """.formatted(POSITION_SORT_LAST);
         try {
             List<String> categories = jdbcTemplate.query(sql, ps -> ps.setObject(1, canonicalId), (rs, rowNum) -> rs.getString("display_name"));
             book.setCategories(categories == null || categories.isEmpty() ? List.of() : categories);
         } catch (DataAccessException ex) {
-            LOG.warn("Non-critical: failed to hydrate categories for {}: {}", canonicalId, ex.getMessage());
-            book.setCategories(List.of());
+            throw hydrationFailure("categories", canonicalId, ex);
         }
     }
 
@@ -81,9 +74,9 @@ final class PostgresBookSectionHydrator {
                 JOIN book_collections bc ON bc.id = bcj.collection_id
                 WHERE bcj.book_id = ?::uuid
                 ORDER BY CASE WHEN bc.collection_type = 'CATEGORY' THEN 0 ELSE 1 END,
-                         COALESCE(bcj.position, 2147483647),
+                         COALESCE(bcj.position, %d),
                          lower(bc.display_name)
-                """;
+                """.formatted(POSITION_SORT_LAST);
         try {
             List<Book.CollectionAssignment> assignments = jdbcTemplate.query(
                 sql,
@@ -101,8 +94,7 @@ final class PostgresBookSectionHydrator {
             );
             book.setCollections(assignments);
         } catch (DataAccessException ex) {
-            LOG.warn("Non-critical: failed to hydrate collections for {}: {}", canonicalId, ex.getMessage());
-            book.setCollections(List.of());
+            throw hydrationFailure("collections", canonicalId, ex);
         }
     }
 
@@ -115,21 +107,13 @@ final class PostgresBookSectionHydrator {
                 """;
         try {
             jdbcTemplate.query(sql, ps -> ps.setObject(1, canonicalId), rs -> {
-                if (!rs.next()) {
-                    return null;
-                }
                 book.setHeightCm(toDouble(rs.getBigDecimal("height")));
                 book.setWidthCm(toDouble(rs.getBigDecimal("width")));
                 book.setThicknessCm(toDouble(rs.getBigDecimal("thickness")));
                 book.setWeightGrams(toDouble(rs.getBigDecimal("weight_grams")));
-                return null;
             });
         } catch (DataAccessException ex) {
-            LOG.warn("Non-critical: failed to hydrate dimensions for {}: {}", canonicalId, ex.getMessage());
-            book.setHeightCm(null);
-            book.setWidthCm(null);
-            book.setThicknessCm(null);
-            book.setWeightGrams(null);
+            throw hydrationFailure("dimensions", canonicalId, ex);
         }
     }
 
@@ -142,12 +126,12 @@ final class PostgresBookSectionHydrator {
                 LIMIT 1
                 """;
         try {
-            String rawJson = jdbcTemplate.query(sql, ps -> ps.setObject(1, canonicalId), rs -> rs.next() ? rs.getString(1) : null);
-            if (rawJson != null && !rawJson.isBlank()) {
-                book.setRawJsonResponse(rawJson);
+            List<String> payloads = jdbcTemplate.query(sql, ps -> ps.setObject(1, canonicalId), (rs, rowNum) -> rs.getString(1));
+            if (!payloads.isEmpty() && payloads.getFirst() != null && !payloads.getFirst().isBlank()) {
+                book.setRawJsonResponse(payloads.getFirst());
             }
         } catch (DataAccessException ex) {
-            LOG.warn("Non-critical: failed to hydrate raw payload for {}: {}", canonicalId, ex.getMessage());
+            throw hydrationFailure("raw payload", canonicalId, ex);
         }
     }
 
@@ -181,9 +165,12 @@ final class PostgresBookSectionHydrator {
                     if (confidence != null) {
                         attributes.put("confidence", confidence);
                     }
-                    Map<String, Object> metadata = parseJsonAttributes(rs.getObject("metadata"));
-                    if (!metadata.isEmpty()) {
-                        attributes.put("metadata", metadata);
+                    Object metadataValue = rs.getObject("metadata");
+                    if (metadataValue != null) {
+                        Map<String, Object> metadata = parseJsonAttributes(metadataValue);
+                        if (!metadata.isEmpty()) {
+                            attributes.put("metadata", metadata);
+                        }
                     }
                     result.put(camelCaseKey, attributes);
                 }
@@ -191,8 +178,7 @@ final class PostgresBookSectionHydrator {
             });
             book.setQualifiers(tags);
         } catch (DataAccessException ex) {
-            LOG.warn("Non-critical: failed to hydrate tags for {}: {}", canonicalId, ex.getMessage());
-            book.setQualifiers(Map.of());
+            throw hydrationFailure("tags", canonicalId, ex);
         }
     }
 
@@ -218,10 +204,6 @@ final class PostgresBookSectionHydrator {
     }
 
     private Map<String, Object> parseJsonAttributes(Object value) {
-        if (value == null) {
-            return Map.of();
-        }
-
         String json = null;
         if (value instanceof org.postgresql.util.PGobject pgObject) {
             json = pgObject.getValue();
@@ -233,8 +215,7 @@ final class PostgresBookSectionHydrator {
             try {
                 return objectMapper.readValue(json, MAP_TYPE);
             } catch (tools.jackson.core.JacksonException ex) {
-                LOG.warn("Non-critical: failed to parse tag metadata JSON: {}", ex.getMessage());
-                return Map.of();
+                throw new IllegalStateException("Failed to parse tag metadata JSON", ex);
             }
         }
 
@@ -243,10 +224,15 @@ final class PostgresBookSectionHydrator {
             mapValue.forEach((k, v) -> copy.put(String.valueOf(k), v));
             return copy;
         }
-        return Map.of();
+        throw new IllegalStateException("Unsupported or empty tag metadata: " + value.getClass().getName());
     }
 
     private Double toDouble(java.math.BigDecimal value) {
         return value == null ? null : value.doubleValue();
+    }
+
+    private IllegalStateException hydrationFailure(String section, UUID canonicalId, DataAccessException ex) {
+        LOG.error("Failed to hydrate {} for book {}: {}", section, canonicalId, ex.getMessage(), ex);
+        return new IllegalStateException("Failed to hydrate " + section + " for book " + canonicalId, ex);
     }
 }
