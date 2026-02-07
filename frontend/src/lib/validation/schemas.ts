@@ -46,11 +46,20 @@ export const PublicationSchema = z.object({
   publisher: z.string().nullable().optional(),
 });
 
+export const DescriptionContentSchema = z.object({
+  raw: z.string().nullable().optional(),
+  format: z.enum(["HTML", "MARKDOWN", "PLAIN_TEXT", "UNKNOWN"]).optional().default("UNKNOWN"),
+  html: z.string().optional().default(""),
+  text: z.string().optional().default(""),
+});
+
 export const BookSchema = z.object({
   id: z.string(),
   slug: z.string().nullable().optional(),
   title: z.string().nullable().optional(),
+  source: z.string().nullable().optional(),
   description: z.string().nullable().optional(),
+  descriptionContent: DescriptionContentSchema.nullable().optional(),
   publication: PublicationSchema.nullable().optional(),
   authors: z.array(AuthorSchema).optional().default([]),
   categories: z.array(z.string()).optional().default([]),
@@ -151,6 +160,7 @@ export const RealtimeSearchHitCandidateSchema = z.object({
   id: z.string(),
   slug: z.string().optional(),
   title: z.string().optional(),
+  source: z.string().optional(),
   description: z.string().nullable().optional(),
   authors: z.array(z.string()).optional().default([]),
   categories: z.array(z.string()).optional().default([]),

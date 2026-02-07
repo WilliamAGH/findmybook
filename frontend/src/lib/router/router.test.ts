@@ -65,7 +65,7 @@ describe("component rendering", () => {
       },
     });
 
-    expect(screen.getByText("Unknown author")).toBeInTheDocument();
+    expect(screen.getByText("Unknown Author")).toBeInTheDocument();
   });
 
   it("shouldRenderNotFoundPageCallToAction", () => {

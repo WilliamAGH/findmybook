@@ -1,6 +1,6 @@
 import { writable } from "svelte/store";
 
-export type RouteName = "home" | "search" | "book" | "sitemap" | "notFound";
+export type RouteName = "home" | "search" | "book" | "sitemap" | "explore" | "categories" | "notFound";
 
 export interface RouteMatch {
   name: RouteName;
@@ -32,6 +32,14 @@ export function matchRoute(pathname: string): RouteMatch {
 
   if (pathname === "/search") {
     return { name: "search", params: {} };
+  }
+
+  if (pathname === "/explore") {
+    return { name: "explore", params: {} };
+  }
+
+  if (pathname === "/categories") {
+    return { name: "categories", params: {} };
   }
 
   const bookMatch = pathname.match(/^\/book\/([^/]+)$/);

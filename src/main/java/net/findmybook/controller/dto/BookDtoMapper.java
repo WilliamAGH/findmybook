@@ -1,5 +1,13 @@
 package net.findmybook.controller.dto;
 
+import com.vladsch.flexmark.ext.autolink.AutolinkExtension;
+import com.vladsch.flexmark.ext.gfm.strikethrough.StrikethroughExtension;
+import com.vladsch.flexmark.ext.gfm.tasklist.TaskListExtension;
+import com.vladsch.flexmark.ext.tables.TablesExtension;
+import com.vladsch.flexmark.html.HtmlRenderer;
+import com.vladsch.flexmark.parser.Parser;
+import com.vladsch.flexmark.util.ast.Node;
+import com.vladsch.flexmark.util.data.MutableDataSet;
 import net.findmybook.dto.BookCard;
 import net.findmybook.dto.BookDetail;
 import net.findmybook.dto.BookListItem;
@@ -9,18 +17,24 @@ import net.findmybook.model.image.CoverImages;
 import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.util.ApplicationConstants;
 import net.findmybook.util.SlugGenerator;
-import org.springframework.util.StringUtils;
 import net.findmybook.util.cover.CoverUrlValidator;
 import net.findmybook.util.cover.CoverUrlResolver;
 import net.findmybook.util.cover.UrlSourceDetector;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.safety.Cleaner;
+import org.jsoup.safety.Safelist;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
+import java.util.regex.Pattern;
 
 /**
  * Shared mapper that transforms domain {@link Book} objects into API-facing DTOs.
@@ -28,6 +42,14 @@ import java.util.stream.Collectors;
  * without rewriting mapping code in multiple places.
  */
 public final class BookDtoMapper {
+
+    private static final Pattern HTML_TAG_PATTERN = Pattern.compile("<\\s*/?\\s*[a-zA-Z][^>]*>");
+    private static final Pattern MARKDOWN_PATTERN = Pattern.compile(
+        "(?m)^(#{1,6}\\s+.+|\\s*[-*+]\\s+.+|\\s*\\d+\\.\\s+.+|\\s*>\\s+.+)|(```|`[^`]+`|\\*\\*[^*]+\\*\\*|\\[[^\\]]+\\]\\([^\\)]+\\))"
+    );
+    private static final Parser MARKDOWN_PARSER = buildMarkdownParser();
+    private static final HtmlRenderer MARKDOWN_RENDERER = buildMarkdownRenderer();
+    private static final Cleaner DESCRIPTION_HTML_CLEANER = new Cleaner(buildDescriptionSafelist());
 
     private BookDtoMapper() {
     }
@@ -54,6 +76,7 @@ public final class BookDtoMapper {
         List<String> recommendationIds = book.getCachedRecommendationIds() == null
                 ? List.of()
                 : List.copyOf(book.getCachedRecommendationIds());
+        BookDto.DescriptionContent descriptionContent = formatDescription(book.getDescription());
 
         String slug = resolveSlug(book);
 
@@ -70,7 +93,8 @@ public final class BookDtoMapper {
                 cover,
                 editions,
                 recommendationIds,
-                book.getQualifiers() == null ? Map.of() : Map.copyOf(book.getQualifiers())
+                book.getQualifiers() == null ? Map.of() : Map.copyOf(book.getQualifiers()),
+                descriptionContent
         );
     }
 
@@ -109,6 +133,7 @@ public final class BookDtoMapper {
         List<EditionDto> editions = detail.editions().stream()
             .map(BookDtoMapper::toEditionDto)
             .toList();
+        BookDto.DescriptionContent descriptionContent = formatDescription(detail.description());
 
         return new BookDto(
             detail.id(),
@@ -123,7 +148,8 @@ public final class BookDtoMapper {
             cover,
             editions,
             List.of(),
-            extras == null ? Map.of() : Map.copyOf(extras)
+            extras == null ? Map.of() : Map.copyOf(extras),
+            descriptionContent
         );
     }
 
@@ -161,7 +187,8 @@ public final class BookDtoMapper {
             cover,
             List.of(),
             List.of(),
-            extras == null ? Map.of() : Map.copyOf(extras)
+            extras == null ? Map.of() : Map.copyOf(extras),
+            formatDescription(null)
         );
     }
 
@@ -199,8 +226,145 @@ public final class BookDtoMapper {
             cover,
             List.of(),
             List.of(),
-            extras == null ? Map.of() : Map.copyOf(extras)
+            extras == null ? Map.of() : Map.copyOf(extras),
+            formatDescription(item.description())
         );
+    }
+
+    private static BookDto.DescriptionContent formatDescription(String rawDescription) {
+        if (!StringUtils.hasText(rawDescription)) {
+            return new BookDto.DescriptionContent(rawDescription, BookDto.DescriptionFormat.UNKNOWN, "", "");
+        }
+
+        String normalizedDescription = normalizeLineEndings(rawDescription).trim();
+        if (!StringUtils.hasText(normalizedDescription)) {
+            return new BookDto.DescriptionContent(rawDescription, BookDto.DescriptionFormat.UNKNOWN, "", "");
+        }
+
+        BookDto.DescriptionFormat detectedFormat = detectSourceFormat(normalizedDescription);
+        String renderedHtml = switch (detectedFormat) {
+            case HTML -> normalizedDescription;
+            case MARKDOWN -> renderMarkdownAsHtml(normalizedDescription);
+            case PLAIN_TEXT, UNKNOWN -> renderPlainTextAsHtml(normalizedDescription);
+        };
+
+        String sanitizedHtml = sanitizeDescriptionHtml(renderedHtml);
+        String plainText = extractPlainText(sanitizedHtml);
+        return new BookDto.DescriptionContent(rawDescription, detectedFormat, sanitizedHtml, plainText);
+    }
+
+    private static String normalizeLineEndings(String value) {
+        return value.replace("\r\n", "\n").replace('\r', '\n');
+    }
+
+    private static BookDto.DescriptionFormat detectSourceFormat(String normalizedDescription) {
+        if (HTML_TAG_PATTERN.matcher(normalizedDescription).find()) {
+            return BookDto.DescriptionFormat.HTML;
+        }
+        if (MARKDOWN_PATTERN.matcher(normalizedDescription).find()) {
+            return BookDto.DescriptionFormat.MARKDOWN;
+        }
+        return BookDto.DescriptionFormat.PLAIN_TEXT;
+    }
+
+    private static String renderMarkdownAsHtml(String normalizedDescription) {
+        Node parsedMarkdown = MARKDOWN_PARSER.parse(normalizedDescription);
+        return MARKDOWN_RENDERER.render(parsedMarkdown);
+    }
+
+    private static String renderPlainTextAsHtml(String normalizedDescription) {
+        String[] paragraphs = normalizedDescription.split("\\n\\s*\\n+");
+        StringBuilder htmlBuilder = new StringBuilder(normalizedDescription.length() + 32);
+
+        for (String paragraph : paragraphs) {
+            String trimmedParagraph = paragraph.strip();
+            if (!StringUtils.hasText(trimmedParagraph)) {
+                continue;
+            }
+
+            String[] lines = trimmedParagraph.split("\\n", -1);
+            StringBuilder lineHtmlBuilder = new StringBuilder(trimmedParagraph.length() + 16);
+            for (String line : lines) {
+                String escapedLine = Jsoup.clean(line, Safelist.none());
+                if (!lineHtmlBuilder.isEmpty()) {
+                    lineHtmlBuilder.append("<br />");
+                }
+                lineHtmlBuilder.append(escapedLine);
+            }
+
+            if (!htmlBuilder.isEmpty()) {
+                htmlBuilder.append('\n');
+            }
+            htmlBuilder.append("<p>")
+                .append(lineHtmlBuilder)
+                .append("</p>");
+        }
+
+        return htmlBuilder.toString();
+    }
+
+    private static String sanitizeDescriptionHtml(String candidateHtml) {
+        if (!StringUtils.hasText(candidateHtml)) {
+            return "";
+        }
+
+        Document dirtyDocument = Jsoup.parseBodyFragment(candidateHtml);
+        Document cleanDocument = DESCRIPTION_HTML_CLEANER.clean(dirtyDocument);
+        cleanDocument.outputSettings().prettyPrint(false);
+        return cleanDocument.body().html().trim();
+    }
+
+    private static String extractPlainText(String sanitizedHtml) {
+        if (!StringUtils.hasText(sanitizedHtml)) {
+            return "";
+        }
+
+        Document parsedDocument = Jsoup.parseBodyFragment(sanitizedHtml);
+        parsedDocument.outputSettings().prettyPrint(false);
+
+        parsedDocument.select("br").forEach(element -> element.after("\\n"));
+        parsedDocument.select("p,div,section,article,ul,ol,li,blockquote,pre,h1,h2,h3,h4,h5,h6")
+            .forEach(element -> element.prepend("\\n"));
+
+        String extracted = parsedDocument.text().replace("\\n", "\n");
+        return extracted.replaceAll("\\n{3,}", "\n\n").strip();
+    }
+
+    private static Parser buildMarkdownParser() {
+        MutableDataSet parserOptions = new MutableDataSet()
+            .set(Parser.EXTENSIONS, Arrays.asList(
+                TablesExtension.create(),
+                StrikethroughExtension.create(),
+                TaskListExtension.create(),
+                AutolinkExtension.create()
+            ));
+        return Parser.builder(parserOptions).build();
+    }
+
+    private static HtmlRenderer buildMarkdownRenderer() {
+        MutableDataSet rendererOptions = new MutableDataSet()
+            .set(Parser.EXTENSIONS, Arrays.asList(
+                TablesExtension.create(),
+                StrikethroughExtension.create(),
+                TaskListExtension.create(),
+                AutolinkExtension.create()
+            ))
+            .set(HtmlRenderer.ESCAPE_HTML, true)
+            .set(HtmlRenderer.SUPPRESS_HTML, true)
+            .set(HtmlRenderer.SOFT_BREAK, "<br />\n")
+            .set(HtmlRenderer.HARD_BREAK, "<br />\n");
+        return HtmlRenderer.builder(rendererOptions).build();
+    }
+
+    private static Safelist buildDescriptionSafelist() {
+        return Safelist.none()
+            .addTags(
+                "p", "br", "strong", "b", "em", "i", "u",
+                "ul", "ol", "li", "blockquote", "code", "pre",
+                "h1", "h2", "h3", "h4", "h5", "h6", "a"
+            )
+            .addAttributes("a", "href")
+            .addProtocols("a", "href", "http", "https", "mailto");
     }
 
     private static List<AuthorDto> toAuthorDtos(List<String> authors) {

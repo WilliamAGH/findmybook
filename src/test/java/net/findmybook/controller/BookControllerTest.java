@@ -169,7 +169,11 @@ class BookControllerTest {
                     detail.coverHighResolution()
                 ).url()
             )))
-            .andExpect(jsonPath("$.tags[0].key", equalTo("nytBestseller")));
+            .andExpect(jsonPath("$.tags[0].key", equalTo("nytBestseller")))
+            .andExpect(jsonPath("$.descriptionContent.raw", equalTo("Fixture Description")))
+            .andExpect(jsonPath("$.descriptionContent.format", equalTo("PLAIN_TEXT")))
+            .andExpect(jsonPath("$.descriptionContent.html", equalTo("<p>Fixture Description</p>")))
+            .andExpect(jsonPath("$.descriptionContent.text", equalTo("Fixture Description")));
     }
 
     @Test

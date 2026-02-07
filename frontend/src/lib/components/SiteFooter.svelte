@@ -1,13 +1,30 @@
 <script lang="ts">
 </script>
 
-<footer class="border-t border-linen-200 bg-white dark:border-slate-700 dark:bg-slate-900">
-  <div class="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-6 text-sm text-anthracite-600 dark:text-slate-400 md:flex-row md:items-center md:justify-between md:px-6">
-    <p>FindMyBook</p>
-    <div class="flex items-center gap-4">
-      <a href="/search" class="transition hover:text-canvas-600 dark:hover:text-canvas-400">Search</a>
-      <a href="/sitemap" class="transition hover:text-canvas-600 dark:hover:text-canvas-400">Sitemap</a>
-      <a href="https://findmybook.net" data-no-spa="true" class="transition hover:text-canvas-600 dark:hover:text-canvas-400">Production</a>
-    </div>
+<footer class="mt-auto border-t border-linen-200 py-8 transition-colors duration-300 dark:border-slate-700">
+  <div class="mx-auto flex max-w-6xl flex-col items-center gap-4 px-4 text-sm md:flex-row md:justify-between md:px-6">
+    <p class="text-anthracite-600 dark:text-slate-400">
+      By <a
+        href="https://williamcallahan.com"
+        target="_blank"
+        rel="noopener"
+        class="font-medium text-canvas-600 transition-colors duration-200 hover:text-canvas-700 dark:text-canvas-400 dark:hover:text-canvas-300"
+      >William Callahan</a>
+    </p>
+    <p class="flex items-center gap-2 text-anthracite-600 dark:text-slate-400">
+      <a
+        href="https://github.com/WilliamAGH/book-finder"
+        target="_blank"
+        rel="noopener"
+        class="font-medium text-canvas-600 transition-colors duration-200 hover:text-canvas-700 dark:text-canvas-400 dark:hover:text-canvas-300"
+      >Open Source</a>
+      <span class="mx-1">&bull;</span>
+      Made with <span class="text-red-500 dark:text-red-400">&#10084;&#65039;</span> in California
+      <span class="mx-1">&bull;</span>
+      <a
+        href="/sitemap"
+        class="font-medium text-canvas-600 transition-colors duration-200 hover:text-canvas-700 dark:text-canvas-400 dark:hover:text-canvas-300"
+      >Sitemap</a>
+    </p>
   </div>
 </footer>

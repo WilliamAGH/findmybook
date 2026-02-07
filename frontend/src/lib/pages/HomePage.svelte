@@ -3,6 +3,7 @@
   import { navigate } from "$lib/router/router";
   import BookCard, { type BookCardDisplay } from "$lib/components/BookCard.svelte";
   import { getHomePagePayload } from "$lib/services/pages";
+  import { Search, Info } from "@lucide/svelte";
 
   let loading = $state(true);
   let errorMessage = $state<string | null>(null);
@@ -19,6 +20,7 @@
     fallback_cover_url?: string | null;
     average_rating?: number | null;
     ratings_count?: number | null;
+    tags?: Record<string, unknown>;
   }): BookCardDisplay {
     return {
       id: payload.id,
@@ -29,6 +31,7 @@
       fallbackCoverUrl: payload.fallback_cover_url ?? null,
       averageRating: payload.average_rating ?? null,
       ratingsCount: payload.ratings_count ?? null,
+      tags: payload.tags ?? {},
     };
   }
 
@@ -58,46 +61,99 @@
     navigate(`/search?query=${encodeURIComponent(trimmed)}`);
   }
 
+  const genres = [
+    { label: "Fiction", query: "fiction" },
+    { label: "Mystery", query: "mystery" },
+    { label: "Science Fiction", query: "sci-fi" },
+    { label: "Fantasy", query: "fantasy" },
+    { label: "Biography", query: "biography" },
+  ];
+
   onMount(() => {
     void loadHome();
   });
 </script>
 
-<section class="bg-gradient-to-b from-linen-50 to-white px-4 py-10 dark:from-slate-900 dark:to-slate-900 md:px-6 md:py-16">
-  <div class="mx-auto max-w-4xl text-center">
-    <h1 class="text-3xl font-semibold tracking-tight text-anthracite-900 dark:text-slate-100 md:text-5xl">Find your next great read</h1>
-    <p class="mx-auto mt-4 max-w-2xl text-base text-anthracite-700 dark:text-slate-300 md:text-lg">
-      Search by title, author, or ISBN with realtime results, rich book details, and sitemap browsing.
-    </p>
-    <form onsubmit={submitSearch} class="mx-auto mt-8 flex max-w-2xl flex-col gap-3 sm:flex-row">
-      <input
-        bind:value={query}
-        type="search"
-        placeholder="Search by title, author, or ISBN"
-        class="w-full rounded-xl border border-linen-300 bg-white px-4 py-3 text-anthracite-900 outline-none ring-canvas-300 transition focus:ring-2 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-        required
-      />
-      <button type="submit" class="rounded-xl bg-canvas-500 px-5 py-3 font-medium text-white transition hover:bg-canvas-600">Search</button>
+<!-- Hero Section -->
+<section class="bg-gradient-to-b from-linen-50 to-white py-16 transition-colors duration-300 dark:from-slate-900 dark:to-slate-900 md:py-24">
+  <div class="mx-auto max-w-4xl px-4">
+    <div class="mb-10 text-center">
+      <h1 class="mb-4 font-heading text-4xl font-bold tracking-tight text-anthracite-900 dark:text-slate-50 md:text-5xl lg:text-6xl">
+        Discover Your Next Great Read
+      </h1>
+      <p class="mx-auto max-w-2xl text-lg font-light leading-relaxed text-anthracite-600 dark:text-slate-400 md:text-xl">
+        Curated book recommendations with a touch of elegance. Search millions of titles and find your perfect match.
+      </p>
+    </div>
+
+    <!-- Search Form with inline button -->
+    <form onsubmit={submitSearch} class="mb-8">
+      <div class="relative mx-auto max-w-2xl">
+        <input
+          bind:value={query}
+          type="text"
+          placeholder="Search by title, author, or ISBN..."
+          class="w-full rounded-xl border border-gray-300 bg-white px-6 py-4 pr-14 text-base shadow-soft outline-none transition-all duration-200 focus:border-transparent focus:ring-2 focus:ring-canvas-400 focus:shadow-soft-lg dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 md:text-lg"
+          required
+        />
+        <button
+          type="submit"
+          class="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg bg-canvas-400 px-3 py-2.5 text-white transition-all duration-200 hover:bg-canvas-500 hover:shadow-canvas focus:outline-none focus:ring-2 focus:ring-canvas-500 focus:ring-offset-2 md:px-5"
+          aria-label="Search"
+        >
+          <Search size={18} />
+        </button>
+      </div>
     </form>
+
+    <!-- Genre Pills -->
+    <div class="text-center">
+      <p class="mb-3 text-sm font-medium uppercase tracking-wider text-anthracite-600 dark:text-slate-400">
+        Popular Genres
+      </p>
+      <div class="flex flex-wrap justify-center gap-2">
+        {#each genres as genre (genre.query)}
+          <a
+            href={`/search?query=${encodeURIComponent(genre.query)}`}
+            class="rounded-full border border-gray-300 px-4 py-2 text-sm font-medium shadow-sm transition-all duration-200 hover:shadow-md text-anthracite-700 hover:text-anthracite-900 dark:border-slate-600 dark:text-slate-300 dark:hover:text-slate-100 dark:hover:border-slate-500"
+          >
+            {genre.label}
+          </a>
+        {/each}
+      </div>
+    </div>
   </div>
 </section>
 
-<section class="mx-auto grid max-w-6xl gap-10 px-4 py-8 md:px-6 md:py-12">
+<!-- Content Sections -->
+<section class="mx-auto max-w-6xl px-4 py-12 md:px-6 md:py-16">
   {#if loading}
     <p class="text-sm text-anthracite-600 dark:text-slate-300">Loading homepage sections...</p>
   {:else if errorMessage}
-    <div class="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/40 dark:text-red-200">
+    <div class="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/40 dark:text-red-200">
+      <Info size={16} />
       {errorMessage}
     </div>
   {/if}
 
-  <div class="space-y-4">
+  <!-- NYT Bestsellers -->
+  <div class="mb-12 space-y-6">
     <div class="flex items-center justify-between">
-      <h2 class="text-2xl font-semibold text-anthracite-900 dark:text-slate-100">NYT Bestsellers</h2>
-      <a href="/search?query=new%20york%20times" class="text-sm font-medium text-canvas-700 transition hover:text-canvas-800 dark:text-canvas-400">View all</a>
+      <h2 class="font-heading text-2xl font-bold text-anthracite-900 dark:text-slate-50 md:text-3xl">
+        NYT Bestsellers
+      </h2>
+      <a
+        href={`/search?query=${encodeURIComponent("new york times")}`}
+        class="rounded-lg border border-canvas-400 px-6 py-2.5 text-sm font-medium text-canvas-600 transition-all duration-200 hover:bg-canvas-50 hover:text-canvas-700 dark:border-canvas-600 dark:text-canvas-400 dark:hover:bg-slate-700 dark:hover:text-canvas-300"
+      >
+        View All
+      </a>
     </div>
     {#if !loading && bestsellers.length === 0}
-      <p class="text-sm text-anthracite-600 dark:text-slate-400">No current bestsellers available.</p>
+      <div class="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/40 dark:text-blue-200">
+        <Info size={16} />
+        No current bestsellers to display. Check back soon!
+      </div>
     {:else}
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {#each bestsellers as book (book.id)}
@@ -107,17 +163,28 @@
     {/if}
   </div>
 
-  <div class="space-y-4">
+  <!-- Recently Viewed -->
+  <div class="space-y-6">
     <div class="flex items-center justify-between">
-      <h2 class="text-2xl font-semibold text-anthracite-900 dark:text-slate-100">Recently Viewed</h2>
-      <a href="/search?query=explore" class="text-sm font-medium text-canvas-700 transition hover:text-canvas-800 dark:text-canvas-400">Explore more</a>
+      <h2 class="font-heading text-2xl font-bold text-anthracite-900 dark:text-slate-50 md:text-3xl">
+        Recent Views
+      </h2>
+      <a
+        href="/search?query=explore"
+        class="rounded-lg border border-canvas-400 px-6 py-2.5 text-sm font-medium text-canvas-600 transition-all duration-200 hover:bg-canvas-50 hover:text-canvas-700 dark:border-canvas-600 dark:text-canvas-400 dark:hover:bg-slate-700 dark:hover:text-canvas-300"
+      >
+        Explore More
+      </a>
     </div>
     {#if !loading && recentBooks.length === 0}
-      <p class="text-sm text-anthracite-600 dark:text-slate-400">No recent books yet. Start searching to build your list.</p>
+      <div class="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/40 dark:text-blue-200">
+        <Info size={16} />
+        No recent books to display. Start exploring to see recommendations!
+      </div>
     {:else}
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {#each recentBooks as book (book.id)}
-          <BookCard book={book} href={`/book/${encodeURIComponent(book.slug ?? book.id)}`} />
+          <BookCard book={book} href={`/book/${encodeURIComponent(book.slug ?? book.id)}`} showStats={true} />
         {/each}
       </div>
     {/if}

@@ -28,13 +28,17 @@
   });
 </script>
 
-<div class="min-h-screen bg-linen-50 text-anthracite-900 dark:bg-slate-900 dark:text-slate-100">
+<div class="flex min-h-screen flex-col bg-linen-50 text-anthracite-900 dark:bg-slate-900 dark:text-slate-100">
   <TopNav activeRoute={route.name} />
 
-  <main class="min-h-[calc(100vh-180px)]">
+  <main class="flex-1">
     {#if route.name === "home"}
       <HomePage />
     {:else if route.name === "search"}
+      <SearchPage currentUrl={url} />
+    {:else if route.name === "explore"}
+      <SearchPage currentUrl={url} />
+    {:else if route.name === "categories"}
       <SearchPage currentUrl={url} />
     {:else if route.name === "book"}
       <BookPage currentUrl={url} identifier={route.params.identifier ?? ""} />

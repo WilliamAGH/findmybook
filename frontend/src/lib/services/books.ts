@@ -26,7 +26,7 @@ export interface SearchParams {
   orderBy: string;
   coverSource: string;
   resolution: string;
-  publishedYear: number | null;
+  publishedYear?: number | null;
 }
 
 function buildSearchUrl(params: SearchParams): string {
@@ -38,7 +38,7 @@ function buildSearchUrl(params: SearchParams): string {
   url.searchParams.set("coverSource", params.coverSource);
   url.searchParams.set("resolution", params.resolution);
 
-  if (params.publishedYear !== null) {
+  if (params.publishedYear != null) {
     url.searchParams.set("publishedYear", String(params.publishedYear));
   }
 
@@ -73,6 +73,85 @@ function normalizeAuthorNames(rawAuthors: string[]): Array<{ id: string | null; 
   return rawAuthors.map((name) => ({ id: null, name }));
 }
 
+function hasCover(hit: SearchHit): boolean {
+  return Boolean(
+    hit.cover?.preferredUrl
+      || hit.cover?.externalImageUrl
+      || hit.cover?.s3ImagePath
+      || hit.cover?.fallbackUrl,
+  );
+}
+
+function normalizeProvider(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  return value.trim().toUpperCase();
+}
+
+function resolveProvider(hit: SearchHit): string {
+  const sourceFromPayload = normalizeProvider(hit.source);
+  if (sourceFromPayload) {
+    return sourceFromPayload;
+  }
+
+  const sourceFromCover = normalizeProvider(hit.cover?.source);
+  if (sourceFromCover) {
+    return sourceFromCover;
+  }
+
+  const coverUrl =
+    hit.cover?.preferredUrl
+    ?? hit.cover?.externalImageUrl
+    ?? hit.cover?.fallbackUrl
+    ?? null;
+  const normalizedUrl = coverUrl?.toLowerCase() ?? "";
+  if (normalizedUrl.includes("covers.openlibrary.org")) {
+    return "OPEN_LIBRARY";
+  }
+  if (normalizedUrl.includes("googleusercontent.com") || normalizedUrl.includes("books.google")) {
+    return "GOOGLE_BOOKS";
+  }
+  if (hit.cover?.s3ImagePath) {
+    return "POSTGRES";
+  }
+
+  return "POSTGRES";
+}
+
+function sourceRank(hit: SearchHit): number {
+  const provider = resolveProvider(hit);
+  if (provider === "POSTGRES") {
+    return 0;
+  }
+  if (provider === "OPEN_LIBRARY" || provider === "OPEN_LIBRARY_API") {
+    return 1;
+  }
+  if (provider === "GOOGLE_BOOKS" || provider === "GOOGLE_BOOKS_API" || provider === "GOOGLE_API") {
+    return 2;
+  }
+  return 3;
+}
+
+function sortSearchHits(hits: SearchHit[]): SearchHit[] {
+  return hits
+    .map((hit, index) => ({ hit, index }))
+    .sort((left, right) => {
+      const coverRankDelta = Number(hasCover(right.hit)) - Number(hasCover(left.hit));
+      if (coverRankDelta !== 0) {
+        return coverRankDelta;
+      }
+
+      const sourceRankDelta = sourceRank(left.hit) - sourceRank(right.hit);
+      if (sourceRankDelta !== 0) {
+        return sourceRankDelta;
+      }
+
+      return left.index - right.index;
+    })
+    .map((entry) => entry.hit);
+}
+
 /**
  * Build a fully-typed Cover object from a loosely-typed realtime candidate cover payload.
  * Fills missing fields with null to satisfy the SearchHit cover contract.
@@ -104,6 +183,7 @@ function normalizeSearchHit(raw: unknown): SearchHit | null {
     id: candidate.id,
     slug: candidate.slug ?? candidate.id,
     title: candidate.title ?? "Untitled",
+    source: candidate.source ?? null,
     description: candidate.description ?? null,
     publication: {
       publishedDate,
@@ -137,5 +217,5 @@ export function mergeSearchHits(existingHits: SearchHit[], incomingHits: SearchH
       merged.set(candidate.id, candidate);
     }
   }
-  return Array.from(merged.values());
+  return sortSearchHits(Array.from(merged.values()));
 }

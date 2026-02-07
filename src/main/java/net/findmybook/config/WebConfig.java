@@ -14,6 +14,7 @@ package net.findmybook.config;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.CacheControl;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
@@ -39,6 +40,14 @@ public class WebConfig implements WebMvcConfigurer {
      */
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
+        // Frontend entry assets use stable filenames (app.js/app.css) so they must revalidate on each request.
+        // Without this, long-lived browser caches can serve stale bundles after deployments.
+        if (!registry.hasMappingForPattern("/frontend/**")) {
+            registry.addResourceHandler("/frontend/**")
+                    .addResourceLocations("classpath:/static/frontend/")
+                    .setCacheControl(CacheControl.noCache().mustRevalidate());
+        }
+
         // Resolve the absolute path to the cache directory.
         // This assumes 'coverCacheDirName' is a relative path from the application's working directory.
         Path cachePath = Paths.get(coverCacheDirName).toAbsolutePath();
