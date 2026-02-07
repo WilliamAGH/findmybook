@@ -12,8 +12,8 @@ import java.util.regex.Pattern;
 public final class SearchQueryUtils {
 
     private static final String DEFAULT_QUERY = "*";
-    private static final Pattern CACHE_KEY_SANITIZER = Pattern.compile("[^a-zA-Z0-9-_]");
-    private static final Pattern TOPIC_KEY_SANITIZER = Pattern.compile("[^a-z0-9-_]");
+    private static final Pattern CACHE_KEY_SANITIZER = Pattern.compile("[^a-zA-Z0-9_-]");
+    private static final Pattern TOPIC_KEY_SANITIZER = Pattern.compile("[^a-z0-9_-]");
 
     private SearchQueryUtils() {
         // Utility class
