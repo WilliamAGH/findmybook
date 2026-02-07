@@ -4,7 +4,7 @@
 Key variables in `.env`:
 
 | Variable | Purpose |
-|----------|---------|
+| -------- | ------- |
 | `SERVER_PORT` | App server port |
 | `SPRING_DATASOURCE_*` | Database connection |
 | `SPRING_AI_OPENAI_API_KEY` | OpenAI integration |
@@ -12,11 +12,12 @@ Key variables in `.env`:
 | `S3_*` | S3 storage (if used) |
 | `APP_ADMIN_PASSWORD` | Admin user password |
 | `APP_USER_PASSWORD` | Basic user password |
+| `APP_ERROR_DIAGNOSTICS_INCLUDE_STACKTRACE` | Include stack traces in HTML diagnostics (`false` by default) |
 
 ## User Accounts
 
 | Username | Role(s) | Access | Password Env Variable |
-|----------|---------|--------|----------------------|
+| -------- | ------- | ------ | -------------------- |
 | `admin` | `ADMIN`, `USER` | All + `/admin/**` | `APP_ADMIN_PASSWORD` |
 | `user` | `USER` | General features | `APP_USER_PASSWORD` |
 
