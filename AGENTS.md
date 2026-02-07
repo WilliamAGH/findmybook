@@ -24,6 +24,7 @@
 - [CLN1] Keep code small and single-purpose; remove dead code and magic literals.
 - [NAM1] Use intent-revealing American English names.
 - [DOC1] Public types/methods require Javadocs that explain why + what.
+- [DEP0] Deprecated API usage is blocking: no new deprecated APIs and no deprecated call sites in touched code.
 - [DB1] Manual SQL only; no Flyway/Liquibase and no auto-migrations.
 - [API1] API contracts MUST remain explicit, strongly typed, and documented when changed.
 - [UPD1] Update all impacted usages across Java, templates, JS/TS, SQL, configs, and tests.
@@ -77,6 +78,11 @@
 - [ERR0b] Never catch broad `Exception`/`Throwable` in business logic unless rethrowing a typed domain exception immediately.
 - [ERR0c] Log failures with context (entity IDs, key inputs, operation) before rethrowing or wrapping.
 - [ERR0d] Never replace failed operations with null/empty/default values unless that absence is an explicit contract.
+
+### [DEP0] Deprecated API Usage (Blocking)
+- [DEP0a] MUST NOT introduce new usages of APIs annotated `@Deprecated` or marked for removal.
+- [DEP0b] MUST migrate all touched deprecated call sites to supported replacements; if no replacement exists, stop and ask the user.
+- [DEP0c] MUST NOT annotate net-new production classes or methods with `@Deprecated` without explicit user approval and a documented replacement path.
 
 ### [GIT1] Git Safety (Blocking)
 - [GIT1a] Treat all uncommitted changes as intentional user work and never revert/discard them.
