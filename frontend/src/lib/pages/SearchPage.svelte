@@ -461,4 +461,3 @@
     </nav>
   {/if}
 </section>
-EOF
