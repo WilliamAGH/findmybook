@@ -29,7 +29,6 @@ class BookCacheWarmingSchedulerTest {
     private ObjectProvider<ApiRequestMonitor> apiRequestMonitorProvider;
     private BookQueryRepository bookQueryRepository;
     private BookIdentifierResolver bookIdentifierResolver;
-    private BookCacheWarmingScheduler scheduler;
 
     @BeforeEach
     void setUp() {
@@ -37,16 +36,6 @@ class BookCacheWarmingSchedulerTest {
         apiRequestMonitorProvider = mock(ObjectProvider.class);
         bookQueryRepository = mock(BookQueryRepository.class);
         bookIdentifierResolver = mock(BookIdentifierResolver.class);
-
-        scheduler = new BookCacheWarmingScheduler(
-            recentlyViewedService,
-            apiRequestMonitorProvider,
-            bookQueryRepository,
-            bookIdentifierResolver,
-            true,
-            TEST_RATE_LIMIT,
-            TEST_MAX_BOOKS_PER_RUN
-        );
 
         ApiRequestMonitor apiRequestMonitor = mock(ApiRequestMonitor.class);
         when(apiRequestMonitor.getCurrentHourlyRequests()).thenReturn(0);

@@ -82,17 +82,17 @@ class BookSitemapServiceTest {
         JsonNode root = new ObjectMapper().readTree(payload);
         assertThat(root.size()).isEqualTo(3);
         assertThat(root.get("totalBooks").asInt()).isEqualTo(1);
-        assertThat(root.get("generatedAt").asText()).isNotBlank();
+        assertThat(root.get("generatedAt").asText(null)).isNotBlank();
         JsonNode booksNode = root.get("books");
         assertThat(booksNode).isNotNull();
         assertThat(booksNode.isArray()).isTrue();
         assertThat(booksNode.size()).isEqualTo(1);
 
         JsonNode first = booksNode.get(0);
-        assertThat(first.get("id").asText()).isEqualTo("book-1");
-        assertThat(first.get("slug").asText()).isEqualTo("slug-1");
-        assertThat(first.get("title").asText()).isEqualTo("Title");
-        assertThat(first.get("updatedAt").asText()).isEqualTo("2024-01-01T00:00:00Z");
+        assertThat(first.get("id").asText(null)).isEqualTo("book-1");
+        assertThat(first.get("slug").asText(null)).isEqualTo("slug-1");
+        assertThat(first.get("title").asText(null)).isEqualTo("Title");
+        assertThat(first.get("updatedAt").asText(null)).isEqualTo("2024-01-01T00:00:00Z");
         assertThat(collectFieldNames(first)).containsExactlyInAnyOrder("id", "slug", "title", "updatedAt");
     }
 
