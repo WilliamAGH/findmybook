@@ -18,6 +18,7 @@ import {
 } from "$lib/validation/schemas";
 
 const DEFAULT_SIMILAR_BOOKS_LIMIT = 6;
+const inFlightSearchRequests = new Map<string, Promise<SearchResponse>>();
 
 export interface SearchParams {
   query: string;
@@ -46,7 +47,19 @@ function buildSearchUrl(params: SearchParams): string {
 }
 
 export function searchBooks(params: SearchParams): Promise<SearchResponse> {
-  return getJson(buildSearchUrl(params), SearchResponseSchema, "searchBooks");
+  const requestUrl = buildSearchUrl(params);
+  const existingRequest = inFlightSearchRequests.get(requestUrl);
+  if (existingRequest) {
+    return existingRequest;
+  }
+
+  const request = getJson(requestUrl, SearchResponseSchema, "searchBooks")
+    .finally(() => {
+      inFlightSearchRequests.delete(requestUrl);
+    });
+
+  inFlightSearchRequests.set(requestUrl, request);
+  return request;
 }
 
 export function getBook(identifier: string): Promise<Book> {

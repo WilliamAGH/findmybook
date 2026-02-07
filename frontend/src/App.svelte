@@ -15,6 +15,9 @@
 
   onMount(() => {
     const unsubscribe = currentUrl.subscribe((nextUrl) => {
+      if (nextUrl.href === url.href) {
+        return;
+      }
       url = nextUrl;
     });
 
@@ -35,11 +38,11 @@
     {#if route.name === "home"}
       <HomePage />
     {:else if route.name === "search"}
-      <SearchPage currentUrl={url} />
+      <SearchPage currentUrl={url} routeName="search" />
     {:else if route.name === "explore"}
-      <SearchPage currentUrl={url} />
+      <SearchPage currentUrl={url} routeName="explore" />
     {:else if route.name === "categories"}
-      <SearchPage currentUrl={url} />
+      <SearchPage currentUrl={url} routeName="categories" />
     {:else if route.name === "book"}
       <BookPage currentUrl={url} identifier={route.params.identifier ?? ""} />
     {:else if route.name === "sitemap"}
