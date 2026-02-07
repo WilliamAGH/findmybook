@@ -31,7 +31,11 @@
     <meta name="csrf-token" th:if="${_csrf != null}" th:content="${_csrf.token}">
     <meta name="csrf-header" th:if="${_csrf != null}" th:content="${_csrf.headerName}">
 
-    <link rel="icon" type="image/x-icon" th:href="@{/favicon.ico}" href="/favicon.ico">
+    <link rel="icon" th:href="@{/favicon.svg}" href="/favicon.svg" type="image/svg+xml">
+    <link rel="icon" th:href="@{/favicon-32x32.png}" href="/favicon-32x32.png" type="image/png" sizes="32x32">
+    <link rel="icon" th:href="@{/favicon-192x192.png}" href="/favicon-192x192.png" type="image/png" sizes="192x192">
+    <link rel="apple-touch-icon" th:href="@{/apple-touch-icon.png}" href="/apple-touch-icon.png">
+    <link rel="manifest" th:href="@{/site.webmanifest}" href="/site.webmanifest">
     <link rel="stylesheet" th:href="@{/frontend/app.css}" href="/frontend/app.css">
 </head>
 <body>

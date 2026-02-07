@@ -58,7 +58,11 @@
     <!-- CSS Variables Definitions -->
     <link rel="stylesheet" th:href="@{/css/variables.css}">
     <link rel="stylesheet" th:href="@{/css/main.css}">
-    <link rel="icon" type="image/x-icon" th:href="@{/favicon.ico}" href="/favicon.ico">
+    <link rel="icon" th:href="@{/favicon.svg}" href="/favicon.svg" type="image/svg+xml">
+    <link rel="icon" th:href="@{/favicon-32x32.png}" href="/favicon-32x32.png" type="image/png" sizes="32x32">
+    <link rel="icon" th:href="@{/favicon-192x192.png}" href="/favicon-192x192.png" type="image/png" sizes="192x192">
+    <link rel="apple-touch-icon" th:href="@{/apple-touch-icon.png}" href="/apple-touch-icon.png">
+    <link rel="manifest" th:href="@{/site.webmanifest}" href="/site.webmanifest">
     <!-- Additional CSS -->
     <th:block th:replace="${extraCSS} ?: _"></th:block>
 
