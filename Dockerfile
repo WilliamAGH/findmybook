@@ -64,6 +64,6 @@ COPY --from=extractor --chown=appuser:appgroup /app/extracted/application/ ./
 
 USER appuser
 
-# Run via the Spring Boot loader which knows how to bootstrap from extracted layers
+# Run the extracted application jar (tools jarmode layout: application.jar + lib/)
 # JAVA_TOOL_OPTIONS is automatically picked up by the JVM at startup
-ENTRYPOINT ["java", "org.springframework.boot.loader.launch.JarLauncher"]
+ENTRYPOINT ["java", "-jar", "application.jar"]
