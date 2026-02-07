@@ -1,3 +1,9 @@
+/**
+ * Book data access layer — search, detail, similar books, and affiliate links.
+ *
+ * All data flows through the backend HTTP API with typed Zod validation at the boundary.
+ * Includes normalizers for realtime search hits received via WebSocket.
+ */
 import { getJson } from "$lib/services/http";
 import { validateWithSchema } from "$lib/validation/validate";
 import {
@@ -10,6 +16,8 @@ import {
   AffiliateLinksSchema,
   RealtimeSearchHitCandidateSchema,
 } from "$lib/validation/schemas";
+
+const DEFAULT_SIMILAR_BOOKS_LIMIT = 6;
 
 export interface SearchParams {
   query: string;
@@ -45,7 +53,7 @@ export function getBook(identifier: string): Promise<Book> {
   return getJson(`/api/books/${encodeURIComponent(identifier)}`, BookSchema, `getBook:${identifier}`);
 }
 
-export function getSimilarBooks(identifier: string, limit = 6): Promise<Book[]> {
+export function getSimilarBooks(identifier: string, limit = DEFAULT_SIMILAR_BOOKS_LIMIT): Promise<Book[]> {
   return getJson(
     `/api/books/${encodeURIComponent(identifier)}/similar?limit=${limit}`,
     SimilarBooksSchema,
@@ -65,14 +73,31 @@ function normalizeAuthorNames(rawAuthors: string[]): Array<{ id: string | null; 
   return rawAuthors.map((name) => ({ id: null, name }));
 }
 
+/**
+ * Build a fully-typed Cover object from a loosely-typed realtime candidate cover payload.
+ * Fills missing fields with null to satisfy the SearchHit cover contract.
+ */
+function buildNormalizedCover(raw: Record<string, unknown>): SearchHit["cover"] {
+  return {
+    s3ImagePath: (raw.s3ImagePath as string) ?? null,
+    externalImageUrl: (raw.externalImageUrl as string) ?? null,
+    width: null,
+    height: null,
+    highResolution: null,
+    preferredUrl: (raw.preferredUrl as string) ?? null,
+    fallbackUrl: (raw.fallbackUrl as string) ?? null,
+    source: (raw.source as string) ?? null,
+  };
+}
+
 function normalizeSearchHit(raw: unknown): SearchHit | null {
   const validation = validateWithSchema(RealtimeSearchHitCandidateSchema, raw, "realtimeSearchHit");
   if (!validation.success) {
+    console.warn("Dropped unparseable realtime search hit", raw);
     return null;
   }
 
   const candidate = validation.data;
-  const cover = candidate.cover ?? {};
   const publishedDate = candidate.publishedDate ?? null;
 
   return {
@@ -90,16 +115,7 @@ function normalizeSearchHit(raw: unknown): SearchHit | null {
     categories: candidate.categories,
     collections: [],
     tags: [],
-    cover: {
-      s3ImagePath: cover.s3ImagePath ?? null,
-      externalImageUrl: cover.externalImageUrl ?? null,
-      width: null,
-      height: null,
-      highResolution: null,
-      preferredUrl: cover.preferredUrl ?? null,
-      fallbackUrl: cover.fallbackUrl ?? null,
-      source: cover.source ?? null,
-    },
+    cover: buildNormalizedCover(candidate.cover ?? {}),
     editions: [],
     recommendationIds: [],
     extras: {},

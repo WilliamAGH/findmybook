@@ -21,6 +21,8 @@ import org.springframework.stereotype.Service;
 @Slf4j
 public class BookUpsertTransactionService {
 
+    private static final String AUTHOR_NAME_NORMALIZE_PATTERN = "[^a-z0-9\\s]";
+
     private final JdbcTemplate jdbcTemplate;
     private final BookCollectionPersistenceService collectionPersistenceService;
 
@@ -153,7 +155,7 @@ public class BookUpsertTransactionService {
             }
 
             String normalized = authorName.toLowerCase()
-                .replaceAll("[^a-z0-9\\s]", "")
+                .replaceAll(AUTHOR_NAME_NORMALIZE_PATTERN, "")
                 .trim();
             String authorId = upsertAuthor(authorName, normalized);
 

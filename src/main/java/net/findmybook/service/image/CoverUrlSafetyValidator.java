@@ -4,6 +4,7 @@ import java.net.InetAddress;
 import java.net.URI;
 import java.net.UnknownHostException;
 import java.util.Set;
+import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -14,6 +15,11 @@ import org.springframework.stereotype.Component;
 @Component
 @Slf4j
 public class CoverUrlSafetyValidator {
+
+    private static final Set<String> RESERVED_IP_PREFIXES = Set.of(
+        "169.254.", "127.", "10.", "192.168."
+    );
+    private static final Pattern RFC_1918_172_RANGE = Pattern.compile("^172\\.(1[6-9]|2\\d|3[0-1])\\..*");
 
     private static final Set<String> ALLOWED_HOSTS = Set.of(
         "books.googleusercontent.com",
@@ -85,12 +91,14 @@ public class CoverUrlSafetyValidator {
                     return false;
                 }
 
+                // Defense-in-depth: the JDK checks above cover standard site-local and link-local
+                // ranges, but explicit string-prefix and regex checks below guard against edge cases
+                // where InetAddress classification may disagree with raw IP formatting (e.g. IPv4-mapped
+                // IPv6 addresses or non-standard JVM implementations).
                 String ip = address.getHostAddress();
-                if (ip.startsWith("169.254.")
-                    || ip.startsWith("127.")
-                    || ip.startsWith("10.")
-                    || ip.startsWith("192.168.")
-                    || ip.matches("^172\\.(1[6-9]|2\\d|3[0-1])\\..*")) {
+                boolean isReservedPrefix = RESERVED_IP_PREFIXES.stream().anyMatch(ip::startsWith);
+                boolean isRfc1918Range = RFC_1918_172_RANGE.matcher(ip).matches();
+                if (isReservedPrefix || isRfc1918Range) {
                     log.warn("Blocked reserved IP range for host: {} -> {}", host, ip);
                     return false;
                 }

@@ -1,4 +1,12 @@
+/**
+ * Schema-driven payload validation using Zod v4.
+ *
+ * Provides typed validation helpers for API responses and realtime event payloads,
+ * logging structured diagnostics on failure.
+ */
 import { z } from "zod/v4";
+
+const MAX_REPORTED_ISSUES = 8;
 
 export type ValidationResult<T> = { success: true; data: T } | { success: false; error: z.ZodError };
 
@@ -6,7 +14,7 @@ export function validateWithSchema<T>(schema: z.ZodType<T>, payload: unknown, re
   const result = schema.safeParse(payload);
   if (!result.success) {
     const issueText = result.error.issues
-      .slice(0, 8)
+      .slice(0, MAX_REPORTED_ISSUES)
       .map((issue) => {
         const path = issue.path.length > 0 ? issue.path.join(".") : "(root)";
         return `${path}: ${issue.message}`;

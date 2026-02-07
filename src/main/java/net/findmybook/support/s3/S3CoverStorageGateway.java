@@ -1,14 +1,13 @@
 package net.findmybook.support.s3;
 
 import jakarta.annotation.PostConstruct;
-import jakarta.annotation.PreDestroy;
 import java.util.List;
 import java.util.Optional;
 import net.findmybook.exception.S3UploadException;
 import net.findmybook.model.image.ImageDetails;
-import net.findmybook.model.image.ProcessedImage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
 import org.springframework.lang.Nullable;
@@ -25,6 +24,7 @@ import software.amazon.awssdk.services.s3.S3Client;
  * operations directly.</p>
  */
 @Component
+@EnableConfigurationProperties(S3CoverStorageProperties.class)
 public class S3CoverStorageGateway {
 
     private static final Logger logger = LoggerFactory.getLogger(S3CoverStorageGateway.class);
@@ -36,6 +36,16 @@ public class S3CoverStorageGateway {
     private final S3CoverUrlSupport s3CoverUrlSupport;
     private final S3CoverUploadExecutor s3CoverUploadExecutor;
 
+    /** Runtime override — set to false when configured as enabled but S3 client is missing. */
+    private volatile boolean runtimeEnabled;
+
+    /**
+     * @implNote Six parameters are architecturally necessary: the S3 client, storage properties,
+     *     and environment for profile detection are infrastructure concerns, while the three
+     *     extracted support classes (lookup, URL, upload) each own a distinct S3 responsibility.
+     *     Collapsing them into a parameter object would create an artificial wrapper with no
+     *     cohesive meaning.
+     */
     public S3CoverStorageGateway(@Nullable S3Client s3Client,
                                  S3CoverStorageProperties s3CoverStorageProperties,
                                  Environment environment,
@@ -48,6 +58,7 @@ public class S3CoverStorageGateway {
         this.s3CoverObjectLookupSupport = s3CoverObjectLookupSupport;
         this.s3CoverUrlSupport = s3CoverUrlSupport;
         this.s3CoverUploadExecutor = s3CoverUploadExecutor;
+        this.runtimeEnabled = s3CoverStorageProperties.enabled();
     }
 
     /**
@@ -55,12 +66,12 @@ public class S3CoverStorageGateway {
      */
     @PostConstruct
     public void logStartupStatus() {
-        boolean s3Enabled = s3CoverStorageProperties.isEnabled();
-        boolean s3WriteEnabled = s3CoverStorageProperties.isWriteEnabled();
+        boolean s3Enabled = s3CoverStorageProperties.enabled();
+        boolean s3WriteEnabled = s3CoverStorageProperties.writeEnabled();
 
         if (s3Client == null && s3Enabled) {
             logClientMisconfigured();
-            s3CoverStorageProperties.setEnabled(false);
+            this.runtimeEnabled = false;
         } else if (s3Client != null && s3Enabled) {
             logger.info(
                 "S3 cover storage gateway initialized successfully. Bucket: {}",
@@ -86,18 +97,10 @@ public class S3CoverStorageGateway {
     }
 
     /**
-     * Keeps shutdown behavior explicit while Spring owns the S3 client lifecycle.
-     */
-    @PreDestroy
-    public void destroy() {
-        logger.info("S3CoverStorageGateway @PreDestroy called. S3 client lifecycle is managed by Spring.");
-    }
-
-    /**
      * Indicates if S3 reads are currently available.
      */
     public boolean isReadAvailable() {
-        return s3CoverStorageProperties.isEnabled() && s3Client != null;
+        return runtimeEnabled && s3Client != null;
     }
 
     /**
@@ -113,7 +116,7 @@ public class S3CoverStorageGateway {
                 null
             );
         }
-        if (!s3CoverStorageProperties.isWriteEnabled()) {
+        if (!s3CoverStorageProperties.writeEnabled()) {
             throw new S3UploadException(
                 "S3 uploads are disabled by configuration (S3_WRITE_ENABLED=false)",
                 bookId,
@@ -147,21 +150,9 @@ public class S3CoverStorageGateway {
     /**
      * Uploads processed cover bytes through the central S3 executor.
      */
-    public Mono<ImageDetails> uploadProcessedCover(String bookId,
-                                                   String fileExtension,
-                                                   String source,
-                                                   byte[] processedBytes,
-                                                   String mimeType,
-                                                   ProcessedImage processedImage) {
-        ensureUploadReady(bookId, null);
-        return s3CoverUploadExecutor.uploadOrReuseExistingObject(
-            bookId,
-            fileExtension,
-            source,
-            processedBytes,
-            mimeType,
-            processedImage
-        );
+    public Mono<ImageDetails> uploadProcessedCover(CoverUploadPayload payload) {
+        ensureUploadReady(payload.bookId(), null);
+        return s3CoverUploadExecutor.uploadOrReuseExistingObject(payload);
     }
 
     private boolean isDevOrTestProfile() {

@@ -1,4 +1,7 @@
 <script lang="ts">
+  /**
+   * Search page — faceted book search with realtime result streaming and prefetch.
+   */
   import { onMount } from "svelte";
   import BookCard, { type BookCardDisplay } from "$lib/components/BookCard.svelte";
   import { navigate } from "$lib/router/router";
@@ -14,6 +17,9 @@
   let { currentUrl }: { currentUrl: URL } = $props();
 
   const PAGE_SIZE = 12;
+  const PREFETCH_WINDOW_SIZE = 5;
+  const MIN_PUBLICATION_YEAR = 1800;
+  const MAX_PUBLICATION_YEAR = 2099;
   const COVER_OPTIONS = ["ANY", "GOOGLE_BOOKS", "OPEN_LIBRARY", "LONGITOOD"] as const;
   const RESOLUTION_OPTIONS = ["ANY", "HIGH_ONLY", "HIGH_FIRST"] as const;
   const SORT_OPTIONS = ["relevance", "title", "author", "newest", "rating"] as const;
@@ -69,26 +75,25 @@
     ].join("::");
   }
 
+  function parseEnumParam<T extends string>(
+    params: URLSearchParams,
+    key: string,
+    options: readonly T[],
+    fallback: T,
+  ): T {
+    const raw = params.get(key) ?? fallback;
+    return options.includes(raw as T) ? (raw as T) : fallback;
+  }
+
   function syncStateFromUrl(url: URL): void {
     const params = url.searchParams;
     query = params.get("query")?.trim() ?? "";
     year = params.get("year") ? parsePositiveNumber(params.get("year"), 0) || null : null;
     page = parsePositiveNumber(params.get("page"), 1);
 
-    const nextSort = params.get("sort") ?? "newest";
-    sort = SORT_OPTIONS.includes(nextSort as (typeof SORT_OPTIONS)[number])
-      ? (nextSort as (typeof SORT_OPTIONS)[number])
-      : "newest";
-
-    const nextCover = params.get("coverSource") ?? "ANY";
-    coverSource = COVER_OPTIONS.includes(nextCover as (typeof COVER_OPTIONS)[number])
-      ? (nextCover as (typeof COVER_OPTIONS)[number])
-      : "ANY";
-
-    const nextResolution = params.get("resolution") ?? "HIGH_FIRST";
-    resolution = RESOLUTION_OPTIONS.includes(nextResolution as (typeof RESOLUTION_OPTIONS)[number])
-      ? (nextResolution as (typeof RESOLUTION_OPTIONS)[number])
-      : "HIGH_FIRST";
+    sort = parseEnumParam(params, "sort", SORT_OPTIONS, "newest");
+    coverSource = parseEnumParam(params, "coverSource", COVER_OPTIONS, "ANY");
+    resolution = parseEnumParam(params, "resolution", RESOLUTION_OPTIONS, "HIGH_FIRST");
 
     const nextView = params.get("view");
     viewMode = nextView === "list" ? "list" : "grid";
@@ -117,7 +122,7 @@
       return;
     }
 
-    for (let offset = 1; offset <= 5; offset++) {
+    for (let offset = 1; offset <= PREFETCH_WINDOW_SIZE; offset++) {
       const nextStartIndex = baseParams.startIndex + offset * PAGE_SIZE;
       const nextParams: SearchParams = { ...baseParams, startIndex: nextStartIndex };
       const nextKey = cacheKey(nextParams);
@@ -131,7 +136,8 @@
         if (!nextResponse.hasMore) {
           break;
         }
-      } catch {
+      } catch (error) {
+        console.warn("Prefetch failed for offset", offset, error);
         break;
       }
     }
@@ -215,13 +221,15 @@
     };
   }
 
-  let totalPages = $derived(
-    !searchResult
-      ? 1
-      : searchResult.hasMore
-        ? Math.max(Math.max(1, Math.ceil(searchResult.totalResults / PAGE_SIZE)), page + 1)
-        : Math.max(1, Math.ceil(searchResult.totalResults / PAGE_SIZE)),
-  );
+  function computeTotalPages(result: SearchResponse | null, currentPage: number, pageSize: number): number {
+    if (!result) {
+      return 1;
+    }
+    const fromTotal = Math.max(1, Math.ceil(result.totalResults / pageSize));
+    return result.hasMore ? Math.max(fromTotal, currentPage + 1) : fromTotal;
+  }
+
+  let totalPages = $derived(computeTotalPages(searchResult, page, PAGE_SIZE));
 
   $effect(() => {
     syncStateFromUrl(currentUrl);
@@ -246,7 +254,7 @@
     }}
   >
     <input bind:value={query} class="rounded-lg border border-linen-300 px-3 py-2 text-sm outline-none ring-canvas-300 focus:ring-2 dark:border-slate-600 dark:bg-slate-900" placeholder="Search by title, author, ISBN" required />
-    <input bind:value={year} type="number" min="1800" max="2099" class="rounded-lg border border-linen-300 px-3 py-2 text-sm outline-none ring-canvas-300 focus:ring-2 dark:border-slate-600 dark:bg-slate-900" placeholder="Year" />
+    <input bind:value={year} type="number" min={MIN_PUBLICATION_YEAR} max={MAX_PUBLICATION_YEAR} class="rounded-lg border border-linen-300 px-3 py-2 text-sm outline-none ring-canvas-300 focus:ring-2 dark:border-slate-600 dark:bg-slate-900" placeholder="Year" />
     <select bind:value={sort} class="rounded-lg border border-linen-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900">
       {#each SORT_OPTIONS as option}
         <option value={option}>{option}</option>

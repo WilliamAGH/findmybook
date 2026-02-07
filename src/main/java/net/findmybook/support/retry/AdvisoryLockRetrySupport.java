@@ -8,14 +8,32 @@ import org.slf4j.Logger;
  */
 public final class AdvisoryLockRetrySupport {
 
+    /**
+     * Bundles the retry parameters that are constant per call site:
+     * the logger, maximum attempts, and base backoff interval.
+     */
+    public record RetryConfig(Logger logger, int maxAttempts, long baseBackoffMillis) {
+
+        /** Default retry config used by book upsert operations across the codebase. */
+        public static RetryConfig forBookUpsert(Logger logger) {
+            return new RetryConfig(logger, 3, 100L);
+        }
+    }
+
     private AdvisoryLockRetrySupport() {
     }
 
-    public static <T> T execute(Logger logger,
+    /**
+     * Executes the action with advisory-lock retry using the provided config.
+     *
+     * <p>Retries only on {@link AdvisoryLockAcquisitionException}; all other
+     * runtime exceptions propagate immediately. Uses linear backoff
+     * ({@code baseBackoffMillis * attempt}).
+     */
+    public static <T> T execute(RetryConfig config,
                                 String operationLabel,
-                                int maxAttempts,
-                                long baseBackoffMillis,
                                 Supplier<T> action) {
+        int maxAttempts = config.maxAttempts();
         if (maxAttempts < 1) {
             throw new IllegalArgumentException(
                 "maxAttempts must be at least 1 for operation '" + operationLabel + "' but was " + maxAttempts
@@ -28,8 +46,8 @@ public final class AdvisoryLockRetrySupport {
                 if (attempt == maxAttempts) {
                     throw exception;
                 }
-                long backoff = Math.max(baseBackoffMillis, 1L) * attempt;
-                logger.warn(
+                long backoff = Math.max(config.baseBackoffMillis(), 1L) * attempt;
+                config.logger().warn(
                     "Advisory lock contention during {} (attempt {}/{}). Retrying in {}ms",
                     operationLabel,
                     attempt,
@@ -37,8 +55,6 @@ public final class AdvisoryLockRetrySupport {
                     backoff
                 );
                 sleepUnchecked(backoff);
-            } catch (RuntimeException runtimeException) {
-                throw runtimeException;
             }
         }
         throw new IllegalStateException("Unreachable advisory lock retry path");

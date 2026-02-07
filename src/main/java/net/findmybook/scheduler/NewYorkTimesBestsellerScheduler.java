@@ -13,7 +13,7 @@ import net.findmybook.service.NewYorkTimesService;
 import net.findmybook.support.retry.AdvisoryLockRetrySupport;
 import net.findmybook.util.LoggingUtils;
 import net.findmybook.util.DateParsingUtils;
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.lang.Nullable;
@@ -31,6 +31,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 import net.findmybook.util.IsbnUtils;
 
@@ -57,8 +58,6 @@ public class NewYorkTimesBestsellerScheduler {
     private final BookCollectionPersistenceService collectionPersistenceService;
     private final BookSupplementalPersistenceService supplementalPersistenceService;
     private final BookUpsertService bookUpsertService;
-    private static final int UPSERT_LOCK_MAX_ATTEMPTS = 3;
-    private static final long UPSERT_LOCK_RETRY_BACKOFF_MS = 100L;
 
     @Value("${app.nyt.scheduler.cron:0 0 4 * * SUN}")
     private String cronExpression;
@@ -94,7 +93,11 @@ public class NewYorkTimesBestsellerScheduler {
         processNewYorkTimesBestsellers(requestedDate, false);
     }
 
-    public void processNewYorkTimesBestsellers(@Nullable LocalDate requestedDate, boolean forceExecution) {
+    public void forceProcessNewYorkTimesBestsellers(@Nullable LocalDate requestedDate) {
+        processNewYorkTimesBestsellers(requestedDate, true);
+    }
+
+    private void processNewYorkTimesBestsellers(@Nullable LocalDate requestedDate, boolean forceExecution) {
         if (!forceExecution && !schedulerEnabled) {
             log.info("NYT bestseller scheduler disabled via configuration.");
             return;
@@ -231,6 +234,8 @@ public class NewYorkTimesBestsellerScheduler {
         try {
             rawItem = objectMapper.writeValueAsString(bookNode);
         } catch (JacksonException e) {
+            log.error("Failed to serialize bestseller book node for canonicalId={}: {}",
+                canonicalId, e.getMessage(), e);
             rawItem = null;
         }
 
@@ -250,8 +255,6 @@ public class NewYorkTimesBestsellerScheduler {
         assignCoreTags(canonicalId, listCode, rank);
     }
 
-    // Removed external hydration path to enforce NYT-only ingestion.
-
     private String resolveCanonicalBookId(String isbn13, String isbn10) {
         return bookLookupService.resolveCanonicalBookId(isbn13, isbn10);
     }
@@ -264,10 +267,8 @@ public class NewYorkTimesBestsellerScheduler {
 
         try {
             BookUpsertService.UpsertResult result = AdvisoryLockRetrySupport.execute(
-                log,
+                AdvisoryLockRetrySupport.RetryConfig.forBookUpsert(log),
                 "NYT upsert isbn13=" + isbn13 + ",isbn10=" + isbn10,
-                UPSERT_LOCK_MAX_ATTEMPTS,
-                UPSERT_LOCK_RETRY_BACKOFF_MS,
                 () -> bookUpsertService.upsert(aggregate)
             );
             return result.getBookId().toString();
@@ -281,7 +282,7 @@ public class NewYorkTimesBestsellerScheduler {
 
     private BookAggregate buildBookAggregateFromNyt(JsonNode bookNode, String listCode, String isbn13, String isbn10) {
         String title = firstNonEmptyText(bookNode, "book_title", "title");
-        if (!ValidationUtils.hasText(title)) {
+        if (!StringUtils.hasText(title)) {
             return null;
         }
 
@@ -303,7 +304,7 @@ public class NewYorkTimesBestsellerScheduler {
             .collect(java.util.stream.Collectors.toList());
 
         List<String> categories = null;
-        if (ValidationUtils.hasText(listCode)) {
+        if (StringUtils.hasText(listCode)) {
             categories = new ArrayList<>();
             categories.add("NYT " + listCode.replace('-', ' '));
         }
@@ -311,7 +312,7 @@ public class NewYorkTimesBestsellerScheduler {
         // Build image links map
         Map<String, String> imageLinks = new java.util.HashMap<>();
         String imageUrl = firstNonEmptyText(bookNode, "book_image", "book_image_url");
-        if (ValidationUtils.hasText(imageUrl)) {
+        if (StringUtils.hasText(imageUrl)) {
             imageLinks.put("thumbnail", imageUrl);
         }
 
@@ -326,7 +327,7 @@ public class NewYorkTimesBestsellerScheduler {
                 .providerIsbn10(isbn10)
                 .imageLinks(imageLinks);
 
-        if (ValidationUtils.hasText(purchaseUrl)) {
+        if (StringUtils.hasText(purchaseUrl)) {
             identifiersBuilder.purchaseLink(purchaseUrl);
         }
 
@@ -336,10 +337,10 @@ public class NewYorkTimesBestsellerScheduler {
 
         return BookAggregate.builder()
             .title(normalizedTitle)
-            .description(ValidationUtils.hasText(description) ? description : null)
-            .publisher(ValidationUtils.hasText(publisher) ? publisher : null)
-            .isbn13(ValidationUtils.hasText(isbn13) ? isbn13 : null)
-            .isbn10(ValidationUtils.hasText(isbn10) ? isbn10 : null)
+            .description(StringUtils.hasText(description) ? description : null)
+            .publisher(StringUtils.hasText(publisher) ? publisher : null)
+            .isbn13(StringUtils.hasText(isbn13) ? isbn13 : null)
+            .isbn10(StringUtils.hasText(isbn10) ? isbn10 : null)
             .publishedDate(publishedDate)
             .authors(normalizedAuthors.isEmpty() ? null : normalizedAuthors)
             .categories(categories)
@@ -350,7 +351,7 @@ public class NewYorkTimesBestsellerScheduler {
 
     private Date parsePublishedDate(JsonNode bookNode) {
         String dateStr = firstNonEmptyText(bookNode, "published_date", "publication_dt", "created_date");
-        if (!ValidationUtils.hasText(dateStr)) {
+        if (!StringUtils.hasText(dateStr)) {
             return null;
         }
         return DateParsingUtils.parseFlexibleDate(dateStr);
@@ -368,15 +369,18 @@ public class NewYorkTimesBestsellerScheduler {
         return new ArrayList<>(deduped);
     }
 
+    private static final Pattern AUTHOR_AND_SEPARATOR_PATTERN = Pattern.compile("(?i)\\band\\b");
+    private static final String AUTHOR_DELIMITER_PATTERN = "[,;&]";
+
     private void addAuthors(List<String> authors, @Nullable String raw) {
         String sanitized = raw == null ? "" : raw;
-        if (!ValidationUtils.hasText(sanitized)) {
+        if (!StringUtils.hasText(sanitized)) {
             return;
         }
-        String normalized = sanitized.replaceAll("(?i)\\band\\b", ",");
-        for (String part : normalized.split("[,;&]")) {
+        String normalized = AUTHOR_AND_SEPARATOR_PATTERN.matcher(sanitized).replaceAll(",");
+        for (String part : normalized.split(AUTHOR_DELIMITER_PATTERN)) {
             String cleaned = part.trim();
-            if (ValidationUtils.hasText(cleaned)) {
+            if (StringUtils.hasText(cleaned)) {
                 authors.add(cleaned);
             }
         }
@@ -386,7 +390,7 @@ public class NewYorkTimesBestsellerScheduler {
         for (String field : fieldNames) {
             if (node.hasNonNull(field)) {
                 String value = node.get(field).asText(null);
-                if (ValidationUtils.hasText(value)) {
+                if (StringUtils.hasText(value)) {
                     return value.trim();
                 }
             }

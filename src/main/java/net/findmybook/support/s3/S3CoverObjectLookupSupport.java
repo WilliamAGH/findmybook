@@ -5,7 +5,7 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
-import net.findmybook.service.image.S3CoverKeyResolver;
+import net.findmybook.util.cover.S3KeyGenerator;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
@@ -24,20 +24,22 @@ import software.amazon.awssdk.services.s3.model.S3Exception;
 @Component
 public class S3CoverObjectLookupSupport {
 
+    private static final int OBJECT_CACHE_MAX_SIZE = 2000;
+    private static final int OBJECT_CACHE_TTL_HOURS = 1;
+    static final int HTTP_NOT_FOUND = 404;
+    private static final String UNKNOWN_SOURCE_LABEL = "unknown";
+
     private final S3Client s3Client;
-    private final S3CoverKeyResolver s3CoverKeyResolver;
     private final String s3BucketName;
     private final Cache<String, Boolean> objectExistsCache;
 
     public S3CoverObjectLookupSupport(@Nullable S3Client s3Client,
-                                      S3CoverKeyResolver s3CoverKeyResolver,
                                       @Value("${s3.bucket-name}") String s3BucketName) {
         this.s3Client = s3Client;
-        this.s3CoverKeyResolver = s3CoverKeyResolver;
         this.s3BucketName = s3BucketName;
         this.objectExistsCache = Caffeine.newBuilder()
-            .maximumSize(2000)
-            .expireAfterWrite(1, TimeUnit.HOURS)
+            .maximumSize(OBJECT_CACHE_MAX_SIZE)
+            .expireAfterWrite(OBJECT_CACHE_TTL_HOURS, TimeUnit.HOURS)
             .build();
     }
 
@@ -46,7 +48,7 @@ public class S3CoverObjectLookupSupport {
      */
     public Mono<String> locateExistingKeyAsync(String bookId, String fileExtension, String rawSource) {
         ensureClientConfigured();
-        return Flux.fromIterable(s3CoverKeyResolver.buildCandidateKeys(bookId, fileExtension, rawSource))
+        return Flux.fromIterable(S3KeyGenerator.buildCandidateKeys(bookId, fileExtension, rawSource))
             .concatMap(key -> headObjectExistsAsync(key)
                 .filter(Boolean::booleanValue)
                 .map(exists -> key))
@@ -54,11 +56,12 @@ public class S3CoverObjectLookupSupport {
     }
 
     /**
-     * Resolves the first existing key from all source-compatible candidate keys.
+     * Blocking variant of {@link #locateExistingKeyAsync} — resolves the first existing key
+     * synchronously on the calling thread.
      */
     public Optional<String> locateExistingKeySync(String bookId, String fileExtension, String rawSource) {
         ensureClientConfigured();
-        for (String key : s3CoverKeyResolver.buildCandidateKeys(bookId, fileExtension, rawSource)) {
+        for (String key : S3KeyGenerator.buildCandidateKeys(bookId, fileExtension, rawSource)) {
             if (headObjectExistsSync(key)) {
                 return Optional.of(key);
             }
@@ -74,7 +77,7 @@ public class S3CoverObjectLookupSupport {
         return Flux.concat(
                 Flux.fromIterable(sourceLabels)
                     .concatMap(label -> locateExistingKeyAsync(bookId, fileExtension, label).hasElement()),
-                locateExistingKeyAsync(bookId, fileExtension, "unknown").hasElement()
+                locateExistingKeyAsync(bookId, fileExtension, UNKNOWN_SOURCE_LABEL).hasElement()
             )
             .filter(Boolean::booleanValue)
             .next()
@@ -111,7 +114,7 @@ public class S3CoverObjectLookupSupport {
             objectExistsCache.put(s3Key, false);
             return false;
         } catch (S3Exception s3Exception) {
-            if (s3Exception.statusCode() == 404) {
+            if (s3Exception.statusCode() == HTTP_NOT_FOUND) {
                 objectExistsCache.put(s3Key, false);
                 return false;
             }

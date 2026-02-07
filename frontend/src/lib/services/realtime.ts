@@ -1,3 +1,9 @@
+/**
+ * Realtime event subscriptions over STOMP/WebSocket.
+ *
+ * Manages a shared STOMP client with auto-reconnect and provides typed subscription
+ * helpers for search progress, search results, and book cover update topics.
+ */
 import { Client, type IFrame } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
 import type { z } from "zod/v4";
@@ -8,15 +14,27 @@ import {
 } from "$lib/validation/schemas";
 import { validateWithSchema } from "$lib/validation/validate";
 
-let sharedClient: Client | null = null;
-let connectionPromise: Promise<Client> | null = null;
+const STOMP_RECONNECT_DELAY_MS = 5000;
+const STOMP_HEARTBEAT_INCOMING_MS = 20000;
+const STOMP_HEARTBEAT_OUTGOING_MS = 10000;
+
+/**
+ * Discriminated union representing the STOMP connection lifecycle.
+ * Prevents temporal coupling between sharedClient and connectionPromise.
+ */
+type ConnectionState =
+  | { status: "idle" }
+  | { status: "connecting"; pending: Promise<Client> }
+  | { status: "connected"; client: Client };
+
+let connection: ConnectionState = { status: "idle" };
 
 function buildClient(): Client {
   return new Client({
     webSocketFactory: () => new SockJS("/ws"),
-    reconnectDelay: 5000,
-    heartbeatIncoming: 20000,
-    heartbeatOutgoing: 10000,
+    reconnectDelay: STOMP_RECONNECT_DELAY_MS,
+    heartbeatIncoming: STOMP_HEARTBEAT_INCOMING_MS,
+    heartbeatOutgoing: STOMP_HEARTBEAT_OUTGOING_MS,
   });
 }
 
@@ -37,35 +55,35 @@ function parseMessagePayload<T>(messageBody: string, recordId: string, schema: z
 }
 
 export async function ensureRealtimeClient(): Promise<Client> {
-  if (sharedClient?.connected) {
-    return sharedClient;
+  if (connection.status === "connected" && connection.client.connected) {
+    return connection.client;
   }
 
-  if (!connectionPromise) {
-    connectionPromise = new Promise<Client>((resolve, reject) => {
-      const client = buildClient();
-      client.onConnect = (_frame: IFrame) => {
-        sharedClient = client;
-        resolve(client);
-      };
-      client.onStompError = (frame) => {
-        reject(new Error(frame.body || "STOMP connection failed"));
-      };
-      client.onWebSocketError = (event) => {
-        console.error("WebSocket error", event);
-      };
-      client.activate();
-    }).finally(() => {
-      connectionPromise = null;
-    });
+  if (connection.status === "connecting") {
+    return connection.pending;
   }
 
-  const pendingConnection = connectionPromise;
-  if (!pendingConnection) {
-    throw new Error("Realtime connection was not initialized");
-  }
+  const pending = new Promise<Client>((resolve, reject) => {
+    const client = buildClient();
+    client.onConnect = (_frame: IFrame) => {
+      connection = { status: "connected", client };
+      resolve(client);
+    };
+    client.onStompError = (frame) => {
+      connection = { status: "idle" };
+      reject(new Error(frame.body || "STOMP connection failed"));
+    };
+    client.onWebSocketError = (event) => {
+      console.error("WebSocket error", event);
+    };
+    client.activate();
+  }).catch((error) => {
+    connection = { status: "idle" };
+    throw error;
+  });
 
-  return pendingConnection;
+  connection = { status: "connecting", pending };
+  return pending;
 }
 
 export async function subscribeToSearchTopics(
@@ -78,6 +96,9 @@ export async function subscribeToSearchTopics(
   const progressSub = client.subscribe(`/topic/search/${queryHash}/progress`, (message) => {
     const payload = parseMessagePayload(message.body, "searchProgressEvent", SearchProgressEventSchema);
     if (!payload) {
+      // Intentional non-critical graceful degradation: progress messages are informational-only,
+      // so a parse failure falls back to a generic message rather than breaking the search flow.
+      console.warn("Failed to parse search progress event, falling back to default message");
       onProgress("Searching...");
       return;
     }
@@ -87,6 +108,9 @@ export async function subscribeToSearchTopics(
   const resultsSub = client.subscribe(`/topic/search/${queryHash}/results`, (message) => {
     const payload = parseMessagePayload(message.body, "searchResultsEvent", SearchResultsEventSchema);
     if (!payload) {
+      // Intentional non-critical graceful degradation: a malformed results frame is dropped rather
+      // than surfaced as an error, because the HTTP search response is the authoritative source.
+      console.warn("Failed to parse search results event, falling back to empty results");
       onResults([]);
       return;
     }
@@ -107,6 +131,7 @@ export async function subscribeToBookCoverUpdates(
   const sub = client.subscribe(`/topic/book/${bookId}/coverUpdate`, (message) => {
     const payload = parseMessagePayload(message.body, "bookCoverUpdateEvent", BookCoverUpdateEventSchema);
     if (!payload) {
+      console.warn("Failed to parse book cover update event, ignoring message");
       return;
     }
     if (payload.newCoverUrl) {

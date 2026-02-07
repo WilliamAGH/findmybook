@@ -1,6 +1,7 @@
 package net.findmybook.service;
 
 import tools.jackson.databind.JsonNode;
+import java.util.Optional;
 import net.findmybook.dto.BookAggregate;
 import net.findmybook.mapper.GoogleBooksMapper;
 import io.github.resilience4j.bulkhead.Bulkhead;
@@ -52,12 +53,18 @@ public class BackfillCoordinator {
     private final Bulkhead bulkhead;
     
     private static final int MAX_RETRIES = 3;
-    private static final int UPSERT_LOCK_MAX_ATTEMPTS = 3;
-    private static final long UPSERT_LOCK_RETRY_BACKOFF_MS = 100L;
+    private static final int DEFAULT_BACKFILL_PRIORITY = 5;
+    private static final String SOURCE_GOOGLE_BOOKS = "GOOGLE_BOOKS";
     
     private Thread workerThread;
     private volatile boolean running = false;
     
+    /**
+     * @implNote Six parameters are architecturally necessary: four core dependencies (queue,
+     *     API fetcher, mapper, upsert service) plus two {@link ObjectProvider} wrappers for
+     *     optional Resilience4j registries. The ObjectProviders cannot be collapsed into a
+     *     single config object because each resolves an independent optional bean at runtime.
+     */
     public BackfillCoordinator(
         BackfillQueueService queueService,
         GoogleApiFetcher googleApiFetcher,
@@ -98,7 +105,7 @@ public class BackfillCoordinator {
      * Enqueue a backfill task with default priority (5).
      */
     public void enqueue(String source, String sourceId) {
-        enqueue(source, sourceId, 5);
+        enqueue(source, sourceId, DEFAULT_BACKFILL_PRIORITY);
     }
     
     /**
@@ -167,33 +174,27 @@ public class BackfillCoordinator {
             log.info("Processing: {} {} (attempt {}/{})",
                 task.source(), task.sourceId(), task.attempts() + 1, MAX_RETRIES);
             
-            // Fetch from external API
-            JsonNode json = fetchExternalData(task.source(), task.sourceId());
-            if (json == null) {
-                handleFailure(task, "API returned null");
+            Optional<JsonNode> json = fetchExternalData(task.source(), task.sourceId());
+            if (json.isEmpty()) {
+                handleFailure(task, "API returned empty response");
                 return;
             }
             
-            // Map to BookAggregate
-            BookAggregate aggregate = mapToAggregate(task.source(), json);
-            if (aggregate == null) {
-                handleFailure(task, "Mapper returned null");
+            Optional<BookAggregate> aggregate = mapToAggregate(task.source(), json.get());
+            if (aggregate.isEmpty()) {
+                handleFailure(task, "Mapper produced no aggregate");
                 return;
             }
             
-            // Upsert to database
             BookUpsertService.UpsertResult result = AdvisoryLockRetrySupport.execute(
-                log,
+                AdvisoryLockRetrySupport.RetryConfig.forBookUpsert(log),
                 "backfill upsert " + task.source() + "/" + task.sourceId(),
-                UPSERT_LOCK_MAX_ATTEMPTS,
-                UPSERT_LOCK_RETRY_BACKOFF_MS,
-                () -> bookUpsertService.upsert(aggregate)
+                () -> bookUpsertService.upsert(aggregate.get())
             );
             
             log.info("Backfill success: {} {} → book_id={}, slug={}",
                 task.source(), task.sourceId(), result.getBookId(), result.getSlug());
             
-            // Mark completed (removes from dedupe set)
             queueService.markCompleted(task);
             
         } catch (RuntimeException e) {
@@ -218,34 +219,29 @@ public class BackfillCoordinator {
     }
     
     /**
-     * Fetch data from external API.
-     * <p>
-     * Currently only supports GOOGLE_BOOKS.
-     * Future: Add support for OPEN_LIBRARY, AMAZON, etc.
+     * Fetch data from external API based on the source type.
      */
-    private JsonNode fetchExternalData(String source, String sourceId) {
+    private Optional<JsonNode> fetchExternalData(String source, String sourceId) {
         return switch (source) {
-            case "GOOGLE_BOOKS" -> fetchFromGoogleBooks(sourceId);
+            case SOURCE_GOOGLE_BOOKS -> fetchFromGoogleBooks(sourceId);
             default -> throw new IllegalStateException("Unsupported backfill source: " + source);
         };
     }
     
     /**
      * Fetch from Google Books API.
-     * Uses reactive WebClient - block() to convert to synchronous.
+     * Uses reactive WebClient — block() converts to synchronous.
      */
-    private JsonNode fetchFromGoogleBooks(String volumeId) {
+    private Optional<JsonNode> fetchFromGoogleBooks(String volumeId) {
         try {
             Mono<JsonNode> result = googleApiFetcher.fetchVolumeByIdAuthenticated(volumeId);
-            
-            // Block with timeout (circuit breaker is in GoogleApiFetcher)
             JsonNode json = result.block();
             
             if (json == null) {
                 log.debug("Google Books API returned empty for volume {}", volumeId);
             }
             
-            return json;
+            return Optional.ofNullable(json);
         } catch (RuntimeException e) {
             throw new IllegalStateException("Error fetching Google Books volume " + volumeId, e);
         }
@@ -268,16 +264,14 @@ public class BackfillCoordinator {
         queueService.retry(incrementedTask);
     }
 
-    // No additional references required; fallback is used directly in exception path
-    
     /**
      * Map external JSON to BookAggregate using appropriate mapper.
      */
-    private BookAggregate mapToAggregate(String source, JsonNode json) {
-        return switch (source) {
-            case "GOOGLE_BOOKS" -> googleBooksMapper.map(json);
+    private Optional<BookAggregate> mapToAggregate(String source, JsonNode json) {
+        return Optional.ofNullable(switch (source) {
+            case SOURCE_GOOGLE_BOOKS -> googleBooksMapper.map(json);
             default -> throw new IllegalStateException("No mapper configured for source: " + source);
-        };
+        });
     }
     
     /**

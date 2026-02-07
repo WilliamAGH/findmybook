@@ -2,8 +2,7 @@ package net.findmybook.support.s3;
 
 import net.findmybook.exception.S3UploadException;
 import net.findmybook.model.image.ImageDetails;
-import net.findmybook.model.image.ProcessedImage;
-import net.findmybook.service.image.S3CoverKeyResolver;
+import net.findmybook.util.cover.S3KeyGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.lang.Nullable;
@@ -28,16 +27,13 @@ public class S3CoverUploadExecutor {
     private static final Logger logger = LoggerFactory.getLogger(S3CoverUploadExecutor.class);
 
     private final S3Client s3Client;
-    private final S3CoverKeyResolver s3CoverKeyResolver;
     private final S3CoverObjectLookupSupport s3CoverObjectLookupSupport;
     private final S3CoverUrlSupport s3CoverUrlSupport;
 
     public S3CoverUploadExecutor(@Nullable S3Client s3Client,
-                                 S3CoverKeyResolver s3CoverKeyResolver,
                                  S3CoverObjectLookupSupport s3CoverObjectLookupSupport,
                                  S3CoverUrlSupport s3CoverUrlSupport) {
         this.s3Client = s3Client;
-        this.s3CoverKeyResolver = s3CoverKeyResolver;
         this.s3CoverObjectLookupSupport = s3CoverObjectLookupSupport;
         this.s3CoverUrlSupport = s3CoverUrlSupport;
     }
@@ -45,46 +41,27 @@ public class S3CoverUploadExecutor {
     /**
      * Uploads to canonical key unless an existing object already matches the processed payload.
      */
-    public Mono<ImageDetails> uploadOrReuseExistingObject(String bookId,
-                                                          String fileExtension,
-                                                          String source,
-                                                          byte[] imageBytesForS3,
-                                                          String mimeTypeForS3,
-                                                          ProcessedImage processedImage) {
+    public Mono<ImageDetails> uploadOrReuseExistingObject(CoverUploadPayload payload) {
         if (s3Client == null) {
             return Mono.error(new S3UploadException(
                 "S3 uploads are unavailable because the S3 client is not configured",
-                bookId,
+                payload.bookId(),
                 null,
                 false,
                 null
             ));
         }
-        String canonicalKey = s3CoverKeyResolver.generateCanonicalKey(bookId, fileExtension, source);
-        return s3CoverObjectLookupSupport.locateExistingKeyAsync(bookId, fileExtension, source)
-            .flatMap(existingKey -> handleExistingObject(
-                existingKey,
-                canonicalKey,
-                imageBytesForS3,
-                mimeTypeForS3,
-                bookId,
-                processedImage
-            ))
-            .switchIfEmpty(uploadToS3Internal(
-                canonicalKey,
-                imageBytesForS3,
-                mimeTypeForS3,
-                bookId,
-                processedImage
-            ));
+        String canonicalKey = S3KeyGenerator.generateCoverKeyFromRawSource(
+            payload.bookId(), payload.fileExtension(), payload.source());
+        return s3CoverObjectLookupSupport.locateExistingKeyAsync(
+                payload.bookId(), payload.fileExtension(), payload.source())
+            .flatMap(existingKey -> handleExistingObject(existingKey, canonicalKey, payload))
+            .switchIfEmpty(uploadToS3Internal(canonicalKey, payload));
     }
 
     private Mono<ImageDetails> handleExistingObject(String existingKey,
                                                     String canonicalKey,
-                                                    byte[] imageBytesForS3,
-                                                    String mimeTypeForS3,
-                                                    String bookId,
-                                                    ProcessedImage processedImage) {
+                                                    CoverUploadPayload payload) {
         return Mono.<software.amazon.awssdk.services.s3.model.HeadObjectResponse>fromCallable(
                 () -> s3Client.headObject(
                     HeadObjectRequest.builder()
@@ -95,33 +72,38 @@ public class S3CoverUploadExecutor {
             )
             .subscribeOn(Schedulers.boundedElastic())
             .flatMap(headResponse -> {
-                if (existingKey.equals(canonicalKey) && headResponse.contentLength() == imageBytesForS3.length) {
-                    logger.info("Processed cover for book {} already exists in S3 with same size, skipping upload. Key: {}", bookId, existingKey);
+                if (existingKey.equals(canonicalKey)
+                    && headResponse.contentLength() == payload.processedBytes().length) {
+                    logger.info("Processed cover for book {} already exists in S3 with same size, skipping upload. Key: {}",
+                        payload.bookId(), existingKey);
                     s3CoverObjectLookupSupport.markObjectExists(existingKey);
-                    return Mono.just(s3CoverUrlSupport.buildImageDetailsFromKey(existingKey, processedImage));
+                    return Mono.just(s3CoverUrlSupport.buildImageDetailsFromKey(
+                        existingKey, payload.processedImage()));
                 }
 
                 if (!existingKey.equals(canonicalKey)) {
-                    logger.info("Book {} has legacy S3 key {}. Uploading canonical key {} for future lookups.", bookId, existingKey, canonicalKey);
+                    logger.info("Book {} has legacy S3 key {}. Uploading canonical key {} for future lookups.",
+                        payload.bookId(), existingKey, canonicalKey);
                 }
 
-                return uploadToS3Internal(canonicalKey, imageBytesForS3, mimeTypeForS3, bookId, processedImage);
+                return uploadToS3Internal(canonicalKey, payload);
             })
-            .onErrorResume(NoSuchKeyException.class, exception -> uploadToS3Internal(canonicalKey, imageBytesForS3, mimeTypeForS3, bookId, processedImage))
+            .onErrorResume(NoSuchKeyException.class,
+                exception -> uploadToS3Internal(canonicalKey, payload))
             .onErrorResume(S3Exception.class, s3Exception -> {
-                if (s3Exception.statusCode() == 404) {
-                    return uploadToS3Internal(canonicalKey, imageBytesForS3, mimeTypeForS3, bookId, processedImage);
+                if (s3Exception.statusCode() == S3CoverObjectLookupSupport.HTTP_NOT_FOUND) {
+                    return uploadToS3Internal(canonicalKey, payload);
                 }
                 logger.error(
                     "Failed to inspect existing S3 object for book {} (status {}): {}",
-                    bookId,
+                    payload.bookId(),
                     s3Exception.statusCode(),
                     s3Exception.getMessage(),
                     s3Exception
                 );
                 return Mono.error(new S3UploadException(
                     "Failed to inspect existing S3 object before upload",
-                    bookId,
+                    payload.bookId(),
                     null,
                     true,
                     s3Exception
@@ -131,7 +113,7 @@ public class S3CoverUploadExecutor {
                 SdkClientException.class,
                 sdkClientException -> new S3UploadException(
                     "Failed to inspect existing S3 object before upload",
-                    bookId,
+                    payload.bookId(),
                     null,
                     true,
                     sdkClientException
@@ -139,23 +121,20 @@ public class S3CoverUploadExecutor {
             );
     }
 
-    private Mono<ImageDetails> uploadToS3Internal(String s3Key,
-                                                  byte[] imageBytesForS3,
-                                                  String mimeTypeForS3,
-                                                  String bookId,
-                                                  ProcessedImage processedImage) {
+    private Mono<ImageDetails> uploadToS3Internal(String s3Key, CoverUploadPayload payload) {
         return Mono.fromCallable(() -> {
             PutObjectRequest putObjectRequest = PutObjectRequest.builder()
                 .bucket(s3CoverObjectLookupSupport.bucketName())
                 .key(s3Key)
-                .contentType(mimeTypeForS3)
+                .contentType(payload.mimeType())
                 .acl(ObjectCannedACL.PUBLIC_READ)
                 .build();
-            s3Client.putObject(putObjectRequest, RequestBody.fromBytes(imageBytesForS3));
+            s3Client.putObject(putObjectRequest, RequestBody.fromBytes(payload.processedBytes()));
 
             s3CoverObjectLookupSupport.markObjectExists(s3Key);
-            logger.info("Successfully uploaded processed cover for book {} to S3. Key: {}", bookId, s3Key);
-            return s3CoverUrlSupport.buildImageDetailsFromKey(s3Key, processedImage);
+            logger.info("Successfully uploaded processed cover for book {} to S3. Key: {}",
+                payload.bookId(), s3Key);
+            return s3CoverUrlSupport.buildImageDetailsFromKey(s3Key, payload.processedImage());
         }).subscribeOn(Schedulers.boundedElastic());
     }
 }

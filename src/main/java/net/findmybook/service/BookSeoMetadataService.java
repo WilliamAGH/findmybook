@@ -4,7 +4,7 @@ import net.findmybook.model.Book;
 import net.findmybook.service.image.LocalDiskCoverCacheService;
 import net.findmybook.util.ApplicationConstants;
 import net.findmybook.util.SeoUtils;
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.ui.Model;
 
@@ -13,6 +13,9 @@ import org.springframework.ui.Model;
  */
 @Service
 public class BookSeoMetadataService {
+
+    private static final String PLACEHOLDER_COVER_MARKER = "placeholder-book-cover";
+    private static final String HTTP_SCHEME_PREFIX = "http";
 
     private final LocalDiskCoverCacheService localDiskCoverCacheService;
 
@@ -54,9 +57,9 @@ public class BookSeoMetadataService {
         if (book == null) {
             throw new IllegalArgumentException("Book must not be null when generating SEO metadata");
         }
-        String title = ValidationUtils.hasText(book.getTitle()) ? book.getTitle() : "Book Details";
+        String title = StringUtils.hasText(book.getTitle()) ? book.getTitle() : "Book Details";
         String description = SeoUtils.truncateDescription(book.getDescription(), maxDescriptionLength);
-        String canonicalIdentifier = ValidationUtils.hasText(book.getSlug()) ? book.getSlug() : book.getId();
+        String canonicalIdentifier = StringUtils.hasText(book.getSlug()) ? book.getSlug() : book.getId();
         String canonicalUrl = ApplicationConstants.Urls.BASE_URL + "/book/" + canonicalIdentifier;
         String keywords = SeoUtils.generateKeywords(book);
         String ogImage = resolveOgImage(book);
@@ -67,7 +70,7 @@ public class BookSeoMetadataService {
     public void apply(Model model, SeoMetadata seoMetadata) {
         model.addAttribute("title", seoMetadata.title());
         model.addAttribute("description", seoMetadata.description());
-        model.addAttribute("canonicalUrl", seoMetadata.canonicalUrl().startsWith("http")
+        model.addAttribute("canonicalUrl", seoMetadata.canonicalUrl().startsWith(HTTP_SCHEME_PREFIX)
             ? seoMetadata.canonicalUrl()
             : ApplicationConstants.Urls.BASE_URL + seoMetadata.canonicalUrl());
         model.addAttribute("keywords", seoMetadata.keywords());
@@ -77,9 +80,9 @@ public class BookSeoMetadataService {
     private String resolveOgImage(Book book) {
         String coverUrl = book.getS3ImagePath();
         String placeholder = localDiskCoverCacheService.getLocalPlaceholderPath();
-        if (ValidationUtils.hasText(coverUrl)
+        if (StringUtils.hasText(coverUrl)
             && (placeholder == null || !placeholder.equals(coverUrl))
-            && !coverUrl.contains("placeholder-book-cover")) {
+            && !coverUrl.contains(PLACEHOLDER_COVER_MARKER)) {
             return coverUrl;
         }
         return ApplicationConstants.Urls.OG_LOGO;

@@ -1,8 +1,8 @@
 package net.findmybook.service;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
@@ -18,6 +18,8 @@ import org.springframework.stereotype.Service;
 @Service
 @Slf4j
 public class BookOutboxEventService {
+
+    private static final String OUTBOX_TOPIC_PREFIX = "/topic/book.";
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
@@ -53,7 +55,7 @@ public class BookOutboxEventService {
         String payloadJson = toPayloadJson(request);
         jdbcTemplate.update(
             "INSERT INTO events_outbox (topic, payload, created_at) VALUES (?, ?::jsonb, NOW())",
-            "/topic/book." + request.bookId(),
+            OUTBOX_TOPIC_PREFIX + request.bookId(),
             payloadJson
         );
 
@@ -71,25 +73,35 @@ public class BookOutboxEventService {
         log.debug("Persisted and published book upsert events for {}", request.bookId());
     }
 
+    /**
+     * Typed representation of the outbox JSON payload, replacing untyped Map construction.
+     * Null fields are omitted from the serialized JSON via {@link JsonInclude}.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private record OutboxPayload(
+        String bookId,
+        String slug,
+        String title,
+        boolean isNew,
+        long timestamp,
+        @Nullable String context,
+        @Nullable String canonicalImageUrl,
+        @Nullable Map<String, String> imageLinks,
+        @Nullable String source
+    ) {}
+
     private String toPayloadJson(BookUpsertRequest request) {
-        Map<String, Object> payload = new HashMap<>();
-        payload.put("bookId", request.bookId().toString());
-        payload.put("slug", request.slug() != null ? request.slug() : "");
-        payload.put("title", request.title() != null ? request.title() : "");
-        payload.put("isNew", request.isNew());
-        payload.put("timestamp", System.currentTimeMillis());
-        if (request.context() != null && !request.context().isBlank()) {
-            payload.put("context", request.context());
-        }
-        if (request.canonicalImageUrl() != null && !request.canonicalImageUrl().isBlank()) {
-            payload.put("canonicalImageUrl", request.canonicalImageUrl());
-        }
-        if (request.imageLinks() != null && !request.imageLinks().isEmpty()) {
-            payload.put("imageLinks", request.imageLinks());
-        }
-        if (request.source() != null && !request.source().isBlank()) {
-            payload.put("source", request.source());
-        }
+        var payload = new OutboxPayload(
+            request.bookId().toString(),
+            request.slug() != null ? request.slug() : "",
+            request.title() != null ? request.title() : "",
+            request.isNew(),
+            System.currentTimeMillis(),
+            nonBlankOrNull(request.context()),
+            nonBlankOrNull(request.canonicalImageUrl()),
+            (request.imageLinks() != null && !request.imageLinks().isEmpty()) ? request.imageLinks() : null,
+            nonBlankOrNull(request.source())
+        );
 
         try {
             return objectMapper.writeValueAsString(payload);
@@ -97,5 +109,9 @@ public class BookOutboxEventService {
             log.error("Failed to serialize outbox payload for book {}: {}", request.bookId(), exception.getMessage(), exception);
             throw new IllegalStateException("Unable to serialize book upsert outbox payload for " + request.bookId(), exception);
         }
+    }
+
+    private static String nonBlankOrNull(String value) {
+        return (value != null && !value.isBlank()) ? value : null;
     }
 }

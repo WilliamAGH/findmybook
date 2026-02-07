@@ -8,7 +8,7 @@ import net.findmybook.util.ExternalApiLogger;
 import net.findmybook.util.IsbnUtils;
 import net.findmybook.util.SlugGenerator;
 import net.findmybook.util.UrlUtils;
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
@@ -31,13 +31,22 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * Persists books retrieved from external APIs (Google Books, Open Library) into Postgres.
+ * <p>
+ * Handles deduplication by ID and by ISBN/title, maps external JSON payloads to
+ * {@link BookAggregate}, and delegates upsert to {@link BookUpsertService} with
+ * advisory-lock retry protection.
+ */
 @Service
 class BookExternalBatchPersistenceService {
 
     private static final Logger logger = LoggerFactory.getLogger(BookExternalBatchPersistenceService.class);
 
+    private static final String ALPHANUMERIC_ONLY_PATTERN = "[^a-z0-9]";
+
+    // Systemic error message fragments for SQLException fallback detection
     private static final String ERR_CONNECTION = "connection";
     private static final String ERR_REFUSED = "refused";
     private static final String ERR_CLOSED = "closed";
@@ -47,8 +56,6 @@ class BookExternalBatchPersistenceService {
     private static final String ERR_TOO_MANY_CONNECTIONS = "too many connections";
     private static final String ERR_DATABASE = "database";
     private static final String ERR_DOES_NOT_EXIST = "does not exist";
-    private static final int UPSERT_LOCK_MAX_ATTEMPTS = 3;
-    private static final long UPSERT_LOCK_RETRY_BACKOFF_MS = 100L;
 
     private final ObjectMapper objectMapper;
     private final GoogleBooksMapper googleBooksMapper;
@@ -180,10 +187,8 @@ class BookExternalBatchPersistenceService {
             BookAggregate aggregateToPersist = aggregate;
 
             AdvisoryLockRetrySupport.execute(
-                logger,
+                AdvisoryLockRetrySupport.RetryConfig.forBookUpsert(logger),
                 "book upsert " + book.getId(),
-                UPSERT_LOCK_MAX_ATTEMPTS,
-                UPSERT_LOCK_RETRY_BACKOFF_MS,
                 () -> bookUpsertService.upsert(aggregateToPersist)
             );
             if (searchViewRefreshTrigger != null) {
@@ -205,17 +210,26 @@ class BookExternalBatchPersistenceService {
         }
     }
 
+    /**
+     * Detects systemic database failures (connection loss, pool exhaustion, auth) that
+     * should abort the batch. Checks both Spring's exception hierarchy and JDBC-level
+     * {@link SQLException} messages for connection-related failures that surface before
+     * Spring can wrap them.
+     */
     boolean isSystemicDatabaseError(Throwable ex) {
         if (ex == null) {
             return false;
         }
         Throwable current = ex;
         while (current != null) {
-            if (current instanceof Exception exception && isSystemicExceptionType(exception)) {
+            if (current instanceof ConnectException
+                || current instanceof SocketException
+                || current instanceof CannotGetJdbcConnectionException
+                || current instanceof DataAccessResourceFailureException) {
                 return true;
             }
             if ((current instanceof SQLException || current instanceof DataAccessException)
-                && isSystemicErrorMessage(current.getMessage())) {
+                    && isSystemicErrorMessage(current.getMessage())) {
                 return true;
             }
             current = current.getCause();
@@ -223,31 +237,17 @@ class BookExternalBatchPersistenceService {
         return false;
     }
 
-    private boolean isSystemicExceptionType(Exception ex) {
-        return ex instanceof ConnectException
-            || ex instanceof SocketException
-            || ex instanceof CannotGetJdbcConnectionException
-            || ex instanceof DataAccessResourceFailureException;
-    }
-
     private boolean isSystemicErrorMessage(String message) {
         if (message == null) {
             return false;
         }
-        String lowerMessage = message.toLowerCase(Locale.ROOT);
-
-        boolean isConnectionError = lowerMessage.contains(ERR_CONNECTION) && (
-            lowerMessage.contains(ERR_REFUSED) ||
-                lowerMessage.contains(ERR_CLOSED) ||
-                lowerMessage.contains(ERR_RESET) ||
-                lowerMessage.contains(ERR_TIMEOUT)
-        );
-
-        boolean isAuthError = lowerMessage.contains(ERR_AUTH_FAILED);
-        boolean isPoolExhausted = lowerMessage.contains(ERR_TOO_MANY_CONNECTIONS);
-        boolean isDatabaseMissing = lowerMessage.contains(ERR_DATABASE) &&
-            lowerMessage.contains(ERR_DOES_NOT_EXIST);
-
+        String lower = message.toLowerCase(Locale.ROOT);
+        boolean isConnectionError = lower.contains(ERR_CONNECTION) && (
+                lower.contains(ERR_REFUSED) || lower.contains(ERR_CLOSED)
+                || lower.contains(ERR_RESET) || lower.contains(ERR_TIMEOUT));
+        boolean isAuthError = lower.contains(ERR_AUTH_FAILED);
+        boolean isPoolExhausted = lower.contains(ERR_TOO_MANY_CONNECTIONS);
+        boolean isDatabaseMissing = lower.contains(ERR_DATABASE) && lower.contains(ERR_DOES_NOT_EXIST);
         return isConnectionError || isAuthError || isPoolExhausted || isDatabaseMissing;
     }
 
@@ -255,10 +255,10 @@ class BookExternalBatchPersistenceService {
         if (books == null || books.isEmpty()) {
             return List.of();
         }
-        Set<String> seenIds = ConcurrentHashMap.newKeySet();
+        Set<String> seenIds = new java.util.HashSet<>(books.size());
         List<Book> unique = new ArrayList<>(books.size());
         for (Book book : books) {
-            if (book == null || !ValidationUtils.hasText(book.getId())) {
+            if (book == null || !StringUtils.hasText(book.getId())) {
                 continue;
             }
             if (seenIds.add(book.getId())) {
@@ -278,12 +278,12 @@ class BookExternalBatchPersistenceService {
                 continue;
             }
             String isbn13 = IsbnUtils.sanitize(book.getIsbn13());
-            if (ValidationUtils.hasText(isbn13)) {
+            if (StringUtils.hasText(isbn13)) {
                 deduped.putIfAbsent("ISBN13:" + isbn13, book);
                 continue;
             }
             String isbn10 = IsbnUtils.sanitize(book.getIsbn10());
-            if (ValidationUtils.hasText(isbn10)) {
+            if (StringUtils.hasText(isbn10)) {
                 deduped.putIfAbsent("ISBN10:" + isbn10, book);
                 continue;
             }
@@ -298,10 +298,10 @@ class BookExternalBatchPersistenceService {
     }
 
     private String normalizeTitleForDedupe(String title) {
-        if (!ValidationUtils.hasText(title)) {
+        if (!StringUtils.hasText(title)) {
             return null;
         }
-        return title.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
+        return title.toLowerCase(Locale.ROOT).replaceAll(ALPHANUMERIC_ONLY_PATTERN, "");
     }
 
     private BookAggregate buildFallbackAggregate(Book book) {
