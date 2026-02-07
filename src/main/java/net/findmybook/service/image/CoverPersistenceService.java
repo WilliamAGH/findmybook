@@ -3,6 +3,7 @@ package net.findmybook.service.image;
 import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.util.IdGenerator;
 import net.findmybook.util.UrlUtils;
+import org.springframework.lang.Nullable;
 import org.springframework.util.StringUtils;
 import net.findmybook.util.cover.CoverUrlResolver;
 import net.findmybook.util.cover.ImageDimensionUtils;
@@ -148,13 +149,27 @@ public class CoverPersistenceService {
     /**
      * Captures the result of a successful S3 cover upload for persistence.
      *
-     * @param s3Key S3 object key
-     * @param s3CdnUrl Full CDN URL for the image (may be null for resolution)
-     * @param width Actual detected width
-     * @param height Actual detected height
-     * @param source Original source that provided the image
+     * @param s3Key S3 object key (required — cannot be null or blank)
+     * @param s3CdnUrl Full CDN URL for the uploaded image, or {@code null} when the URL
+     *                  must be resolved from the key via {@link CoverUrlResolver}
+     * @param width Actual detected width (may be null if dimensions are unknown)
+     * @param height Actual detected height (may be null if dimensions are unknown)
+     * @param source Original source that provided the image (required)
      */
-    public record S3UploadResult(String s3Key, String s3CdnUrl, Integer width, Integer height, CoverImageSource source) {}
+    public record S3UploadResult(
+            String s3Key,
+            @Nullable String s3CdnUrl,
+            @Nullable Integer width,
+            @Nullable Integer height,
+            CoverImageSource source) {
+
+        public S3UploadResult {
+            if (!StringUtils.hasText(s3Key)) {
+                throw new IllegalArgumentException("S3UploadResult requires a non-blank s3Key");
+            }
+            java.util.Objects.requireNonNull(source, "S3UploadResult requires a non-null source");
+        }
+    }
 
     /**
      * Updates cover metadata after successful S3 upload with actual dimensions.
@@ -170,11 +185,7 @@ public class CoverPersistenceService {
         Integer width = upload.width();
         Integer height = upload.height();
         CoverImageSource source = upload.source();
-        if (s3Key == null) {
-            log.warn("Cannot update cover for book {}: S3 key is null", bookId);
-            return new PersistenceResult(false, null, width, height, false);
-        }
-        
+
         boolean highRes = ImageDimensionUtils.isHighResolution(width, height);
         String canonicalUrl = s3CdnUrl;
         if (!StringUtils.hasText(canonicalUrl)) {

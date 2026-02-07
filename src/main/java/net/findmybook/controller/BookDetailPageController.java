@@ -134,12 +134,8 @@ public class BookDetailPageController {
                     6
                 )
                 .timeout(SIMILAR_BOOKS_TIMEOUT)
-                .onErrorResume(e -> {
-                    if (e instanceof java.util.concurrent.TimeoutException) {
-                        log.warn("Similar books timed out after {}ms for {}", SIMILAR_BOOKS_TIMEOUT.toMillis(), id);
-                    } else {
-                        log.error("Similar books failed for {}: {}", id, e.getMessage(), e);
-                    }
+                .onErrorResume(java.util.concurrent.TimeoutException.class, e -> {
+                    log.warn("Similar books timed out after {}ms for {}", SIMILAR_BOOKS_TIMEOUT.toMillis(), id);
                     return Mono.empty();
                 }))
             .defaultIfEmpty(List.<Book>of())
