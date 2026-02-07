@@ -22,32 +22,36 @@ COPY build.gradle.kts .
 COPY settings.gradle.kts .
 RUN chmod +x ./gradlew
 
-# 2. Pre-fetch dependencies (layer caching handles repeat builds)
-# Only runs when build.gradle.kts or settings.gradle.kts changes
+# 2. Pre-fetch Gradle dependencies (layer cached until build scripts change)
 RUN ./gradlew dependencies --no-daemon -q
 
-# 3. Frontend sources
-# Copying BEFORE src to separate frontend and backend change triggers
-COPY frontend ./frontend
+# 3. Frontend dependency install (cached until package.json/lock changes)
+COPY frontend/package.json frontend/package-lock.json ./frontend/
+RUN cd frontend && npm ci
 
-# 4. Java sources
+# 4. Frontend config and source files (surgical copies avoid node_modules)
+COPY frontend/index.html frontend/input.css ./frontend/
+COPY frontend/vite.config.ts frontend/tsconfig.json frontend/svelte.config.js frontend/tailwind.config.js ./frontend/
+COPY frontend/src ./frontend/src
+
+# 5. Java sources
 COPY src ./src
 
-# 5. Build JAR (Frontend build is triggered via Gradle processResources task)
+# 6. Build JAR (Frontend build is triggered via Gradle processResources task)
 # -q reduces noise, -x test skips tests for faster build
 RUN ./gradlew bootJar --no-daemon -q -x test
 
 # ---------- Extractor stage for layered JAR ----------
-FROM ${BASE_REGISTRY}/eclipse-temurin:25-jdk AS extractor
+FROM ${BASE_REGISTRY}/eclipse-temurin:25-jre AS extractor
 WORKDIR /app
-COPY --from=build /app/build/libs/findmybook-*.jar app.jar
-RUN java -Djarmode=tools -jar app.jar extract --layers --destination extracted
+COPY --from=build /app/build/libs/findmybook-*.jar application.jar
+RUN java -Djarmode=tools -jar application.jar extract --layers --destination extracted
 
 # ---------- Runtime stage ----------
 FROM ${BASE_REGISTRY}/eclipse-temurin:25-jre AS runtime
 WORKDIR /app
 ENV SERVER_PORT=8095
-ENV JAVA_OPTS="--enable-preview -XX:MaxRAMPercentage=75.0 -Dio.netty.noUnsafe=true"
+ENV JAVA_TOOL_OPTIONS="--enable-preview -XX:MaxRAMPercentage=75.0 -Dio.netty.noUnsafe=true"
 EXPOSE 8095
 
 RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
@@ -61,4 +65,5 @@ COPY --from=extractor --chown=appuser:appgroup /app/extracted/application/ ./
 USER appuser
 
 # Run the application using JSON array for better signal handling
-ENTRYPOINT ["java", "--enable-preview", "-XX:MaxRAMPercentage=75.0", "-Dio.netty.noUnsafe=true", "org.springframework.boot.loader.launch.JarLauncher"]
+# JAVA_TOOL_OPTIONS is automatically picked up by the JVM at startup
+ENTRYPOINT ["java", "-jar", "application.jar"]
