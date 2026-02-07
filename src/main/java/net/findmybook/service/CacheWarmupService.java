@@ -22,17 +22,17 @@ public class CacheWarmupService {
     private static final Duration MIN_BESTSELLER_WARMUP_INTERVAL = Duration.ofSeconds(5);
 
     private final NewYorkTimesService newYorkTimesService;
+    private final String bestsellerListName;
+    private final int bestsellerLimit;
     private final AtomicBoolean bestsellersWarmupInProgress = new AtomicBoolean(false);
     private final AtomicLong lastBestsellersWarmupStartedAt = new AtomicLong(0);
 
-    @Value("${app.cache.warmup.bestsellers.list-name:hardcover-fiction}")
-    private String bestsellerListName;
-
-    @Value("${app.cache.warmup.bestsellers.limit:8}")
-    private int bestsellerLimit;
-
-    public CacheWarmupService(NewYorkTimesService newYorkTimesService) {
+    public CacheWarmupService(NewYorkTimesService newYorkTimesService,
+                              @Value("${app.cache.warmup.bestsellers.list-name:hardcover-fiction}") String bestsellerListName,
+                              @Value("${app.cache.warmup.bestsellers.limit:8}") int bestsellerLimit) {
         this.newYorkTimesService = newYorkTimesService;
+        this.bestsellerListName = bestsellerListName;
+        this.bestsellerLimit = bestsellerLimit;
     }
 
     /**

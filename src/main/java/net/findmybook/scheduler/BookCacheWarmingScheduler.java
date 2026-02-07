@@ -55,33 +55,36 @@ import org.springframework.util.StringUtils;
 @Slf4j
 public class BookCacheWarmingScheduler {
 
-        
     private final RecentlyViewedService recentlyViewedService;
     private final ObjectProvider<ApiRequestMonitor> apiRequestMonitorProvider;
     private final BookQueryRepository bookQueryRepository;
     private final BookIdentifierResolver bookIdentifierResolver;
     
-    // Keep track of which books have been warmed recently to avoid duplicates
+    private static final int WARMED_BOOKS_TRACKING_LIMIT = 500;
+    private static final long MILLIS_PER_MINUTE = 60_000L;
+    private static final int MINUTES_PER_HOUR = 60;
+    private static final int API_BUDGET_DIVISOR = 2;
+    private static final long TASK_TIMEOUT_BUFFER_MS = 10_000L;
+
     private final Set<String> recentlyWarmedBooks = ConcurrentHashMap.newKeySet();
-    
-    // Configurable properties
-    @Value("${app.cache.warming.enabled:true}")
-    private boolean cacheWarmingEnabled;
-    
-    @Value("${app.cache.warming.rate-limit-per-minute:3}")
-    private int rateLimit;
-    
-    @Value("${app.cache.warming.max-books-per-run:10}")
-    private int maxBooksPerRun;
-    
+    private final boolean cacheWarmingEnabled;
+    private final int rateLimit;
+    private final int maxBooksPerRun;
+
     public BookCacheWarmingScheduler(RecentlyViewedService recentlyViewedService,
                                      ObjectProvider<ApiRequestMonitor> apiRequestMonitorProvider,
                                      BookQueryRepository bookQueryRepository,
-                                     BookIdentifierResolver bookIdentifierResolver) {
+                                     BookIdentifierResolver bookIdentifierResolver,
+                                     @Value("${app.cache.warming.enabled:true}") boolean cacheWarmingEnabled,
+                                     @Value("${app.cache.warming.rate-limit-per-minute:3}") int rateLimit,
+                                     @Value("${app.cache.warming.max-books-per-run:10}") int maxBooksPerRun) {
         this.recentlyViewedService = recentlyViewedService;
         this.apiRequestMonitorProvider = apiRequestMonitorProvider;
         this.bookQueryRepository = bookQueryRepository;
         this.bookIdentifierResolver = bookIdentifierResolver;
+        this.cacheWarmingEnabled = cacheWarmingEnabled;
+        this.rateLimit = rateLimit;
+        this.maxBooksPerRun = maxBooksPerRun;
     }
 
     /**
@@ -100,8 +103,7 @@ public class BookCacheWarmingScheduler {
         // Get books to warm (recently viewed, popular, etc.)
         List<String> bookIdsToWarm = getBookIdsToWarm();
         
-        // Clean up our tracking set if it gets too large
-        if (recentlyWarmedBooks.size() > 500) {
+        if (recentlyWarmedBooks.size() > WARMED_BOOKS_TRACKING_LIMIT) {
             recentlyWarmedBooks.clear();
         }
         
@@ -111,9 +113,7 @@ public class BookCacheWarmingScheduler {
             return;
         }
         
-        // Rate-limited warming to avoid overwhelming the API
         AtomicInteger warmedCount = new AtomicInteger(0);
-        AtomicInteger existingCount = new AtomicInteger(0);
         
         ScheduledExecutorService executor = Executors.newScheduledThreadPool(1);
         List<ScheduledFuture<?>> scheduledTasks = new ArrayList<>();
@@ -125,8 +125,7 @@ public class BookCacheWarmingScheduler {
                 return;
             }
 
-            // Calculate delay between books based on rate limit
-            final long delayMillis = (60_000L) / rateLimit;
+            final long delayMillis = MILLIS_PER_MINUTE / rateLimit;
             
             // Check current API call count from metrics if possible
             // Inject ApiRequestMonitor if available
@@ -137,10 +136,8 @@ public class BookCacheWarmingScheduler {
             int currentHourlyRequests = apiRequestMonitor.getCurrentHourlyRequests();
             log.info("Current hourly API request count: {}. Will adjust cache warming accordingly.", currentHourlyRequests);
             
-            // Calculate how many books we can warm based on current API usage
-            // We want to leave some headroom for user requests
-            int hourlyLimit = rateLimit * 60; // Max requests per hour based on rate limit
-            int requestBudget = PagingUtils.atLeast(hourlyLimit / 2 - currentHourlyRequests, 0); // Use at most half the remaining budget
+            int hourlyLimit = rateLimit * MINUTES_PER_HOUR;
+            int requestBudget = PagingUtils.atLeast(hourlyLimit / API_BUDGET_DIVISOR - currentHourlyRequests, 0);
             int booksToWarm = Math.min(Math.min(bookIdsToWarm.size(), maxBooksPerRun), requestBudget);
             
             log.info("Warming {} books based on rate limit {} per minute and current API usage", 
@@ -168,17 +165,14 @@ public class BookCacheWarmingScheduler {
                 scheduledTasks.add(scheduledFuture);
             }
             
-            // Make sure all tasks have a chance to complete
             executor.shutdown();
-            long timeoutMillis = maxBooksPerRun * delayMillis + 10000;
+            long timeoutMillis = maxBooksPerRun * delayMillis + TASK_TIMEOUT_BUFFER_MS;
             for (ScheduledFuture<?> scheduledTask : scheduledTasks) {
                 scheduledTask.get(timeoutMillis, TimeUnit.MILLISECONDS);
             }
-            executor.awaitTermination(maxBooksPerRun * delayMillis + 10000, TimeUnit.MILLISECONDS);
-            
-            log.info("Book cache warming completed. Warmed: {}, Already in cache: {}, Total: {}", 
-                    warmedCount.get(), existingCount.get(), 
-                    warmedCount.get() + existingCount.get());
+            executor.awaitTermination(timeoutMillis, TimeUnit.MILLISECONDS);
+
+            log.info("Book cache warming completed. Warmed {} of {} scheduled books", warmedCount.get(), booksToWarm);
             
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();

@@ -9,7 +9,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 
-import java.lang.reflect.Field;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -22,6 +21,9 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class BookCacheWarmingSchedulerTest {
+
+    private static final int TEST_RATE_LIMIT = 60_000;
+    private static final int TEST_MAX_BOOKS_PER_RUN = 5;
 
     private RecentlyViewedService recentlyViewedService;
     private ObjectProvider<ApiRequestMonitor> apiRequestMonitorProvider;
@@ -36,11 +38,15 @@ class BookCacheWarmingSchedulerTest {
         bookQueryRepository = mock(BookQueryRepository.class);
         bookIdentifierResolver = mock(BookIdentifierResolver.class);
 
-        scheduler = new BookCacheWarmingScheduler(recentlyViewedService, apiRequestMonitorProvider, bookQueryRepository, bookIdentifierResolver);
-
-        setField("cacheWarmingEnabled", true);
-        setField("rateLimit", 60_000); // ~1 request per millisecond
-        setField("maxBooksPerRun", 5);
+        scheduler = new BookCacheWarmingScheduler(
+            recentlyViewedService,
+            apiRequestMonitorProvider,
+            bookQueryRepository,
+            bookIdentifierResolver,
+            true,
+            TEST_RATE_LIMIT,
+            TEST_MAX_BOOKS_PER_RUN
+        );
 
         ApiRequestMonitor apiRequestMonitor = mock(ApiRequestMonitor.class);
         when(apiRequestMonitor.getCurrentHourlyRequests()).thenReturn(0);
@@ -49,18 +55,32 @@ class BookCacheWarmingSchedulerTest {
 
     @Test
     void warmPopularBookCaches_skipsWhenDisabled() {
-        setField("cacheWarmingEnabled", false);
+        BookCacheWarmingScheduler disabledScheduler = new BookCacheWarmingScheduler(
+            recentlyViewedService,
+            apiRequestMonitorProvider,
+            bookQueryRepository,
+            bookIdentifierResolver,
+            false,
+            TEST_RATE_LIMIT,
+            TEST_MAX_BOOKS_PER_RUN
+        );
 
-        scheduler.warmPopularBookCaches();
+        disabledScheduler.warmPopularBookCaches();
 
         verifyNoInteractions(recentlyViewedService);
     }
 
     @Test
     void warmPopularBookCaches_resolvesBooksFromRepository() {
-        setField("cacheWarmingEnabled", true);
-        setField("maxBooksPerRun", 1);
-        setField("rateLimit", 60_000);
+        BookCacheWarmingScheduler singleBookScheduler = new BookCacheWarmingScheduler(
+            recentlyViewedService,
+            apiRequestMonitorProvider,
+            bookQueryRepository,
+            bookIdentifierResolver,
+            true,
+            TEST_RATE_LIMIT,
+            1
+        );
 
         BookDetail detail = new BookDetail(
             "uuid-123",
@@ -94,18 +114,12 @@ class BookCacheWarmingSchedulerTest {
         when(recentlyViewedService.getRecentlyViewedBookIds(anyInt())).thenReturn(List.of("slug-123"));
         when(bookQueryRepository.fetchBookDetailBySlug("slug-123")).thenReturn(Optional.of(detail));
 
-        scheduler.warmPopularBookCaches();
+        ApiRequestMonitor apiRequestMonitor = mock(ApiRequestMonitor.class);
+        when(apiRequestMonitor.getCurrentHourlyRequests()).thenReturn(0);
+        when(apiRequestMonitorProvider.getIfAvailable()).thenReturn(apiRequestMonitor);
+
+        singleBookScheduler.warmPopularBookCaches();
 
         verify(bookQueryRepository).fetchBookDetailBySlug("slug-123");
-    }
-
-    private void setField(String name, Object value) {
-        try {
-            Field field = BookCacheWarmingScheduler.class.getDeclaredField(name);
-            field.setAccessible(true);
-            field.set(scheduler, value);
-        } catch (ReflectiveOperationException e) {
-            throw new AssertionError("Failed to set field " + name, e);
-        }
     }
 }

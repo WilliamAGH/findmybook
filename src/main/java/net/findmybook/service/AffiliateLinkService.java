@@ -19,17 +19,21 @@ import java.util.Optional;
 @Service
 public class AffiliateLinkService {
 
-    @Value("${affiliate.amazon.associate-tag:#{null}}")
-    private String amazonAssociateTag;
+    private final String amazonAssociateTag;
+    private final String barnesNobleCjPublisherId;
+    private final String barnesNobleCjWebsiteId;
+    private final String bookshopAffiliateId;
 
-    @Value("${affiliate.barnesandnoble.publisher-id:#{null}}")
-    private String barnesNobleCjPublisherId;
-
-    @Value("${affiliate.barnesandnoble.website-id:#{null}}")
-    private String barnesNobleCjWebsiteId;
-
-    @Value("${affiliate.bookshop.affiliate-id:#{null}}")
-    private String bookshopAffiliateId;
+    public AffiliateLinkService(
+            @Value("${affiliate.amazon.associate-tag:#{null}}") String amazonAssociateTag,
+            @Value("${affiliate.barnesandnoble.publisher-id:#{null}}") String barnesNobleCjPublisherId,
+            @Value("${affiliate.barnesandnoble.website-id:#{null}}") String barnesNobleCjWebsiteId,
+            @Value("${affiliate.bookshop.affiliate-id:#{null}}") String bookshopAffiliateId) {
+        this.amazonAssociateTag = amazonAssociateTag;
+        this.barnesNobleCjPublisherId = barnesNobleCjPublisherId;
+        this.barnesNobleCjWebsiteId = barnesNobleCjWebsiteId;
+        this.bookshopAffiliateId = bookshopAffiliateId;
+    }
 
     /**
      * Generate affiliate links for all configured retailers.
