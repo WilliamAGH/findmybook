@@ -13,6 +13,7 @@ import net.findmybook.service.SitemapService.AuthorSection;
 import net.findmybook.service.SitemapService.BookSitemapItem;
 import net.findmybook.service.SitemapService.PagedResult;
 import net.findmybook.util.PagingUtils;
+import net.findmybook.util.cover.CoverPrioritizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -25,6 +26,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
 import org.springframework.web.server.ResponseStatusException;
+import java.util.ArrayList;
 
 /**
  * REST endpoints that provide typed payloads for SPA-rendered public pages.
@@ -71,8 +73,10 @@ public class PageApiController {
     @GetMapping("/home")
     public Mono<HomePayload> homePayload() {
         Mono<List<BookCard>> bestsellers = homePageSectionsService.loadCurrentBestsellers(MAX_BESTSELLERS)
+            .map(cards -> retainRenderableCovers(cards, MAX_BESTSELLERS))
             .timeout(Duration.ofSeconds(3));
         Mono<List<BookCard>> recentBooks = homePageSectionsService.loadRecentBooks(MAX_RECENT_BOOKS)
+            .map(cards -> retainRenderableCovers(cards, MAX_RECENT_BOOKS))
             .timeout(Duration.ofSeconds(3));
 
         return Mono.zip(bestsellers, recentBooks)
@@ -81,6 +85,24 @@ public class PageApiController {
                 log.warn("Failed to build /api/pages/home payload: {}", ex.getMessage());
                 return new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Homepage payload load failed", ex);
             });
+    }
+
+    private static List<BookCard> retainRenderableCovers(List<BookCard> cards, int maxItems) {
+        if (cards == null || cards.isEmpty() || maxItems <= 0) {
+            return List.of();
+        }
+
+        List<BookCard> filtered = new ArrayList<>(Math.min(cards.size(), maxItems));
+        for (BookCard card : cards) {
+            if (card == null || CoverPrioritizer.score(card) <= 0) {
+                continue;
+            }
+            filtered.add(card);
+            if (filtered.size() >= maxItems) {
+                break;
+            }
+        }
+        return List.copyOf(filtered);
     }
 
     /**

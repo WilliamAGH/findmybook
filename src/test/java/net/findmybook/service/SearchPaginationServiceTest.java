@@ -10,6 +10,7 @@ import net.findmybook.dto.BookAggregate;
 import net.findmybook.mapper.GoogleBooksMapper;
 import net.findmybook.repository.BookQueryRepository;
 import net.findmybook.service.event.SearchResultsUpdatedEvent;
+import net.findmybook.util.ApplicationConstants;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -274,6 +275,54 @@ class SearchPaginationServiceTest {
         assertThat(page.pageItems().get(1).getQualifiers())
             .containsEntry("cover.suppressed", true);
         assertThat(page.pageItems().get(1).getExternalImageUrl()).isNull();
+    }
+
+    @Test
+    @DisplayName("search() treats null-equivalent cover values as no-cover and ranks them after valid covers")
+    void searchDemotesNullEquivalentCoverValues() {
+        UUID nullEquivalent = UUID.randomUUID();
+        UUID validCover = UUID.randomUUID();
+
+        when(bookSearchService.searchBooks("cover-null-values", 24)).thenReturn(List.of(
+            new BookSearchService.SearchResult(nullEquivalent, 0.99, "TSVECTOR"),
+            new BookSearchService.SearchResult(validCover, 0.70, "TSVECTOR")
+        ));
+        when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(List.of(
+            new BookListItem(
+                nullEquivalent.toString(),
+                "slug-" + nullEquivalent,
+                "Null Equivalent",
+                "Null Equivalent description",
+                List.of("Fixture Author"),
+                List.of("Fixture Category"),
+                null,
+                "null",
+                ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH,
+                null,
+                null,
+                null,
+                3.5,
+                12,
+                Map.of()
+            ),
+            buildListItem(validCover, "Valid Cover", 700, 1100, true, "https://cdn.test/valid.jpg")
+        ));
+
+        SearchPaginationService.SearchRequest request = new SearchPaginationService.SearchRequest(
+            "cover-null-values",
+            0,
+            12,
+            "relevance",
+            CoverImageSource.ANY,
+            ImageResolutionPreference.ANY
+        );
+
+        SearchPaginationService.SearchPage page = service.search(request).block();
+
+        assertThat(page).isNotNull();
+        assertThat(page.pageItems())
+            .extracting(Book::getId)
+            .containsExactly(validCover.toString(), nullEquivalent.toString());
     }
 
     @Test

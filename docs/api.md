@@ -42,6 +42,9 @@
   - Response fields:
     - `currentBestsellers: BookCard[]`
     - `recentBooks: BookCard[]`
+  - Home payload enforces cover-bearing cards only:
+    - Placeholder/null-equivalent cover values are excluded from both arrays.
+    - Entries with real cover images are returned first, preserving section order among valid covers.
 - `GET /api/pages/sitemap`
   - Query params:
     - `view` (`authors` or `books`, default `authors`)

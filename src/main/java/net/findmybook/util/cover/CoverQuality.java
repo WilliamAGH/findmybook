@@ -1,6 +1,7 @@
 package net.findmybook.util.cover;
 
 import org.springframework.util.StringUtils;
+import java.util.Locale;
 
 /**
  * Centralises cover quality scoring so that all ranking logic
@@ -65,7 +66,9 @@ public final class CoverQuality {
     }
 
     private static boolean isRenderable(String url) {
+        String normalized = StringUtils.hasText(url) ? url.toLowerCase(Locale.ROOT) : "";
         return StringUtils.hasText(url)
-            && !url.contains("placeholder-book-cover.svg");
+            && !CoverUrlResolver.isNullEquivalent(url)
+            && !normalized.contains("placeholder-book-cover.svg");
     }
 }

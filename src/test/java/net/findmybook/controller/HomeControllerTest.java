@@ -358,4 +358,74 @@ class HomeControllerTest {
             .exchange()
             .expectStatus().is5xxServerError();
     }
+
+    @Test
+    void shouldFilterHomepageCardsWithoutRenderableCovers() {
+        BookCard valid = createBookCard(
+            "valid-book",
+            "valid-book",
+            "Valid Cover",
+            "https://cdn.example.com/valid.jpg",
+            "covers/valid.jpg",
+            4.5,
+            120
+        );
+        BookCard placeholder = createBookCard(
+            "placeholder-book",
+            "placeholder-book",
+            "Placeholder",
+            ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH,
+            null,
+            3.1,
+            8
+        );
+        BookCard nullToken = createBookCard(
+            "null-token-book",
+            "null-token-book",
+            "Null Token",
+            "null",
+            "null",
+            3.0,
+            3
+        );
+
+        when(homePageSectionsService.loadCurrentBestsellers(eq(8)))
+            .thenReturn(Mono.just(List.of(nullToken, valid, placeholder)));
+        when(homePageSectionsService.loadRecentBooks(eq(8)))
+            .thenReturn(Mono.just(List.of(placeholder, valid)));
+
+        net.findmybook.service.EnvironmentService environmentService = Mockito.mock(net.findmybook.service.EnvironmentService.class);
+        BookSeoMetadataService seoService = new BookSeoMetadataService(localDiskCoverCacheService);
+        HomeController controller = new HomeController(
+            environmentService,
+            homePageSectionsService,
+            seoService,
+            false,
+            false,
+            searchPaginationService
+        );
+
+        ExtendedModelMap model = new ExtendedModelMap();
+        String viewName = controller.home(model).block();
+
+        assertEquals("index", viewName);
+
+        Object bestsellersObject = model.getAttribute("currentBestsellers");
+        assertTrue(bestsellersObject instanceof List<?>);
+        List<String> bestsellerIds = ((List<?>) bestsellersObject).stream()
+            .filter(BookCard.class::isInstance)
+            .map(BookCard.class::cast)
+            .map(BookCard::id)
+            .toList();
+        assertEquals(List.of("valid-book"), bestsellerIds);
+
+        Object recentObject = model.getAttribute("recentBooks");
+        assertTrue(recentObject instanceof List<?>);
+        List<String> recentIds = ((List<?>) recentObject).stream()
+            .filter(BookCard.class::isInstance)
+            .map(BookCard.class::cast)
+            .map(BookCard::id)
+            .toList();
+        assertEquals(List.of("valid-book"), recentIds);
+    }
 }

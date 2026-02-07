@@ -11,6 +11,7 @@ import net.findmybook.service.EnvironmentService;
 import net.findmybook.util.ApplicationConstants;
 import net.findmybook.util.EnumParsingUtils;
 import net.findmybook.util.SearchQueryUtils;
+import net.findmybook.util.cover.CoverPrioritizer;
 import org.springframework.util.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -32,6 +33,7 @@ import java.util.Optional;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.ArrayList;
 
 @Controller
 @Slf4j
@@ -108,6 +110,7 @@ public class HomeController {
         model.addAttribute("recentBooks", List.<BookCard>of());
 
         Mono<List<BookCard>> bestsellers = homePageSectionsService.loadCurrentBestsellers(MAX_BESTSELLERS)
+            .map(list -> retainRenderableHomepageCards(list, MAX_BESTSELLERS))
             .timeout(Duration.ofMillis(3000))
             .onErrorMap(e -> {
                 if (e instanceof java.util.concurrent.TimeoutException) {
@@ -129,6 +132,7 @@ public class HomeController {
             });
 
         Mono<List<BookCard>> recentBooks = homePageSectionsService.loadRecentBooks(MAX_RECENT_BOOKS)
+            .map(list -> retainRenderableHomepageCards(list, MAX_RECENT_BOOKS))
             .timeout(Duration.ofMillis(3000))
             .onErrorMap(e -> {
                 if (e instanceof java.util.concurrent.TimeoutException) {
@@ -314,5 +318,23 @@ public class HomeController {
         return ResponseEntity.status(HttpStatus.SEE_OTHER)
             .location(URI.create("/search?query=" + encodedQuery + "&source=categories"))
             .build();
+    }
+
+    private List<BookCard> retainRenderableHomepageCards(List<BookCard> cards, int maxItems) {
+        if (cards == null || cards.isEmpty() || maxItems <= 0) {
+            return List.of();
+        }
+
+        List<BookCard> filtered = new ArrayList<>(Math.min(cards.size(), maxItems));
+        for (BookCard card : cards) {
+            if (card == null || CoverPrioritizer.score(card) <= 0) {
+                continue;
+            }
+            filtered.add(card);
+            if (filtered.size() >= maxItems) {
+                break;
+            }
+        }
+        return List.copyOf(filtered);
     }
 }

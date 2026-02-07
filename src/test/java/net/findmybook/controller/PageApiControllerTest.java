@@ -18,6 +18,7 @@ import net.findmybook.service.AffiliateLinkService;
 import net.findmybook.service.BookSearchService;
 import net.findmybook.service.HomePageSectionsService;
 import net.findmybook.service.SitemapService;
+import net.findmybook.util.ApplicationConstants;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.CacheManager;
@@ -75,6 +76,62 @@ class PageApiControllerTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.currentBestsellers[0].id").value("book-1"))
             .andExpect(jsonPath("$.recentBooks").isArray());
+    }
+
+    @Test
+    void shouldFilterHomePayloadCardsWithoutRenderableCovers() throws Exception {
+        BookCard validCover = new BookCard(
+            "book-valid",
+            "book-valid-slug",
+            "Valid Cover",
+            List.of("Author One"),
+            "https://cdn.example.com/cover.jpg",
+            null,
+            "https://cdn.example.com/fallback.jpg",
+            4.4,
+            88,
+            Map.of()
+        );
+        BookCard placeholder = new BookCard(
+            "book-placeholder",
+            "book-placeholder-slug",
+            "Placeholder",
+            List.of("Author Two"),
+            ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH,
+            null,
+            ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH,
+            4.1,
+            22,
+            Map.of()
+        );
+        BookCard nullToken = new BookCard(
+            "book-null-token",
+            "book-null-token-slug",
+            "Null Token",
+            List.of("Author Three"),
+            "null",
+            "null",
+            null,
+            3.7,
+            10,
+            Map.of()
+        );
+
+        when(homePageSectionsService.loadCurrentBestsellers(anyInt()))
+            .thenReturn(Mono.just(List.of(nullToken, validCover, placeholder)));
+        when(homePageSectionsService.loadRecentBooks(anyInt()))
+            .thenReturn(Mono.just(List.of(placeholder, validCover)));
+
+        var asyncResult = mockMvc.perform(get("/api/pages/home"))
+            .andExpect(status().isOk())
+            .andReturn();
+
+        mockMvc.perform(asyncDispatch(asyncResult))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.currentBestsellers.length()").value(1))
+            .andExpect(jsonPath("$.currentBestsellers[0].id").value("book-valid"))
+            .andExpect(jsonPath("$.recentBooks.length()").value(1))
+            .andExpect(jsonPath("$.recentBooks[0].id").value("book-valid"));
     }
 
     @Test

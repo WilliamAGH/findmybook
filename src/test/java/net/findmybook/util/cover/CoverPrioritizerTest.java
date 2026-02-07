@@ -92,6 +92,25 @@ class CoverPrioritizerTest {
     }
 
     @Test
+    @DisplayName("score(BookCard) uses S3 key when cover URL is missing")
+    void scoreUsesS3KeyWhenCoverUrlMissing() {
+        BookCard s3Only = new BookCard(
+            "s3-only",
+            "s3-only",
+            "S3 Only",
+            List.of("Author"),
+            null,
+            "covers/s3-only.jpg",
+            null,
+            4.0,
+            25,
+            Map.of()
+        );
+
+        assertThat(CoverPrioritizer.score(s3Only)).isGreaterThan(0);
+    }
+
+    @Test
     @DisplayName("resolve() treats uppercase HTTP schemes as external URLs")
     void resolveHandlesUppercaseHttpScheme() {
         CoverUrlResolver.setCdnBase(null);
@@ -114,6 +133,19 @@ class CoverPrioritizerTest {
     }
 
     @Test
+    @DisplayName("resolve() treats null-equivalent primary values as missing and uses fallback")
+    void resolveUsesFallbackWhenPrimaryIsNullEquivalent() {
+        CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
+            "null",
+            "https://example.test/fallback.jpg"
+        );
+
+        assertThat(resolved.url()).isEqualTo("https://example.test/fallback.jpg");
+        assertThat(resolved.s3Key()).isNull();
+        assertThat(resolved.fromS3()).isFalse();
+    }
+
+    @Test
     @DisplayName("bookComparator ranks books by best cover before insertion order")
     void bookComparatorOrdersByCoverScore() {
         Book high = book("1", "https://cdn.test/covers/high.jpg", null, 900, 1400, true);
@@ -132,6 +164,25 @@ class CoverPrioritizerTest {
         assertThat(books)
             .extracting(Book::getId)
             .containsExactly("1", "2", "3", "4");
+    }
+
+    @Test
+    @DisplayName("bookComparator demotes null-equivalent cover values behind real covers")
+    void bookComparatorDemotesNullEquivalentValues() {
+        Book valid = book("1", "https://cdn.test/covers/valid.jpg", null, 800, 1200, true);
+        Book invalid = book("2", null, "null", null, null, false);
+
+        List<Book> books = new ArrayList<>(List.of(invalid, valid));
+        Map<String, Integer> insertionOrder = new LinkedHashMap<>();
+        for (int i = 0; i < books.size(); i++) {
+            insertionOrder.put(books.get(i).getId(), i);
+        }
+
+        books.sort(CoverPrioritizer.bookComparator(insertionOrder));
+
+        assertThat(books)
+            .extracting(Book::getId)
+            .containsExactly("1", "2");
     }
 
     private Book book(String id,

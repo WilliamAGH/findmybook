@@ -33,11 +33,15 @@ public final class CoverPrioritizer {
     }
 
     public static int score(BookCard card) {
-        if (card == null || !StringUtils.hasText(card.coverUrl())) {
+        if (card == null) {
+            return 0;
+        }
+        String primary = StringUtils.hasText(card.coverS3Key()) ? card.coverS3Key() : card.coverUrl();
+        if (!StringUtils.hasText(primary) && !StringUtils.hasText(card.fallbackCoverUrl())) {
             return 0;
         }
         CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
-            StringUtils.hasText(card.coverS3Key()) ? card.coverS3Key() : card.coverUrl(),
+            primary,
             card.fallbackCoverUrl()
         );
         return CoverQuality.rankFromUrl(

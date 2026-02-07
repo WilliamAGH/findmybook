@@ -2,6 +2,7 @@ package net.findmybook.util.cover;
 
 import net.findmybook.util.ApplicationConstants;
 import org.springframework.util.StringUtils;
+import java.util.Locale;
 
 /**
  * Centralises logic for turning S3 keys or raw cover URLs into CDN-ready URLs with sensible fallbacks,
@@ -68,8 +69,22 @@ public final class CoverUrlResolver {
             && url.startsWith(cdnBase);
     }
 
+    public static boolean isNullEquivalent(String value) {
+        if (!StringUtils.hasText(value)) {
+            return true;
+        }
+
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        return "null".equals(normalized)
+            || "none".equals(normalized)
+            || "n/a".equals(normalized)
+            || "na".equals(normalized)
+            || "nil".equals(normalized)
+            || "undefined".equals(normalized);
+    }
+
     private static UrlResolution resolveUrl(String primary, String fallbackExternal) {
-        String candidate = StringUtils.hasText(primary) ? primary.trim() : null;
+        String candidate = sanitizeCandidate(primary);
 
         if (StringUtils.hasText(candidate)) {
             if (isPlaceholderPath(candidate)) {
@@ -89,8 +104,8 @@ public final class CoverUrlResolver {
             }
         }
 
-        if (StringUtils.hasText(fallbackExternal)) {
-            String external = fallbackExternal.trim();
+        String external = sanitizeCandidate(fallbackExternal);
+        if (StringUtils.hasText(external)) {
             if (isPlaceholderPath(external)) {
                 return new UrlResolution(ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH, null, false);
             }
@@ -100,6 +115,14 @@ public final class CoverUrlResolver {
         }
 
         return new UrlResolution(ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH, null, false);
+    }
+
+    private static String sanitizeCandidate(String value) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return isNullEquivalent(trimmed) ? null : trimmed;
     }
 
     private static Dimensions resolveDimensions(String url, Integer width, Integer height) {
