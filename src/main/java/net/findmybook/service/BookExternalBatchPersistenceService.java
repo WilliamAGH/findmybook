@@ -327,6 +327,40 @@ class BookExternalBatchPersistenceService {
             publishedDate = book.getPublishedDate().toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
         }
 
+        return BookAggregate.builder()
+            .title(book.getTitle())
+            .description(book.getDescription())
+            .isbn13(IsbnUtils.sanitize(book.getIsbn13()))
+            .isbn10(IsbnUtils.sanitize(book.getIsbn10()))
+            .publishedDate(publishedDate)
+            .language(book.getLanguage())
+            .publisher(book.getPublisher())
+            .pageCount(book.getPageCount())
+            .authors(book.getAuthors())
+            .categories(book.getCategories())
+            .identifiers(buildFallbackIdentifiers(book))
+            .slugBase(SlugGenerator.generateBookSlug(book.getTitle(), book.getAuthors()))
+            .editionNumber(book.getEditionNumber())
+            .build();
+    }
+
+    private BookAggregate.ExternalIdentifiers buildFallbackIdentifiers(Book book) {
+        Map<String, String> imageLinks = resolveFallbackImageLinks(book);
+        String source = book.getRetrievedFrom() != null ? book.getRetrievedFrom() : "OPEN_LIBRARY";
+        return BookAggregate.ExternalIdentifiers.builder()
+            .source(source)
+            .externalId(book.getId())
+            .infoLink(book.getInfoLink())
+            .previewLink(book.getPreviewLink())
+            .purchaseLink(book.getPurchaseLink())
+            .webReaderLink(book.getWebReaderLink())
+            .averageRating(book.getAverageRating())
+            .ratingsCount(book.getRatingsCount())
+            .imageLinks(imageLinks)
+            .build();
+    }
+
+    private Map<String, String> resolveFallbackImageLinks(Book book) {
         Map<String, String> imageLinks = new LinkedHashMap<>();
         if (book.getCoverImages() != null) {
             if (book.getCoverImages().getPreferredUrl() != null && !book.getCoverImages().getPreferredUrl().isBlank()) {
@@ -339,39 +373,6 @@ class BookExternalBatchPersistenceService {
         if (book.getExternalImageUrl() != null && !book.getExternalImageUrl().isBlank()) {
             imageLinks.putIfAbsent("thumbnail", UrlUtils.normalizeToHttps(book.getExternalImageUrl()));
         }
-
-        Map<String, String> immutableImageLinks = imageLinks.isEmpty() ? Map.of() : Map.copyOf(imageLinks);
-        String source = book.getRetrievedFrom() != null ? book.getRetrievedFrom() : "OPEN_LIBRARY";
-
-        BookAggregate.ExternalIdentifiers identifiers = BookAggregate.ExternalIdentifiers.builder()
-            .source(source)
-            .externalId(book.getId())
-            .infoLink(book.getInfoLink())
-            .previewLink(book.getPreviewLink())
-            .purchaseLink(book.getPurchaseLink())
-            .webReaderLink(book.getWebReaderLink())
-            .averageRating(book.getAverageRating())
-            .ratingsCount(book.getRatingsCount())
-            .imageLinks(immutableImageLinks)
-            .build();
-
-        String sanitizedIsbn13 = IsbnUtils.sanitize(book.getIsbn13());
-        String sanitizedIsbn10 = IsbnUtils.sanitize(book.getIsbn10());
-
-        return BookAggregate.builder()
-            .title(book.getTitle())
-            .description(book.getDescription())
-            .isbn13(sanitizedIsbn13)
-            .isbn10(sanitizedIsbn10)
-            .publishedDate(publishedDate)
-            .language(book.getLanguage())
-            .publisher(book.getPublisher())
-            .pageCount(book.getPageCount())
-            .authors(book.getAuthors())
-            .categories(book.getCategories())
-            .identifiers(identifiers)
-            .slugBase(SlugGenerator.generateBookSlug(book.getTitle(), book.getAuthors()))
-            .editionNumber(book.getEditionNumber())
-            .build();
+        return imageLinks.isEmpty() ? Map.of() : Map.copyOf(imageLinks);
     }
 }

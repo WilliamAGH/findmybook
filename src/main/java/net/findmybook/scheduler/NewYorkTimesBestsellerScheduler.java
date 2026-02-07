@@ -296,40 +296,33 @@ public class NewYorkTimesBestsellerScheduler {
             return null;
         }
 
-        // Normalize title to proper case
         String normalizedTitle = net.findmybook.util.TextUtils.normalizeBookTitle(title);
-
-        String description = firstNonEmptyText(bookNode, "description", "summary");
-        String publisher = firstNonEmptyText(bookNode, "publisher");
-
-        Date published = parsePublishedDate(bookNode);
-        java.time.LocalDate publishedDate = null;
-        if (published != null) {
-            publishedDate = new java.sql.Date(published.getTime()).toLocalDate();
-        }
-
-        List<String> authors = extractAuthors(bookNode);
-        List<String> normalizedAuthors = authors.stream()
+        List<String> normalizedAuthors = extractAuthors(bookNode).stream()
             .map(net.findmybook.util.TextUtils::normalizeAuthorName)
             .toList();
 
-        List<String> categories = null;
-        if (StringUtils.hasText(listCode)) {
-            categories = new ArrayList<>();
-            categories.add("NYT " + listCode.replace('-', ' '));
-        }
+        return BookAggregate.builder()
+            .title(normalizedTitle)
+            .description(nullIfBlank(firstNonEmptyText(bookNode, "description", "summary")))
+            .publisher(nullIfBlank(firstNonEmptyText(bookNode, "publisher")))
+            .isbn13(nullIfBlank(isbn13))
+            .isbn10(nullIfBlank(isbn10))
+            .publishedDate(parsePublishedLocalDate(bookNode))
+            .authors(normalizedAuthors.isEmpty() ? null : normalizedAuthors)
+            .categories(buildNytCategories(listCode))
+            .identifiers(buildNytIdentifiers(bookNode, isbn13, isbn10))
+            .slugBase(net.findmybook.util.SlugGenerator.generateBookSlug(normalizedTitle, normalizedAuthors))
+            .build();
+    }
 
-        // Build image links map
-        Map<String, String> imageLinks = new java.util.HashMap<>();
+    private BookAggregate.ExternalIdentifiers buildNytIdentifiers(JsonNode bookNode, String isbn13, String isbn10) {
+        Map<String, String> imageLinks = new HashMap<>();
         String imageUrl = firstNonEmptyText(bookNode, "book_image", "book_image_url");
         if (StringUtils.hasText(imageUrl)) {
             imageLinks.put("thumbnail", imageUrl);
         }
 
-        String purchaseUrl = firstNonEmptyText(bookNode, "amazon_product_url");
-
-        // Build external identifiers
-        BookAggregate.ExternalIdentifiers.ExternalIdentifiersBuilder identifiersBuilder = 
+        BookAggregate.ExternalIdentifiers.ExternalIdentifiersBuilder builder =
             BookAggregate.ExternalIdentifiers.builder()
                 .source("NEW_YORK_TIMES")
                 .externalId(isbn13 != null ? isbn13 : isbn10)
@@ -337,26 +330,30 @@ public class NewYorkTimesBestsellerScheduler {
                 .providerIsbn10(isbn10)
                 .imageLinks(imageLinks);
 
+        String purchaseUrl = firstNonEmptyText(bookNode, "amazon_product_url");
         if (StringUtils.hasText(purchaseUrl)) {
-            identifiersBuilder.purchaseLink(purchaseUrl);
+            builder.purchaseLink(purchaseUrl);
         }
+        return builder.build();
+    }
 
-        // Generate slug base
-        String slugBase = net.findmybook.util.SlugGenerator
-            .generateBookSlug(normalizedTitle, normalizedAuthors);
+    @Nullable
+    private List<String> buildNytCategories(String listCode) {
+        if (!StringUtils.hasText(listCode)) {
+            return null;
+        }
+        return List.of("NYT " + listCode.replace('-', ' '));
+    }
 
-        return BookAggregate.builder()
-            .title(normalizedTitle)
-            .description(StringUtils.hasText(description) ? description : null)
-            .publisher(StringUtils.hasText(publisher) ? publisher : null)
-            .isbn13(StringUtils.hasText(isbn13) ? isbn13 : null)
-            .isbn10(StringUtils.hasText(isbn10) ? isbn10 : null)
-            .publishedDate(publishedDate)
-            .authors(normalizedAuthors.isEmpty() ? null : normalizedAuthors)
-            .categories(categories)
-            .identifiers(identifiersBuilder.build())
-            .slugBase(slugBase)
-            .build();
+    @Nullable
+    private LocalDate parsePublishedLocalDate(JsonNode bookNode) {
+        Date published = parsePublishedDate(bookNode);
+        return published != null ? new java.sql.Date(published.getTime()).toLocalDate() : null;
+    }
+
+    @Nullable
+    private static String nullIfBlank(String value) {
+        return StringUtils.hasText(value) ? value : null;
     }
 
     private Date parsePublishedDate(JsonNode bookNode) {

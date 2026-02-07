@@ -218,6 +218,20 @@ public class SearchPaginationService {
         GoogleApiFetcher fetcher = googleApiFetcher.get();
         GoogleBooksMapper mapper = googleBooksMapper.get();
         int desired = window.totalRequested();
+
+        return buildFallbackFlux(fetcher, mapper, request, desired)
+            .collectList()
+            .map(fallbackBooks -> mergeFallbackResults(fallbackBooks, currentPage, window, request))
+            .onErrorMap(ex -> {
+                log.warn("Fallback search processing failed for '{}': {}", request.query(), ex.getMessage());
+                return new IllegalStateException("Fallback search processing failed for query '" + request.query() + "'", ex);
+            });
+    }
+
+    private Flux<Book> buildFallbackFlux(GoogleApiFetcher fetcher,
+                                          GoogleBooksMapper mapper,
+                                          SearchRequest request,
+                                          int desired) {
         String externalOrderBy = SearchExternalProviderUtils.normalizeGoogleOrderBy(request.orderBy());
 
         Flux<JsonNode> authenticated = fetcher.streamSearchItems(request.query(), desired, externalOrderBy, null, true)
@@ -250,25 +264,24 @@ public class SearchPaginationService {
                 book.setDataSource("GOOGLE_BOOKS");
                 return book;
             })
-            .take(desired)
-            .collectList()
-            .map(fallbackBooks -> {
-                if (fallbackBooks.isEmpty()) {
-                    return currentPage;
-                }
-                List<Book> yearFiltered = fallbackBooks.stream()
-                    .filter(book -> SearchExternalProviderUtils.matchesPublishedYear(book, request.publishedYear()))
-                    .toList();
-                if (yearFiltered.isEmpty()) {
-                    return currentPage;
-                }
-                persistSearchCandidates(yearFiltered, "SEARCH");
-                return dedupeAndSlice(yearFiltered, window, request);
-            })
-            .onErrorMap(ex -> {
-                log.warn("Fallback search processing failed for '{}': {}", request.query(), ex.getMessage());
-                return new IllegalStateException("Fallback search processing failed for query '" + request.query() + "'", ex);
-            });
+            .take(desired);
+    }
+
+    private SearchPage mergeFallbackResults(List<Book> fallbackBooks,
+                                             SearchPage currentPage,
+                                             PagingUtils.Window window,
+                                             SearchRequest request) {
+        if (fallbackBooks.isEmpty()) {
+            return currentPage;
+        }
+        List<Book> yearFiltered = fallbackBooks.stream()
+            .filter(book -> SearchExternalProviderUtils.matchesPublishedYear(book, request.publishedYear()))
+            .toList();
+        if (yearFiltered.isEmpty()) {
+            return currentPage;
+        }
+        persistSearchCandidates(yearFiltered, "SEARCH");
+        return dedupeAndSlice(yearFiltered, window, request);
     }
 
     private List<BookSearchService.SearchResult> filterResultsByPublishedYear(List<BookSearchService.SearchResult> results,

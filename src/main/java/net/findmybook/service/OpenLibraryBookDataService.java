@@ -46,62 +46,17 @@ public class OpenLibraryBookDataService {
     /**
      * Searches OpenLibrary for books matching the given title.
      *
-     * <p>Uses the OpenLibrary Search API with a title-specific parameter for precise results.
-     * Results are mapped to {@link Book} domain objects with normalized fields.</p>
-     *
      * @param title the book title to search for
      * @return a Flux of matching books, or empty if disabled or no results found
      */
     @RateLimiter(name = "openLibraryDataService")
     @CircuitBreaker(name = "openLibraryDataService", fallbackMethod = "searchBooksFallback")
     public Flux<Book> queryBooksByTitle(String title) {
-        if (title == null || title.trim().isEmpty()) {
-            log.warn("Title is null or empty. Cannot search books on OpenLibrary.");
-            return Flux.empty();
-        }
-        if (!externalFallbackEnabled) {
-            log.debug("External fallback disabled; skipping OpenLibrary search for title: {}", title);
-            return Flux.empty();
-        }
-        log.info("Attempting to search books from OpenLibrary for title: {}", title);
-        ExternalApiLogger.logApiCallAttempt(log, "OpenLibrary", "SEARCH_TITLE", title, false);
-        return webClient.get()
-                .uri(uriBuilder -> uriBuilder
-                        .path("/search.json")
-                        .queryParam("title", title)
-                        .queryParam("limit", 20)
-                        .build())
-                .retrieve()
-                .bodyToMono(JsonNode.class)
-                .timeout(Duration.ofSeconds(5))
-                .onErrorMap(PrematureCloseException.class, e -> {
-                    log.debug("OpenLibrary search connection closed early for title '{}': {}", title, e.toString());
-                    return new IllegalStateException("OpenLibrary title search connection closed early for '" + title + "'", e);
-                })
-                .flatMapMany(responseNode -> {
-                    if (!responseNode.has("docs") || !responseNode.get("docs").isArray()) {
-                        ExternalApiLogger.logApiCallSuccess(log, "OpenLibrary", "SEARCH_TITLE", title, 0);
-                        return Flux.empty();
-                    }
-                    int count = responseNode.get("docs").size();
-                    ExternalApiLogger.logApiCallSuccess(log, "OpenLibrary", "SEARCH_TITLE", title, count);
-                    return Flux.fromIterable(responseNode.get("docs"))
-                               .map(this::parseOpenLibrarySearchDoc)
-                               .filter(Objects::nonNull);
-                })
-                .doOnError(e -> LoggingUtils.error(log, e, "Error searching books by title '{}' from OpenLibrary", title))
-                .onErrorMap(e -> {
-                     LoggingUtils.warn(log, e, "Error during OpenLibrary search for title '{}', returning empty Flux", title);
-                     ExternalApiLogger.logApiCallFailure(log, "OpenLibrary", "SEARCH_TITLE", title, e.getMessage());
-                     return new IllegalStateException("OpenLibrary title search failed for '" + title + "'", e);
-                });
+        return queryBooks("title", title, "SEARCH_TITLE");
     }
 
     /**
      * Searches OpenLibrary for books by the given author name.
-     *
-     * <p>Uses the OpenLibrary Search API with an author-specific parameter.
-     * Results are mapped to {@link Book} domain objects with normalized fields.</p>
      *
      * @param author the author name to search for
      * @return a Flux of matching books, or empty if disabled or no results found
@@ -109,49 +64,61 @@ public class OpenLibraryBookDataService {
     @RateLimiter(name = "openLibraryDataService")
     @CircuitBreaker(name = "openLibraryDataService", fallbackMethod = "searchBooksFallback")
     public Flux<Book> queryBooksByAuthor(String author) {
-        if (author == null || author.trim().isEmpty()) {
-            log.warn("Author is null or empty. Cannot search books on OpenLibrary.");
+        return queryBooks("author", author, "SEARCH_AUTHOR");
+    }
+
+    /**
+     * Shared search implementation for the OpenLibrary Search API.
+     *
+     * <p>Constructs a parameterized request, maps the JSON "docs" array to
+     * {@link Book} domain objects, and wraps failures in typed exceptions
+     * so circuit-breaker fallbacks fire correctly.</p>
+     *
+     * @param queryParamName the API query parameter name ("title" or "author")
+     * @param queryValue     the search value to send
+     * @param apiOperation   logging label for external API metrics (e.g. "SEARCH_TITLE")
+     * @return a Flux of matching books, or empty when disabled or no results found
+     */
+    private Flux<Book> queryBooks(String queryParamName, String queryValue, String apiOperation) {
+        if (queryValue == null || queryValue.trim().isEmpty()) {
+            log.warn("{} is null or empty. Cannot search books on OpenLibrary.", queryParamName);
             return Flux.empty();
         }
         if (!externalFallbackEnabled) {
-            log.debug("External fallback disabled; skipping OpenLibrary author search for: {}", author);
+            log.debug("External fallback disabled; skipping OpenLibrary {} search for: {}", queryParamName, queryValue);
             return Flux.empty();
         }
-
-        log.info("Attempting to search OpenLibrary for author: {}", author);
-        ExternalApiLogger.logApiCallAttempt(log, "OpenLibrary", "SEARCH_AUTHOR", author, false);
-
-        // Bug #6 Fix: Author search uses only author param, no sort parameter
+        log.info("Attempting to search OpenLibrary by {}: {}", queryParamName, queryValue);
+        ExternalApiLogger.logApiCallAttempt(log, "OpenLibrary", apiOperation, queryValue, false);
         return webClient.get()
                 .uri(uriBuilder -> uriBuilder
                         .path("/search.json")
-                        .queryParam("author", author)
+                        .queryParam(queryParamName, queryValue)
                         .queryParam("limit", 20)
-                        // NEVER add sort=newest here - it's unsupported with author param
                         .build())
                 .retrieve()
                 .bodyToMono(JsonNode.class)
                 .timeout(Duration.ofSeconds(5))
                 .onErrorMap(PrematureCloseException.class, e -> {
-                    log.debug("OpenLibrary author search connection closed early for '{}': {}", author, e.toString());
-                    return new IllegalStateException("OpenLibrary author search connection closed early for '" + author + "'", e);
+                    log.debug("OpenLibrary {} search connection closed early for '{}': {}", queryParamName, queryValue, e.toString());
+                    return new IllegalStateException("OpenLibrary " + queryParamName + " search connection closed early for '" + queryValue + "'", e);
                 })
                 .flatMapMany(responseNode -> {
                     if (!responseNode.has("docs") || !responseNode.get("docs").isArray()) {
-                        ExternalApiLogger.logApiCallSuccess(log, "OpenLibrary", "SEARCH_AUTHOR", author, 0);
+                        ExternalApiLogger.logApiCallSuccess(log, "OpenLibrary", apiOperation, queryValue, 0);
                         return Flux.empty();
                     }
                     int count = responseNode.get("docs").size();
-                    ExternalApiLogger.logApiCallSuccess(log, "OpenLibrary", "SEARCH_AUTHOR", author, count);
+                    ExternalApiLogger.logApiCallSuccess(log, "OpenLibrary", apiOperation, queryValue, count);
                     return Flux.fromIterable(responseNode.get("docs"))
-                            .map(this::parseOpenLibrarySearchDoc)
-                            .filter(Objects::nonNull);
+                               .map(this::parseOpenLibrarySearchDoc)
+                               .filter(Objects::nonNull);
                 })
-                .doOnError(e -> LoggingUtils.error(log, e, "Error searching books by author '{}' from OpenLibrary", author))
+                .doOnError(e -> LoggingUtils.error(log, e, "Error searching books by {} '{}' from OpenLibrary", queryParamName, queryValue))
                 .onErrorMap(e -> {
-                    LoggingUtils.warn(log, e, "Error during OpenLibrary search for author '{}', returning empty Flux", author);
-                    ExternalApiLogger.logApiCallFailure(log, "OpenLibrary", "SEARCH_AUTHOR", author, e.getMessage());
-                    return new IllegalStateException("OpenLibrary author search failed for '" + author + "'", e);
+                     LoggingUtils.warn(log, e, "Error during OpenLibrary search for {} '{}', returning empty Flux", queryParamName, queryValue);
+                     ExternalApiLogger.logApiCallFailure(log, "OpenLibrary", apiOperation, queryValue, e.getMessage());
+                     return new IllegalStateException("OpenLibrary " + queryParamName + " search failed for '" + queryValue + "'", e);
                 });
     }
 
