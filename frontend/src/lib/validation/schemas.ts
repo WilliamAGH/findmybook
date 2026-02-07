@@ -111,6 +111,18 @@ export const HomePayloadSchema = z.object({
   recentBooks: z.array(BookCardSchema),
 });
 
+export const CategoryFacetSchema = z.object({
+  name: z.string(),
+  bookCount: z.number().int().nonnegative(),
+});
+
+export const CategoriesFacetsPayloadSchema = z.object({
+  genres: z.array(CategoryFacetSchema),
+  generatedAt: z.string(),
+  limit: z.number().int().positive(),
+  minBooks: z.number().int().nonnegative(),
+});
+
 export const SitemapBookSchema = z.object({
   id: z.string().nullable().optional(),
   slug: z.string(),
@@ -186,5 +198,7 @@ export type SearchHit = z.infer<typeof SearchHitSchema>;
 export type SearchResponse = z.infer<typeof SearchResponseSchema>;
 export type BookCard = z.infer<typeof BookCardSchema>;
 export type HomePayload = z.infer<typeof HomePayloadSchema>;
+export type CategoryFacet = z.infer<typeof CategoryFacetSchema>;
+export type CategoriesFacetsPayload = z.infer<typeof CategoriesFacetsPayloadSchema>;
 export type SitemapPayload = z.infer<typeof SitemapPayloadSchema>;
 export type ThemePreference = z.infer<typeof ThemePreferenceSchema>;

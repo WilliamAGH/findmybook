@@ -15,6 +15,7 @@ import net.findmybook.config.SitemapProperties;
 import net.findmybook.dto.BookCard;
 import net.findmybook.model.Book;
 import net.findmybook.service.AffiliateLinkService;
+import net.findmybook.service.BookSearchService;
 import net.findmybook.service.HomePageSectionsService;
 import net.findmybook.service.SitemapService;
 import org.junit.jupiter.api.Test;
@@ -110,5 +111,25 @@ class PageApiControllerTest {
         mockMvc.perform(asyncDispatch(asyncResult))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.Amazon").value("https://example.com/amz"));
+    }
+
+    @Test
+    void should_ReturnCategoryFacets_When_CategoriesEndpointRequested() throws Exception {
+        when(homePageSectionsService.loadCategoryFacets(eq(10), eq(3))).thenReturn(
+            List.of(
+                new BookSearchService.CategoryFacet("Fantasy", 240),
+                new BookSearchService.CategoryFacet("Mystery", 180)
+            )
+        );
+
+        mockMvc.perform(get("/api/pages/categories/facets").param("limit", "10").param("minBooks", "3"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.genres[0].name").value("Fantasy"))
+            .andExpect(jsonPath("$.genres[0].bookCount").value(240))
+            .andExpect(jsonPath("$.genres[1].name").value("Mystery"))
+            .andExpect(jsonPath("$.genres[1].bookCount").value(180))
+            .andExpect(jsonPath("$.limit").value(10))
+            .andExpect(jsonPath("$.minBooks").value(3))
+            .andExpect(jsonPath("$.generatedAt").isNotEmpty());
     }
 }

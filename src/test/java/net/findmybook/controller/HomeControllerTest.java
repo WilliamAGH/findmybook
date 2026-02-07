@@ -33,6 +33,7 @@ import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.ui.ExtendedModelMap;
 import java.util.List;
 import java.util.Map;
 import static org.mockito.Mockito.when;
@@ -184,6 +185,46 @@ class HomeControllerTest {
             .exchange()
             .expectStatus().isEqualTo(HttpStatus.SEE_OTHER)
             .expectHeader().valueMatches("Location", "/search\\?query=.*&source=explore");
+    }
+
+    @Test
+    void should_ReturnSpaIndex_When_ExploreRouteRequestedWithSpaEnabled() {
+        net.findmybook.service.EnvironmentService environmentService = Mockito.mock(net.findmybook.service.EnvironmentService.class);
+        net.findmybook.service.image.LocalDiskCoverCacheService localDiskService = Mockito.mock(net.findmybook.service.image.LocalDiskCoverCacheService.class);
+        when(localDiskService.getLocalPlaceholderPath()).thenReturn(ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH);
+        BookSeoMetadataService seoService = new BookSeoMetadataService(localDiskService);
+        HomeController controller = new HomeController(
+            environmentService,
+            homePageSectionsService,
+            seoService,
+            false,
+            true,
+            searchPaginationService
+        );
+
+        Object response = controller.explore(new ExtendedModelMap());
+
+        assertEquals("spa/index", response);
+    }
+
+    @Test
+    void should_ReturnSpaIndex_When_CategoriesRouteRequestedWithSpaEnabled() {
+        net.findmybook.service.EnvironmentService environmentService = Mockito.mock(net.findmybook.service.EnvironmentService.class);
+        net.findmybook.service.image.LocalDiskCoverCacheService localDiskService = Mockito.mock(net.findmybook.service.image.LocalDiskCoverCacheService.class);
+        when(localDiskService.getLocalPlaceholderPath()).thenReturn(ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH);
+        BookSeoMetadataService seoService = new BookSeoMetadataService(localDiskService);
+        HomeController controller = new HomeController(
+            environmentService,
+            homePageSectionsService,
+            seoService,
+            false,
+            true,
+            searchPaginationService
+        );
+
+        Object response = controller.categories(new ExtendedModelMap());
+
+        assertEquals("spa/index", response);
     }
     /**
      * Helper method to create test Book instances

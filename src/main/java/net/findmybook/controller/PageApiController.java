@@ -36,6 +36,9 @@ public class PageApiController {
     private static final Logger log = LoggerFactory.getLogger(PageApiController.class);
     private static final int MAX_BESTSELLERS = 8;
     private static final int MAX_RECENT_BOOKS = 8;
+    private static final int DEFAULT_CATEGORY_FACET_LIMIT = 24;
+    private static final int MAX_CATEGORY_FACET_LIMIT = 200;
+    private static final int DEFAULT_CATEGORY_MIN_BOOKS = 1;
 
     private final HomePageSectionsService homePageSectionsService;
     private final SitemapService sitemapService;
@@ -142,6 +145,36 @@ public class PageApiController {
         ));
     }
 
+    /**
+     * Returns top category/genre facets for the categories route.
+     *
+     * @param limit maximum number of facets to return
+     * @param minBooks minimum number of books required to include a facet
+     * @return typed category facets payload
+     */
+    @GetMapping("/categories/facets")
+    public ResponseEntity<CategoriesFacetsPayload> categoryFacets(
+        @RequestParam(name = "limit", required = false) Integer limit,
+        @RequestParam(name = "minBooks", required = false) Integer minBooks
+    ) {
+        int safeLimit = PagingUtils.safeLimit(
+            limit != null ? limit : 0,
+            DEFAULT_CATEGORY_FACET_LIMIT,
+            1,
+            MAX_CATEGORY_FACET_LIMIT
+        );
+        int safeMinBooks = minBooks == null ? DEFAULT_CATEGORY_MIN_BOOKS : Math.max(0, minBooks);
+        List<CategoryFacetPayload> genres = homePageSectionsService.loadCategoryFacets(safeLimit, safeMinBooks).stream()
+            .map(facet -> new CategoryFacetPayload(facet.name(), facet.bookCount()))
+            .toList();
+        return ResponseEntity.ok(new CategoriesFacetsPayload(
+            genres,
+            Instant.now(),
+            safeLimit,
+            safeMinBooks
+        ));
+    }
+
     private static String normalizeView(String view) {
         if (!StringUtils.hasText(view)) {
             return "authors";
@@ -218,5 +251,28 @@ public class PageApiController {
                                        String authorName,
                                        Instant lastModified,
                                        List<SitemapBookPayload> books) {
+    }
+
+    /**
+     * Typed categories/genres facet response payload.
+     *
+     * @param genres category facets sorted by popularity
+     * @param generatedAt server time when the payload was assembled
+     * @param limit effective facet limit
+     * @param minBooks effective threshold for included facets
+     */
+    public record CategoriesFacetsPayload(List<CategoryFacetPayload> genres,
+                                          Instant generatedAt,
+                                          int limit,
+                                          int minBooks) {
+    }
+
+    /**
+     * Typed category facet entry.
+     *
+     * @param name display category/genre name
+     * @param bookCount number of books associated with the category
+     */
+    public record CategoryFacetPayload(String name, int bookCount) {
     }
 }

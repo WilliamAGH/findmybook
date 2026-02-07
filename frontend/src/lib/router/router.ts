@@ -12,6 +12,8 @@ export interface RouteMatch {
   };
 }
 
+export type SearchRouteName = "search" | "explore" | "categories";
+
 const INITIAL_URL =
   typeof window !== "undefined" ? new URL(window.location.href) : new URL("http://localhost/");
 
@@ -80,6 +82,18 @@ export function matchRoute(pathname: string): RouteMatch {
   }
 
   return { name: "notFound", params: {} };
+}
+
+export function searchBasePathForRoute(routeName: SearchRouteName): "/search" | "/explore" | "/categories" {
+  if (routeName === "explore") {
+    return "/explore";
+  }
+
+  if (routeName === "categories") {
+    return "/categories";
+  }
+
+  return "/search";
 }
 
 function shouldHandleAsSpaLink(anchor: HTMLAnchorElement): boolean {

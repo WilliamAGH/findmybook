@@ -11,6 +11,7 @@
   - `GET /api/pages/home`
   - `GET /api/pages/sitemap?view={authors|books}&letter={A-Z|0-9}&page={n}`
   - `GET /api/pages/book/{identifier}/affiliate-links`
+  - `GET /api/pages/categories/facets?limit={n}&minBooks={n}`
 
 ## Search API Contract
 - `GET /api/books/search` supports:
@@ -52,6 +53,15 @@
     - `authors: SitemapAuthorPayload[]` (authors view)
 - `GET /api/pages/book/{identifier}/affiliate-links`
   - Returns a `Record<string, string>` of retailer label -> URL
+- `GET /api/pages/categories/facets`
+  - Query params:
+    - `limit` (optional, defaults `24`, max `200`)
+    - `minBooks` (optional, defaults `1`, minimum `0`)
+  - Response fields:
+    - `genres: Array<{ name: string, bookCount: number }>`
+    - `generatedAt: string` (ISO timestamp)
+    - `limit: number`
+    - `minBooks: number`
 
 ## Realtime Search Updates (WebSocket)
 - STOMP endpoint: `/ws`

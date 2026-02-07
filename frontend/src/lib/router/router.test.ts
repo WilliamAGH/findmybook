@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/svelte";
-import { matchRoute } from "$lib/router/router";
+import { matchRoute, searchBasePathForRoute } from "$lib/router/router";
 import BookCard from "$lib/components/BookCard.svelte";
 import NotFoundPage from "$lib/pages/NotFoundPage.svelte";
 
@@ -21,10 +21,36 @@ describe("matchRoute", () => {
     expect(matched.params.page).toBe(3);
   });
 
+  it("shouldMatchExploreRouteWhenExplorePathProvided", () => {
+    const matched = matchRoute("/explore");
+
+    expect(matched.name).toBe("explore");
+  });
+
+  it("shouldMatchCategoriesRouteWhenCategoriesPathProvided", () => {
+    const matched = matchRoute("/categories");
+
+    expect(matched.name).toBe("categories");
+  });
+
   it("shouldReturnNotFoundWhenPathUnrecognized", () => {
     const matched = matchRoute("/unknown/path");
 
     expect(matched.name).toBe("notFound");
+  });
+});
+
+describe("searchBasePathForRoute", () => {
+  it("shouldReturnSearchPathWhenRouteIsSearch", () => {
+    expect(searchBasePathForRoute("search")).toBe("/search");
+  });
+
+  it("shouldReturnExplorePathWhenRouteIsExplore", () => {
+    expect(searchBasePathForRoute("explore")).toBe("/explore");
+  });
+
+  it("shouldReturnCategoriesPathWhenRouteIsCategories", () => {
+    expect(searchBasePathForRoute("categories")).toBe("/categories");
   });
 });
 
