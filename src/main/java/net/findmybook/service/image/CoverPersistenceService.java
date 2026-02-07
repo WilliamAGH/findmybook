@@ -146,28 +146,30 @@ public class CoverPersistenceService {
     }
     
     /**
-     * Updates cover metadata after successful S3 upload with actual dimensions.
-     * 
-     * This method is called after an image has been downloaded, processed, and uploaded to S3,
-     * replacing estimated dimensions with actual detected dimensions.
-     * 
-     * @param bookId Canonical book UUID
+     * Captures the result of a successful S3 cover upload for persistence.
+     *
      * @param s3Key S3 object key
-     * @param s3CdnUrl Full CDN URL for the image
+     * @param s3CdnUrl Full CDN URL for the image (may be null for resolution)
      * @param width Actual detected width
      * @param height Actual detected height
      * @param source Original source that provided the image
+     */
+    public record S3UploadResult(String s3Key, String s3CdnUrl, Integer width, Integer height, CoverImageSource source) {}
+
+    /**
+     * Updates cover metadata after successful S3 upload with actual dimensions.
+     *
+     * @param bookId Canonical book UUID
+     * @param upload S3 upload result containing key, URL, dimensions, and source
      * @return PersistenceResult indicating success
      */
     @Transactional
-    public PersistenceResult updateAfterS3Upload(
-        UUID bookId,
-        String s3Key,
-        String s3CdnUrl,
-        Integer width,
-        Integer height,
-        CoverImageSource source
-    ) {
+    public PersistenceResult updateAfterS3Upload(UUID bookId, S3UploadResult upload) {
+        String s3Key = upload.s3Key();
+        String s3CdnUrl = upload.s3CdnUrl();
+        Integer width = upload.width();
+        Integer height = upload.height();
+        CoverImageSource source = upload.source();
         if (s3Key == null) {
             log.warn("Cannot update cover for book {}: S3 key is null", bookId);
             return new PersistenceResult(false, null, width, height, false);

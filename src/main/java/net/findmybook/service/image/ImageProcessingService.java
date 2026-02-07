@@ -40,6 +40,7 @@ public class ImageProcessingService {
     private static final int TARGET_WIDTH = 800; // Target width for resizing
     private static final float JPEG_QUALITY = 0.85f; // Standard JPEG quality
     private static final int MIN_ACCEPTABLE_DIMENSION = 50; // Reject if smaller than this
+    private static final int MIN_PLACEHOLDER_SIZE = 5; // Reject 1x1-5x5 pixel placeholders
     private static final int NO_UPSCALE_THRESHOLD_WIDTH = 300; // Don't upscale if original is smaller than this
 
     // Constants for dominant color check
@@ -94,7 +95,7 @@ public class ImageProcessingService {
             }
 
             // Reject obviously invalid images (1x1 placeholders from OpenLibrary, etc.)
-            if (originalWidth <= 5 || originalHeight <= 5) {
+            if (originalWidth <= MIN_PLACEHOLDER_SIZE || originalHeight <= MIN_PLACEHOLDER_SIZE) {
                 logger.warn("Book ID {}: Image dimensions ({}x{}) are suspiciously small (≤5px). Likely a placeholder. REJECTED.", 
                     bookIdForLog, originalWidth, originalHeight);
                 return CompletableFuture.completedFuture(ProcessedImage.failure("PlaceholderImage_TooSmall"));
@@ -286,10 +287,10 @@ public class ImageProcessingService {
 
         } catch (IOException e) {
             logger.error("Image ID {}: IOException during dominant white check from bytes: {}", imageIdForLog, e.getMessage(), e);
-            return false; // Treat as not dominantly white in case of error, or rethrow
+            throw new IllegalStateException("Dominant-white check failed for image " + imageIdForLog, e);
         } catch (RuntimeException e) {
             logger.error("Image ID {}: Unexpected exception during dominant white check from bytes: {}", imageIdForLog, e.getMessage(), e);
-            return false; // Treat as not dominantly white, or rethrow
+            throw new IllegalStateException("Dominant-white check failed for image " + imageIdForLog, e);
         }
     }
 }

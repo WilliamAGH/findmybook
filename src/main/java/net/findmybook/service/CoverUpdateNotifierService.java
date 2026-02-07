@@ -407,14 +407,14 @@ public class CoverUpdateNotifierService {
             return;
         }
 
-        coverPersistenceService.updateAfterS3Upload(
-            bookId,
-            details.getStorageKey(),
-            details.getUrlOrPath(),
-            details.getWidth(),
-            details.getHeight(),
-            details.getCoverImageSource() != null ? details.getCoverImageSource() : CoverImageSource.UNDEFINED
-        );
+        coverPersistenceService.updateAfterS3Upload(bookId,
+            new CoverPersistenceService.S3UploadResult(
+                details.getStorageKey(),
+                details.getUrlOrPath(),
+                details.getWidth(),
+                details.getHeight(),
+                details.getCoverImageSource() != null ? details.getCoverImageSource() : CoverImageSource.UNDEFINED
+            ));
         logger.info("Persisted S3 cover metadata for book {} (key {}).", bookId, details.getStorageKey());
     }
 

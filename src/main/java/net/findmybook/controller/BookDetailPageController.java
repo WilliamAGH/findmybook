@@ -39,6 +39,7 @@ public class BookDetailPageController {
     private final AffiliateLinkService affiliateLinkService;
     private final HomePageSectionsService homePageSectionsService;
     private final BookSeoMetadataService bookSeoMetadataService;
+    private static final Duration SIMILAR_BOOKS_TIMEOUT = Duration.ofMillis(2000);
     private final boolean spaFrontendEnabled;
     private final int maxDescriptionLength;
 
@@ -132,12 +133,12 @@ public class BookDetailPageController {
                     ApplicationConstants.Paging.DEFAULT_TIERED_LIMIT / 2,
                     6
                 )
-                .timeout(Duration.ofMillis(2000))
+                .timeout(SIMILAR_BOOKS_TIMEOUT)
                 .onErrorResume(e -> {
                     if (e instanceof java.util.concurrent.TimeoutException) {
-                        log.warn("Similar books timed out after 2000ms for {}", id);
+                        log.warn("Similar books timed out after {}ms for {}", SIMILAR_BOOKS_TIMEOUT.toMillis(), id);
                     } else {
-                        log.warn("Similar books failed for {}: {}", id, e.getMessage());
+                        log.error("Similar books failed for {}: {}", id, e.getMessage(), e);
                     }
                     return Mono.empty();
                 }))

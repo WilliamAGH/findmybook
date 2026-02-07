@@ -35,9 +35,12 @@ final class SearchRealtimeCoordinator {
     private final Optional<BookDataOrchestrator> bookDataOrchestrator;
     private final Optional<ApplicationEventPublisher> eventPublisher;
     private final boolean persistSearchResultsEnabled;
+    private static final int REALTIME_STATE_CACHE_MAX_SIZE = 2_000;
+    private static final Duration REALTIME_STATE_CACHE_TTL = Duration.ofMinutes(15);
+
     private final Cache<String, SearchRealtimeState> realtimeStates = Caffeine.newBuilder()
-        .maximumSize(2_000)
-        .expireAfterAccess(Duration.ofMinutes(15))
+        .maximumSize(REALTIME_STATE_CACHE_MAX_SIZE)
+        .expireAfterAccess(REALTIME_STATE_CACHE_TTL)
         .build();
 
     SearchRealtimeCoordinator(Optional<GoogleApiFetcher> googleApiFetcher,
