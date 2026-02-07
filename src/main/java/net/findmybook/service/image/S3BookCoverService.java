@@ -215,7 +215,7 @@ public class S3BookCoverService implements ExternalCoverService {
         @Override
         public String toString() {
             return "ProcessedCoverUploadRequest{" +
-                "processedImageBytes=" + java.util.Arrays.toString(processedImageBytes) +
+                "processedImageBytes=" + processedImageBytes.length + " bytes" +
                 ", fileExtension='" + fileExtension + '\'' +
                 ", mimeType='" + mimeType + '\'' +
                 ", width=" + width +
