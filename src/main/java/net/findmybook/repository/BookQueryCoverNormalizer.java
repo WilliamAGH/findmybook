@@ -17,6 +17,9 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.function.BiFunction;
 import java.util.function.Function;
+import java.sql.Array;
+import java.sql.Connection;
+import java.sql.SQLException;
 
 final class BookQueryCoverNormalizer {
     private static final Logger log = LoggerFactory.getLogger(BookQueryCoverNormalizer.class);
@@ -158,7 +161,10 @@ final class BookQueryCoverNormalizer {
 
             UUID[] idsArray = bookIds.toArray(new UUID[0]);
 
-            return jdbcTemplate.query(sql, rs -> {
+            return jdbcTemplate.query(sql, ps -> {
+                Array uuidArray = createUuidArray(ps.getConnection(), idsArray);
+                ps.setArray(1, uuidArray);
+            }, rs -> {
                 Map<UUID, CoverUrlResolver.ResolvedCover> resolved = new java.util.HashMap<>();
                 while (rs.next()) {
                     UUID id = (UUID) rs.getObject("book_id");
@@ -182,10 +188,18 @@ final class BookQueryCoverNormalizer {
                     }
                 }
                 return resolved;
-            }, (Object) idsArray);
+            });
         } catch (DataAccessException ex) {
             log.error("Failed to fetch fallback cover URLs for {} books: {}", bookIds.size(), ex.getMessage(), ex);
             throw new IllegalStateException("Cover URL fallback query failed for " + bookIds.size() + " books", ex);
+        }
+    }
+
+    private static Array createUuidArray(Connection connection, UUID[] idsArray) {
+        try {
+            return connection.createArrayOf("uuid", idsArray);
+        } catch (SQLException ex) {
+            throw new IllegalStateException("Failed to create SQL uuid[] array parameter", ex);
         }
     }
 
