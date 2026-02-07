@@ -18,7 +18,7 @@ package net.findmybook.service;
 import net.findmybook.model.Book;
 import net.findmybook.util.ApplicationConstants;
 import net.findmybook.util.UuidUtils;
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -90,7 +90,7 @@ public class RecentlyViewedService {
                 originalBookId, canonicalId, book.getTitle());
         }
         
-        if (!ValidationUtils.hasText(canonicalId)) {
+        if (!StringUtils.hasText(canonicalId)) {
             log.warn("RECENT_VIEWS_DEBUG: Null or empty canonical ID determined for book title '{}' (original ID '{}'). Skipping add.", book.getTitle(), originalBookId);
             return;
         }
@@ -113,7 +113,7 @@ public class RecentlyViewedService {
             // Add other fields if they are displayed in the "Recent Views" section
         }
 
-        if (!ValidationUtils.hasText(bookToAdd.getSlug())) {
+        if (!StringUtils.hasText(bookToAdd.getSlug())) {
             bookToAdd.setSlug(finalCanonicalId);
         }
 
@@ -164,7 +164,7 @@ public class RecentlyViewedService {
                 if (!stats.isEmpty()) {
                     return stats.stream()
                         .map(RecentBookViewRepository.ViewStats::bookId)
-                        .filter(ValidationUtils::hasText)
+                        .filter(StringUtils::hasText)
                         .limit(limit)
                         .collect(Collectors.toList());
                 }
@@ -175,7 +175,7 @@ public class RecentlyViewedService {
         
         // Fallback to in-memory cache
         return recentlyViewedBooks.stream()
-            .filter(b -> b != null && ValidationUtils.hasText(b.getId()))
+            .filter(b -> b != null && StringUtils.hasText(b.getId()))
             .map(Book::getId)
             .limit(limit)
             .collect(Collectors.toList());
@@ -188,7 +188,7 @@ public class RecentlyViewedService {
      * @return canonical book ID when the cluster lookup succeeds; otherwise the original ID
      */
     private String resolveCanonicalBookId(String originalBookId) {
-        if (!ValidationUtils.hasText(originalBookId) || jdbcTemplate == null) {
+        if (!StringUtils.hasText(originalBookId) || jdbcTemplate == null) {
             return originalBookId;
         }
 
@@ -211,12 +211,12 @@ public class RecentlyViewedService {
                 String.class,
                 uuid
             );
-            return ValidationUtils.hasText(canonical) ? canonical : originalBookId;
+            return StringUtils.hasText(canonical) ? canonical : originalBookId;
         } catch (EmptyResultDataAccessException ignore) {
             return originalBookId;
         } catch (DataAccessException ex) {
-            log.debug("RECENT_VIEWS_DEBUG: Failed to resolve canonical ID for {}: {}", originalBookId, ex.getMessage());
-            return originalBookId;
+            log.error("Failed to resolve canonical book ID for {}: {}", originalBookId, ex.getMessage(), ex);
+            throw new IllegalStateException("Canonical book ID resolution failed for " + originalBookId, ex);
         }
     }
 

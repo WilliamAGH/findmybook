@@ -110,6 +110,8 @@ public class BookSitemapService {
         } catch (JacksonException | java.util.concurrent.CompletionException | IllegalArgumentException ex) {
             throw new IllegalStateException("Failed to upload sitemap snapshot to S3 key '" + s3Key + "'", ex);
         } catch (RuntimeException ex) {
+            log.error("Unexpected runtime failure uploading sitemap snapshot to S3 key '{}': {}",
+                s3Key, ex.getMessage(), ex);
             throw new IllegalStateException(
                 "Unexpected runtime failure while uploading sitemap snapshot to S3 key '" + s3Key + "'",
                 ex
@@ -144,7 +146,7 @@ public class BookSitemapService {
             boolean present = mono.timeout(Duration.ofSeconds(15))
                     .map(book -> Boolean.TRUE)
                     .onErrorResume(ex -> {
-                        log.debug("Hydration attempt failed for book {}: {}", item.bookId(), ex.getMessage());
+                        log.warn("Hydration attempt failed for book {}: {}", item.bookId(), ex.getMessage());
                         return Mono.just(Boolean.FALSE);
                     })
                     .defaultIfEmpty(Boolean.FALSE)

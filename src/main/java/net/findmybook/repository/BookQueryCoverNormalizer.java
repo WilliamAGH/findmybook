@@ -4,7 +4,7 @@ import net.findmybook.dto.BookCard;
 import net.findmybook.dto.BookDetail;
 import net.findmybook.dto.BookListItem;
 import net.findmybook.util.UuidUtils;
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 import net.findmybook.util.cover.CoverUrlResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,7 +32,7 @@ final class BookQueryCoverNormalizer {
     List<BookCard> normalizeBookCardCovers(List<BookCard> cards) {
         return normalizeCovers(cards, BookCard::id, BookCard::coverUrl, (card, fallback) -> {
             String coverUrl = fallback != null ? fallback.url() : card.coverUrl();
-            String fallbackUrl = ValidationUtils.hasText(card.fallbackCoverUrl())
+            String fallbackUrl = StringUtils.hasText(card.fallbackCoverUrl())
                 ? card.fallbackCoverUrl()
                 : (fallback != null ? fallback.url() : coverUrl);
             String s3Key = resolveS3Key(fallback, card.coverS3Key());
@@ -50,7 +50,7 @@ final class BookQueryCoverNormalizer {
             Integer width = fallback != null ? fallback.width() : item.coverWidth();
             Integer height = fallback != null ? fallback.height() : item.coverHeight();
             Boolean highRes = fallback != null ? fallback.highResolution() : item.coverHighResolution();
-            String fallbackUrl = ValidationUtils.hasText(item.coverFallbackUrl())
+            String fallbackUrl = StringUtils.hasText(item.coverFallbackUrl())
                 ? item.coverFallbackUrl()
                 : (fallback != null ? fallback.url() : coverUrl);
             String s3Key = resolveS3Key(fallback, item.coverS3Key());
@@ -70,7 +70,7 @@ final class BookQueryCoverNormalizer {
             Integer height = fallback != null ? fallback.height() : detail.coverHeight();
             Boolean highRes = fallback != null ? fallback.highResolution() : detail.coverHighResolution();
             String s3Key = resolveS3Key(fallback, detail.coverS3Key());
-            String fallbackUrl = ValidationUtils.hasText(detail.coverFallbackUrl())
+            String fallbackUrl = StringUtils.hasText(detail.coverFallbackUrl())
                 ? detail.coverFallbackUrl()
                 : detail.thumbnailUrl();
             return new BookDetail(
@@ -117,7 +117,7 @@ final class BookQueryCoverNormalizer {
     }
 
     private static String resolveS3Key(CoverUrlResolver.ResolvedCover fallback, String existingS3Key) {
-        return fallback != null && ValidationUtils.hasText(fallback.s3Key())
+        return fallback != null && StringUtils.hasText(fallback.s3Key())
             ? fallback.s3Key()
             : existingS3Key;
     }
@@ -168,12 +168,12 @@ final class BookQueryCoverNormalizer {
                     Integer height = resultSetSupport.getIntOrNull(rs, "height");
                     Boolean highRes = resultSetSupport.getBooleanOrNull(rs, "is_high_resolution");
 
-                    if (ValidationUtils.hasText(url) || ValidationUtils.hasText(s3Key)) {
+                    if (StringUtils.hasText(url) || StringUtils.hasText(s3Key)) {
                         resolved.put(
                             id,
                             CoverUrlResolver.resolve(
-                                ValidationUtils.hasText(s3Key) ? s3Key : url,
-                                ValidationUtils.hasText(url) ? url : null,
+                                StringUtils.hasText(s3Key) ? s3Key : url,
+                                StringUtils.hasText(url) ? url : null,
                                 width,
                                 height,
                                 highRes
@@ -184,15 +184,13 @@ final class BookQueryCoverNormalizer {
                 return resolved;
             }, (Object) idsArray);
         } catch (DataAccessException ex) {
-            // Non-critical graceful degradation: cover URL enrichment is supplemental display data.
-            // Books render correctly without fallback covers (they show a placeholder instead).
-            log.warn("Non-critical: Failed to fetch fallback cover URLs for {} books: {}", bookIds.size(), ex.getMessage());
-            return Map.of();
+            log.error("Failed to fetch fallback cover URLs for {} books: {}", bookIds.size(), ex.getMessage(), ex);
+            throw new IllegalStateException("Cover URL fallback query failed for " + bookIds.size() + " books", ex);
         }
     }
 
     private boolean needsFallback(String url) {
-        if (!ValidationUtils.hasText(url)) {
+        if (!StringUtils.hasText(url)) {
             return true;
         }
         String lower = url.toLowerCase();

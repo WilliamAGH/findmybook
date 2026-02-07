@@ -116,11 +116,8 @@ public class BookImageLinkPersistenceService {
                 bookId
             );
         } catch (DataAccessException exception) {
-            // Non-critical graceful degradation: if existing quality cannot be read, treat as absent
-            // so the incoming cover proceeds with the update rather than silently skipping it.
-            log.warn("Non-critical: Unable to evaluate existing cover quality for book {}; treating as absent (incoming cover may overwrite): {}",
-                bookId, exception.getMessage());
-            return CoverQualitySnapshot.absent();
+            log.error("Failed to evaluate existing cover quality for book {}: {}", bookId, exception.getMessage(), exception);
+            throw new IllegalStateException("Cover quality evaluation failed for book " + bookId, exception);
         }
     }
 

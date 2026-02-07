@@ -15,7 +15,6 @@ package net.findmybook.service;
 import org.springframework.stereotype.Service;
 
 import net.findmybook.model.Book;
-import net.findmybook.util.ValidationUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.lang.Nullable;
@@ -47,6 +46,9 @@ public class BookDataOrchestrator {
         this.bookSearchService = bookSearchService;
         this.postgresBookRepository = postgresBookRepository;
         this.bookExternalBatchPersistenceService = bookExternalBatchPersistenceService;
+        if (postgresBookRepository == null) {
+            logger.warn("BookDataOrchestrator initialized without PostgresBookRepository — all database lookups will return empty");
+        }
     }
 
     public void refreshSearchView() {
@@ -214,12 +216,13 @@ public class BookDataOrchestrator {
             try (tools.jackson.core.JsonParser parser = mapper.createParser(payload)) {
                 tools.jackson.databind.JsonNode node = mapper.readTree(parser);
                 if (parser.nextToken() != null) {
+                    logger.warn("Book JSON payload for '{}' contains trailing content — ignoring", fallbackId);
                     return null;
                 }
                 return node;
             }
         } catch (tools.jackson.core.JacksonException ex) {
-            logger.debug("Failed to parse book JSON payload for fallback id '{}': {}", fallbackId, ex.getMessage());
+            logger.warn("Failed to parse book JSON payload for fallback id '{}': {}", fallbackId, ex.getMessage());
             return null;
         }
     }

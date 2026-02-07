@@ -79,6 +79,7 @@ public class CacheWarmupService {
             int warmedCount = warmed != null ? warmed.size() : 0;
             log.info("Warmed bestsellers cache with {} books from '{}'", warmedCount, bestsellerListName);
         } catch (RuntimeException e) {
+            log.error("Bestsellers cache warmup failed for list '{}': {}", bestsellerListName, e.getMessage(), e);
             throw new IllegalStateException("Bestsellers cache warmup failed", e);
         } finally {
             bestsellersWarmupInProgress.set(false);

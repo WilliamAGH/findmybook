@@ -13,7 +13,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
-import net.findmybook.util.ValidationUtils;
+import org.springframework.util.StringUtils;
 
 /**
  * Repository abstraction for persisting and aggregating recent book view activity.
@@ -49,7 +49,7 @@ public class RecentBookViewRepository {
      */
     @Async
     public void recordView(String canonicalBookId, @Nullable Instant viewedAt, @Nullable String source) {
-        if (!isEnabled() || !ValidationUtils.hasText(canonicalBookId)) {
+        if (!isEnabled() || !StringUtils.hasText(canonicalBookId)) {
             return;
         }
 
@@ -61,7 +61,7 @@ public class RecentBookViewRepository {
                     ps -> {
                         ps.setString(1, canonicalBookId);
                         ps.setTimestamp(2, Timestamp.from(effectiveInstant));
-                        if (!ValidationUtils.hasText(source)) {
+                        if (!StringUtils.hasText(source)) {
                             ps.setNull(3, java.sql.Types.VARCHAR);
                         } else {
                             ps.setString(3, source);
@@ -69,7 +69,7 @@ public class RecentBookViewRepository {
                     }
             );
         } catch (DataAccessException ex) {
-            log.debug("Failed to record recent view for book {}: {}", canonicalBookId, ex.getMessage());
+            log.error("Failed to record recent view for book {}: {}", canonicalBookId, ex.getMessage(), ex);
         }
     }
 
@@ -77,7 +77,7 @@ public class RecentBookViewRepository {
      * Fetches aggregate view statistics for a single book over standard windows.
      */
     public Optional<ViewStats> fetchStatsForBook(String canonicalBookId) {
-        if (!isEnabled() || !ValidationUtils.hasText(canonicalBookId)) {
+        if (!isEnabled() || !StringUtils.hasText(canonicalBookId)) {
             return Optional.empty();
         }
 
@@ -109,8 +109,8 @@ public class RecentBookViewRepository {
                 ));
             });
         } catch (DataAccessException ex) {
-            log.debug("Failed to fetch view stats for book {}: {}", canonicalBookId, ex.getMessage());
-            return Optional.empty();
+            throw new IllegalStateException(
+                "Failed to fetch view stats for book " + canonicalBookId, ex);
         }
     }
 
@@ -156,8 +156,7 @@ public class RecentBookViewRepository {
                 );
             });
         } catch (DataAccessException ex) {
-            log.debug("Failed to fetch recent view aggregates: {}", ex.getMessage());
-            return Collections.emptyList();
+            throw new IllegalStateException("Failed to fetch recent view aggregates", ex);
         }
     }
 
