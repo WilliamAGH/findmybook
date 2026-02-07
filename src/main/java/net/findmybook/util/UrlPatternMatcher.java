@@ -45,10 +45,15 @@ public final class UrlPatternMatcher {
      */
     @Deprecated(since = "0.9.0", forRemoval = true)
     public enum UrlSource {
+        @Deprecated(since = "0.9.0", forRemoval = true)
         GOOGLE_BOOKS,
+        @Deprecated(since = "0.9.0", forRemoval = true)
         OPEN_LIBRARY,
+        @Deprecated(since = "0.9.0", forRemoval = true)
         AMAZON,
+        @Deprecated(since = "0.9.0", forRemoval = true)
         GOODREADS,
+        @Deprecated(since = "0.9.0", forRemoval = true)
         UNKNOWN
     }
 

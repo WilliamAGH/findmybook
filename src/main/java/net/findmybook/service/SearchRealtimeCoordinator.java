@@ -43,12 +43,9 @@ final class SearchRealtimeCoordinator {
         .expireAfterAccess(REALTIME_STATE_CACHE_TTL)
         .build();
 
-    SearchRealtimeCoordinator(Optional<GoogleApiFetcher> googleApiFetcher,
-                              Optional<GoogleBooksMapper> googleBooksMapper,
-                              Optional<OpenLibraryBookDataService> openLibraryBookDataService,
-                              Optional<BookDataOrchestrator> bookDataOrchestrator,
-                              Optional<ApplicationEventPublisher> eventPublisher,
-                              boolean persistSearchResultsEnabled) {
+    SearchRealtimeCoordinator(Optional<GoogleApiFetcher> googleApiFetcher, Optional<GoogleBooksMapper> googleBooksMapper,
+                              Optional<OpenLibraryBookDataService> openLibraryBookDataService, Optional<BookDataOrchestrator> bookDataOrchestrator,
+                              Optional<ApplicationEventPublisher> eventPublisher, boolean persistSearchResultsEnabled) {
         this.googleApiFetcher = googleApiFetcher != null ? googleApiFetcher : Optional.empty();
         this.googleBooksMapper = googleBooksMapper != null ? googleBooksMapper : Optional.empty();
         this.openLibraryBookDataService = openLibraryBookDataService != null ? openLibraryBookDataService : Optional.empty();
@@ -81,13 +78,8 @@ final class SearchRealtimeCoordinator {
             return;
         }
 
-        publishProgress(
-            request.query(),
-            SearchProgressEvent.SearchStatus.STARTING,
-            "Searching external providers for additional matches",
-            queryHash,
-            null
-        );
+        publishProgress(request.query(), SearchProgressEvent.SearchStatus.STARTING,
+            "Searching external providers for additional matches", queryHash, null);
 
         Flux<RealtimeCandidate> candidates = Flux.merge(
             googleRealtimeCandidates(request, queryHash),
@@ -101,34 +93,17 @@ final class SearchRealtimeCoordinator {
             .doOnNext(candidate -> {
                 persistSearchCandidates(List.of(candidate.book()), "SEARCH");
                 int totalNow = state.incrementTotalAndGet();
-                publishResults(
-                    request.query(),
-                    List.of(candidate.book()),
-                    candidate.source(),
-                    totalNow,
-                    queryHash,
-                    false
-                );
+                publishResults(request.query(), List.of(candidate.book()), candidate.source(), totalNow, queryHash, false);
             })
             .doOnComplete(() -> {
-                publishProgress(
-                    request.query(),
-                    SearchProgressEvent.SearchStatus.COMPLETE,
-                    "External search complete",
-                    queryHash,
-                    "EXTERNAL"
-                );
+                publishProgress(request.query(), SearchProgressEvent.SearchStatus.COMPLETE,
+                    "External search complete", queryHash, "EXTERNAL");
             })
             .doFinally(signalType -> state.markIdle())
             .subscribe(
                 ignored -> { },
-                ex -> publishProgress(
-                    request.query(),
-                    SearchProgressEvent.SearchStatus.ERROR,
-                    "External search failed: " + ex.getMessage(),
-                    queryHash,
-                    "EXTERNAL"
-                )
+                ex -> publishProgress(request.query(), SearchProgressEvent.SearchStatus.ERROR,
+                    "External search failed: " + ex.getMessage(), queryHash, "EXTERNAL")
             );
     }
 
@@ -145,13 +120,8 @@ final class SearchRealtimeCoordinator {
         int limit = Math.max(1, Math.min(20, request.maxResults()));
 
         Flux<JsonNode> authenticated = Flux.defer(() -> {
-            publishProgress(
-                query,
-                SearchProgressEvent.SearchStatus.SEARCHING_GOOGLE,
-                "Searching Google Books",
-                queryHash,
-                "GOOGLE_BOOKS"
-            );
+            publishProgress(query, SearchProgressEvent.SearchStatus.SEARCHING_GOOGLE,
+                "Searching Google Books", queryHash, "GOOGLE_BOOKS");
             return fetcher.streamSearchItems(query, limit, orderBy, null, true);
         });
 
@@ -176,13 +146,8 @@ final class SearchRealtimeCoordinator {
             .onErrorMap(ex -> {
                 SearchProgressEvent.SearchStatus errorStatus = classifyProviderError(ex);
                 log.warn("Realtime Google search failed for '{}' (status={}): {}", query, errorStatus, ex.getMessage());
-                publishProgress(
-                    query,
-                    errorStatus,
-                    "Google Books unavailable, continuing with other providers",
-                    queryHash,
-                    "GOOGLE_BOOKS"
-                );
+                publishProgress(query, errorStatus, "Google Books unavailable, continuing with other providers",
+                    queryHash, "GOOGLE_BOOKS");
                 return new IllegalStateException("Realtime Google search failed for query '" + query + "'", ex);
             });
     }
@@ -202,13 +167,8 @@ final class SearchRealtimeCoordinator {
         int limitPerStrategy = Math.max(1, Math.min(10, request.maxResults()));
 
         Flux<Book> byTitle = Flux.defer(() -> {
-            publishProgress(
-                request.query(),
-                SearchProgressEvent.SearchStatus.SEARCHING_OPENLIBRARY,
-                "Searching Open Library",
-                queryHash,
-                "OPEN_LIBRARY"
-            );
+            publishProgress(request.query(), SearchProgressEvent.SearchStatus.SEARCHING_OPENLIBRARY,
+                "Searching Open Library", queryHash, "OPEN_LIBRARY");
             return service.searchBooksByTitle(query);
         });
 
@@ -228,17 +188,9 @@ final class SearchRealtimeCoordinator {
             .onErrorMap(ex -> {
                 SearchProgressEvent.SearchStatus errorStatus = classifyProviderError(ex);
                 log.warn("Realtime Open Library search failed for '{}' (status={}): {}", request.query(), errorStatus, ex.getMessage());
-                publishProgress(
-                    request.query(),
-                    errorStatus,
-                    "Open Library unavailable, continuing with other providers",
-                    queryHash,
-                    "OPEN_LIBRARY"
-                );
-                return new IllegalStateException(
-                    "Realtime Open Library search failed for query '" + request.query() + "'",
-                    ex
-                );
+                publishProgress(request.query(), errorStatus, "Open Library unavailable, continuing with other providers",
+                    queryHash, "OPEN_LIBRARY");
+                return new IllegalStateException("Realtime Open Library search failed for query '" + request.query() + "'", ex);
             });
     }
 
@@ -269,9 +221,7 @@ final class SearchRealtimeCoordinator {
         if (eventPublisher.isEmpty()) {
             return;
         }
-        eventPublisher.get().publishEvent(
-            new SearchResultsUpdatedEvent(searchQuery, newResults, source, totalResultsNow, queryHash, isComplete)
-        );
+        eventPublisher.get().publishEvent(new SearchResultsUpdatedEvent(searchQuery, newResults, source, totalResultsNow, queryHash, isComplete));
     }
 
     private String realtimeSignature(SearchPaginationService.SearchRequest request) {
@@ -321,8 +271,7 @@ final class SearchRealtimeCoordinator {
         return SearchProgressEvent.SearchStatus.PROVIDER_UNAVAILABLE;
     }
 
-    private record RealtimeCandidate(String source, Book book) {
-    }
+    private record RealtimeCandidate(String source, Book book) {}
 
     private final class SearchRealtimeState {
         private final Set<String> emittedKeys = ConcurrentHashMap.newKeySet();
@@ -330,11 +279,6 @@ final class SearchRealtimeCoordinator {
         private final AtomicInteger totalResults = new AtomicInteger(0);
         private volatile String signature = "";
 
-        /**
-         * Atomically resets state for a new signature, seeds existing results,
-         * and acquires the streaming lock. Returns true if this call acquired
-         * the lock and the caller should proceed with streaming.
-         */
         synchronized boolean tryAcquireAndPrepare(String newSignature, int baselineTotal, List<Book> existingResults) {
             if (!Objects.equals(signature, newSignature)) {
                 emittedKeys.clear();

@@ -20,7 +20,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Condition;
 import org.springframework.context.annotation.ConditionContext;
 import org.springframework.core.type.AnnotatedTypeMetadata;
-import org.springframework.lang.NonNull;
 
 public class S3EnvironmentCondition implements Condition {
 
@@ -28,7 +27,7 @@ public class S3EnvironmentCondition implements Condition {
     private static final AtomicBoolean messageLogged = new AtomicBoolean(false);
 
     @Override
-    public boolean matches(@NonNull ConditionContext context, @NonNull AnnotatedTypeMetadata metadata) {
+    public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {
         String accessKeyId = firstNonBlank(context, "s3.access-key-id", "S3_ACCESS_KEY_ID");
         String secretAccessKey = firstNonBlank(context, "s3.secret-access-key", "S3_SECRET_ACCESS_KEY");
         String bucket = firstNonBlank(context, "s3.bucket-name", "S3_BUCKET");

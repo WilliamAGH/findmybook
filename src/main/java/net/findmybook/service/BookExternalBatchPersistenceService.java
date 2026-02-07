@@ -33,11 +33,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Persists books retrieved from external APIs (Google Books, Open Library) into Postgres.
- * <p>
- * Handles deduplication by ID and by ISBN/title, maps external JSON payloads to
- * {@link BookAggregate}, and delegates upsert to {@link BookUpsertService} with
- * advisory-lock retry protection.
+ * Persists batches of externally sourced books into Postgres via the canonical upsert service.
  */
 @Service
 class BookExternalBatchPersistenceService {
@@ -46,7 +42,6 @@ class BookExternalBatchPersistenceService {
 
     private static final String ALPHANUMERIC_ONLY_PATTERN = "[^a-z0-9]";
 
-    // Systemic error message fragments for SQLException fallback detection
     private static final String ERR_CONNECTION = "connection";
     private static final String ERR_REFUSED = "refused";
     private static final String ERR_CLOSED = "closed";
@@ -61,9 +56,7 @@ class BookExternalBatchPersistenceService {
     private final GoogleBooksMapper googleBooksMapper;
     private final BookUpsertService bookUpsertService;
 
-    BookExternalBatchPersistenceService(ObjectMapper objectMapper,
-                                        GoogleBooksMapper googleBooksMapper,
-                                        BookUpsertService bookUpsertService) {
+    BookExternalBatchPersistenceService(ObjectMapper objectMapper, GoogleBooksMapper googleBooksMapper, BookUpsertService bookUpsertService) {
         this.objectMapper = objectMapper;
         this.googleBooksMapper = googleBooksMapper;
         this.bookUpsertService = bookUpsertService;
@@ -84,8 +77,7 @@ class BookExternalBatchPersistenceService {
         List<Book> uniqueBooks = filterDuplicatesById(books);
         int duplicateCount = originalSize - uniqueBooks.size();
         if (duplicateCount > 0) {
-            logger.info("[EXTERNAL-API] [{}] Filtered {} duplicate book(s) by ID, {} candidates remain",
-                context, duplicateCount, uniqueBooks.size());
+            logger.info("[EXTERNAL-API] [{}] Filtered {} duplicate book(s) by ID, {} candidates remain", context, duplicateCount, uniqueBooks.size());
         }
 
         if (uniqueBooks.isEmpty()) {
@@ -119,8 +111,7 @@ class BookExternalBatchPersistenceService {
 
         for (Book book : books) {
             if (book == null || book.getId() == null) {
-                logger.warn("[EXTERNAL-API] [{}] Skipping book with null reference or null ID: title={}",
-                    context, book != null ? book.getTitle() : "null");
+                logger.warn("[EXTERNAL-API] [{}] Skipping book with null reference or null ID: title={}", context, book != null ? book.getTitle() : "null");
                 continue;
             }
 
@@ -139,22 +130,19 @@ class BookExternalBatchPersistenceService {
                 if (isSystemicDatabaseError(ex)) {
                     logger.error("[EXTERNAL-API] [{}] Aborting batch due to systemic database error ({} succeeded, {} failed before abort)",
                         context, successCount, failureCount);
-                    throw ex instanceof IllegalStateException ? ex
-                        : new IllegalStateException("Systemic database error during batch persistence", ex);
+                    throw ex instanceof IllegalStateException ? ex : new IllegalStateException("Systemic database error during batch persistence", ex);
                 }
             }
         }
 
         long elapsed = System.currentTimeMillis() - start;
         if (failureCount > 0) {
-            String summary = String.format(
-                "[EXTERNAL-API] [%s] Batch persistence completed with failures: %d succeeded, %d failed (%d ms)",
+            String summary = String.format("[EXTERNAL-API] [%s] Batch persistence completed with failures: %d succeeded, %d failed (%d ms)",
                 context, successCount, failureCount, elapsed);
             logger.warn(summary);
             throw new IllegalStateException(summary);
         }
-        logger.info("[EXTERNAL-API] [{}] Batch persistence complete: {} succeeded ({} ms)",
-            context, successCount, elapsed);
+        logger.info("[EXTERNAL-API] [{}] Batch persistence complete: {} succeeded ({} ms)", context, successCount, elapsed);
     }
 
     private boolean persistSingleBook(Book book, String context, Runnable searchViewRefreshTrigger) {
@@ -201,25 +189,17 @@ class BookExternalBatchPersistenceService {
             logger.debug("Persisted book via BookUpsertService: {}", book.getId());
             return true;
         } catch (DataAccessException | IllegalArgumentException | IllegalStateException ex) {
-            logger.error("Error persisting via BookUpsertService for book {}: {}",
-                book.getId(), ex.getMessage(), ex);
+            logger.error("Error persisting via BookUpsertService for book {}: {}", book.getId(), ex.getMessage(), ex);
             if (isSystemicDatabaseError(ex)) {
                 if (ex instanceof IllegalStateException stateException) {
                     throw stateException;
                 }
                 throw new IllegalStateException("Systemic database error during upsert", ex);
             }
-            throw new IllegalStateException("Error persisting via BookUpsertService for book " +
-                book.getId(), ex);
+            throw new IllegalStateException("Error persisting via BookUpsertService for book " + book.getId(), ex);
         }
     }
 
-    /**
-     * Detects systemic database failures (connection loss, pool exhaustion, auth) that
-     * should abort the batch. Checks both Spring's exception hierarchy and JDBC-level
-     * {@link SQLException} messages for connection-related failures that surface before
-     * Spring can wrap them.
-     */
     boolean isSystemicDatabaseError(Throwable ex) {
         if (ex == null) {
             return false;
