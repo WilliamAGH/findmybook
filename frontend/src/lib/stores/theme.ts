@@ -62,6 +62,10 @@ export async function initializeTheme(): Promise<void> {
 }
 
 export async function toggleTheme(): Promise<void> {
+  if (typeof window === "undefined") {
+    return;
+  }
+
   const current = get(themeMode);
   const next: ResolvedTheme = current === "light" ? "dark" : "light";
 

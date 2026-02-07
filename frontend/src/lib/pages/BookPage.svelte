@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import DOMPurify from "dompurify";
   import BookCard, { type BookCardDisplay } from "$lib/components/BookCard.svelte";
   import { getAffiliateLinks, getBook, getSimilarBooks } from "$lib/services/books";
   import { subscribeToBookCoverUpdates } from "$lib/services/realtime";
@@ -37,27 +38,32 @@
   let tagsExpanded = $state(false);
 
   let unsubscribeRealtime: (() => void) | null = null;
+  let loadSequence = 0;
 
   async function loadPage(): Promise<void> {
+    const sequence = ++loadSequence;
     loading = true;
     errorMessage = null;
 
+    if (unsubscribeRealtime) {
+      unsubscribeRealtime();
+      unsubscribeRealtime = null;
+    }
+
     try {
       const loadedBook = await getBook(identifier);
+      if (sequence !== loadSequence) return;
+
       const [similarResult, linksResult] = await Promise.allSettled([
         getSimilarBooks(identifier, 6),
         getAffiliateLinks(identifier),
       ]);
+      if (sequence !== loadSequence) return;
 
       book = loadedBook;
       similarBooks = similarResult.status === "fulfilled" ? similarResult.value : [];
       affiliateLinks = linksResult.status === "fulfilled" ? linksResult.value : {};
       liveCoverUrl = null;
-
-      if (unsubscribeRealtime) {
-        unsubscribeRealtime();
-        unsubscribeRealtime = null;
-      }
 
       const topicIdentifier = loadedBook.id;
       unsubscribeRealtime = await subscribeToBookCoverUpdates(
@@ -69,13 +75,20 @@
           console.error("Realtime cover update error:", error.message);
         },
       );
+      if (sequence !== loadSequence && unsubscribeRealtime) {
+        unsubscribeRealtime();
+        unsubscribeRealtime = null;
+      }
     } catch (error) {
+      if (sequence !== loadSequence) return;
       errorMessage = error instanceof Error ? error.message : "Unable to load this book";
       book = null;
       similarBooks = [];
       affiliateLinks = {};
     } finally {
-      loading = false;
+      if (sequence === loadSequence) {
+        loading = false;
+      }
     }
   }
 
@@ -127,7 +140,7 @@
 
   function descriptionHtml(): string {
     if (book?.descriptionContent?.html && book.descriptionContent.html.trim().length > 0) {
-      return book.descriptionContent.html;
+      return DOMPurify.sanitize(book.descriptionContent.html);
     }
     return "";
   }

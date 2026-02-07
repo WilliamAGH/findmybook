@@ -19,12 +19,12 @@
   let payload = $state<SitemapPayload | null>(null);
   let openAuthorId = $state<string | null>(null);
 
-  async function loadSitemap(): Promise<void> {
+  async function loadSitemap(currentView: "authors" | "books", currentLetter: string, currentPage: number): Promise<void> {
     loading = true;
     errorMessage = null;
 
     try {
-      payload = await getSitemapPayload(view, letter, page);
+      payload = await getSitemapPayload(currentView, currentLetter, currentPage);
       openAuthorId = payload.authors.length > 0 ? payload.authors[0].authorId : null;
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : "Unable to load sitemap";
@@ -60,7 +60,7 @@
   }
 
   $effect(() => {
-    void loadSitemap();
+    void loadSitemap(view, letter, page);
   });
 </script>
 

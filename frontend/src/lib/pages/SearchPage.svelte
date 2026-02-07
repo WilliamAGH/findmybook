@@ -49,6 +49,7 @@
   let errorMessage = $state<string | null>(null);
   let realtimeMessage = $state<string | null>(null);
   let searchResult = $state<SearchResponse | null>(null);
+  let searchLoadSequence = 0;
   function parsePositiveNumber(value: string | null, fallback: number): number {
     if (!value) {
       return fallback;
@@ -176,11 +177,15 @@
     }
   }
   async function loadSearch(): Promise<void> {
+    const sequence = ++searchLoadSequence;
+
+    if (unsubscribeRealtime) {
+      unsubscribeRealtime();
+      unsubscribeRealtime = null;
+    }
+
     if (!query) {
-      if (unsubscribeRealtime) {
-        unsubscribeRealtime();
-        unsubscribeRealtime = null;
-      }
+      if (sequence !== searchLoadSequence) return;
       searchResult = null;
       errorMessage = null;
       realtimeMessage = null;
@@ -193,12 +198,11 @@
     const key = cacheKey(params);
     try {
       const response = searchCache.get(key) ?? (await searchBooks(params));
+      if (sequence !== searchLoadSequence) return;
+
       searchCache.set(key, response);
       searchResult = response;
-      if (unsubscribeRealtime) {
-        unsubscribeRealtime();
-        unsubscribeRealtime = null;
-      }
+
       unsubscribeRealtime = await subscribeToSearchTopics(
         response.queryHash,
         (message) => {
@@ -212,12 +216,19 @@
           realtimeMessage = null;
         },
       );
+      if (sequence !== searchLoadSequence && unsubscribeRealtime) {
+        unsubscribeRealtime();
+        unsubscribeRealtime = null;
+      }
       void prefetchWindow(params, response);
     } catch (error) {
+      if (sequence !== searchLoadSequence) return;
       errorMessage = error instanceof Error ? error.message : "Search request failed";
       searchResult = null;
     } finally {
-      loading = false;
+      if (sequence === searchLoadSequence) {
+        loading = false;
+      }
     }
   }
   async function loadCategoryFacetOptions(): Promise<void> {
@@ -352,7 +363,7 @@
     {#if routeName !== "categories"}
       <div class="flex flex-col gap-3 sm:flex-row">
         <div class="relative flex-1">
-          <input bind:value={query} class="w-full rounded-lg border border-linen-300 px-4 py-2.5 pr-12 text-sm outline-none ring-canvas-300 transition focus:ring-2 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" placeholder="Search by title, author, ISBN" />
+          <input bind:value={query} aria-label="Search by title, author, or ISBN" class="w-full rounded-lg border border-linen-300 px-4 py-2.5 pr-12 text-sm outline-none ring-canvas-300 transition focus:ring-2 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" placeholder="Search by title, author, ISBN" />
           <button type="submit" class="absolute right-2 top-1/2 -translate-y-1/2 rounded-md bg-canvas-400 p-1.5 text-white transition hover:bg-canvas-500" aria-label="Search"><Search size={16} /></button>
         </div>
       </div>

@@ -92,6 +92,7 @@
         <input
           bind:value={query}
           type="text"
+          aria-label="Search by title, author, or ISBN"
           placeholder="Search by title, author, or ISBN..."
           class="w-full rounded-xl border border-gray-300 bg-white px-6 py-4 pr-14 text-base shadow-soft outline-none transition-all duration-200 focus:border-transparent focus:ring-2 focus:ring-canvas-400 focus:shadow-soft-lg dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 md:text-lg"
           required

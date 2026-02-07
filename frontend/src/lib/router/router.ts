@@ -27,6 +27,15 @@ function parsePage(value: string): number {
   return parsed;
 }
 
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch (error) {
+    console.warn("[router] Failed to decode URI component:", value, error);
+    return value;
+  }
+}
+
 export function matchRoute(pathname: string): RouteMatch {
   if (pathname === "/") {
     return { name: "home", params: {} };
@@ -49,7 +58,7 @@ export function matchRoute(pathname: string): RouteMatch {
     return {
       name: "book",
       params: {
-        identifier: decodeURIComponent(bookMatch[1]),
+        identifier: safeDecodeURIComponent(bookMatch[1]),
       },
     };
   }
@@ -71,7 +80,7 @@ export function matchRoute(pathname: string): RouteMatch {
       name: "sitemap",
       params: {
         view: sitemapMatch[1] === "books" ? "books" : "authors",
-        letter: decodeURIComponent(sitemapMatch[2]),
+        letter: safeDecodeURIComponent(sitemapMatch[2]),
         page: parsePage(sitemapMatch[3]),
       },
     };
