@@ -41,7 +41,7 @@ import reactor.core.publisher.Mono;
 @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
     name = "app.features.async-backfill.enabled", 
     havingValue = "true", 
-    matchIfMissing = false
+    matchIfMissing = true
 )
 public class BackfillCoordinator {
     

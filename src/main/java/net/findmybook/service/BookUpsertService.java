@@ -17,7 +17,14 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Central write path for persisting a normalized book aggregate.
+ * Single source of truth for all book-aggregate writes.
+ *
+ * <p>Owns inserts and upserts to: {@code books}, {@code authors},
+ * {@code book_authors_join}, {@code book_external_ids},
+ * {@code book_image_links}, {@code book_dimensions}, and
+ * {@code events_outbox}.  All writes execute in a single transaction
+ * with UPSERT semantics and freshness guards so stale data never
+ * overwrites newer records.
  */
 @Service
 @Slf4j
@@ -116,23 +123,19 @@ public class BookUpsertService {
         Long lockKey = computeBookLockKey(aggregate);
         if (lockKey == null) {
             log.warn("Book has no identifiers (ISBN/externalId) - cannot use advisory lock. Race condition possible.");
-            return lookupBookByIdentifiers(aggregate);
+            return lookupByIdentifiers(aggregate);
         }
         try {
-            jdbcTemplate.execute("SELECT pg_advisory_xact_lock(" + lockKey + ")");
+            jdbcTemplate.update("SELECT pg_advisory_xact_lock(?)", lockKey);
             log.debug("Acquired advisory lock {} for book lookup", lockKey);
         } catch (DataAccessException e) {
             log.error("Failed to acquire advisory lock {} during book lookup: {}", lockKey, e.getMessage(), e);
             throw new AdvisoryLockAcquisitionException(lockKey, e);
         }
-        return lookupBookByIdentifiers(aggregate);
+        return lookupByIdentifiers(aggregate);
     }
 
-    private Optional<UUID> lookupBookByIdentifiers(BookAggregate aggregate) {
-        return findBookByIdentifiersUnsafe(aggregate);
-    }
-
-    private Optional<UUID> findBookByIdentifiersUnsafe(BookAggregate aggregate) {
+    private Optional<UUID> lookupByIdentifiers(BookAggregate aggregate) {
         String sanitizedIsbn13 = IsbnUtils.sanitize(aggregate.getIsbn13());
         if (sanitizedIsbn13 != null) {
             Optional<UUID> existing = findBookByIsbn13(sanitizedIsbn13);

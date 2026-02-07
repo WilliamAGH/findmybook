@@ -1,12 +1,9 @@
 package net.findmybook.service;
 
 import net.findmybook.model.Book;
-import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.model.image.CoverImages;
 import net.findmybook.util.ApplicationConstants;
 import net.findmybook.util.cover.CoverSourceMapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -23,7 +20,6 @@ import java.util.UUID;
  */
 final class PostgresBookDetailHydrator {
 
-    private static final Logger LOG = LoggerFactory.getLogger(PostgresBookDetailHydrator.class);
     private static final String PROVIDER_GOOGLE_BOOKS = ApplicationConstants.Provider.GOOGLE_BOOKS;
 
     private final JdbcTemplate jdbcTemplate;
@@ -156,7 +152,7 @@ final class PostgresBookDetailHydrator {
                 """;
         try {
             List<String> recommendations = jdbcTemplate.query(sql, ps -> ps.setObject(1, canonicalId), (rs, rowNum) -> rs.getString("recommended_book_id"));
-            book.setCachedRecommendationIds(recommendations == null || recommendations.isEmpty() ? List.of() : recommendations);
+            book.setCachedRecommendationIds(recommendations.isEmpty() ? List.of() : recommendations);
         } catch (DataAccessException ex) {
             throw new IllegalStateException("Failed to hydrate recommendations for canonical book " + canonicalId, ex);
         }

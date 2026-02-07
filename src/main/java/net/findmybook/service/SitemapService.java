@@ -391,13 +391,17 @@ public class SitemapService {
 
     private <T> T cached(Cache cache, Object key, Supplier<T> loader) {
         try {
-            return cache.get(key, () -> {
+            T result = cache.get(key, () -> {
                 T loaded = loader.get();
                 if (loaded == null) {
                     throw new IllegalStateException("Cache loader returned null for key " + key);
                 }
                 return loaded;
             });
+            if (result == null) {
+                throw new IllegalStateException("Cache returned null for key " + key);
+            }
+            return result;
         } catch (Cache.ValueRetrievalException exception) {
             Throwable cause = exception.getCause();
             if (cause instanceof RuntimeException runtimeException) {

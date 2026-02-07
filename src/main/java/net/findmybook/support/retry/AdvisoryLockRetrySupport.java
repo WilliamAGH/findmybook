@@ -58,7 +58,10 @@ public final class AdvisoryLockRetrySupport {
                 }
             }
         }
-        throw lastException;
+        throw new IllegalStateException(
+            "Advisory lock acquisition failed for operation '" + operationLabel + "' after " + maxAttempts + " attempts",
+            lastException
+        );
     }
 
     private static void sleepUnchecked(long durationMillis) {
