@@ -77,9 +77,7 @@ public class BookQueryRepository {
         if (bookId == null) {
             return Optional.empty();
         }
-        String sql = "SELECT * FROM get_book_cards(?::UUID[])";
-        UUID[] idsArray = new UUID[] { bookId };
-        List<BookCard> cards = jdbcTemplate.query(sql, rowMapperFactory.bookCardRowMapper(), (Object) idsArray);
+        List<BookCard> cards = fetchBookCards(List.of(bookId));
         return cards.isEmpty() ? Optional.empty() : Optional.of(cards.get(0));
     }
 
