@@ -18,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 
@@ -97,7 +98,7 @@ class AdminControllerTest {
 
     @Test
     void triggerS3CoverMoveAction_shouldReturnInternalServerError_WhenUnexpectedFailureOccurs() {
-        when(s3CoverCleanupService.performMoveAction(anyString(), anyInt(), anyString()))
+        when(s3CoverCleanupService.performMoveAction(nullable(String.class), anyInt(), anyString()))
             .thenThrow(new RuntimeException("S3 move failed"));
 
         ResponseEntity<?> response = adminController.triggerS3CoverMoveAction(null, 10, TEST_QUARANTINE_PREFIX);
