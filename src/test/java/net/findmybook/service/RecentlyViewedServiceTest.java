@@ -67,13 +67,11 @@ class RecentlyViewedServiceTest {
     }
 
     @Test
-    void getRecentlyViewedBookIds_handlesRepositoryErrorsGracefully() {
+    void getRecentlyViewedBookIds_throwsWhenRepositoryFails() {
         when(recentBookViewRepository.isEnabled()).thenReturn(true);
         when(recentBookViewRepository.fetchMostRecentViews(anyInt())).thenThrow(new RuntimeException("boom"));
 
-        List<String> ids = recentlyViewedService.getRecentlyViewedBookIds(4);
-
-        assertTrue(ids.isEmpty());
+        assertThrows(IllegalStateException.class, () -> recentlyViewedService.getRecentlyViewedBookIds(4));
         verify(recentBookViewRepository).fetchMostRecentViews(4);
     }
 

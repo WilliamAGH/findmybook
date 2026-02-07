@@ -4,8 +4,8 @@ import net.findmybook.dto.BookListItem;
 import net.findmybook.model.Book;
 import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.model.image.ImageResolutionPreference;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 import net.findmybook.dto.BookAggregate;
 import net.findmybook.mapper.GoogleBooksMapper;
 import net.findmybook.repository.BookQueryRepository;
@@ -393,8 +393,8 @@ class SearchPaginationServiceTest {
             .thenReturn(Flux.just(node));
         when(googleApiFetcher.isFallbackAllowed()).thenReturn(false);
         when(googleBooksMapper.map(node)).thenReturn(aggregate);
-        when(openLibraryBookDataService.searchBooks(eq("distributed systems"), eq(false))).thenReturn(Flux.empty());
-        when(openLibraryBookDataService.searchBooks(eq("distributed systems"), eq(true))).thenReturn(Flux.empty());
+        when(openLibraryBookDataService.searchBooksByTitle(eq("distributed systems"))).thenReturn(Flux.empty());
+        when(openLibraryBookDataService.searchBooksByAuthor(eq("distributed systems"))).thenReturn(Flux.empty());
 
         SearchPaginationService realtimeService = new SearchPaginationService(
             bookSearchService,
@@ -490,7 +490,8 @@ class SearchPaginationServiceTest {
                 jdbcTemplate,
                 Optional.empty(),
                 Optional.empty(),
-                Optional.empty()
+                Optional.empty(),
+                false
             );
         }
 

@@ -14,6 +14,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -22,6 +23,10 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class AdminControllerTest {
+
+    private static final String TEST_S3_PREFIX = "images/book-covers/";
+    private static final int TEST_BATCH_LIMIT = 100;
+    private static final String TEST_QUARANTINE_PREFIX = "images/non-covers-pages/";
 
     @Mock
     private S3CoverCleanupService s3CoverCleanupService;
@@ -48,9 +53,9 @@ class AdminControllerTest {
             backfillCoordinator,
             bookCacheWarmingScheduler,
             apiCircuitBreakerService,
-            "images/book-covers/",
-            100,
-            "images/non-covers-pages/"
+            TEST_S3_PREFIX,
+            TEST_BATCH_LIMIT,
+            TEST_QUARANTINE_PREFIX
         );
     }
 
@@ -86,7 +91,8 @@ class AdminControllerTest {
         ResponseEntity<String> response = adminController.triggerS3CoverCleanupDryRun(null, 25);
 
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
-        assertTrue(response.getBody() != null && response.getBody().contains("Error during S3 Cover Cleanup Dry Run"));
+        assertNotNull(response.getBody(), "Response body should not be null for error responses");
+        assertTrue(response.getBody().contains("Error during S3 Cover Cleanup Dry Run"));
     }
 
     @Test
@@ -94,7 +100,7 @@ class AdminControllerTest {
         when(s3CoverCleanupService.performMoveAction(anyString(), anyInt(), anyString()))
             .thenThrow(new RuntimeException("S3 move failed"));
 
-        ResponseEntity<?> response = adminController.triggerS3CoverMoveAction(null, 10, "images/quarantine/");
+        ResponseEntity<?> response = adminController.triggerS3CoverMoveAction(null, 10, TEST_QUARANTINE_PREFIX);
 
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
     }

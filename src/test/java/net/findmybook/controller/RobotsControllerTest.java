@@ -14,14 +14,17 @@ package net.findmybook.controller;
 
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.support.NoOpCacheManager;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -35,11 +38,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @WebMvcTest(RobotsController.class)
 class RobotsControllerTest {
 
+    @MockitoBean
+    private CacheManager cacheManager;
+
     /**
      * Test security configuration allowing anonymous access to robots.txt
      * 
      */
-    @Configuration
+    @TestConfiguration
     @EnableWebSecurity
     static class TestSecurityConfig {
         /**
@@ -58,6 +64,11 @@ class RobotsControllerTest {
                     authorizeRequests.requestMatchers("/robots.txt").permitAll())
                 .csrf(csrf -> csrf.disable());
             return http.build();
+        }
+
+        @Bean
+        public CacheManager cacheManager() {
+            return new NoOpCacheManager();
         }
     }
 

@@ -1,8 +1,8 @@
 package net.findmybook.testutil;
 
 import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
-import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
-import org.springframework.boot.autoconfigure.jdbc.JdbcTemplateAutoConfiguration;
+import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration;
+import org.springframework.boot.jdbc.autoconfigure.JdbcTemplateAutoConfiguration;
 import org.springframework.boot.test.context.TestConfiguration;
 
 /**
@@ -14,7 +14,7 @@ import org.springframework.boot.test.context.TestConfiguration;
  * - Marked as @TestConfiguration so it is NOT picked up by component scanning in @SpringBootTest
  *   contexts; it will only apply when explicitly imported (e.g., via @ContextConfiguration).
  * - Do not combine @AutoConfigureTestDatabase with configuration classes. Apply it on test classes
- *   like @DataJdbcTest or @SpringBootTest when needed.
+ *   like @JdbcTest or @SpringBootTest when needed.
  */
 @TestConfiguration
 @ImportAutoConfiguration({

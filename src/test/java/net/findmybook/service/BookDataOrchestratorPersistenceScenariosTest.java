@@ -24,7 +24,6 @@ import java.time.Instant;
 import java.util.Date;
 import java.util.List;
 import java.util.UUID;
-import java.sql.SQLException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -161,8 +160,8 @@ class BookDataOrchestratorPersistenceScenariosTest {
     }
 
     @Test
-    void isSystemicDatabaseError_detectsWrappedSqlConnectionFailure() {
-        SQLException rootCause = new SQLException("Connection refused");
+    void isSystemicDatabaseError_detectsWrappedConnectionFailure() {
+        java.net.ConnectException rootCause = new java.net.ConnectException("Connection refused");
         RuntimeException wrapped = new RuntimeException("Systemic database error during upsert", rootCause);
 
         Boolean systemic = ReflectionTestUtils.invokeMethod(orchestrator, "isSystemicDatabaseError", wrapped);

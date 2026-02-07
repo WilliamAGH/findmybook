@@ -1,7 +1,7 @@
 package net.findmybook.service.cache;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 import net.findmybook.model.Book;
 import net.findmybook.service.GoogleBooksMockService;
 import net.findmybook.util.SearchQueryUtils;
@@ -23,10 +23,8 @@ class GoogleBooksMockServiceCacheKeyTest {
     @Test
     void saveSearchResultsUsesSearchQueryUtilsCacheKey() throws Exception {
         ObjectMapper mapper = new ObjectMapper();
-        GoogleBooksMockService mockService = new GoogleBooksMockService(mapper, new FileSystemResourceLoader());
-
-        setField(mockService, "mockResponseDirectory", tempDir.toString());
-        setField(mockService, "mockEnabled", true);
+        GoogleBooksMockService mockService = new GoogleBooksMockService(
+                mapper, new FileSystemResourceLoader(), tempDir.toString(), true);
 
         List<Book> books = List.of(new Book());
         String query = "C# in Depth";
@@ -43,10 +41,8 @@ class GoogleBooksMockServiceCacheKeyTest {
     @Test
     void searchUsesSameCacheKeyForRetrieval() throws Exception {
         ObjectMapper mapper = new ObjectMapper();
-        GoogleBooksMockService mockService = new GoogleBooksMockService(mapper, new FileSystemResourceLoader());
-
-        setField(mockService, "mockResponseDirectory", tempDir.toString());
-        setField(mockService, "mockEnabled", true);
+        GoogleBooksMockService mockService = new GoogleBooksMockService(
+                mapper, new FileSystemResourceLoader(), tempDir.toString(), true);
 
         ObjectNode bookNode = mapper.createObjectNode();
         bookNode.put("id", "abc123");
@@ -62,11 +58,5 @@ class GoogleBooksMockServiceCacheKeyTest {
         String expectedFilename = SearchQueryUtils.cacheKey("Distributed Systems");
         Path expectedPath = tempDir.resolve("searches").resolve(expectedFilename);
         assertThat(Files.exists(expectedPath)).isTrue();
-    }
-
-    private static void setField(Object target, String fieldName, Object value) throws Exception {
-        var field = GoogleBooksMockService.class.getDeclaredField(fieldName);
-        field.setAccessible(true);
-        field.set(target, value);
     }
 }

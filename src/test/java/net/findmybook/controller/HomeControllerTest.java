@@ -41,7 +41,7 @@ import static org.mockito.ArgumentMatchers.anyString; // For mocking getSimilarB
 import static org.mockito.ArgumentMatchers.anyInt; // For mocking getSimilarBooks
 import static org.mockito.ArgumentMatchers.eq; // For mocking specific values
 import reactor.core.publisher.Mono; // For mocking reactive service
-@WebFluxTest(value = HomeController.class,
+@WebFluxTest(value = {HomeController.class, BookDetailPageController.class},
     excludeAutoConfiguration = org.springframework.boot.security.autoconfigure.web.reactive.ReactiveWebSecurityAutoConfiguration.class)
 @TestPropertySource(properties = {
     "spring.aop.proxy-target-class=true",

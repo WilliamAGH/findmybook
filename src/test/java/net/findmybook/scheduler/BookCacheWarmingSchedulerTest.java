@@ -7,7 +7,7 @@ import net.findmybook.service.BookIdentifierResolver;
 import net.findmybook.service.RecentlyViewedService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.context.ApplicationContext;
+import org.springframework.beans.factory.ObjectProvider;
 
 import java.lang.reflect.Field;
 import java.time.LocalDate;
@@ -24,7 +24,7 @@ import static org.mockito.Mockito.when;
 class BookCacheWarmingSchedulerTest {
 
     private RecentlyViewedService recentlyViewedService;
-    private ApplicationContext applicationContext;
+    private ObjectProvider<ApiRequestMonitor> apiRequestMonitorProvider;
     private BookQueryRepository bookQueryRepository;
     private BookIdentifierResolver bookIdentifierResolver;
     private BookCacheWarmingScheduler scheduler;
@@ -32,11 +32,11 @@ class BookCacheWarmingSchedulerTest {
     @BeforeEach
     void setUp() {
         recentlyViewedService = mock(RecentlyViewedService.class);
-        applicationContext = mock(ApplicationContext.class);
+        apiRequestMonitorProvider = mock(ObjectProvider.class);
         bookQueryRepository = mock(BookQueryRepository.class);
         bookIdentifierResolver = mock(BookIdentifierResolver.class);
 
-        scheduler = new BookCacheWarmingScheduler(recentlyViewedService, applicationContext, bookQueryRepository, bookIdentifierResolver);
+        scheduler = new BookCacheWarmingScheduler(recentlyViewedService, apiRequestMonitorProvider, bookQueryRepository, bookIdentifierResolver);
 
         setField("cacheWarmingEnabled", true);
         setField("rateLimit", 60_000); // ~1 request per millisecond
@@ -44,7 +44,7 @@ class BookCacheWarmingSchedulerTest {
 
         ApiRequestMonitor apiRequestMonitor = mock(ApiRequestMonitor.class);
         when(apiRequestMonitor.getCurrentHourlyRequests()).thenReturn(0);
-        when(applicationContext.getBean(ApiRequestMonitor.class)).thenReturn(apiRequestMonitor);
+        when(apiRequestMonitorProvider.getIfAvailable()).thenReturn(apiRequestMonitor);
     }
 
     @Test

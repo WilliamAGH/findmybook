@@ -9,9 +9,9 @@
  */
 package net.findmybook.test.config;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 import net.findmybook.service.S3StorageService;
 import net.findmybook.service.s3.S3FetchResult;
 import net.findmybook.util.S3Paths;

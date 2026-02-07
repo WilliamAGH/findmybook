@@ -23,7 +23,6 @@ class S3BookCoverServiceValidationTest {
     private S3Client s3Client;
     private Environment environment;
     private CoverUrlSafetyValidator coverUrlSafetyValidator;
-    private S3CoverKeyResolver s3CoverKeyResolver;
     private S3CoverUrlSupport s3CoverUrlSupport;
 
     @BeforeEach
@@ -32,7 +31,6 @@ class S3BookCoverServiceValidationTest {
         s3Client = Mockito.mock(S3Client.class);
         environment = Mockito.mock(Environment.class);
         coverUrlSafetyValidator = new CoverUrlSafetyValidator();
-        s3CoverKeyResolver = new S3CoverKeyResolver();
         s3CoverUrlSupport = buildUrlSupport(
             "https://cdn.example.com",
             "",
@@ -43,15 +41,13 @@ class S3BookCoverServiceValidationTest {
     }
 
     private S3BookCoverService buildService(boolean s3Enabled, boolean s3WriteEnabled) {
-        S3CoverStorageProperties s3CoverStorageProperties = new S3CoverStorageProperties();
-        s3CoverStorageProperties.setEnabled(s3Enabled);
-        s3CoverStorageProperties.setWriteEnabled(s3WriteEnabled);
+        S3CoverStorageProperties s3CoverStorageProperties = new S3CoverStorageProperties(
+                s3Enabled, s3WriteEnabled, ".jpg", java.util.List.of("google-books", "open-library", "longitood"));
 
         S3CoverObjectLookupSupport s3CoverObjectLookupSupport =
-            new S3CoverObjectLookupSupport(s3Client, s3CoverKeyResolver, "test-bucket");
+            new S3CoverObjectLookupSupport(s3Client, "test-bucket");
         S3CoverUploadExecutor s3CoverUploadExecutor = new S3CoverUploadExecutor(
             s3Client,
-            s3CoverKeyResolver,
             s3CoverObjectLookupSupport,
             s3CoverUrlSupport
         );

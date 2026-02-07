@@ -1,8 +1,7 @@
 package net.findmybook.testutil;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -14,8 +13,7 @@ import java.util.Objects;
  */
 public final class PostgresFixtures {
 
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
-            .registerModule(new JavaTimeModule());
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final String FIXTURE_ROOT = "/fixtures/postgres/";
 
     private PostgresFixtures() {

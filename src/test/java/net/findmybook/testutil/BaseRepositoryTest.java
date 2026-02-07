@@ -1,8 +1,8 @@
 package net.findmybook.testutil;
 
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.data.jdbc.DataJdbcTest;
-import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
+import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
+import org.springframework.boot.jdbc.test.autoconfigure.JdbcTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ContextConfiguration;
@@ -12,7 +12,7 @@ import software.amazon.awssdk.services.s3.S3Client;
  * Base class for repository tests with common database setup.
  * Reduces duplication across repository test classes.
  */
-@DataJdbcTest
+@JdbcTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @ContextConfiguration(classes = {TestDatabaseConfig.class})
 public abstract class BaseRepositoryTest {

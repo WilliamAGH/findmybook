@@ -18,9 +18,9 @@ import org.springframework.jdbc.CannotGetJdbcConnectionException;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -43,21 +43,7 @@ class SitemapServiceTest {
         if (cacheManager instanceof SimpleCacheManager simpleCacheManager) {
             simpleCacheManager.initializeCaches();
         }
-        sitemapService = new SitemapService(sitemapRepository, sitemapProperties, cacheManager, Optional.empty());
-    }
-
-    private SitemapService newServiceWithFallback(SitemapService.FallbackSnapshot snapshot) {
-        CacheComponentsConfig cacheConfig = new CacheComponentsConfig();
-        CacheManager cacheManager = cacheConfig.sitemapCacheManager(sitemapProperties);
-        if (cacheManager instanceof SimpleCacheManager simpleCacheManager) {
-            simpleCacheManager.initializeCaches();
-        }
-        return new SitemapService(
-                sitemapRepository,
-                sitemapProperties,
-                cacheManager,
-                Optional.of(() -> Optional.of(snapshot))
-        );
+        sitemapService = new SitemapService(sitemapRepository, sitemapProperties, cacheManager);
     }
 
     @Test
@@ -207,51 +193,31 @@ class SitemapServiceTest {
     }
 
     @Test
-    void getBooksXmlPageCount_usesFallbackWhenDataAccessFails() {
+    void getBooksXmlPageCount_throwsWhenDataAccessFails() {
         when(sitemapRepository.countAllBooks()).thenThrow(new CannotGetJdbcConnectionException("db down", new SQLException("auth")));
 
-        SitemapService.FallbackSnapshot snapshot = new SitemapService.FallbackSnapshot(
-                Instant.parse("2024-01-01T00:00:00Z"),
-                List.of(new SitemapService.BookSitemapItem("1", "slug-a", "Alpha", Instant.parse("2024-01-01T00:00:00Z")))
-        );
-        SitemapService serviceWithFallback = newServiceWithFallback(snapshot);
-
-        int pageCount = serviceWithFallback.getBooksXmlPageCount();
-        assertThat(pageCount).isEqualTo(1);
+        assertThatThrownBy(() -> sitemapService.getBooksXmlPageCount())
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("book XML page count");
     }
 
     @Test
-    void getBooksForXmlPage_usesFallbackWhenDataAccessFails() {
+    void getBooksForXmlPage_throwsWhenDataAccessFails() {
         when(sitemapRepository.fetchBooksForXml(5000, 0))
                 .thenThrow(new CannotGetJdbcConnectionException("db down", new SQLException("auth")));
 
-        SitemapService.BookSitemapItem fallbackItem = new SitemapService.BookSitemapItem(
-                "1", "slug-a", "Alpha", Instant.parse("2024-01-01T00:00:00Z"));
-        SitemapService.FallbackSnapshot snapshot = new SitemapService.FallbackSnapshot(
-                Instant.parse("2024-01-01T00:00:00Z"), List.of(fallbackItem));
-
-        SitemapService serviceWithFallback = newServiceWithFallback(snapshot);
-
-        List<SitemapService.BookSitemapItem> items = serviceWithFallback.getBooksForXmlPage(1);
-        assertThat(items).containsExactly(fallbackItem);
+        assertThatThrownBy(() -> sitemapService.getBooksForXmlPage(1))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("XML page 1");
     }
 
     @Test
-    void getBookSitemapPageMetadata_usesFallbackWhenRepositoryUnavailable() {
+    void getBookSitemapPageMetadata_throwsWhenRepositoryUnavailable() {
         when(sitemapRepository.fetchBookPageMetadata(5000))
                 .thenThrow(new CannotGetJdbcConnectionException("db down", new SQLException("auth")));
 
-        SitemapService.BookSitemapItem first = new SitemapService.BookSitemapItem(
-                "1", "slug-a", "Alpha", Instant.parse("2024-03-01T00:00:00Z"));
-        SitemapService.BookSitemapItem second = new SitemapService.BookSitemapItem(
-                "2", "slug-b", "Beta", Instant.parse("2024-03-02T00:00:00Z"));
-        SitemapService.FallbackSnapshot snapshot = new SitemapService.FallbackSnapshot(
-                Instant.parse("2024-03-03T00:00:00Z"), List.of(first, second));
-
-        SitemapService serviceWithFallback = newServiceWithFallback(snapshot);
-
-        List<SitemapService.SitemapPageMetadata> metadata = serviceWithFallback.getBookSitemapPageMetadata();
-        assertThat(metadata).hasSize(1);
-        assertThat(metadata.get(0).lastModified()).isEqualTo(second.updatedAt());
+        assertThatThrownBy(() -> sitemapService.getBookSitemapPageMetadata())
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("book sitemap metadata");
     }
 }

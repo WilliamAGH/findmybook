@@ -127,7 +127,7 @@ class CoverPrioritizerTest {
             insertionOrder.put(books.get(i).getId(), i);
         }
 
-        books.sort(CoverPrioritizer.bookComparator(insertionOrder, null));
+        books.sort(CoverPrioritizer.bookComparator(insertionOrder));
 
         assertThat(books)
             .extracting(Book::getId)
