@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
@@ -33,10 +34,16 @@ class AdminControllerTest {
     private S3CoverCleanupService s3CoverCleanupService;
 
     @Mock
+    private ObjectProvider<S3CoverCleanupService> s3CoverCleanupServiceProvider;
+
+    @Mock
     private NewYorkTimesBestsellerScheduler newYorkTimesBestsellerScheduler;
 
     @Mock
     private BackfillCoordinator backfillCoordinator;
+
+    @Mock
+    private ObjectProvider<BackfillCoordinator> backfillCoordinatorProvider;
 
     @Mock
     private BookCacheWarmingScheduler bookCacheWarmingScheduler;
@@ -48,10 +55,12 @@ class AdminControllerTest {
 
     @BeforeEach
     void setUp() {
+        when(s3CoverCleanupServiceProvider.getIfAvailable()).thenReturn(s3CoverCleanupService);
+        when(backfillCoordinatorProvider.getIfAvailable()).thenReturn(backfillCoordinator);
         adminController = new AdminController(
-            s3CoverCleanupService,
+            s3CoverCleanupServiceProvider,
             newYorkTimesBestsellerScheduler,
-            backfillCoordinator,
+            backfillCoordinatorProvider,
             bookCacheWarmingScheduler,
             apiCircuitBreakerService,
             TEST_S3_PREFIX,
@@ -101,7 +110,7 @@ class AdminControllerTest {
         when(s3CoverCleanupService.performMoveAction(nullable(String.class), anyInt(), anyString()))
             .thenThrow(new RuntimeException("S3 move failed"));
 
-        ResponseEntity<?> response = adminController.triggerS3CoverMoveAction(null, 10, TEST_QUARANTINE_PREFIX);
+        ResponseEntity<Object> response = adminController.triggerS3CoverMoveAction(null, 10, TEST_QUARANTINE_PREFIX);
 
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
     }

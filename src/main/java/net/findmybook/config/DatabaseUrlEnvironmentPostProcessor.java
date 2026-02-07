@@ -273,7 +273,8 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
             // Highest precedence so these values win over application.yml
             sources.addFirst(new MapPropertySource("databaseUrlProcessor", overrides));
         } catch (RuntimeException e) {
-            logBootstrapWarning("Failed to normalize datasource properties; Spring will use raw configuration. Cause: " + e.getMessage());
+            throw new IllegalStateException(
+                "Failed to normalize datasource properties: " + e.getMessage(), e);
         }
     }
 

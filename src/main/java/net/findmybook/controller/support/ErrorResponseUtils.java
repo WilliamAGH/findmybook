@@ -27,19 +27,19 @@ public final class ErrorResponseUtils {
         return body;
     }
 
-    public static ResponseEntity<Map<String, String>> error(HttpStatus status, String message) {
+    public static ResponseEntity<Object> error(HttpStatus status, String message) {
         return error(status, message, null);
     }
 
-    public static ResponseEntity<Map<String, String>> error(HttpStatus status, String message, String detail) {
+    public static ResponseEntity<Object> error(HttpStatus status, String message, String detail) {
         return ResponseEntity.status(status).body(errorBody(message, detail));
     }
 
-    public static ResponseEntity<Map<String, String>> internalServerError(String message, String detail) {
+    public static ResponseEntity<Object> internalServerError(String message, String detail) {
         return error(HttpStatus.INTERNAL_SERVER_ERROR, message, detail);
     }
 
-    public static ResponseEntity<Map<String, String>> badRequest(String message, String detail) {
+    public static ResponseEntity<Object> badRequest(String message, String detail) {
         return error(HttpStatus.BAD_REQUEST, message, detail);
     }
 }
