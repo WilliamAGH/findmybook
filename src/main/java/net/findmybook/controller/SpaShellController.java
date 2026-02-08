@@ -26,8 +26,7 @@ abstract class SpaShellController {
 
     /** Renders the SEO-enriched HTML shell and wraps it in an {@link ResponseEntity}. */
     protected ResponseEntity<String> spaResponse(BookSeoMetadataService.SeoMetadata metadata,
-                                                  String requestPath,
-                                                  HttpStatus status) {
+                                                 HttpStatus status) {
         String html = bookSeoMetadataService.renderSpaShell(metadata);
         return ResponseEntity.status(status)
             .contentType(MediaType.TEXT_HTML)
