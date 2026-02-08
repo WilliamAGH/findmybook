@@ -27,23 +27,24 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * Controller responsible for generating the server-rendered sitemap page and XML sitemap feeds.
+ * Serves the browsable sitemap HTML shell ({@code /sitemap/**}) and the
+ * XML sitemap feeds ({@code /sitemap.xml}, {@code /sitemap-xml/**}) consumed
+ * by search-engine crawlers.
  */
 @Controller
-public class SitemapController {
+public class SitemapController extends SpaShellController {
 
     private static final DateTimeFormatter LAST_MODIFIED_FORMATTER = DateTimeFormatter.ISO_INSTANT;
 
     private final SitemapService sitemapService;
     private final SitemapProperties sitemapProperties;
-    private final BookSeoMetadataService bookSeoMetadataService;
 
     public SitemapController(SitemapService sitemapService,
                              SitemapProperties sitemapProperties,
                              BookSeoMetadataService bookSeoMetadataService) {
+        super(bookSeoMetadataService);
         this.sitemapService = sitemapService;
         this.sitemapProperties = sitemapProperties;
-        this.bookSeoMetadataService = bookSeoMetadataService;
     }
 
     @GetMapping("/sitemap")
@@ -72,10 +73,7 @@ public class SitemapController {
 
         String canonicalPath = "/sitemap/" + normalizedView + "/" + bucket + "/" + safePage;
         BookSeoMetadataService.SeoMetadata metadata = bookSeoMetadataService.sitemapMetadata(canonicalPath);
-        String html = bookSeoMetadataService.renderSpaShell(metadata, canonicalPath, HttpStatus.OK.value());
-        return ResponseEntity.ok()
-            .contentType(MediaType.TEXT_HTML)
-            .body(html);
+        return spaResponse(metadata, canonicalPath, HttpStatus.OK);
     }
 
     @GetMapping(value = "/sitemap.xml", produces = MediaType.APPLICATION_XML_VALUE)
