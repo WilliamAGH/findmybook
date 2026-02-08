@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/svelte";
+import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 
 const {
   searchBooksMock,
@@ -145,6 +145,61 @@ describe("component rendering", () => {
     });
 
     expect(screen.getByText("Unknown Author")).toBeInTheDocument();
+  });
+
+  it("shouldFallbackToSecondaryCoverWhenPreferredCoverFails", async () => {
+    render(BookCard, {
+      props: {
+        layout: "grid",
+        href: "/book/fallback-case",
+        book: {
+          id: "book-fallback-1",
+          slug: "fallback-case",
+          title: "Fallback Case",
+          authors: ["Author"],
+          coverUrl: "https://cdn.example.com/preferred-cover.jpg",
+          fallbackCoverUrl: "https://cdn.example.com/fallback-cover.jpg",
+        },
+      },
+    });
+
+    const cover = screen.getByAltText("Fallback Case cover") as HTMLImageElement;
+    expect(cover.getAttribute("src")).toContain("preferred-cover.jpg");
+
+    await fireEvent.error(cover);
+    await waitFor(() => {
+      expect(cover.getAttribute("src")).toContain("fallback-cover.jpg");
+    });
+  });
+
+  it("shouldFallbackToPlaceholderWhenPreferredAndSecondaryCoversFail", async () => {
+    render(BookCard, {
+      props: {
+        layout: "grid",
+        href: "/book/fallback-placeholder-case",
+        book: {
+          id: "book-fallback-2",
+          slug: "fallback-placeholder-case",
+          title: "Fallback Placeholder Case",
+          authors: ["Author"],
+          coverUrl: "https://cdn.example.com/preferred-cover.jpg",
+          fallbackCoverUrl: "https://cdn.example.com/fallback-cover.jpg",
+        },
+      },
+    });
+
+    const cover = screen.getByAltText("Fallback Placeholder Case cover") as HTMLImageElement;
+    expect(cover.getAttribute("src")).toContain("preferred-cover.jpg");
+
+    await fireEvent.error(cover);
+    await waitFor(() => {
+      expect(cover.getAttribute("src")).toContain("fallback-cover.jpg");
+    });
+
+    await fireEvent.error(cover);
+    await waitFor(() => {
+      expect(cover.getAttribute("src")).toContain("/images/placeholder-book-cover.svg");
+    });
   });
 
   it("shouldRenderNotFoundPageCallToAction", () => {

@@ -28,14 +28,38 @@
 
   const fallbackImage = "/images/placeholder-book-cover.svg";
 
-  function coverSource(): string {
+  function preferredCoverSource(): string {
     if (book.coverUrl && book.coverUrl.trim().length > 0) {
       return book.coverUrl;
     }
+    return fallbackCoverSource();
+  }
+
+  function fallbackCoverSource(): string {
     if (book.fallbackCoverUrl && book.fallbackCoverUrl.trim().length > 0) {
       return book.fallbackCoverUrl;
     }
     return fallbackImage;
+  }
+
+  let renderedCoverUrl = $state<string>(preferredCoverSource());
+
+  $effect(() => {
+    renderedCoverUrl = preferredCoverSource();
+  });
+
+  function handleCoverError(): void {
+    const failedUrl = renderedCoverUrl;
+    const fallbackUrl = fallbackCoverSource();
+    if (renderedCoverUrl !== fallbackUrl) {
+      console.warn(`[BookCard] Cover load failed for "${book.title}": ${failedUrl} → falling back to ${fallbackUrl}`);
+      renderedCoverUrl = fallbackUrl;
+      return;
+    }
+    if (renderedCoverUrl !== fallbackImage) {
+      console.warn(`[BookCard] Fallback cover also failed for "${book.title}": ${failedUrl} → using placeholder`);
+      renderedCoverUrl = fallbackImage;
+    }
   }
 
   function viewStat(key: string): number | null {
@@ -68,7 +92,7 @@
 {#if layout === "list"}
   <article class="flex gap-4 rounded-xl border border-linen-300 bg-white p-4 shadow-soft transition-all duration-300 hover:shadow-book hover:-translate-y-0.5 dark:border-slate-700 dark:bg-slate-800">
     <a href={href} class="flex h-40 w-28 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-linen-50 dark:bg-slate-900">
-      <img src={coverSource()} alt={`${book.title} cover`} class="max-h-full w-auto object-contain" loading="lazy" />
+      <img src={renderedCoverUrl} alt={`${book.title} cover`} class="max-h-full w-auto object-contain" loading="lazy" onerror={handleCoverError} />
     </a>
     <div class="flex min-w-0 flex-1 flex-col gap-2">
       <a href={href} class="line-clamp-2 text-lg font-semibold text-anthracite-900 transition hover:text-canvas-600 dark:text-slate-100 dark:hover:text-canvas-400">
@@ -95,10 +119,11 @@
     <div class="relative flex h-80 items-center justify-center overflow-hidden bg-linen-50 p-4 dark:bg-slate-900">
       <a href={href} class="flex h-full w-full items-center justify-center">
         <img
-          src={coverSource()}
+          src={renderedCoverUrl}
           alt={`${book.title} cover`}
           class="max-h-full w-auto object-contain transition-transform duration-300 group-hover:scale-105"
           loading="lazy"
+          onerror={handleCoverError}
         />
       </a>
 

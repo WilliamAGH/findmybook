@@ -36,6 +36,8 @@
   let affiliateLinks = $state<Record<string, string>>({});
   let liveCoverUrl = $state<string | null>(null);
   let tagsExpanded = $state(false);
+  const fallbackCoverImage = "/images/placeholder-book-cover.svg";
+  let detailCoverUrl = $state<string>(fallbackCoverImage);
 
   let unsubscribeRealtime: (() => void) | null = null;
   let loadSequence = 0;
@@ -92,7 +94,7 @@
     }
   }
 
-  function bookCoverUrl(): string {
+  function preferredBookCoverUrl(): string {
     if (liveCoverUrl && liveCoverUrl.trim().length > 0) {
       return liveCoverUrl;
     }
@@ -105,7 +107,28 @@
       return book.cover.fallbackUrl;
     }
 
-    return "/images/placeholder-book-cover.svg";
+    return detailFallbackUrl();
+  }
+
+  function detailFallbackUrl(): string {
+    if (book?.cover?.fallbackUrl && book.cover.fallbackUrl.trim().length > 0) {
+      return book.cover.fallbackUrl;
+    }
+    return fallbackCoverImage;
+  }
+
+  function handleDetailCoverError(): void {
+    const failedUrl = detailCoverUrl;
+    const fallbackUrl = detailFallbackUrl();
+    if (detailCoverUrl !== fallbackUrl) {
+      console.warn(`[BookPage] Cover load failed for "${book?.title}": ${failedUrl} → falling back to ${fallbackUrl}`);
+      detailCoverUrl = fallbackUrl;
+      return;
+    }
+    if (detailCoverUrl !== fallbackCoverImage) {
+      console.warn(`[BookPage] Fallback cover also failed for "${book?.title}": ${failedUrl} → using placeholder`);
+      detailCoverUrl = fallbackCoverImage;
+    }
   }
 
   function authorNames(): string {
@@ -202,6 +225,10 @@
     }
   });
 
+  $effect(() => {
+    detailCoverUrl = preferredBookCoverUrl();
+  });
+
   onMount(() => {
     return () => {
       if (unsubscribeRealtime) {
@@ -234,10 +261,11 @@
         <!-- Cover -->
         <div class="relative flex items-center justify-center overflow-hidden rounded-xl bg-linen-50 p-6 dark:bg-slate-900">
           <img
-            src={bookCoverUrl()}
+            src={detailCoverUrl}
             alt={`${book.title ?? "Book"} cover`}
             class="max-h-[400px] w-auto rounded-book object-contain shadow-book"
             loading="lazy"
+            onerror={handleDetailCoverError}
           />
           {#if book.extras?.averageRating !== undefined && book.extras?.averageRating !== null}
             <div class="absolute right-3 top-3 flex items-center gap-1 rounded-lg bg-canvas-400 px-2.5 py-1 text-sm font-medium text-white shadow-sm">
