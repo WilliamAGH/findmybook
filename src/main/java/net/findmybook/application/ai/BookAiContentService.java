@@ -57,7 +57,6 @@ public class BookAiContentService {
     private static final int MIN_KEY_THEME_COUNT = 1;
 
     private static final int MAX_TAKEAWAY_COUNT = 5;
-    private static final int MIN_TAKEAWAY_COUNT = 1;
     private static final long MAX_COMPLETION_TOKENS = 1000L;
     private static final double SAMPLING_TEMPERATURE = 0.7;
 
@@ -174,7 +173,11 @@ public class BookAiContentService {
                     ChatCompletionUserMessageParam.builder().content(prompt).build()
                 )
             ))
-            .maxTokens(MAX_COMPLETION_TOKENS) // LM Studio 0.4.x only supports max_tokens, not max_completion_tokens
+            // Intentionally using deprecated maxTokens instead of maxCompletionTokens:
+            // LM Studio 0.4.x (and some OpenAI-compatible servers) only supports
+            // the max_tokens wire field, not the newer max_completion_tokens.
+            // See: openai-java SDK 4.16.x deprecation of Builder.maxTokens().
+            .maxTokens(MAX_COMPLETION_TOKENS)
             .temperature(SAMPLING_TEMPERATURE)
             .build();
 
