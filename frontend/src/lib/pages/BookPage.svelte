@@ -2,13 +2,18 @@
   import { onMount } from "svelte";
   import DOMPurify from "dompurify";
   import BookAffiliateLinks from "$lib/components/BookAffiliateLinks.svelte";
+  import BookAiAnalysisPanel from "$lib/components/BookAiAnalysisPanel.svelte";
   import BookCategories from "$lib/components/BookCategories.svelte";
   import BookEditions from "$lib/components/BookEditions.svelte";
   import BookSimilarBooks from "$lib/components/BookSimilarBooks.svelte";
   import { previousSpaPath } from "$lib/router/router";
-  import { getAffiliateLinks, getBook, getSimilarBooks } from "$lib/services/books";
+  import {
+    getAffiliateLinks,
+    getBook,
+    getSimilarBooks,
+  } from "$lib/services/books";
   import { subscribeToBookCoverUpdates } from "$lib/services/realtime";
-  import type { Book } from "$lib/validation/schemas";
+  import type { Book, BookAiSnapshot } from "$lib/validation/schemas";
   import {
     Star,
     ChevronLeft,
@@ -110,6 +115,15 @@
       if (sequence === loadSequence) {
         loading = false;
       }
+    }
+  }
+
+  function handleAiAnalysisUpdate(analysis: BookAiSnapshot): void {
+    if (book) {
+      book = {
+        ...book,
+        ai: analysis,
+      };
     }
   }
 
@@ -321,6 +335,12 @@
           {:else if book.description}
             <p class="whitespace-pre-wrap text-sm leading-relaxed text-anthracite-700 dark:text-slate-300">{book.description}</p>
           {/if}
+
+          <BookAiAnalysisPanel
+            {identifier}
+            {book}
+            onAnalysisUpdate={handleAiAnalysisUpdate}
+          />
 
           <BookCategories categories={book.categories} />
 
