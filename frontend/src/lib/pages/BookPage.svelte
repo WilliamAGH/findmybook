@@ -290,8 +290,12 @@
     });
   }
 
+  let previousBookId = $state<string | null>(null);
+
   $effect(() => {
-    if (book) {
+    const currentId = book?.id ?? null;
+    if (currentId && currentId !== previousBookId) {
+      previousBookId = currentId;
       titleExpanded = false;
       titleOverflows = false;
       measureTitleOverflow();
@@ -360,10 +364,10 @@
     </a>
 
     <!-- Book Detail Card -->
-    <article class="overflow-hidden rounded-xl border border-linen-200 shadow-soft dark:border-slate-700">
+    <article class="overflow-clip rounded-xl border border-linen-200 shadow-soft dark:border-slate-700">
       <div class="grid gap-6 p-5 md:grid-cols-[320px_1fr] md:p-8">
         <!-- Cover -->
-        <div class="relative flex items-center justify-center overflow-hidden rounded-xl bg-linen-50 p-6 dark:bg-slate-900">
+        <div class="md:sticky md:top-20 md:self-start relative flex items-center justify-center overflow-hidden rounded-xl bg-linen-50 p-6 dark:bg-slate-900">
           <img
             src={detailCoverUrl}
             alt={`${book.title ?? "Book"} cover`}
@@ -432,6 +436,8 @@
             </div>
           </dl>
 
+          <BookAffiliateLinks links={affiliateLinks} loadFailed={affiliateLinksFailed} />
+
           <!-- Description -->
           {#if sanitizedDescriptionHtml.length > 0 || book.description}
             <section class="rounded-xl border border-linen-200 bg-linen-50/60 dark:border-slate-700 dark:bg-slate-900/60">
@@ -499,8 +505,6 @@
           />
 
           <BookCategories categories={book.categories} />
-
-          <BookAffiliateLinks links={affiliateLinks} loadFailed={affiliateLinksFailed} />
         </div>
       </div>
     </article>
