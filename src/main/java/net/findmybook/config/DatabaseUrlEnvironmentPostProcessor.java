@@ -33,6 +33,7 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
     private static final String DS_USERNAME = "spring.datasource.username";
     private static final String DS_PASSWORD = "spring.datasource.password";
     private static final String DS_DRIVER = "spring.datasource.driver-class-name";
+    private static final String JDBC_POSTGRESQL_PREFIX = "jdbc:postgresql://";
     private static final String DEFAULT_HOST = "localhost";
     private static final String DEFAULT_DATABASE = "postgres";
     private static final int DEFAULT_PORT = 5432;
@@ -56,6 +57,19 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
             }
         }
         return null;
+    }
+
+    private static boolean isJdbcPostgresUrl(String value) {
+        return hasText(value) && value.trim().toLowerCase(Locale.ROOT).startsWith(JDBC_POSTGRESQL_PREFIX);
+    }
+
+    private static Map<String, Object> createDatasourceOverrides(String jdbcUrl) {
+        Map<String, Object> overrides = new HashMap<>();
+        overrides.put(DS_URL, jdbcUrl);
+        overrides.put(DS_JDBC_URL, jdbcUrl);
+        overrides.put(HIKARI_JDBC_URL, jdbcUrl);
+        overrides.put(DS_DRIVER, "org.postgresql.Driver");
+        return overrides;
     }
 
     /**
@@ -262,19 +276,26 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
             environment.getProperty(ENV_POSTGRES_URL),
             environment.getProperty(ENV_JDBC_DATABASE_URL)
         );
-        java.util.Optional<JdbcParseResult> parsed = normalizePostgresUrl(url);
-        if (parsed.isEmpty()) {
+        if (!hasText(url)) {
             return;
         }
 
+        String datasourceUrl = url.trim();
+
         try {
+            if (isJdbcPostgresUrl(datasourceUrl)) {
+                MutablePropertySources sources = environment.getPropertySources();
+                sources.addFirst(new MapPropertySource("databaseUrlProcessor", createDatasourceOverrides(datasourceUrl)));
+                return;
+            }
+
+            java.util.Optional<JdbcParseResult> parsed = normalizePostgresUrl(datasourceUrl);
+            if (parsed.isEmpty()) {
+                return;
+            }
+
             JdbcParseResult result = parsed.get();
-            Map<String, Object> overrides = new HashMap<>();
-            overrides.put(DS_URL, result.jdbcUrl);
-            // Also set commonly used aliases so Hikari picks up the normalized URL reliably
-            overrides.put(DS_JDBC_URL, result.jdbcUrl);
-            overrides.put(HIKARI_JDBC_URL, result.jdbcUrl);
-            overrides.put(DS_DRIVER, "org.postgresql.Driver");
+            Map<String, Object> overrides = createDatasourceOverrides(result.jdbcUrl);
 
             // Set username and password if extracted and not already provided
             String existingUser = environment.getProperty(DS_USERNAME);
