@@ -52,6 +52,9 @@ public final class BookDtoMapper {
     private static final Pattern CONSECUTIVE_BOLD_PATTERN = Pattern.compile("(?i)(</(?:b|strong)>)\\s*(<(?:b|strong)[\\s>])");
     private static final Pattern BOLD_CLOSE_THEN_TEXT_PATTERN = Pattern.compile("(?i)(</(?:b|strong)>)(?!\\s*<br)\\s*([^<\\s])");
     private static final Pattern PUNCT_THEN_BOLD_OPEN_PATTERN = Pattern.compile("([.!?])\\s*(<(?:b|strong)[\\s>])");
+    private static final Pattern BLOCK_CLOSE_THEN_BOLD_PATTERN = Pattern.compile(
+        "(?i)(</(?:p|div|section|article|blockquote|pre|h[1-6])>)\\s*(<(?:b|strong)[\\s>])"
+    );
     private static final Pattern LIST_CLOSE_THEN_BOLD_PATTERN = Pattern.compile("(?i)(</(?:ul|ol)>)\\s*(<(?:b|strong)[\\s>])");
     private static final Pattern TRIPLE_BR_PATTERN = Pattern.compile("(?i)(<br\\s*/?>\\s*){3,}");
     private static final String BULLET_CHARS = "●•";
@@ -331,7 +334,8 @@ public final class BookDtoMapper {
 
         result = convertInlineBulletsToList(result);
 
-        // Ensure a break between list blocks and following bold headings.
+        // Ensure a break between block/list boundaries and following bold headings.
+        result = BLOCK_CLOSE_THEN_BOLD_PATTERN.matcher(result).replaceAll("$1<br>$2");
         result = LIST_CLOSE_THEN_BOLD_PATTERN.matcher(result).replaceAll("$1<br>$2");
 
         // Collapse triple-or-more consecutive <br> into exactly double <br> (paragraph break)
