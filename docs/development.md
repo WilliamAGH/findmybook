@@ -25,6 +25,7 @@
 | `S3_ACL_DRY_RUN=true make fix-s3-acl-public-all` | Preview ACL changes without mutating S3 |
 | `S3_ACL_SCOPE=images make fix-s3-acl-public-all` | Repair ACLs for image-like object keys only |
 | `S3_ACL_SCOPE=json make fix-s3-acl-public-all` | Repair ACLs for `.json` object keys only |
+| `./scripts/fix-s3-object-acl.sh --scope all --progress-every 25` | Run full ACL repair with denser progress output (every 25 matched keys) |
 | `./scripts/fix-s3-object-acl.sh --scope images --prefix images/book-covers/ --dry-run true` | Run the ACL repair script directly with explicit scope/prefix |
 
 ## JVM Configuration

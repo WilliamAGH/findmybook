@@ -5,40 +5,32 @@
    */
   import { onMount, untrack } from "svelte";
   import BookCard, { type BookCardDisplay } from "$lib/components/BookCard.svelte";
+  import CategoryFacetPanel from "$lib/components/CategoryFacetPanel.svelte";
+  import SearchPagination from "$lib/components/SearchPagination.svelte";
   import { navigate, searchBasePathForRoute, type SearchRouteName } from "$lib/router/router";
   import { searchBooks, normalizeRealtimeSearchHits, mergeSearchHits, type SearchParams } from "$lib/services/books";
   import { getCategoryFacets } from "$lib/services/pages";
   import { subscribeToSearchTopics } from "$lib/services/realtime";
+  import {
+    PAGE_SIZE, PREFETCH_WINDOW_SIZE, CATEGORY_FACET_LIMIT, CATEGORY_MIN_BOOKS,
+    COVER_OPTIONS, RESOLUTION_OPTIONS, SORT_OPTIONS, SORT_LABELS,
+    type CoverOption, type ResolutionOption, type SortOption,
+    parsePositiveNumber, parseEnumParam, dedupeGenres, categoryQueryFromGenres,
+    pickRandomExploreQuery,
+  } from "$lib/services/searchConfig";
   import type { SearchHit, SearchResponse, CategoryFacet } from "$lib/validation/schemas";
   import { Search, LayoutGrid, List, Loader2 } from "@lucide/svelte";
+
   let { currentUrl, routeName }: { currentUrl: URL; routeName: SearchRouteName } = $props();
-  const PAGE_SIZE = 12;
-  const PREFETCH_WINDOW_SIZE = 5;
-  const CATEGORY_FACET_LIMIT = 24;
-  const CATEGORY_MIN_BOOKS = 1;
-  const COVER_OPTIONS = ["ANY", "GOOGLE_BOOKS", "OPEN_LIBRARY", "LONGITOOD"] as const;
-  const RESOLUTION_OPTIONS = ["ANY", "HIGH_ONLY", "HIGH_FIRST"] as const;
-  const SORT_OPTIONS = ["relevance", "title", "author", "newest", "rating"] as const;
-  const EXPLORE_DEFAULT_QUERIES = [
-    "Classic literature", "Modern thrillers", "Space opera adventures", "Historical fiction bestsellers",
-    "Award-winning science fiction", "Inspiring biographies", "Mind-bending philosophy", "Beginner's cookbooks",
-    "Epic fantasy sagas", "Cyberpunk futures", "Cozy mysteries", "Environmental science",
-    "Artificial intelligence ethics", "World mythology", "Travel memoirs",
-  ] as const;
-  const SORT_LABELS: Record<(typeof SORT_OPTIONS)[number], string> = {
-    relevance: "Most Relevant",
-    title: "Title A–Z",
-    author: "By Author",
-    newest: "Newest First",
-    rating: "Highest Rated",
-  };
+
   const searchCache = new Map<string, SearchResponse>();
   let unsubscribeRealtime: (() => void) | null = null;
+
   let query = $state("");
   let page = $state(1);
-  let sort = $state<(typeof SORT_OPTIONS)[number]>("newest");
-  let coverSource = $state<(typeof COVER_OPTIONS)[number]>("ANY");
-  let resolution = $state<(typeof RESOLUTION_OPTIONS)[number]>("HIGH_FIRST");
+  let sort = $state<SortOption>("newest");
+  let coverSource = $state<CoverOption>("ANY");
+  let resolution = $state<ResolutionOption>("HIGH_FIRST");
   let viewMode = $state<"grid" | "list">("grid");
   let selectedGenres = $state<string[]>([]);
   let categoryFacets = $state<CategoryFacet[]>([]);
@@ -50,16 +42,7 @@
   let realtimeMessage = $state<string | null>(null);
   let searchResult = $state<SearchResponse | null>(null);
   let searchLoadSequence = 0;
-  function parsePositiveNumber(value: string | null, fallback: number): number {
-    if (!value) {
-      return fallback;
-    }
-    const parsed = Number.parseInt(value, 10);
-    if (!Number.isFinite(parsed) || parsed < 1) {
-      return fallback;
-    }
-    return parsed;
-  }
+
   function toSearchParams(): SearchParams {
     return {
       query,
@@ -70,6 +53,7 @@
       resolution,
     };
   }
+
   function cacheKey(params: SearchParams): string {
     return JSON.stringify({
       query: params.query,
@@ -80,23 +64,7 @@
       resolution: params.resolution,
     });
   }
-  function parseEnumParam<T extends string>(params: URLSearchParams, key: string, options: readonly T[], fallback: T): T {
-    const raw = params.get(key) ?? fallback;
-    return options.includes(raw as T) ? (raw as T) : fallback;
-  }
-  function dedupeGenres(rawGenres: string[]): string[] {
-    const deduped = new Set<string>();
-    for (const rawGenre of rawGenres) {
-      const trimmed = rawGenre.trim();
-      if (trimmed.length > 0) {
-        deduped.add(trimmed);
-      }
-    }
-    return Array.from(deduped);
-  }
-  function categoryQueryFromGenres(genres: string[]): string {
-    return genres.join(" OR ");
-  }
+
   function syncStateFromUrl(url: URL): void {
     const params = url.searchParams;
     page = parsePositiveNumber(params.get("page"), 1);
@@ -113,46 +81,25 @@
     selectedGenres = [];
     query = params.get("query")?.trim() ?? "";
   }
-  function pickRandomExploreQuery(): string {
-    return EXPLORE_DEFAULT_QUERIES[Math.floor(Math.random() * EXPLORE_DEFAULT_QUERIES.length)];
-  }
+
   function ensureExploreDefaultQuery(url: URL): boolean {
-    if (routeName !== "explore") {
-      return false;
-    }
+    if (routeName !== "explore") return false;
     const currentQuery = url.searchParams.get("query")?.trim();
-    if (currentQuery && currentQuery.length > 0) {
-      return false;
-    }
+    if (currentQuery && currentQuery.length > 0) return false;
     const params = new URLSearchParams(url.searchParams);
     params.set("query", pickRandomExploreQuery());
-    if (!params.has("page")) {
-      params.set("page", "1");
+    const defaults: Record<string, string> = { page: "1", sort: "newest", view: "grid", coverSource: "ANY", resolution: "HIGH_FIRST" };
+    for (const [key, value] of Object.entries(defaults)) {
+      if (!params.has(key)) params.set(key, value);
     }
-    if (!params.has("sort")) {
-      params.set("sort", "newest");
-    }
-    if (!params.has("view")) {
-      params.set("view", "grid");
-    }
-    if (!params.has("coverSource")) {
-      params.set("coverSource", "ANY");
-    }
-    if (!params.has("resolution")) {
-      params.set("resolution", "HIGH_FIRST");
-    }
-    const basePath = searchBasePathForRoute(routeName);
-    navigate(`${basePath}?${params.toString()}`, true);
+    navigate(`${searchBasePathForRoute(routeName)}?${params.toString()}`, true);
     return true;
   }
+
   function mergeRealtimeHits(incoming: unknown[]): void {
-    if (!searchResult) {
-      return;
-    }
+    if (!searchResult) return;
     const candidates = normalizeRealtimeSearchHits(incoming);
-    if (candidates.length === 0) {
-      return;
-    }
+    if (candidates.length === 0) return;
     const mergedResults = mergeSearchHits(searchResult.results, candidates);
     searchResult = {
       ...searchResult,
@@ -160,29 +107,25 @@
       totalResults: Math.max(searchResult.totalResults, mergedResults.length),
     };
   }
+
   async function prefetchWindow(baseParams: SearchParams, response: SearchResponse): Promise<void> {
-    if (!response.hasMore) {
-      return;
-    }
+    if (!response.hasMore) return;
     for (let offset = 1; offset <= PREFETCH_WINDOW_SIZE; offset++) {
       const nextStartIndex = baseParams.startIndex + offset * PAGE_SIZE;
       const nextParams: SearchParams = { ...baseParams, startIndex: nextStartIndex };
       const nextKey = cacheKey(nextParams);
-      if (searchCache.has(nextKey)) {
-        continue;
-      }
+      if (searchCache.has(nextKey)) continue;
       try {
         const nextResponse = await searchBooks(nextParams);
         searchCache.set(nextKey, nextResponse);
-        if (!nextResponse.hasMore) {
-          break;
-        }
+        if (!nextResponse.hasMore) break;
       } catch (error) {
         console.warn("Prefetch failed for offset", offset, error);
         break;
       }
     }
   }
+
   async function loadSearch(): Promise<void> {
     const sequence = ++searchLoadSequence;
 
@@ -214,12 +157,8 @@
       try {
         unsubscribeRealtime = await subscribeToSearchTopics(
           response.queryHash,
-          (message) => {
-            realtimeMessage = message;
-          },
-          (results) => {
-            mergeRealtimeHits(results);
-          },
+          (message) => { realtimeMessage = message; },
+          (results) => { mergeRealtimeHits(results); },
           (error) => {
             console.error("Realtime search subscription error:", error.message);
             realtimeMessage = null;
@@ -240,11 +179,10 @@
       errorMessage = error instanceof Error ? error.message : "Search request failed";
       searchResult = null;
     } finally {
-      if (sequence === searchLoadSequence) {
-        loading = false;
-      }
+      if (sequence === searchLoadSequence) loading = false;
     }
   }
+
   async function loadCategoryFacetOptions(): Promise<void> {
     loadingCategoryFacets = true;
     categoryFacetError = null;
@@ -258,13 +196,12 @@
       loadingCategoryFacets = false;
     }
   }
+
   function applyFilters(nextPage = 1, nextGenres: string[] | null = null, replace = false): void {
     const url = new URL(searchBasePathForRoute(routeName), window.location.origin);
     if (routeName === "categories") {
       const genres = nextGenres ?? selectedGenres;
-      for (const genre of genres) {
-        url.searchParams.append("genre", genre);
-      }
+      for (const genre of genres) url.searchParams.append("genre", genre);
     } else if (query.trim()) {
       url.searchParams.set("query", query.trim());
     }
@@ -275,11 +212,10 @@
     url.searchParams.set("resolution", resolution);
     navigate(`${url.pathname}${url.search}`, replace);
   }
+
   function toggleGenre(genre: string): void {
     const trimmed = genre.trim();
-    if (!trimmed) {
-      return;
-    }
+    if (!trimmed) return;
     const nextGenres = selectedGenres.includes(trimmed)
       ? selectedGenres.filter((existing) => existing !== trimmed)
       : [...selectedGenres, trimmed];
@@ -287,11 +223,13 @@
     query = categoryQueryFromGenres(nextGenres);
     applyFilters(1, nextGenres);
   }
+
   function clearGenres(): void {
     selectedGenres = [];
     query = "";
     applyFilters(1, []);
   }
+
   function mapHitToCard(hit: SearchHit): BookCardDisplay {
     const authors = hit.authors.map((author) => author.name).filter((name) => name && name.length > 0);
     return {
@@ -304,59 +242,23 @@
       fallbackCoverUrl: hit.cover?.fallbackUrl ?? "/images/placeholder-book-cover.svg",
     };
   }
-  function computeTotalPages(result: SearchResponse | null, currentPage: number, pageSize: number): number {
-    if (!result) {
-      return 1;
-    }
-    const fromTotal = Math.max(1, Math.ceil(result.totalResults / pageSize));
-    return result.hasMore ? Math.max(fromTotal, currentPage + 1) : fromTotal;
-  }
-  function paginationRange(currentPage: number, total: number): (number | "ellipsis")[] {
-    if (total <= 7) {
-      return Array.from({ length: total }, (_, i) => i + 1);
-    }
-    const pages: (number | "ellipsis")[] = [1];
-    if (currentPage > 3) {
-      pages.push("ellipsis");
-    }
-    const start = Math.max(2, currentPage - 1);
-    const end = Math.min(total - 1, currentPage + 1);
-    for (let i = start; i <= end; i++) {
-      pages.push(i);
-    }
-    if (currentPage < total - 2) {
-      pages.push("ellipsis");
-    }
-    pages.push(total);
-    return pages;
-  }
-  let totalPages = $derived(computeTotalPages(searchResult, page, PAGE_SIZE));
-  let pages = $derived(paginationRange(page, totalPages));
+
   let pageTitle = $derived(routeName === "explore" ? "Explore Books" : routeName === "categories" ? "Browse Categories" : "Search Books");
+
   $effect(() => {
-    if (ensureExploreDefaultQuery(currentUrl)) {
-      return;
-    }
+    if (ensureExploreDefaultQuery(currentUrl)) return;
     syncStateFromUrl(currentUrl);
-    untrack(() => {
-      void loadSearch();
-    });
+    untrack(() => { void loadSearch(); });
   });
+
   $effect(() => {
-    if (routeName !== "categories" || categoryFacetsLoaded) {
-      return;
-    }
+    if (routeName !== "categories" || categoryFacetsLoaded) return;
     categoryFacetsLoaded = true;
-    untrack(() => {
-      void loadCategoryFacetOptions();
-    });
+    untrack(() => { void loadCategoryFacetOptions(); });
   });
+
   onMount(() => {
-    return () => {
-      if (unsubscribeRealtime) {
-        unsubscribeRealtime();
-      }
-    };
+    return () => { if (unsubscribeRealtime) unsubscribeRealtime(); };
   });
 </script>
 
@@ -370,9 +272,7 @@
 
   <form class="rounded-xl border border-linen-200 bg-white p-4 shadow-soft dark:border-slate-700 dark:bg-slate-800" onsubmit={(event) => {
     event.preventDefault();
-    if (routeName !== "categories") {
-      applyFilters(1);
-    }
+    if (routeName !== "categories") applyFilters(1);
   }}>
     {#if routeName !== "categories"}
       <div class="flex flex-col gap-3 sm:flex-row">
@@ -401,31 +301,14 @@
   </form>
 
   {#if routeName === "categories"}
-    <section class="rounded-xl border border-linen-200 bg-white p-4 shadow-soft dark:border-slate-700 dark:bg-slate-800">
-      <div class="mb-3 flex items-center justify-between gap-2">
-        <p class="text-xs font-semibold uppercase tracking-wide text-anthracite-700 dark:text-slate-300">Toggle genres</p>
-        {#if selectedGenres.length > 0}
-          <button type="button" class="rounded-md border border-linen-300 px-2 py-1 text-xs font-medium text-anthracite-700 transition hover:bg-linen-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700" onclick={clearGenres}>Clear all</button>
-        {/if}
-      </div>
-
-      {#if loadingCategoryFacets}
-        <div class="flex items-center gap-2 text-sm text-anthracite-600 dark:text-slate-300"><Loader2 size={14} class="animate-spin" /> Loading genres...</div>
-      {:else if categoryFacetError}
-        <p class="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/40 dark:text-red-200">{categoryFacetError}</p>
-      {:else if categoryFacets.length === 0}
-        <p class="text-sm text-anthracite-600 dark:text-slate-300">No categories available.</p>
-      {:else}
-        <div class="flex flex-wrap gap-2">
-          {#each categoryFacets as facet (facet.name)}
-            <button type="button" onclick={() => toggleGenre(facet.name)} aria-pressed={selectedGenres.includes(facet.name)} class={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition ${selectedGenres.includes(facet.name) ? "border-canvas-500 bg-canvas-500 text-white" : "border-linen-300 text-anthracite-700 hover:bg-linen-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"}`}>
-              <span>{facet.name}</span>
-              <span class={`rounded-full px-1.5 py-0.5 text-[10px] ${selectedGenres.includes(facet.name) ? "bg-white/20 text-white" : "bg-linen-200 text-anthracite-700 dark:bg-slate-600 dark:text-slate-200"}`}>{facet.bookCount}</span>
-            </button>
-          {/each}
-        </div>
-      {/if}
-    </section>
+    <CategoryFacetPanel
+      facets={categoryFacets}
+      {selectedGenres}
+      loading={loadingCategoryFacets}
+      error={categoryFacetError}
+      ontoggle={toggleGenre}
+      onclear={clearGenres}
+    />
   {/if}
 
   {#if loading}
@@ -471,18 +354,12 @@
       {/each}
     </div>
 
-    <nav class="mt-4 flex items-center justify-center gap-1">
-      <button class="rounded-md border border-linen-300 px-3 py-1.5 text-sm transition disabled:opacity-40 dark:border-slate-600 dark:text-slate-300 hover:bg-linen-100 dark:hover:bg-slate-800" disabled={page <= 1} onclick={() => applyFilters(page - 1)} aria-label="Previous page">&laquo;</button>
-
-      {#each pages as item}
-        {#if item === "ellipsis"}
-          <span class="px-2 text-sm text-anthracite-400 dark:text-slate-500">&hellip;</span>
-        {:else}
-          <button class={`min-w-[2.25rem] rounded-md border px-2 py-1.5 text-sm transition ${item === page ? "border-canvas-500 bg-canvas-500 text-white" : "border-linen-300 text-anthracite-700 hover:bg-linen-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"}`} onclick={() => applyFilters(item)}>{item}</button>
-        {/if}
-      {/each}
-
-      <button class="rounded-md border border-linen-300 px-3 py-1.5 text-sm transition disabled:opacity-40 dark:border-slate-600 dark:text-slate-300 hover:bg-linen-100 dark:hover:bg-slate-800" disabled={page >= totalPages} onclick={() => applyFilters(page + 1)} aria-label="Next page">&raquo;</button>
-    </nav>
+    <SearchPagination
+      currentPage={page}
+      totalResults={searchResult.totalResults}
+      hasMore={searchResult.hasMore}
+      pageSize={PAGE_SIZE}
+      onnavigate={(p) => applyFilters(p)}
+    />
   {/if}
 </section>
