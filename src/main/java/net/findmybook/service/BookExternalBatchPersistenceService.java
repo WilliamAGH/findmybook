@@ -102,7 +102,7 @@ class BookExternalBatchPersistenceService {
             .subscribeOn(Schedulers.boundedElastic())
             .doOnSubscribe(sub -> logger.info("[EXTERNAL-API] [{}] Mono subscribed for persistence", context))
             .subscribe(
-                ignored -> logger.info("[EXTERNAL-API] [{}] Persistence Mono completed successfully", context),
+                ignored -> logger.info("[EXTERNAL-API] [{}] Persistence Mono completed", context),
                 error -> logger.error("[EXTERNAL-API] [{}] Background persistence failed: {}", context, error.getMessage(), error)
             );
 
@@ -124,7 +124,7 @@ class BookExternalBatchPersistenceService {
                 return;
             }
             logger.warn(summary);
-            throw new IllegalStateException(summary);
+            return;
         }
         logger.info("[EXTERNAL-API] [{}] Batch persistence complete: {} succeeded ({} ms)", context, result.successCount(), elapsed);
     }
@@ -186,11 +186,23 @@ class BookExternalBatchPersistenceService {
                     context, book.getId(), ex.getMessage());
                 return new PersistenceOutcome(0, 0, true);
             }
-            logger.error("[EXTERNAL-API] [{}] Failed to persist book {}: {}", context, book.getId(), ex.getMessage(), ex);
-
             if (isSystemicDatabaseError(ex)) {
-                logger.error("[EXTERNAL-API] [{}] Aborting batch due to systemic database error", context);
+                logger.error("[EXTERNAL-API] [{}] Aborting batch due to systemic database error while persisting book {}: {}",
+                    context,
+                    book.getId(),
+                    ex.getMessage(),
+                    ex);
                 return new PersistenceOutcome(0, 1, true);
+            }
+            logger.warn("[EXTERNAL-API] [{}] Skipping book {} due to non-systemic persistence failure: {}",
+                context,
+                book.getId(),
+                ex.getMessage());
+            if (logger.isDebugEnabled()) {
+                logger.debug("[EXTERNAL-API] [{}] Non-systemic persistence failure stack trace for book {}",
+                    context,
+                    book.getId(),
+                    ex);
             }
             return new PersistenceOutcome(0, 1, false);
         }
@@ -241,7 +253,6 @@ class BookExternalBatchPersistenceService {
             logger.debug("Persisted book via BookUpsertService: {}", book.getId());
             return true;
         } catch (DataAccessException | IllegalArgumentException | IllegalStateException ex) {
-            logger.error("Error persisting via BookUpsertService for book {}: {}", bookIdForLogging, ex.getMessage(), ex);
             if (isSystemicDatabaseError(ex)) {
                 if (shutdownInProgress) {
                     logger.info("Skipping persistence for book {} during shutdown because database connectivity is unavailable",
@@ -253,7 +264,7 @@ class BookExternalBatchPersistenceService {
                 }
                 throw new IllegalStateException("Systemic database error during upsert", ex);
             }
-            throw new IllegalStateException("Error persisting via BookUpsertService for book " + bookIdForLogging, ex);
+            return false;
         }
     }
 
