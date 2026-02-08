@@ -184,14 +184,14 @@
     url.searchParams.set("query", query);
 
     const page = currentUrl.searchParams.get("page");
-    const sort = currentUrl.searchParams.get("sort");
+    const orderBy = currentUrl.searchParams.get("orderBy");
     const view = currentUrl.searchParams.get("view");
     const year = currentUrl.searchParams.get("year");
     if (page) {
       url.searchParams.set("page", page);
     }
-    if (sort) {
-      url.searchParams.set("sort", sort);
+    if (orderBy) {
+      url.searchParams.set("orderBy", orderBy);
     }
     if (view) {
       url.searchParams.set("view", view);
@@ -349,5 +349,9 @@
     color: #0b5ea7;
     text-decoration: underline;
     text-underline-offset: 2px;
+  }
+
+  :global([data-theme="dark"]) .book-description-content :global(a) {
+    color: #60a5fa;
   }
 </style>

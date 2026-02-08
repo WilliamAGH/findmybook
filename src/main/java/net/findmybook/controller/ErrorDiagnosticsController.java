@@ -1,6 +1,7 @@
 package net.findmybook.controller;
 
 import jakarta.servlet.http.HttpServletResponse;
+import net.findmybook.service.BookSeoMetadataService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -12,10 +13,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
-import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.context.request.WebRequest;
-import net.findmybook.util.ApplicationConstants;
 import java.util.Map;
 
 /**
@@ -28,14 +27,14 @@ public class ErrorDiagnosticsController implements ErrorController {
     private static final Logger log = LoggerFactory.getLogger(ErrorDiagnosticsController.class);
 
     private final ErrorAttributes errorAttributes;
-    private final boolean spaFrontendEnabled;
+    private final BookSeoMetadataService bookSeoMetadataService;
     private final boolean includeStackTrace;
 
     public ErrorDiagnosticsController(ErrorAttributes errorAttributes,
-                                      @Value("${app.frontend.spa.enabled:true}") boolean spaFrontendEnabled,
+                                      BookSeoMetadataService bookSeoMetadataService,
                                       @Value("${app.error-diagnostics.include-stacktrace:false}") boolean includeStackTrace) {
         this.errorAttributes = errorAttributes;
-        this.spaFrontendEnabled = spaFrontendEnabled;
+        this.bookSeoMetadataService = bookSeoMetadataService;
         this.includeStackTrace = includeStackTrace;
     }
 
@@ -56,44 +55,18 @@ public class ErrorDiagnosticsController implements ErrorController {
     }
 
     @RequestMapping("/error")
-    public String handleHtmlError(HttpServletResponse response,
-                                  WebRequest webRequest,
-                                  Model model) {
+    public ResponseEntity<String> handleHtmlError(HttpServletResponse response, WebRequest webRequest) {
         ErrorContext context = readErrorContext(webRequest);
         response.setStatus(context.statusCode());
-        populateErrorModel(model, context);
+        String requestPath = !context.path().isBlank() ? context.path() : "/";
+        BookSeoMetadataService.SeoMetadata metadata = context.statusCode() == HttpStatus.NOT_FOUND.value()
+            ? bookSeoMetadataService.notFoundMetadata(requestPath)
+            : bookSeoMetadataService.errorMetadata(context.statusCode(), requestPath);
 
-        if (missingDiagnosticMessage(context.message()) && !context.exceptionClassName().isBlank()) {
-            String exceptionType = context.exceptionClassName();
-            int lastDot = exceptionType.lastIndexOf('.');
-            if (lastDot >= 0 && lastDot < exceptionType.length() - 1) {
-                exceptionType = exceptionType.substring(lastDot + 1);
-            }
-            model.addAttribute("exceptionType", exceptionType);
-        }
-
-        if (context.statusCode() == HttpStatus.NOT_FOUND.value()) {
-            if (spaFrontendEnabled) {
-                String requestPath = !context.path().isBlank() ? context.path() : "/";
-                model.addAttribute("title", "Page Not Found");
-                model.addAttribute("description", "The page you requested could not be found.");
-                model.addAttribute("keywords", "404, page not found");
-                model.addAttribute("canonicalUrl", ApplicationConstants.Urls.BASE_URL + requestPath);
-                model.addAttribute("ogImage", "/images/og-logo.png");
-                return "spa/index";
-            }
-            return "error/404";
-        }
-        return "error_diagnostics";
-    }
-
-    private void populateErrorModel(Model model, ErrorContext context) {
-        model.addAttribute("timestamp", context.timestamp());
-        model.addAttribute("status", context.statusCode());
-        model.addAttribute("error", context.error());
-        model.addAttribute("message", context.message());
-        model.addAttribute("trace", context.trace());
-        model.addAttribute("path", context.path());
+        String html = bookSeoMetadataService.renderSpaShell(metadata, requestPath, context.statusCode());
+        return ResponseEntity.status(context.statusCode())
+            .contentType(MediaType.TEXT_HTML)
+            .body(html);
     }
 
     private ErrorContext readErrorContext(WebRequest webRequest) {

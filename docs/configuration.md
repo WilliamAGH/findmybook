@@ -36,3 +36,9 @@ export SPRING_DATASOURCE_PASSWORD="<pass>"
 - The Spring resource handler serves `/frontend/**` with `Cache-Control: no-cache, must-revalidate`.
 - This prevents stale SPA bundles when entry filenames remain stable (`app.js`, `app.css`).
 - Browser validation happens on each request while still allowing conditional responses (`Last-Modified`/`ETag` semantics).
+
+## SPA Shell Delivery
+
+- Public HTML routes are served through a server-generated SPA shell and no longer depend on Thymeleaf templates at runtime.
+- Route SEO metadata is resolved server-side and is also available via `GET /api/pages/meta?path=...` for SPA navigation updates.
+- Route matching/canonicalization rules are delivered by the backend route manifest, embedded as `window.__FMB_ROUTE_MANIFEST__` and available at `GET /api/pages/routes`.

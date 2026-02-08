@@ -56,6 +56,30 @@ public final class CoverPrioritizer {
         return bookComparator(insertionOrder, null);
     }
 
+    public static Comparator<Book> bookComparatorWithPrimarySort(Map<String, Integer> insertionOrder,
+                                                                 Comparator<Book> primarySort) {
+        if (primarySort == null) {
+            return bookComparator(insertionOrder);
+        }
+        Comparator<Book> comparator = primarySort
+            .thenComparingInt(CoverPrioritizer::coverPresenceRank)
+            .thenComparingInt(CoverPrioritizer::sourceRank)
+            .thenComparingInt(CoverPrioritizer::matchTypeRank)
+            .thenComparing(Comparator.<Book>comparingDouble(CoverPrioritizer::relevanceScore).reversed())
+            .thenComparing(Comparator.<Book>comparingInt(CoverPrioritizer::score).reversed())
+            .thenComparing(Comparator.<Book>comparingLong(book -> ImageDimensionUtils.totalPixels(
+                book.getCoverImageWidth(),
+                book.getCoverImageHeight()
+            )).reversed())
+            .thenComparing(Comparator.<Book>comparingInt(book -> Optional.ofNullable(book.getCoverImageHeight()).orElse(0)).reversed())
+            .thenComparing(Comparator.<Book>comparingInt(book -> Optional.ofNullable(book.getCoverImageWidth()).orElse(0)).reversed())
+            .thenComparing(Comparator.<Book, Boolean>comparing(book -> Boolean.TRUE.equals(book.getInPostgres()), Comparator.reverseOrder()))
+            .thenComparing(bookInsertionComparator(insertionOrder))
+            .thenComparing(book -> Optional.ofNullable(book.getTitle()).orElse(""));
+
+        return Comparator.nullsLast(comparator);
+    }
+
     public static Comparator<Book> bookComparator(Map<String, Integer> insertionOrder,
                                                   Comparator<Book> orderSpecific) {
         Comparator<Book> comparator = Comparator

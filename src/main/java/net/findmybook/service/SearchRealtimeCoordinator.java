@@ -159,7 +159,7 @@ final class SearchRealtimeCoordinator {
         return Flux.defer(() -> {
             publishProgress(request.query(), SearchProgressEvent.SearchStatus.SEARCHING_OPENLIBRARY,
                 "Searching Open Library", queryHash, "OPEN_LIBRARY");
-            return service.queryBooksByEverything(query);
+            return service.queryBooksByEverything(query, request.orderBy());
         })
             .filter(Objects::nonNull)
             .filter(book -> SearchExternalProviderUtils.matchesPublishedYear(book, request.publishedYear()))

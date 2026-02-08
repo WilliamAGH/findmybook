@@ -125,6 +125,7 @@ public final class BookDomainMapper {
         book.setCategories(item.categories());
         book.setAverageRating(item.averageRating());
         book.setRatingsCount(item.ratingsCount());
+        book.setPublishedDate(toDate(item.publishedDate()));
         book.setQualifiers(copyMap(item.tags()));
         String primaryCover = StringUtils.hasText(item.coverS3Key())
             ? item.coverS3Key()

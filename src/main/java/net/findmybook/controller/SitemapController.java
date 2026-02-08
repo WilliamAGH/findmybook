@@ -1,20 +1,16 @@
 package net.findmybook.controller;
 
 import net.findmybook.config.SitemapProperties;
+import net.findmybook.service.BookSeoMetadataService;
 import net.findmybook.service.SitemapService;
 import net.findmybook.service.SitemapService.AuthorListingXmlItem;
-import net.findmybook.service.SitemapService.AuthorSection;
 import net.findmybook.service.SitemapService.BookSitemapItem;
-import net.findmybook.service.SitemapService.PagedResult;
-import net.findmybook.service.SitemapService.SitemapOverview;
 import net.findmybook.util.PagingUtils;
 import org.springframework.util.StringUtils;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
-import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -31,23 +27,24 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * Controller responsible for generating the server-rendered sitemap page and XML sitemap feeds.
+ * Serves the browsable sitemap HTML shell ({@code /sitemap/**}) and the
+ * XML sitemap feeds ({@code /sitemap.xml}, {@code /sitemap-xml/**}) consumed
+ * by search-engine crawlers.
  */
 @Controller
-public class SitemapController {
+public class SitemapController extends SpaShellController {
 
     private static final DateTimeFormatter LAST_MODIFIED_FORMATTER = DateTimeFormatter.ISO_INSTANT;
 
     private final SitemapService sitemapService;
     private final SitemapProperties sitemapProperties;
-    private final boolean spaFrontendEnabled;
 
     public SitemapController(SitemapService sitemapService,
                              SitemapProperties sitemapProperties,
-                             @Value("${app.frontend.spa.enabled:true}") boolean spaFrontendEnabled) {
+                             BookSeoMetadataService bookSeoMetadataService) {
+        super(bookSeoMetadataService);
         this.sitemapService = sitemapService;
         this.sitemapProperties = sitemapProperties;
-        this.spaFrontendEnabled = spaFrontendEnabled;
     }
 
     @GetMapping("/sitemap")
@@ -61,24 +58,22 @@ public class SitemapController {
     }
 
     @GetMapping("/sitemap/{view}/{letter}/{page}")
-    public String sitemapDynamic(@PathVariable String view,
-                                 @PathVariable String letter,
-                                 @PathVariable int page,
-                                 Model model) {
+    public ResponseEntity<String> sitemapDynamic(@PathVariable String view,
+                                                 @PathVariable String letter,
+                                                 @PathVariable int page) {
         String normalizedView = normalizeView(view);
         String bucket = sitemapService.normalizeBucket(letter);
         int safePage = PagingUtils.atLeast(page, 1);
 
         if (!normalizedView.equals(view) || !bucket.equals(letter) || safePage != page) {
-            return "redirect:/sitemap/" + normalizedView + "/" + bucket + "/" + safePage;
+            return ResponseEntity.status(HttpStatus.SEE_OTHER)
+                .location(java.net.URI.create("/sitemap/" + normalizedView + "/" + bucket + "/" + safePage))
+                .build();
         }
 
-        if (spaFrontendEnabled) {
-            applySpaMetadata(model, normalizedView, bucket, safePage);
-            return "spa/index";
-        }
-
-        return populateSitemapModel(normalizedView, bucket, safePage, model);
+        String canonicalPath = "/sitemap/" + normalizedView + "/" + bucket + "/" + safePage;
+        BookSeoMetadataService.SeoMetadata metadata = bookSeoMetadataService.sitemapMetadata(canonicalPath);
+        return spaResponse(metadata, canonicalPath, HttpStatus.OK);
     }
 
     @GetMapping(value = "/sitemap.xml", produces = MediaType.APPLICATION_XML_VALUE)
@@ -223,47 +218,4 @@ public class SitemapController {
         return "books".equals(candidate) ? "books" : "authors";
     }
 
-    private String populateSitemapModel(String view,
-                                        String bucket,
-                                        int page,
-                                        Model model) {
-        SitemapOverview overview = sitemapService.getOverview();
-
-        if ("books".equals(view)) {
-            PagedResult<BookSitemapItem> books = sitemapService.getBooksByLetter(bucket, page);
-            model.addAttribute("books", books.items());
-            model.addAttribute("totalPages", books.totalPages());
-            model.addAttribute("totalItems", books.totalItems());
-        } else {
-            PagedResult<AuthorSection> authors = sitemapService.getAuthorsByLetter(bucket, page);
-            model.addAttribute("authors", authors.items());
-            model.addAttribute("totalPages", authors.totalPages());
-            model.addAttribute("totalItems", authors.totalItems());
-        }
-
-        model.addAttribute("viewType", view);
-        model.addAttribute("activeLetter", bucket);
-        model.addAttribute("letters", SitemapService.LETTER_BUCKETS);
-        model.addAttribute("bookLetterCounts", overview.bookLetterCounts());
-        model.addAttribute("authorLetterCounts", overview.authorLetterCounts());
-        model.addAttribute("pageNumber", page);
-        model.addAttribute("baseUrl", sitemapProperties.getBaseUrl());
-        String canonicalPath = "/sitemap/" + view + "/" + bucket + "/" + page;
-        String canonicalUrl = sitemapProperties.getBaseUrl() + canonicalPath;
-        model.addAttribute("canonicalPath", canonicalPath);
-        model.addAttribute("canonicalUrl", canonicalUrl);
-        model.addAttribute("pageTitle", "Sitemap");
-        model.addAttribute("pageDescription", "Browse all book and author pages indexed for search engines.");
-        return "sitemap";
-    }
-
-    private void applySpaMetadata(Model model, String view, String bucket, int page) {
-        String canonicalPath = "/sitemap/" + view + "/" + bucket + "/" + page;
-        String canonicalUrl = sitemapProperties.getBaseUrl() + canonicalPath;
-        model.addAttribute("title", "Sitemap");
-        model.addAttribute("description", "Browse all indexed author and book pages.");
-        model.addAttribute("keywords", "book sitemap, author sitemap, find my book");
-        model.addAttribute("canonicalUrl", canonicalUrl);
-        model.addAttribute("ogImage", sitemapProperties.getBaseUrl() + "/images/og-logo.png");
-    }
 }

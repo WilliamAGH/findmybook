@@ -5,6 +5,7 @@ import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.model.image.ImageResolutionPreference;
 import net.findmybook.service.SearchPaginationService;
 import net.findmybook.util.PagingUtils;
+import net.findmybook.util.SearchExternalProviderUtils;
 import net.findmybook.util.cover.CoverPrioritizer;
 import net.findmybook.util.cover.ImageDimensionUtils;
 import net.findmybook.util.cover.UrlSourceDetector;
@@ -96,12 +97,11 @@ public final class SearchPageAssembler {
 
     private Comparator<Book> buildSearchResultComparator(Map<String, Integer> insertionOrder,
                                                          String orderBy) {
-        if (orderBy == null) {
-            return CoverPrioritizer.bookComparator(insertionOrder);
-        }
-
-        String normalized = orderBy.toLowerCase(Locale.ROOT);
-        Comparator<Book> orderSpecific = switch (normalized) {
+        String normalized = SearchExternalProviderUtils.normalizeOrderBy(orderBy);
+        Comparator<Book> primarySort = switch (normalized) {
+            case "relevance" -> Comparator
+                .comparingDouble(this::relevanceScoreForSort)
+                .reversed();
             case "newest" -> Comparator
                 .comparing(Book::getPublishedDate, Comparator.nullsLast(java.util.Date::compareTo))
                 .reversed();
@@ -118,13 +118,16 @@ public final class SearchPageAssembler {
                 },
                 String.CASE_INSENSITIVE_ORDER
             );
-            case "rating" -> Comparator
-                .comparing((Book book) -> Optional.ofNullable(book.getAverageRating()).orElse(0.0), Comparator.reverseOrder())
-                .thenComparing(book -> Optional.ofNullable(book.getRatingsCount()).orElse(0), Comparator.reverseOrder());
-            case "cover-quality", "quality", "relevance" -> null;
-            default -> null;
+            default -> Comparator
+                .comparing(Book::getPublishedDate, Comparator.nullsLast(java.util.Date::compareTo))
+                .reversed();
         };
-        return CoverPrioritizer.bookComparator(insertionOrder, orderSpecific);
+        return CoverPrioritizer.bookComparatorWithPrimarySort(insertionOrder, primarySort);
+    }
+
+    private double relevanceScoreForSort(Book book) {
+        Double parsed = parseNumericQualifier(book, "search.relevanceScore");
+        return parsed != null ? parsed : 0.0d;
     }
 
     private void applyAuthorIntentPenalties(List<Book> books, String query) {

@@ -61,9 +61,6 @@ spring:
     max-in-memory-size: 10MB # Configure global max buffer size for WebClient
 
 app:
-  frontend:
-    spa:
-      enabled: ${APP_FRONTEND_SPA_ENABLED:true}
   features:
     external-fallback:
       enabled: ${APP_FEATURE_EXTERNAL_FALLBACK_ENABLED:true}
@@ -198,8 +195,6 @@ logging:
     "[org.springframework.cache]": WARN
     "[org.hibernate]": WARN
     "[org.springframework.web]": WARN # PRODUCTION-SAFE: Minimal web logging
-    "[ro.isdc.wro]": ERROR
-    "[ro.isdc.wro.extensions.processor.css.CssVariablesProcessor]": ERROR
 
 # =============================================================================
 # DEVELOPMENT PROFILE - Permissive settings for local development
@@ -231,8 +226,6 @@ logging:
     '[org.springframework.boot.devtools]': WARN
     "[org.springframework.web]": INFO # DEV OVERRIDE: More verbose web logging
     "[net.findmybook]": DEBUG # DEV OVERRIDE: Debug app logging
-    "[ro.isdc.wro]": ERROR
-    "[ro.isdc.wro.extensions.processor.css.CssVariablesProcessor]": ERROR
 
 s3:
   write-enabled: false
@@ -299,8 +292,5 @@ s3:
 app:
   cache:
     enabled: true
-  frontend:
-    spa:
-      enabled: false
   environment:
     mode: test

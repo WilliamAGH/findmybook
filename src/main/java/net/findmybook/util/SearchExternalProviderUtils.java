@@ -2,6 +2,7 @@ package net.findmybook.util;
 
 import net.findmybook.model.Book;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
@@ -12,8 +13,47 @@ import java.util.Optional;
  */
 public final class SearchExternalProviderUtils {
 
+    private static final List<String> SUPPORTED_ORDER_BY = List.of("relevance", "newest", "title", "author");
+
     private SearchExternalProviderUtils() {
         // Utility class
+    }
+
+    /**
+     * Returns whether the provided orderBy value is supported by FindMyBook search APIs.
+     *
+     * @param orderBy raw orderBy parameter
+     * @return true when orderBy is one of relevance/newest/title/author
+     */
+    public static boolean isSupportedOrderBy(String orderBy) {
+        if (!StringUtils.hasText(orderBy)) {
+            return false;
+        }
+        String normalized = orderBy.trim().toLowerCase(Locale.ROOT);
+        return SUPPORTED_ORDER_BY.contains(normalized);
+    }
+
+    /**
+     * Normalizes orderBy values for internal search orchestration.
+     *
+     * @param orderBy raw orderBy value
+     * @return supported orderBy value, defaulting to newest
+     */
+    public static String normalizeOrderBy(String orderBy) {
+        if (!StringUtils.hasText(orderBy)) {
+            return "newest";
+        }
+        String normalized = orderBy.trim().toLowerCase(Locale.ROOT);
+        return SUPPORTED_ORDER_BY.contains(normalized) ? normalized : "newest";
+    }
+
+    /**
+     * Lists supported public orderBy values for validation error messages.
+     *
+     * @return immutable ordered list of accepted orderBy values
+     */
+    public static List<String> supportedOrderByValues() {
+        return SUPPORTED_ORDER_BY;
     }
 
     /**
@@ -27,6 +67,23 @@ public final class SearchExternalProviderUtils {
         return switch (normalized) {
             case "newest", "relevance" -> normalized;
             default -> "relevance";
+        };
+    }
+
+    /**
+     * Maps FindMyBook orderBy values to Open Library search sort facets.
+     *
+     * <p>Open Library supports provider-specific sort facet names (for example {@code new}),
+     * so this method exposes only known-safe mappings and leaves unsupported values empty.</p>
+     *
+     * @param orderBy requested orderBy value from client or internal caller
+     * @return optional Open Library sort facet
+     */
+    public static Optional<String> normalizeOpenLibrarySortFacet(String orderBy) {
+        String normalized = Optional.ofNullable(orderBy).orElse("").trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "newest" -> Optional.of("new");
+            default -> Optional.empty();
         };
     }
 

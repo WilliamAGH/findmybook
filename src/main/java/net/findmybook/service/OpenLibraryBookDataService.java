@@ -12,6 +12,7 @@ import net.findmybook.model.Book;
 import net.findmybook.util.ExternalApiLogger;
 import net.findmybook.util.IsbnUtils;
 import net.findmybook.util.LoggingUtils;
+import net.findmybook.util.SearchExternalProviderUtils;
 import net.findmybook.util.TextUtils;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
@@ -65,7 +66,7 @@ public class OpenLibraryBookDataService {
     @RateLimiter(name = "openLibraryDataService")
     @CircuitBreaker(name = "openLibraryDataService", fallbackMethod = "searchBooksFallback")
     public Flux<Book> queryBooksByTitle(String title) {
-        return queryBooks("title", title, "SEARCH_TITLE", false);
+        return queryBooks("title", title, "SEARCH_TITLE", false, null);
     }
 
     /**
@@ -77,7 +78,7 @@ public class OpenLibraryBookDataService {
     @RateLimiter(name = "openLibraryDataService")
     @CircuitBreaker(name = "openLibraryDataService", fallbackMethod = "searchBooksFallback")
     public Flux<Book> queryBooksByAuthor(String author) {
-        return queryBooks("author", author, "SEARCH_AUTHOR", false);
+        return queryBooks("author", author, "SEARCH_AUTHOR", false, null);
     }
 
     /**
@@ -92,7 +93,26 @@ public class OpenLibraryBookDataService {
     @RateLimiter(name = "openLibraryDataService")
     @CircuitBreaker(name = "openLibraryDataService", fallbackMethod = "searchBooksFallback")
     public Flux<Book> queryBooksByEverything(String query) {
-        return queryBooks("q", query, "SEARCH_EVERYTHING", true);
+        return queryBooksByEverything(query, null);
+    }
+
+    /**
+     * Searches OpenLibrary using mode=everything with provider-specific sort mapping.
+     *
+     * @param query the free-text query to search
+     * @param orderBy requested FindMyBook orderBy value
+     * @return a Flux of matching books, or empty if disabled or no results found
+     */
+    @RateLimiter(name = "openLibraryDataService")
+    @CircuitBreaker(name = "openLibraryDataService", fallbackMethod = "searchBooksFallback")
+    public Flux<Book> queryBooksByEverything(String query, String orderBy) {
+        return queryBooks(
+            "q",
+            query,
+            "SEARCH_EVERYTHING",
+            true,
+            SearchExternalProviderUtils.normalizeOpenLibrarySortFacet(orderBy).orElse(null)
+        );
     }
 
     /**
@@ -105,12 +125,14 @@ public class OpenLibraryBookDataService {
      * @param queryParamName the API query parameter name ("title" or "author")
      * @param queryValue     the search value to send
      * @param apiOperation   logging label for external API metrics (e.g. "SEARCH_TITLE")
+     * @param openLibrarySortFacet provider-specific sort facet to pass when supported
      * @return a Flux of matching books, or empty when disabled or no results found
      */
     private Flux<Book> queryBooks(String queryParamName,
                                   String queryValue,
                                   String apiOperation,
-                                  boolean includeEverythingMode) {
+                                  boolean includeEverythingMode,
+                                  String openLibrarySortFacet) {
         if (queryValue == null || queryValue.trim().isEmpty()) {
             log.warn("{} is null or empty. Cannot search books on OpenLibrary.", queryParamName);
             return Flux.empty();
@@ -131,6 +153,9 @@ public class OpenLibraryBookDataService {
                         requestBuilder = requestBuilder
                             .queryParam("mode", "everything")
                             .queryParam("fields", SEARCH_FIELDS);
+                        if (StringUtils.hasText(openLibrarySortFacet)) {
+                            requestBuilder = requestBuilder.queryParam("sort", openLibrarySortFacet);
+                        }
                     }
                     return requestBuilder.build();
                 })

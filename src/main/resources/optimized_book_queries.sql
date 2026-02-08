@@ -277,7 +277,8 @@ RETURNS TABLE (
     cover_is_high_resolution BOOLEAN,
     average_rating NUMERIC,
     ratings_count INTEGER,
-    tags JSONB
+    tags JSONB,
+    published_date DATE
 ) AS $$
 BEGIN
     RETURN QUERY
@@ -333,7 +334,8 @@ BEGIN
                  JOIN book_tags bt ON bt.id = bta.tag_id
                  WHERE bta.book_id = b.id),
                 '{}'::JSONB
-            ) as tags
+            ) as tags,
+            b.published_date as published_date
         FROM input_ids
         JOIN books b ON b.id = input_ids.book_id
         LEFT JOIN book_authors_join baj ON b.id = baj.book_id
@@ -494,7 +496,7 @@ BEGIN
                 chosen.created_value DESC
             LIMIT 1
         ) cover_meta ON TRUE
-        GROUP BY input_ids.ord, b.id, b.slug, b.title, b.description,
+        GROUP BY input_ids.ord, b.id, b.slug, b.title, b.description, b.published_date,
                  bei.average_rating, bei.ratings_count,
                  cover_meta.cover_url, cover_meta.cover_s3_key, cover_meta.cover_fallback_url,
                  cover_meta.width, cover_meta.height, cover_meta.is_high_resolution
@@ -514,7 +516,8 @@ BEGIN
         list_data.cover_is_high_resolution,
         list_data.average_rating,
         list_data.ratings_count,
-        list_data.tags
+        list_data.tags,
+        list_data.published_date
     FROM list_data
     ORDER BY list_data.ord;
 END;

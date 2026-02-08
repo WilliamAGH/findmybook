@@ -28,7 +28,7 @@
 
   let query = $state("");
   let page = $state(1);
-  let sort = $state<SortOption>("newest");
+  let orderBy = $state<SortOption>("newest");
   let coverSource = $state<CoverOption>("ANY");
   let resolution = $state<ResolutionOption>("HIGH_FIRST");
   let viewMode = $state<"grid" | "list">("grid");
@@ -48,7 +48,7 @@
       query,
       startIndex: (page - 1) * PAGE_SIZE,
       maxResults: PAGE_SIZE,
-      orderBy: sort,
+      orderBy,
       coverSource,
       resolution,
     };
@@ -68,7 +68,7 @@
   function syncStateFromUrl(url: URL): void {
     const params = url.searchParams;
     page = parsePositiveNumber(params.get("page"), 1);
-    sort = parseEnumParam(params, "sort", SORT_OPTIONS, "newest");
+    orderBy = parseEnumParam(params, "orderBy", SORT_OPTIONS, "newest");
     coverSource = parseEnumParam(params, "coverSource", COVER_OPTIONS, "ANY");
     resolution = parseEnumParam(params, "resolution", RESOLUTION_OPTIONS, "HIGH_FIRST");
     const nextView = params.get("view");
@@ -88,7 +88,7 @@
     if (currentQuery && currentQuery.length > 0) return false;
     const params = new URLSearchParams(url.searchParams);
     params.set("query", pickRandomExploreQuery());
-    const defaults: Record<string, string> = { page: "1", sort: "newest", view: "grid", coverSource: "ANY", resolution: "HIGH_FIRST" };
+    const defaults: Record<string, string> = { page: "1", orderBy: "newest", view: "grid", coverSource: "ANY", resolution: "HIGH_FIRST" };
     for (const [key, value] of Object.entries(defaults)) {
       if (!params.has(key)) params.set(key, value);
     }
@@ -100,7 +100,7 @@
     if (!searchResult) return;
     const candidates = normalizeRealtimeSearchHits(incoming);
     if (candidates.length === 0) return;
-    const mergedResults = mergeSearchHits(searchResult.results, candidates);
+    const mergedResults = mergeSearchHits(searchResult.results, candidates, orderBy);
     searchResult = {
       ...searchResult,
       results: mergedResults,
@@ -206,7 +206,7 @@
       url.searchParams.set("query", query.trim());
     }
     url.searchParams.set("page", String(nextPage));
-    url.searchParams.set("sort", sort);
+    url.searchParams.set("orderBy", orderBy);
     url.searchParams.set("view", viewMode);
     url.searchParams.set("coverSource", coverSource);
     url.searchParams.set("resolution", resolution);
@@ -286,7 +286,7 @@
     <div class={`flex flex-wrap items-center justify-between gap-3 ${routeName === "categories" ? "" : "mt-3"}`}>
       <div class="flex items-center gap-2">
         <label for="sort-select" class="text-xs font-medium text-anthracite-600 dark:text-slate-400">Sort:</label>
-        <select id="sort-select" bind:value={sort} onchange={() => applyFilters(1)} class="rounded-lg border border-linen-300 px-3 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100">
+        <select id="sort-select" bind:value={orderBy} onchange={() => applyFilters(1)} class="rounded-lg border border-linen-300 px-3 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100">
           {#each SORT_OPTIONS as option}
             <option value={option}>{SORT_LABELS[option]}</option>
           {/each}
@@ -350,7 +350,7 @@
   {#if searchResult && searchResult.results.length > 0}
     <div class={viewMode === "grid" ? "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4" : "grid grid-cols-1 gap-4"}>
       {#each searchResult.results as hit (hit.id)}
-        <BookCard layout={viewMode} book={mapHitToCard(hit)} href={`/book/${encodeURIComponent(hit.slug ?? hit.id)}?query=${encodeURIComponent(query)}&page=${page}&sort=${encodeURIComponent(sort)}&view=${viewMode}`} />
+        <BookCard layout={viewMode} book={mapHitToCard(hit)} href={`/book/${encodeURIComponent(hit.slug ?? hit.id)}?query=${encodeURIComponent(query)}&page=${page}&orderBy=${encodeURIComponent(orderBy)}&view=${viewMode}`} />
       {/each}
     </div>
 

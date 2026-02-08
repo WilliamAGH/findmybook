@@ -11,7 +11,7 @@
     ExternalLink,
   } from "@lucide/svelte";
 
-  let { links, loadFailed = false }: { links: Record<string, string>; loadFailed?: boolean } = $props();
+  let { links = {}, loadFailed = false }: { links?: Record<string, string>; loadFailed?: boolean } = $props();
 
   type AffiliateConfig = {
     label: string;
@@ -47,7 +47,7 @@
           href={url}
           data-no-spa="true"
           target="_blank"
-          rel="noopener sponsored"
+          rel="noopener noreferrer sponsored"
           class={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white shadow-sm transition-all duration-200 ${config.bgClass} ${config.hoverClass} hover:shadow-canvas focus:outline-none focus:ring-2 focus:ring-canvas-500 focus:ring-offset-2`}
         >
           <AffIcon size={16} />

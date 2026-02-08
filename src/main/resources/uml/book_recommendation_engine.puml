@@ -327,7 +327,7 @@ package "net.findmybook" {
         + HomeController(googleBooksService: GoogleBooksService, recentlyViewedService: RecentlyViewedService, recommendationService: RecommendationService, bookCoverCacheService: BookCoverCacheService)
         + home(model: Model): Mono~String~
         + search(query: String, model: Model): String
-        + bookDetail(id: String, query: String, page: int, sort: String, view: String, model: Model): Mono~String~
+        + bookDetail(id: String, query: String, page: int, orderBy: String, view: String, model: Model): Mono~String~
         + bookDetailByIsbn(isbn: String): RedirectView
         - sanitizeIsbn(isbn: String): String
         - isValidIsbn(isbn: String): boolean

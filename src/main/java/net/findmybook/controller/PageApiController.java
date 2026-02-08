@@ -1,12 +1,16 @@
 package net.findmybook.controller;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
 import net.findmybook.config.SitemapProperties;
 import net.findmybook.dto.BookCard;
 import net.findmybook.service.AffiliateLinkService;
+import net.findmybook.service.BookSeoMetadataService;
 import net.findmybook.service.HomePageSectionsService;
 import net.findmybook.service.SitemapService;
 import net.findmybook.service.SitemapService.AuthorSection;
@@ -24,6 +28,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.util.UriUtils;
 import reactor.core.publisher.Mono;
 import org.springframework.web.server.ResponseStatusException;
 import java.util.ArrayList;
@@ -46,6 +51,7 @@ public class PageApiController {
     private final SitemapService sitemapService;
     private final SitemapProperties sitemapProperties;
     private final AffiliateLinkService affiliateLinkService;
+    private final BookSeoMetadataService bookSeoMetadataService;
 
     /**
      * Creates the page payload controller.
@@ -54,15 +60,18 @@ public class PageApiController {
      * @param sitemapService service that loads sitemap buckets and pages
      * @param sitemapProperties configured sitemap base URL and sizes
      * @param affiliateLinkService service that computes outbound purchase links
+     * @param bookSeoMetadataService service that computes route metadata payloads
      */
     public PageApiController(HomePageSectionsService homePageSectionsService,
                              SitemapService sitemapService,
                              SitemapProperties sitemapProperties,
-                             AffiliateLinkService affiliateLinkService) {
+                             AffiliateLinkService affiliateLinkService,
+                             BookSeoMetadataService bookSeoMetadataService) {
         this.homePageSectionsService = homePageSectionsService;
         this.sitemapService = sitemapService;
         this.sitemapProperties = sitemapProperties;
         this.affiliateLinkService = affiliateLinkService;
+        this.bookSeoMetadataService = bookSeoMetadataService;
     }
 
     /**
@@ -197,12 +206,138 @@ public class PageApiController {
         ));
     }
 
+    /**
+     * Returns canonical metadata for an SPA route path.
+     *
+     * @param path route path to resolve (for example: /search, /book/{slug})
+     * @return metadata payload with canonical URL, OpenGraph image, and status semantics
+     */
+    @GetMapping("/meta")
+    public Mono<ResponseEntity<PageMetadataPayload>> metadata(@RequestParam(name = "path", required = false) String path) {
+        if (!StringUtils.hasText(path)) {
+            return Mono.just(ResponseEntity.badRequest().build());
+        }
+
+        String normalizedPath = normalizeRoutePath(path);
+        if ("/".equals(normalizedPath)) {
+            return Mono.just(ResponseEntity.ok(toPageMetadataPayload(bookSeoMetadataService.homeMetadata(), HttpStatus.OK.value())));
+        }
+        if ("/search".equals(normalizedPath)) {
+            return Mono.just(ResponseEntity.ok(toPageMetadataPayload(bookSeoMetadataService.searchMetadata(), HttpStatus.OK.value())));
+        }
+        if ("/explore".equals(normalizedPath)) {
+            return Mono.just(ResponseEntity.ok(toPageMetadataPayload(bookSeoMetadataService.exploreMetadata(), HttpStatus.OK.value())));
+        }
+        if ("/categories".equals(normalizedPath)) {
+            return Mono.just(ResponseEntity.ok(toPageMetadataPayload(bookSeoMetadataService.categoriesMetadata(), HttpStatus.OK.value())));
+        }
+        if ("/sitemap".equals(normalizedPath)) {
+            return Mono.just(ResponseEntity.ok(toPageMetadataPayload(
+                bookSeoMetadataService.sitemapMetadata(bookSeoMetadataService.defaultSitemapPath()),
+                HttpStatus.OK.value()
+            )));
+        }
+
+        Matcher bookMatcher = bookSeoMetadataService.bookRoutePattern().matcher(normalizedPath);
+        if (bookMatcher.matches()) {
+            String identifier = decodePathSegment(bookMatcher.group(1));
+            if (!StringUtils.hasText(identifier)) {
+                return Mono.just(ResponseEntity.ok(
+                    toPageMetadataPayload(bookSeoMetadataService.notFoundMetadata(normalizedPath), HttpStatus.NOT_FOUND.value())
+                ));
+            }
+            return homePageSectionsService.locateBook(identifier)
+                .map(book -> {
+                    if (book == null) {
+                        return ResponseEntity.ok(
+                            toPageMetadataPayload(bookSeoMetadataService.notFoundMetadata(normalizedPath), HttpStatus.NOT_FOUND.value())
+                        );
+                    }
+                    BookSeoMetadataService.SeoMetadata metadata = bookSeoMetadataService.bookMetadata(book, 170);
+                    return ResponseEntity.ok(toPageMetadataPayload(metadata, HttpStatus.OK.value()));
+                })
+                .switchIfEmpty(Mono.just(ResponseEntity.ok(
+                    toPageMetadataPayload(bookSeoMetadataService.notFoundMetadata(normalizedPath), HttpStatus.NOT_FOUND.value())
+                )));
+        }
+
+        Matcher sitemapMatcher = bookSeoMetadataService.sitemapRoutePattern().matcher(normalizedPath);
+        if (sitemapMatcher.matches()) {
+            String view = "books".equalsIgnoreCase(sitemapMatcher.group(1)) ? "books" : "authors";
+            String bucket = sitemapService.normalizeBucket(decodePathSegment(sitemapMatcher.group(2)));
+            int safePage = parseSitemapPage(sitemapMatcher.group(3));
+            String canonicalPath = "/sitemap/" + view + "/" + bucket + "/" + safePage;
+            return Mono.just(ResponseEntity.ok(toPageMetadataPayload(
+                bookSeoMetadataService.sitemapMetadata(canonicalPath),
+                HttpStatus.OK.value()
+            )));
+        }
+
+        return Mono.just(ResponseEntity.ok(
+            toPageMetadataPayload(bookSeoMetadataService.notFoundMetadata(normalizedPath), HttpStatus.NOT_FOUND.value())
+        ));
+    }
+
+    /**
+     * Returns the backend-defined public route contract consumed by the SPA router.
+     */
+    @GetMapping("/routes")
+    public ResponseEntity<BookSeoMetadataService.RouteManifest> routes() {
+        return ResponseEntity.ok(bookSeoMetadataService.routeManifest());
+    }
+
     private static String normalizeView(String view) {
         if (!StringUtils.hasText(view)) {
             return "authors";
         }
-        String candidate = view.trim().toLowerCase(java.util.Locale.ROOT);
+        String candidate = view.trim().toLowerCase(Locale.ROOT);
         return "books".equals(candidate) ? "books" : "authors";
+    }
+
+    private String normalizeRoutePath(String rawPath) {
+        String candidate = rawPath.trim();
+        String withoutQuery = candidate;
+        int queryIndex = candidate.indexOf('?');
+        if (queryIndex >= 0) {
+            withoutQuery = candidate.substring(0, queryIndex);
+        }
+        int fragmentIndex = withoutQuery.indexOf('#');
+        if (fragmentIndex >= 0) {
+            withoutQuery = withoutQuery.substring(0, fragmentIndex);
+        }
+        if (!withoutQuery.startsWith("/")) {
+            withoutQuery = "/" + withoutQuery;
+        }
+        return withoutQuery;
+    }
+
+    private static String decodePathSegment(String value) {
+        try {
+            return UriUtils.decode(value, StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException ex) {
+            return value;
+        }
+    }
+
+    private static int parseSitemapPage(String rawPageNumber) {
+        try {
+            long parsedPageNumber = Long.parseLong(rawPageNumber);
+            long clampedPageNumber = Math.min(parsedPageNumber, Integer.MAX_VALUE);
+            return PagingUtils.atLeast((int) clampedPageNumber, 1);
+        } catch (NumberFormatException ex) {
+            return 1;
+        }
+    }
+
+    private PageMetadataPayload toPageMetadataPayload(BookSeoMetadataService.SeoMetadata metadata, int statusCode) {
+        return new PageMetadataPayload(
+            metadata.title(),
+            metadata.description(),
+            metadata.canonicalUrl(),
+            metadata.keywords(),
+            metadata.ogImage(),
+            statusCode
+        );
     }
 
     private static SitemapBookPayload toSitemapBookPayload(BookSitemapItem item) {
@@ -296,5 +431,23 @@ public class PageApiController {
      * @param bookCount number of books associated with the category
      */
     public record CategoryFacetPayload(String name, int bookCount) {
+    }
+
+    /**
+     * Typed metadata payload consumed by SPA head management.
+     *
+     * @param title page title without global suffix
+     * @param description page description content
+     * @param canonicalUrl canonical absolute URL for the current route
+     * @param keywords SEO keywords list
+     * @param ogImage OpenGraph/Twitter preview image URL
+     * @param statusCode semantic HTTP status for route presentation
+     */
+    public record PageMetadataPayload(String title,
+                                      String description,
+                                      String canonicalUrl,
+                                      String keywords,
+                                      String ogImage,
+                                      int statusCode) {
     }
 }

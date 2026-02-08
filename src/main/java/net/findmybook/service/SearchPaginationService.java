@@ -200,7 +200,7 @@ public class SearchPaginationService {
 
         OpenLibraryBookDataService service = openLibraryBookDataService.get();
         Set<String> seenKeys = ConcurrentHashMap.newKeySet();
-        return service.queryBooksByEverything(query)
+        return service.queryBooksByEverything(query, request.orderBy())
             .onErrorResume(ex -> {
                 log.warn("Open Library fallback failed for '{}': {}", request.query(), ex.getMessage());
                 return Flux.empty();
@@ -452,7 +452,7 @@ public class SearchPaginationService {
 
         public SearchRequest {
             Objects.requireNonNull(query, "query");
-            orderBy = Optional.ofNullable(orderBy).orElse("newest");
+            orderBy = SearchExternalProviderUtils.normalizeOrderBy(orderBy);
             coverSource = Optional.ofNullable(coverSource).orElse(CoverImageSource.ANY);
             resolutionPreference = Optional.ofNullable(resolutionPreference).orElse(ImageResolutionPreference.ANY);
             publishedYear = publishedYear != null && publishedYear > 0 ? publishedYear : null;

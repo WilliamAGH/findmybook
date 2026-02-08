@@ -2,6 +2,7 @@ package net.findmybook.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import org.springframework.util.StringUtils;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
@@ -31,6 +32,7 @@ import java.util.Map;
  * @param averageRating Average rating (0.0-5.0)
  * @param ratingsCount Total number of ratings
  * @param tags Qualifier tags as key-value pairs
+ * @param publishedDate Publication date used for newest-first ordering
  */
 public record BookListItem(
     String id,
@@ -63,7 +65,9 @@ public record BookListItem(
     @JsonProperty("ratings_count")
     Integer ratingsCount,
     
-    Map<String, Object> tags
+    Map<String, Object> tags,
+    @JsonProperty("published_date")
+    LocalDate publishedDate
 ) {
     /**
      * Compact constructor ensuring defensive copies for immutability
@@ -104,7 +108,43 @@ public record BookListItem(
             coverHighResolution,
             averageRating,
             ratingsCount,
-            tags
+            tags,
+            null
+        );
+    }
+
+    public BookListItem(String id,
+                        String slug,
+                        String title,
+                        String description,
+                        List<String> authors,
+                        List<String> categories,
+                        String coverUrl,
+                        String coverS3Key,
+                        String coverFallbackUrl,
+                        Integer coverWidth,
+                        Integer coverHeight,
+                        Boolean coverHighResolution,
+                        Double averageRating,
+                        Integer ratingsCount,
+                        Map<String, Object> tags) {
+        this(
+            id,
+            slug,
+            title,
+            description,
+            authors,
+            categories,
+            coverUrl,
+            coverS3Key,
+            coverFallbackUrl,
+            coverWidth,
+            coverHeight,
+            coverHighResolution,
+            averageRating,
+            ratingsCount,
+            tags,
+            null
         );
     }
     

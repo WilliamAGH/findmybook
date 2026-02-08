@@ -10,7 +10,7 @@ export const CATEGORY_MIN_BOOKS = 1;
 
 export const COVER_OPTIONS = ["ANY", "GOOGLE_BOOKS", "OPEN_LIBRARY", "LONGITOOD"] as const;
 export const RESOLUTION_OPTIONS = ["ANY", "HIGH_ONLY", "HIGH_FIRST"] as const;
-export const SORT_OPTIONS = ["relevance", "title", "author", "newest", "rating"] as const;
+export const SORT_OPTIONS = ["relevance", "title", "author", "newest"] as const;
 
 export const EXPLORE_DEFAULT_QUERIES = [
   "Classic literature", "Modern thrillers", "Space opera adventures", "Historical fiction bestsellers",
@@ -24,7 +24,6 @@ export const SORT_LABELS: Record<SortOption, string> = {
   title: "Title A–Z",
   author: "By Author",
   newest: "Newest First",
-  rating: "Highest Rated",
 };
 
 export type CoverOption = (typeof COVER_OPTIONS)[number];
