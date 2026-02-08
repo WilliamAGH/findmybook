@@ -14,6 +14,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -141,7 +142,7 @@ public class BookSupplementalPersistenceService {
         JdbcUtils.executeUpdate(
             jdbcTemplate,
             "INSERT INTO book_tag_assignments (id, book_id, tag_id, source, confidence, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?::jsonb, NOW()) " +
-            "ON CONFLICT (book_id, tag_id, source) DO UPDATE SET metadata = EXCLUDED.metadata, confidence = COALESCE(EXCLUDED.confidence, book_tag_assignments.confidence)",
+            "ON CONFLICT (book_id, tag_id) DO UPDATE SET source = EXCLUDED.source, metadata = EXCLUDED.metadata, confidence = COALESCE(EXCLUDED.confidence, book_tag_assignments.confidence)",
             IdGenerator.generateLong(),
             JdbcUtils.toUuid(bookId),
 
@@ -209,14 +210,32 @@ public class BookSupplementalPersistenceService {
             return;
         }
 
-        String canonicalKey = key.trim().toLowerCase();
+        String canonicalKey = normalizeTagKey(key);
         if (canonicalKey.isEmpty()) {
             return;
         }
 
         String tagId = upsertTag(canonicalKey, displayName != null ? displayName : key, tagType);
-        String resolvedSource = source != null ? source : canonicalKey;
+        String resolvedSource = normalizeTagSource(source, canonicalKey);
+        if (resolvedSource.isEmpty()) {
+            return;
+        }
         assignTagInternal(bookId, tagId, resolvedSource, confidence, metadataJson);
+    }
+
+    private String normalizeTagKey(String key) {
+        if (!StringUtils.hasText(key)) {
+            return "";
+        }
+        String compactWhitespace = key.trim().replaceAll("\\s+", "_");
+        return compactWhitespace.toLowerCase(Locale.ROOT);
+    }
+
+    private String normalizeTagSource(String source, String fallbackSource) {
+        if (StringUtils.hasText(source)) {
+            return source.trim();
+        }
+        return normalizeTagKey(fallbackSource);
     }
 
 }
