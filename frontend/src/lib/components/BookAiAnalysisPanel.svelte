@@ -128,12 +128,17 @@
   }
 
   onMount(() => {
-    // Auto-trigger if no analysis exists
-    if (!book.ai && !aiLoading && !aiAutoTriggerDeferred) {
-      void triggerAiGeneration(false);
-    }
+    // Auto-trigger only after the parent has finished loading the book (book.ai is hydrated
+    // from Postgres on the initial GET /api/books/{id} call, so if the field is null here
+    // the book genuinely has no cached analysis yet).
+    const autoTriggerDelay = setTimeout(() => {
+      if (!book.ai && !aiLoading && !aiAutoTriggerDeferred) {
+        void triggerAiGeneration(false);
+      }
+    }, 0);
 
     return () => {
+      clearTimeout(autoTriggerDelay);
       aiAbortController?.abort();
     };
   });
