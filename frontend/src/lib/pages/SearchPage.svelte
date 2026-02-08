@@ -71,7 +71,14 @@
     };
   }
   function cacheKey(params: SearchParams): string {
-    return [params.query, params.startIndex, params.maxResults, params.orderBy, params.coverSource, params.resolution].join("::");
+    return JSON.stringify({
+      query: params.query,
+      startIndex: params.startIndex,
+      maxResults: params.maxResults,
+      orderBy: params.orderBy,
+      coverSource: params.coverSource,
+      resolution: params.resolution,
+    });
   }
   function parseEnumParam<T extends string>(params: URLSearchParams, key: string, options: readonly T[], fallback: T): T {
     const raw = params.get(key) ?? fallback;
