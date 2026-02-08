@@ -186,6 +186,7 @@
 
     if (!query) {
       if (sequence !== searchLoadSequence) return;
+      loading = false;
       searchResult = null;
       errorMessage = null;
       realtimeMessage = null;
