@@ -164,8 +164,8 @@ public class BookAiRequestQueue {
         try {
             T value = task.supplier.get();
             task.result.complete(value);
-        } catch (Throwable throwable) {
-            task.result.completeExceptionally(throwable);
+        } catch (Exception exception) {
+            task.result.completeExceptionally(exception);
         } finally {
             synchronized (this) {
                 runningById.remove(task.id);

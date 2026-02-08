@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
@@ -94,6 +95,59 @@ class BookAiRequestQueueTest {
             .isInstanceOf(CancellationException.class);
 
         releaseFirstTask.countDown();
+    }
+
+    @Test
+    void should_ReportSnapshot_When_TasksAreRunningAndPending() {
+        BookAiRequestQueue queue = new BookAiRequestQueue(1);
+        CountDownLatch blocker = new CountDownLatch(1);
+
+        queue.enqueue(0, () -> {
+            awaitLatch(blocker);
+            return "running";
+        });
+        queue.enqueue(0, () -> "pending");
+
+        BookAiRequestQueue.QueueSnapshot snapshot = queue.snapshot();
+        assertThat(snapshot.running()).isEqualTo(1);
+        assertThat(snapshot.pending()).isEqualTo(1);
+        assertThat(snapshot.maxParallel()).isEqualTo(1);
+
+        blocker.countDown();
+    }
+
+    @Test
+    void should_PropagateException_When_TaskFails() {
+        BookAiRequestQueue queue = new BookAiRequestQueue(1);
+
+        BookAiRequestQueue.EnqueuedTask<String> task = queue.enqueue(0, () -> {
+            throw new IllegalStateException("AI generation failed");
+        });
+
+        assertThatThrownBy(() -> task.result().get(TASK_TIMEOUT.toSeconds(), TimeUnit.SECONDS))
+            .isInstanceOf(ExecutionException.class)
+            .hasCauseInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("AI generation failed");
+    }
+
+    @Test
+    void should_ReturnFalse_When_CancellingNonExistentTask() {
+        BookAiRequestQueue queue = new BookAiRequestQueue(1);
+        assertThat(queue.cancelPending("nonexistent-id")).isFalse();
+    }
+
+    @Test
+    void should_CoerceParallelism_When_ConfiguredBelowOne() throws Exception {
+        BookAiRequestQueue queue = new BookAiRequestQueue(0);
+        BookAiRequestQueue.QueueSnapshot snapshot = queue.snapshot();
+        assertThat(snapshot.maxParallel()).isEqualTo(1);
+    }
+
+    @Test
+    void should_CapParallelism_When_ConfiguredAboveMax() {
+        BookAiRequestQueue queue = new BookAiRequestQueue(100);
+        BookAiRequestQueue.QueueSnapshot snapshot = queue.snapshot();
+        assertThat(snapshot.maxParallel()).isEqualTo(20);
     }
 
     private void awaitLatch(CountDownLatch latch) {
