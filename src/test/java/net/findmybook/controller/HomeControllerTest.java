@@ -151,13 +151,11 @@ class HomeControllerTest {
     @Test
     void should_EscapeScriptSensitiveCharacters_When_BookPathContainsHtmlLikeSegment() {
         String html = bookSeoMetadataService.renderSpaShell(
-            bookSeoMetadataService.notFoundMetadata("/book/<svg>"),
-            "/book/<svg>",
-            HttpStatus.NOT_FOUND.value()
+            bookSeoMetadataService.notFoundMetadata("/book/<svg>")
         );
 
-        assertTrue(html.contains("window.__FMB_INITIAL_CONTEXT__"));
-        assertTrue(html.contains("\\u003csvg\\u003e"));
+        assertTrue(!html.contains("window.__FMB_INITIAL_CONTEXT__"));
+        assertTrue(!html.contains("<svg>"));
     }
 
     @Test
