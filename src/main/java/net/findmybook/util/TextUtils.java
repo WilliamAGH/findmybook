@@ -68,12 +68,8 @@ public class TextUtils {
         // Trim whitespace
         String trimmed = title.trim();
         
-        // Check if the title is all uppercase or all lowercase (needs normalization)
-        boolean isAllUppercase = trimmed.equals(trimmed.toUpperCase()) && !trimmed.equals(trimmed.toLowerCase());
-        boolean isAllLowercase = trimmed.equals(trimmed.toLowerCase()) && !trimmed.equals(trimmed.toUpperCase());
-        
-        // If mixed case and not all uppercase/lowercase, preserve original (likely intentional formatting)
-        if (!isAllUppercase && !isAllLowercase) {
+        // If mixed case, preserve original (likely intentional formatting)
+        if (!isUniformCase(trimmed)) {
             logger.debug("Title '{}' appears to have intentional mixed case formatting, preserving as-is", trimmed);
             return trimmed;
         }
@@ -237,9 +233,7 @@ public class TextUtils {
         }
 
         // Preserve intentional mixed case; normalize ALL-UPPER and all-lower
-        boolean isAllUppercase = cleaned.equals(cleaned.toUpperCase()) && !cleaned.equals(cleaned.toLowerCase());
-        boolean isAllLowercase = cleaned.equals(cleaned.toLowerCase()) && !cleaned.equals(cleaned.toUpperCase());
-        if (!(isAllUppercase || isAllLowercase)) {
+        if (!isUniformCase(cleaned)) {
             return cleaned;
         }
 
@@ -260,7 +254,13 @@ public class TextUtils {
         while (!result.isEmpty() && isAuthorQuote(result.charAt(0))) {
             result = result.substring(1).trim();
         }
+        result = stripLeadingAuthorNonAlphanumeric(result);
         while (!result.isEmpty() && isAuthorQuote(result.charAt(result.length() - 1))) {
+            result = result.substring(0, result.length() - 1).trim();
+        }
+
+        // Normalize trailing bracket-dot sequences left by some catalog feeds (e.g. "[Author Unknown].").
+        while (result.endsWith("].")) {
             result = result.substring(0, result.length() - 1).trim();
         }
 
@@ -272,13 +272,31 @@ public class TextUtils {
         return result;
     }
 
+    private static String stripLeadingAuthorNonAlphanumeric(String value) {
+        String result = value;
+        while (!result.isEmpty() && !Character.isLetterOrDigit(result.charAt(0))) {
+            result = result.substring(1).trim();
+        }
+        return result;
+    }
+
+    /**
+     * Returns {@code true} when the text is entirely uppercase or entirely lowercase,
+     * indicating it needs case normalization rather than preserving intentional mixed case.
+     */
+    private static boolean isUniformCase(String text) {
+        boolean allUpper = text.equals(text.toUpperCase()) && !text.equals(text.toLowerCase());
+        boolean allLower = text.equals(text.toLowerCase()) && !text.equals(text.toUpperCase());
+        return allUpper || allLower;
+    }
+
     private static boolean isAuthorQuote(char c) {
         return c == '"' || c == '\'' || c == '\u201C' || c == '\u201D' || c == '\u2018' || c == '\u2019'
             || c == '\u201A' || c == '\u201B' || c == '\u00AB' || c == '\u00BB' || c == '\u2039' || c == '\u203A';
     }
 
     private static boolean isTrailingAuthorDelimiter(char c) {
-        return c == ',' || c == ';' || c == ':' || c == '\u00B7';
+        return c == ',' || c == ';' || c == ':' || c == '\u00B7' || c == ']';
     }
 
     /**

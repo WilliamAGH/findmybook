@@ -6,12 +6,13 @@ import net.findmybook.util.ApplicationConstants;
 import net.findmybook.util.CategoryNormalizer;
 import net.findmybook.util.IdGenerator;
 import net.findmybook.util.JdbcUtils;
+import net.findmybook.util.TextUtils;
 import net.findmybook.util.UuidUtils;
 import net.findmybook.util.ValidationUtils;
-import org.springframework.util.StringUtils;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.util.List;
 import java.util.Locale;
@@ -20,6 +21,8 @@ import java.util.UUID;
 
 @Service
 public class BookSupplementalPersistenceService {
+
+    private static final String AUTHOR_NAME_NORMALIZE_PATTERN = "[^a-z0-9\\s]";
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
@@ -49,8 +52,12 @@ public class BookSupplementalPersistenceService {
             if (!StringUtils.hasText(author)) {
                 continue;
             }
-            String normalized = author.toLowerCase().replaceAll("[^a-z0-9\\s]", "").trim();
-            String authorId = upsertAuthor(author, normalized);
+            String canonicalAuthorName = TextUtils.normalizeAuthorName(author);
+            if (!StringUtils.hasText(canonicalAuthorName)) {
+                continue;
+            }
+            String normalized = normalizeAuthorKey(canonicalAuthorName);
+            String authorId = upsertAuthor(canonicalAuthorName, normalized);
             JdbcUtils.executeUpdate(
                 jdbcTemplate,
                 "INSERT INTO book_authors_join (id, book_id, author_id, position, created_at, updated_at) VALUES (?, ?, ?, ?, NOW(), NOW()) " +
@@ -221,6 +228,13 @@ public class BookSupplementalPersistenceService {
             return;
         }
         assignTagInternal(bookId, tagId, resolvedSource, confidence, metadataJson);
+    }
+
+    private String normalizeAuthorKey(String authorName) {
+        String normalized = authorName.toLowerCase(Locale.ROOT)
+            .replaceAll(AUTHOR_NAME_NORMALIZE_PATTERN, "")
+            .trim();
+        return normalized.isBlank() ? null : normalized;
     }
 
     private String normalizeTagKey(String key) {

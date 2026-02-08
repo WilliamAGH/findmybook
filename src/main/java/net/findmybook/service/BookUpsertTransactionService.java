@@ -2,6 +2,7 @@ package net.findmybook.service;
 
 import java.sql.Date;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import net.findmybook.dto.BookAggregate;
@@ -9,6 +10,7 @@ import net.findmybook.util.CategoryNormalizer;
 import net.findmybook.util.DimensionParser;
 import net.findmybook.util.IdGenerator;
 import net.findmybook.util.IsbnUtils;
+import net.findmybook.util.TextUtils;
 import net.findmybook.util.UrlUtils;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -154,10 +156,13 @@ public class BookUpsertTransactionService {
                 continue;
             }
 
-            String normalized = authorName.toLowerCase()
-                .replaceAll(AUTHOR_NAME_NORMALIZE_PATTERN, "")
-                .trim();
-            String authorId = upsertAuthor(authorName, normalized);
+            String canonicalAuthorName = TextUtils.normalizeAuthorName(authorName);
+            if (canonicalAuthorName == null || canonicalAuthorName.isBlank()) {
+                continue;
+            }
+
+            String normalized = normalizeAuthorKey(canonicalAuthorName);
+            String authorId = upsertAuthor(canonicalAuthorName, normalized);
 
             jdbcTemplate.update(
                 """
@@ -337,6 +342,13 @@ public class BookUpsertTransactionService {
             log.error("Error upserting author '{}': {}", name, exception.getMessage(), exception);
             throw exception;
         }
+    }
+
+    private String normalizeAuthorKey(String authorName) {
+        String normalized = authorName.toLowerCase(Locale.ROOT)
+            .replaceAll(AUTHOR_NAME_NORMALIZE_PATTERN, "")
+            .trim();
+        return normalized.isBlank() ? null : normalized;
     }
 
     private String nullIfBlank(String value) {
