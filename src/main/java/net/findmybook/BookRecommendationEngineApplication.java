@@ -46,6 +46,7 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(BookRecommendationEngineApplication.class);
     private static final int APPLICATION_SCHEDULER_POOL_SIZE = 4;
+    private static final int APPLICATION_SCHEDULER_SHUTDOWN_TIMEOUT_SECONDS = 30;
     private static final String APPLICATION_SCHEDULER_THREAD_PREFIX = "AppScheduler-";
 
     /**
@@ -92,7 +93,7 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
         scheduler.setPoolSize(APPLICATION_SCHEDULER_POOL_SIZE);
         scheduler.setRemoveOnCancelPolicy(true);
         scheduler.setWaitForTasksToCompleteOnShutdown(true);
-        scheduler.setAwaitTerminationSeconds(30);
+        scheduler.setAwaitTerminationSeconds(APPLICATION_SCHEDULER_SHUTDOWN_TIMEOUT_SECONDS);
         return scheduler;
     }
 
