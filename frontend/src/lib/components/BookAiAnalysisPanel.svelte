@@ -27,7 +27,8 @@
   function readCollapseState(): boolean {
     try {
       return localStorage.getItem(COLLAPSE_STORAGE_KEY) === "true";
-    } catch {
+    } catch (error) {
+      console.warn("localStorage read failed for collapse state:", error);
       return false;
     }
   }
@@ -35,8 +36,8 @@
   function writeCollapseState(value: boolean): void {
     try {
       localStorage.setItem(COLLAPSE_STORAGE_KEY, String(value));
-    } catch {
-      /* localStorage unavailable */
+    } catch (error) {
+      console.warn("localStorage write failed for collapse state:", error);
     }
   }
 

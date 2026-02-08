@@ -359,14 +359,7 @@ public class BookAiAnalysisService {
             throw new IllegalStateException("AI response missing required key theme array");
         }
 
-        List<String> values = new ArrayList<>();
-        for (JsonNode item : node) {
-            String value = textOrNull(item);
-            if (StringUtils.hasText(value)) {
-                values.add(value);
-            }
-        }
-
+        List<String> values = collectTextValues(node);
         if (values.size() < MIN_KEY_THEME_COUNT) {
             throw new IllegalStateException("AI response key theme list was empty");
         }
@@ -383,13 +376,7 @@ public class BookAiAnalysisService {
         if (!isNonEmptyArray(node)) {
             return null;
         }
-        List<String> values = new ArrayList<>();
-        for (JsonNode item : node) {
-            String value = textOrNull(item);
-            if (StringUtils.hasText(value)) {
-                values.add(value);
-            }
-        }
+        List<String> values = collectTextValues(node);
         if (values.isEmpty()) {
             return null;
         }
@@ -397,6 +384,18 @@ public class BookAiAnalysisService {
             values = values.subList(0, MAX_TAKEAWAY_COUNT);
         }
         return List.copyOf(values);
+    }
+
+    /** Extracts non-blank text values from a JSON array node. */
+    private List<String> collectTextValues(JsonNode arrayNode) {
+        List<String> values = new ArrayList<>();
+        for (JsonNode item : arrayNode) {
+            String value = textOrNull(item);
+            if (StringUtils.hasText(value)) {
+                values.add(value);
+            }
+        }
+        return values;
     }
 
     @Nullable

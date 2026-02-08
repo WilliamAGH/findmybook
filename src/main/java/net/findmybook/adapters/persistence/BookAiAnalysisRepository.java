@@ -93,9 +93,9 @@ public class BookAiAnalysisRepository {
                                                   String promptHash) {
         int nextVersion = resolveNextVersion(bookId);
         String rowId = IdGenerator.generateLong();
-        String analysisJson = serializeAnalysis(analysis);
-        String keyThemesJson = serializeStringList(analysis.keyThemes());
-        String takeawaysJson = serializeStringList(analysis.takeaways());
+        String analysisJson = serializeJson(analysis);
+        String keyThemesJson = serializeJson(analysis.keyThemes());
+        String takeawaysJson = serializeJson(analysis.takeaways());
 
         jdbcTemplate.update(
             "UPDATE book_ai_content SET is_current = false WHERE book_id = ? AND is_current = true",
@@ -142,22 +142,14 @@ public class BookAiAnalysisRepository {
         return version;
     }
 
-    private String serializeAnalysis(BookAiAnalysis analysis) {
-        try {
-            return objectMapper.writeValueAsString(analysis);
-        } catch (JacksonException ex) {
-            throw new IllegalStateException("Failed to serialize book AI analysis payload", ex);
-        }
-    }
-
-    private String serializeStringList(java.util.List<String> values) {
-        if (values == null) {
+    private String serializeJson(Object value) {
+        if (value == null) {
             return null;
         }
         try {
-            return objectMapper.writeValueAsString(values);
+            return objectMapper.writeValueAsString(value);
         } catch (JacksonException ex) {
-            throw new IllegalStateException("Failed to serialize AI string list", ex);
+            throw new IllegalStateException("Failed to serialize AI analysis value: " + value.getClass().getSimpleName(), ex);
         }
     }
 
