@@ -73,7 +73,7 @@ public class SitemapController extends SpaShellController {
 
         String canonicalPath = "/sitemap/" + normalizedView + "/" + bucket + "/" + safePage;
         BookSeoMetadataService.SeoMetadata metadata = bookSeoMetadataService.sitemapMetadata(canonicalPath);
-        return spaResponse(metadata, canonicalPath, HttpStatus.OK);
+        return spaResponse(metadata, HttpStatus.OK);
     }
 
     @GetMapping(value = "/sitemap.xml", produces = MediaType.APPLICATION_XML_VALUE)
