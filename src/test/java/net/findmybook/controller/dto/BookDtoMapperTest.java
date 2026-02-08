@@ -263,10 +263,11 @@ class BookDtoMapperTest {
         BookDto dto = BookDtoMapper.toDto(book);
 
         String html = dto.descriptionContent().html();
-        assertThat(html).contains("<b>Section One</b>");
-        assertThat(html).contains("<b>Section Two</b>");
-        // Verify a <br> was inserted between the two bold blocks
-        assertThat(html).doesNotContain("</b><b>");
+        assertThat(html)
+            .contains("<b>Section One</b>")
+            .contains("<b>Section Two</b>")
+            // Verify a <br> was inserted between the two bold blocks
+            .doesNotContain("</b><b>");
     }
 
     @Test
@@ -279,10 +280,11 @@ class BookDtoMapperTest {
         BookDto dto = BookDtoMapper.toDto(book);
 
         String html = dto.descriptionContent().html();
-        assertThat(html).contains("<b>Table of Contents</b>");
-        // Ensure <br> is between heading and numbered list
-        assertThat(html).doesNotContain("</b>1.");
-        assertThat(html).contains("1. First Chapter");
+        assertThat(html)
+            .contains("<b>Table of Contents</b>")
+            // Ensure <br> is between heading and numbered list
+            .doesNotContain("</b>1.")
+            .contains("1. First Chapter");
     }
 
     @Test
@@ -317,6 +319,21 @@ class BookDtoMapperTest {
     }
 
     @Test
+    void should_InsertBreakAfterParagraphBlock_When_FollowedByBoldHeading() {
+        Book book = new Book();
+        book.setId("paragraph-then-heading");
+        book.setTitle("Paragraph Then Heading");
+        book.setDescription("<p>Intro paragraph.</p><b>Next Section</b>More text.");
+
+        BookDto dto = BookDtoMapper.toDto(book);
+
+        String html = dto.descriptionContent().html();
+        assertThat(html)
+            .contains("</p><br><b>Next Section</b>")
+            .doesNotContain("</p><b>Next Section</b>");
+    }
+
+    @Test
     void should_InsertBreakBeforeBold_When_PrecededBySentenceEnd() {
         Book book = new Book();
         book.setId("punct-before-bold");
@@ -328,10 +345,11 @@ class BookDtoMapperTest {
         BookDto dto = BookDtoMapper.toDto(book);
 
         String html = dto.descriptionContent().html();
-        // Period should be followed by <br> before the bold heading
-        assertThat(html).doesNotContain("confidence.<b>");
-        assertThat(html).contains("<b>What you will learn</b>");
-        assertThat(html).contains("<li>Item one</li>");
+        assertThat(html)
+            // Period should be followed by <br> before the bold heading
+            .doesNotContain("confidence.<b>")
+            .contains("<b>What you will learn</b>")
+            .contains("<li>Item one</li>");
     }
 
     @Test
@@ -346,9 +364,10 @@ class BookDtoMapperTest {
         BookDto dto = BookDtoMapper.toDto(book);
 
         String html = dto.descriptionContent().html();
-        // Should never have 3+ consecutive <br> tags
-        assertThat(html).doesNotContain("<br><br><br>");
-        assertThat(html).contains("<b>Heading</b>");
+        assertThat(html)
+            // Should never have 3+ consecutive <br> tags
+            .doesNotContain("<br><br><br>")
+            .contains("<b>Heading</b>");
     }
 
     @Test
@@ -365,16 +384,17 @@ class BookDtoMapperTest {
         BookDto dto = BookDtoMapper.toDto(book);
 
         String html = dto.descriptionContent().html();
-        // Bullets converted to list
-        assertThat(html).contains("<li>One</li>");
-        assertThat(html).contains("<li>Two</li>");
-        // Consecutive bold blocks separated
-        assertThat(html).doesNotContain("</b><b>");
-        // Digit after bold separated
-        assertThat(html).doesNotContain("</b>1.");
-        // No inline bullet chars remain
-        assertThat(html).doesNotContain("●");
-        // No triple breaks
-        assertThat(html).doesNotContain("<br><br><br>");
+        assertThat(html)
+            // Bullets converted to list
+            .contains("<li>One</li>")
+            .contains("<li>Two</li>")
+            // Consecutive bold blocks separated
+            .doesNotContain("</b><b>")
+            // Digit after bold separated
+            .doesNotContain("</b>1.")
+            // No inline bullet chars remain
+            .doesNotContain("●")
+            // No triple breaks
+            .doesNotContain("<br><br><br>");
     }
 }
