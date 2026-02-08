@@ -52,6 +52,7 @@ public final class BookDtoMapper {
     private static final Pattern CONSECUTIVE_BOLD_PATTERN = Pattern.compile("(?i)(</(?:b|strong)>)\\s*(<(?:b|strong)[\\s>])");
     private static final Pattern BOLD_CLOSE_THEN_TEXT_PATTERN = Pattern.compile("(?i)(</(?:b|strong)>)(?!\\s*<br)\\s*([^<\\s])");
     private static final Pattern PUNCT_THEN_BOLD_OPEN_PATTERN = Pattern.compile("([.!?])\\s*(<(?:b|strong)[\\s>])");
+    private static final Pattern TEXT_THEN_BOLD_OPEN_PATTERN = Pattern.compile("(?i)([^<>\\s])\\s*(<(?:b|strong)[\\s>])");
     private static final Pattern BLOCK_CLOSE_THEN_BOLD_PATTERN = Pattern.compile(
         "(?i)(</(?:p|div|section|article|blockquote|pre|h[1-6])>)\\s*(<(?:b|strong)[\\s>])"
     );
@@ -331,6 +332,9 @@ public final class BookDtoMapper {
         // Ensure <br> before opening bold when preceded by sentence-ending punctuation
         // Handles patterns like "...with confidence.<b>What you will learn</b>"
         result = PUNCT_THEN_BOLD_OPEN_PATTERN.matcher(result).replaceAll("$1<br>$2");
+
+        // Ensure <br> before opening bold when preceded by plain text (non-tag).
+        result = TEXT_THEN_BOLD_OPEN_PATTERN.matcher(result).replaceAll("$1<br>$2");
 
         result = convertInlineBulletsToList(result);
 
