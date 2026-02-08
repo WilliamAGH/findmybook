@@ -264,6 +264,12 @@ class BookExternalBatchPersistenceService {
                 }
                 throw new IllegalStateException("Systemic database error during upsert", ex);
             }
+            logger.warn("Skipping persistence for book {} due to non-systemic upsert failure: {}",
+                bookIdForLogging,
+                ex.getMessage());
+            if (logger.isDebugEnabled()) {
+                logger.debug("Non-systemic upsert failure stack trace for book {}", bookIdForLogging, ex);
+            }
             return false;
         }
     }
