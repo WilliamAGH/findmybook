@@ -94,6 +94,11 @@ public class BookAiContentRepository {
                                                          String model,
                                                          String provider,
                                                          String promptHash) {
+        if (bookId == null) {
+            throw new IllegalArgumentException("bookId is required");
+        }
+
+        lockBook(bookId);
         int nextVersion = resolveNextVersion(bookId);
         String rowId = IdGenerator.generateLong();
         String contentJson = serializeJson(aiContent);
@@ -133,6 +138,17 @@ public class BookAiContentRepository {
             .orElseThrow(() -> new IllegalStateException("Inserted AI content could not be reloaded for book " + bookId));
     }
 
+    private void lockBook(UUID bookId) {
+        UUID lockedBookId = jdbcTemplate.query(
+            "SELECT id FROM books WHERE id = ? FOR UPDATE",
+            rs -> rs.next() ? rs.getObject("id", UUID.class) : null,
+            bookId
+        );
+        if (lockedBookId == null) {
+            throw new IllegalStateException("Cannot lock missing book row for AI content versioning: " + bookId);
+        }
+    }
+
     private int resolveNextVersion(UUID bookId) {
         Integer version = jdbcTemplate.queryForObject(
             "SELECT COALESCE(MAX(version_number), 0) + 1 FROM book_ai_content WHERE book_id = ?",
@@ -145,14 +161,15 @@ public class BookAiContentRepository {
         return version;
     }
 
-    private String serializeJson(Object value) {
-        if (value == null) {
+    private <T> String serializeJson(T payload) {
+        if (payload == null) {
             return null;
         }
         try {
-            return objectMapper.writeValueAsString(value);
+            return objectMapper.writeValueAsString(payload);
         } catch (JacksonException ex) {
-            throw new IllegalStateException("Failed to serialize AI content value: " + value.getClass().getSimpleName(), ex);
+            log.error("Failed to serialize AI content payload type={}", payload.getClass().getSimpleName(), ex);
+            throw new IllegalStateException("Failed to serialize AI content payload: " + payload.getClass().getSimpleName(), ex);
         }
     }
 

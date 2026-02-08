@@ -1,6 +1,5 @@
 package net.findmybook.application.ai;
 
-import jakarta.annotation.Nullable;
 import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
 import com.openai.core.RequestOptions;
@@ -23,7 +22,6 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Consumer;
 import net.findmybook.adapters.persistence.BookAiContentRepository;
-import net.findmybook.controller.dto.BookAiContentSnapshotDto;
 import net.findmybook.domain.ai.BookAiContent;
 import net.findmybook.domain.ai.BookAiContentSnapshot;
 import net.findmybook.dto.BookDetail;
@@ -173,11 +171,8 @@ public class BookAiContentService {
                     ChatCompletionUserMessageParam.builder().content(prompt).build()
                 )
             ))
-            // Intentionally using deprecated maxTokens instead of maxCompletionTokens:
-            // LM Studio 0.4.x (and some OpenAI-compatible servers) only supports
-            // the max_tokens wire field, not the newer max_completion_tokens.
-            // See: openai-java SDK 4.16.x deprecation of Builder.maxTokens().
-            .maxTokens(MAX_COMPLETION_TOKENS)
+            // openai-java 4.16.1 deprecates maxTokens() in favor of maxCompletionTokens().
+            .maxCompletionTokens(MAX_COMPLETION_TOKENS)
             .temperature(SAMPLING_TEMPERATURE)
             .build();
 
@@ -219,23 +214,6 @@ public class BookAiContentService {
         );
 
         return new GeneratedContent(rawMessage, snapshot);
-    }
-
-    /**
-     * Converts domain snapshot to API DTO.
-     */
-    public static BookAiContentSnapshotDto toDto(BookAiContentSnapshot snapshot) {
-        return new BookAiContentSnapshotDto(
-            snapshot.aiContent().summary(),
-            snapshot.aiContent().readerFit(),
-            snapshot.aiContent().keyThemes(),
-            snapshot.aiContent().takeaways(),
-            snapshot.aiContent().context(),
-            snapshot.version(),
-            snapshot.generatedAt(),
-            snapshot.model(),
-            snapshot.provider()
-        );
     }
 
     /**
@@ -308,10 +286,10 @@ public class BookAiContentService {
         String summary = requireText(payload, "summary");
         String readerFit = requireText(payload, "readerFit", "reader_fit", "idealReader");
         List<String> themes = requireThemeList(payload, "keyThemes", "key_themes", "themes");
-        List<String> takeaways = parseOptionalStringList(payload, "takeaways");
-        String context = parseOptionalText(payload, "context");
+        Optional<List<String>> takeaways = parseOptionalStringList(payload, "takeaways");
+        Optional<String> context = parseOptionalText(payload, "context");
 
-        return new BookAiContent(summary, readerFit, themes, takeaways, context);
+        return new BookAiContent(summary, readerFit, themes, takeaways.orElse(null), context.orElse(null));
     }
 
     private JsonNode parseJsonPayload(String responseText) {
@@ -382,20 +360,19 @@ public class BookAiContentService {
         return List.copyOf(values);
     }
 
-    @Nullable
-    private List<String> parseOptionalStringList(JsonNode payload, String field) {
+    private Optional<List<String>> parseOptionalStringList(JsonNode payload, String field) {
         JsonNode node = payload.get(field);
         if (!isNonEmptyArray(node)) {
-            return null;
+            return Optional.empty();
         }
         List<String> values = collectTextValues(node);
         if (values.isEmpty()) {
-            return null;
+            return Optional.empty();
         }
         if (values.size() > MAX_TAKEAWAY_COUNT) {
             values = values.subList(0, MAX_TAKEAWAY_COUNT);
         }
-        return List.copyOf(values);
+        return Optional.of(List.copyOf(values));
     }
 
     /** Extracts non-blank text values from a JSON array node. */
@@ -410,10 +387,9 @@ public class BookAiContentService {
         return values;
     }
 
-    @Nullable
-    private String parseOptionalText(JsonNode payload, String field) {
-        String value = textOrNull(payload.get(field));
-        return StringUtils.hasText(value) ? value : null;
+    private Optional<String> parseOptionalText(JsonNode payload, String field) {
+        String text = textOrNull(payload.get(field));
+        return StringUtils.hasText(text) ? Optional.of(text) : Optional.empty();
     }
 
     private boolean isNonEmptyArray(JsonNode node) {
@@ -428,8 +404,8 @@ public class BookAiContentService {
         return StringUtils.hasText(text) ? text.trim() : null;
     }
 
-    private String firstText(String value, String fallback) {
-        return StringUtils.hasText(value) ? value.trim() : fallback;
+    private String firstText(String text, String fallback) {
+        return StringUtils.hasText(text) ? text.trim() : fallback;
     }
 
     private String sha256(String input) {
@@ -449,14 +425,14 @@ public class BookAiContentService {
      * {@code OpenAiSdkUrlNormalizer}: strips trailing slashes, strips
      * trailing {@code /embeddings}, and ensures a {@code /v1} suffix.</p>
      *
-     * @param value raw base URL from environment configuration
+     * @param rawUrl raw base URL from environment configuration
      * @return SDK-ready base URL ending in {@code /v1}
      */
-    public static String normalizeSdkBaseUrl(String value) {
-        if (!StringUtils.hasText(value)) {
+    public static String normalizeSdkBaseUrl(String rawUrl) {
+        if (!StringUtils.hasText(rawUrl)) {
             return "https://api.openai.com/v1";
         }
-        String normalized = value.trim();
+        String normalized = rawUrl.trim();
         while (normalized.endsWith("/")) {
             normalized = normalized.substring(0, normalized.length() - 1);
         }

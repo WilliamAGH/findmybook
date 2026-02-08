@@ -100,7 +100,7 @@ class BookAiContentServiceTest {
     }
 
     @Test
-    void toDto_MapsAllFields() {
+    void fromSnapshot_MapsAllFields() {
         BookAiContent aiContent = new BookAiContent(
             "Summary", "Fit", List.of("T1", "T2"),
             List.of("Takeaway A", "Takeaway B"), "A context sentence."
@@ -109,7 +109,7 @@ class BookAiContentServiceTest {
             UUID.randomUUID(), 3, Instant.parse("2026-02-08T12:00:00Z"), "gpt-5", "openai", aiContent
         );
 
-        BookAiContentSnapshotDto dto = BookAiContentService.toDto(snapshot);
+        BookAiContentSnapshotDto dto = BookAiContentSnapshotDto.fromSnapshot(snapshot);
 
         assertThat(dto.summary()).isEqualTo("Summary");
         assertThat(dto.readerFit()).isEqualTo("Fit");

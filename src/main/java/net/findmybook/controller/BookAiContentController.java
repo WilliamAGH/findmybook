@@ -246,7 +246,7 @@ public class BookAiContentController {
                 return;
             }
 
-            BookAiContentSnapshotDto snapshotDto = BookAiContentService.toDto(result.snapshot());
+            BookAiContentSnapshotDto snapshotDto = BookAiContentSnapshotDto.fromSnapshot(result.snapshot());
             try {
                 sendEvent(emitter, "done", new DonePayload(result.rawMessage(), snapshotDto));
             } catch (IllegalStateException doneEventException) {
@@ -273,7 +273,7 @@ public class BookAiContentController {
     private void streamDoneFromCache(SseEmitter emitter, BookAiContentSnapshot snapshot) {
         try {
             String cachedMessage = objectMapper.writeValueAsString(snapshot.aiContent());
-            sendEvent(emitter, "done", new DonePayload(cachedMessage, BookAiContentService.toDto(snapshot)));
+            sendEvent(emitter, "done", new DonePayload(cachedMessage, BookAiContentSnapshotDto.fromSnapshot(snapshot)));
             safelyComplete(emitter);
         } catch (JacksonException exception) {
             log.error("Failed to serialize cached AI content for bookId={}", snapshot.bookId(), exception);
@@ -308,7 +308,7 @@ public class BookAiContentController {
         }
     }
 
-    private void sendEvent(SseEmitter emitter, String eventName, Object payload) {
+    private void sendEvent(SseEmitter emitter, String eventName, BookAiContentSsePayload payload) {
         synchronized (emitter) {
             try {
                 emitter.send(SseEmitter.event().name(eventName).data(payload));
@@ -340,13 +340,21 @@ public class BookAiContentController {
         return current.getMessage();
     }
 
+    private sealed interface BookAiContentSsePayload
+        permits QueuePositionPayload, QueueStartedPayload, MessageStartPayload,
+                MessageDeltaPayload, MessageDonePayload, DonePayload, ErrorPayload {
+    }
+
     private record OptionalResolution(UUID bookId, String error) {}
     private record QueueStatsPayload(int running, int pending, int maxParallel) {}
-    private record QueuePositionPayload(Integer position, int running, int pending, int maxParallel) {}
-    private record QueueStartedPayload(int running, int pending, int maxParallel, long queueWaitMs) {}
-    private record MessageStartPayload(String id, String model, String apiMode) {}
-    private record MessageDeltaPayload(String delta) {}
-    private record MessageDonePayload(String message) {}
-    private record DonePayload(String message, BookAiContentSnapshotDto aiContent) {}
-    private record ErrorPayload(String error) {}
+    private record QueuePositionPayload(Integer position, int running, int pending, int maxParallel)
+        implements BookAiContentSsePayload {}
+    private record QueueStartedPayload(int running, int pending, int maxParallel, long queueWaitMs)
+        implements BookAiContentSsePayload {}
+    private record MessageStartPayload(String id, String model, String apiMode)
+        implements BookAiContentSsePayload {}
+    private record MessageDeltaPayload(String delta) implements BookAiContentSsePayload {}
+    private record MessageDonePayload(String message) implements BookAiContentSsePayload {}
+    private record DonePayload(String message, BookAiContentSnapshotDto aiContent) implements BookAiContentSsePayload {}
+    private record ErrorPayload(String error) implements BookAiContentSsePayload {}
 }

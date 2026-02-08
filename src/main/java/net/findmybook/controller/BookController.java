@@ -5,6 +5,7 @@ package net.findmybook.controller;
 
 import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import net.findmybook.application.ai.BookAiContentService;
+import net.findmybook.controller.dto.BookAiContentSnapshotDto;
 import net.findmybook.controller.dto.BookDto;
 import net.findmybook.controller.dto.BookDtoMapper;
 import org.springframework.web.server.ResponseStatusException;
@@ -410,7 +411,7 @@ public class BookController {
 
         try {
             return bookAiContentService.findCurrent(bookId)
-                .map(BookAiContentService::toDto)
+                .map(BookAiContentSnapshotDto::fromSnapshot)
                 .map(bookDto::withAiContent)
                 .orElse(bookDto);
         } catch (RuntimeException ex) {
