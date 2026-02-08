@@ -49,7 +49,10 @@ public final class BookDtoMapper {
     );
     private static final Pattern BR_TAG_PATTERN = Pattern.compile("(?i)<br\\s*/?>");
     private static final Pattern EMPTY_BOLD_BR_PATTERN = Pattern.compile("(?i)<b>\\s*(<br\\s*/?>)\\s*</b>");
-    private static final Pattern BOLD_THEN_BULLET_PATTERN = Pattern.compile("(</b>)\\s*([●•])", Pattern.CASE_INSENSITIVE);
+    private static final Pattern CONSECUTIVE_BOLD_PATTERN = Pattern.compile("(?i)(</b>)\\s*(<b[\\s>])");
+    private static final Pattern BOLD_CLOSE_THEN_TEXT_PATTERN = Pattern.compile("(?i)(</b>)(?!\\s*<br)\\s*([^<\\s])");
+    private static final Pattern PUNCT_THEN_BOLD_OPEN_PATTERN = Pattern.compile("([.!?])\\s*(<b[\\s>])");
+    private static final Pattern TRIPLE_BR_PATTERN = Pattern.compile("(?i)(<br\\s*/?>\\s*){3,}");
     private static final String BULLET_CHARS = "●•";
     private static final Parser MARKDOWN_PARSER = buildMarkdownParser();
     private static final HtmlRenderer MARKDOWN_RENDERER = buildMarkdownRenderer();
@@ -300,8 +303,11 @@ public final class BookDtoMapper {
     /**
      * Normalizes ad-hoc HTML formatting from providers like Google Books into semantic HTML.
      * Converts inline bullet characters ({@code ●}, {@code •}) separated by {@code <br>} tags
-     * into proper {@code <ul>/<li>} lists and ensures bold headings are followed by a line break
-     * before bullet content.
+     * into proper {@code <ul>/<li>} lists and ensures bold headings have line breaks around them
+     * so section boundaries render visually.
+     *
+     * <p>Break insertion rules guarantee every bold heading is separated from adjacent content
+     * while the final deduplication pass prevents triple-or-more consecutive {@code <br>} tags.
      */
     private static String normalizeHtmlStructure(String html) {
         if (!StringUtils.hasText(html)) {
@@ -311,8 +317,19 @@ public final class BookDtoMapper {
         // Strip empty bold wrappers around <br>: <b><br></b> → <br>
         String result = EMPTY_BOLD_BR_PATTERN.matcher(html).replaceAll("$1");
 
-        // Insert <br> between closing </b> and immediately following bullet character
-        result = BOLD_THEN_BULLET_PATTERN.matcher(result).replaceAll("$1<br>$2");
+        // Ensure <br> between consecutive bold blocks: </b><b> → </b><br><b>
+        result = CONSECUTIVE_BOLD_PATTERN.matcher(result).replaceAll("$1<br>$2");
+
+        // Ensure <br> after closing bold when directly followed by text (not <br> or tag)
+        // Handles patterns like </b>1. (numbered list after heading) and </b>● (bullets)
+        result = BOLD_CLOSE_THEN_TEXT_PATTERN.matcher(result).replaceAll("$1<br>$2");
+
+        // Ensure <br> before opening bold when preceded by sentence-ending punctuation
+        // Handles patterns like "...with confidence.<b>What you will learn</b>"
+        result = PUNCT_THEN_BOLD_OPEN_PATTERN.matcher(result).replaceAll("$1<br>$2");
+
+        // Collapse triple-or-more consecutive <br> into exactly double <br> (paragraph break)
+        result = TRIPLE_BR_PATTERN.matcher(result).replaceAll("<br><br>");
 
         return convertInlineBulletsToList(result);
     }

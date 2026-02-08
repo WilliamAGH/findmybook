@@ -233,4 +233,98 @@ class BookDtoMapperTest {
         assertThat(dto.descriptionContent().html()).contains("<li>Topic two</li>");
         assertThat(dto.descriptionContent().html()).doesNotContain("•");
     }
+
+    @Test
+    void should_InsertBreakBetweenConsecutiveBoldBlocks_When_NoBreakExists() {
+        Book book = new Book();
+        book.setId("consecutive-bold");
+        book.setTitle("Consecutive Bold");
+        book.setDescription("<b>Section One</b><b>Section Two</b> continues here");
+
+        BookDto dto = BookDtoMapper.toDto(book);
+
+        String html = dto.descriptionContent().html();
+        assertThat(html).contains("<b>Section One</b>");
+        assertThat(html).contains("<b>Section Two</b>");
+        // Verify a <br> was inserted between the two bold blocks
+        assertThat(html).doesNotContain("</b><b>");
+    }
+
+    @Test
+    void should_InsertBreakAfterBold_When_FollowedByDigit() {
+        Book book = new Book();
+        book.setId("bold-then-digit");
+        book.setTitle("Bold Then Digit");
+        book.setDescription("<b>Table of Contents</b>1. First Chapter<br>2. Second Chapter");
+
+        BookDto dto = BookDtoMapper.toDto(book);
+
+        String html = dto.descriptionContent().html();
+        assertThat(html).contains("<b>Table of Contents</b>");
+        // Ensure <br> is between heading and numbered list
+        assertThat(html).doesNotContain("</b>1.");
+        assertThat(html).contains("1. First Chapter");
+    }
+
+    @Test
+    void should_InsertBreakBeforeBold_When_PrecededBySentenceEnd() {
+        Book book = new Book();
+        book.setId("punct-before-bold");
+        book.setTitle("Punct Before Bold");
+        book.setDescription(
+            "<b>Intro</b><br>Ends with confidence.<b>What you will learn</b><br>● Item one"
+        );
+
+        BookDto dto = BookDtoMapper.toDto(book);
+
+        String html = dto.descriptionContent().html();
+        // Period should be followed by <br> before the bold heading
+        assertThat(html).doesNotContain("confidence.<b>");
+        assertThat(html).contains("<b>What you will learn</b>");
+        assertThat(html).contains("<li>Item one</li>");
+    }
+
+    @Test
+    void should_NeverProduceTripleBreaks_When_MultipleRulesOverlap() {
+        Book book = new Book();
+        book.setId("no-triple-br");
+        book.setTitle("No Triple BR");
+        book.setDescription(
+            "Paragraph one.<br><br><b>Heading</b><br><br>Paragraph two."
+        );
+
+        BookDto dto = BookDtoMapper.toDto(book);
+
+        String html = dto.descriptionContent().html();
+        // Should never have 3+ consecutive <br> tags
+        assertThat(html).doesNotContain("<br><br><br>");
+        assertThat(html).contains("<b>Heading</b>");
+    }
+
+    @Test
+    void should_HandleGoogleBooksDescription_When_FullAdHocPattern() {
+        Book book = new Book();
+        book.setId("google-books-full");
+        book.setTitle("Google Books Full");
+        book.setDescription(
+            "<b>Key Features</b>● One<br>● Two<b><br></b>"
+            + "<b>Description</b><b>\"Title\"</b> is a great book.<br><br>"
+            + "More text.<b>TOC</b>1. Chapter<br>2. Chapter"
+        );
+
+        BookDto dto = BookDtoMapper.toDto(book);
+
+        String html = dto.descriptionContent().html();
+        // Bullets converted to list
+        assertThat(html).contains("<li>One</li>");
+        assertThat(html).contains("<li>Two</li>");
+        // Consecutive bold blocks separated
+        assertThat(html).doesNotContain("</b><b>");
+        // Digit after bold separated
+        assertThat(html).doesNotContain("</b>1.");
+        // No inline bullet chars remain
+        assertThat(html).doesNotContain("●");
+        // No triple breaks
+        assertThat(html).doesNotContain("<br><br><br>");
+    }
 }
