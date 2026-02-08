@@ -32,6 +32,7 @@ vi.mock("$lib/services/realtime", () => ({
 import { matchRoute, searchBasePathForRoute } from "$lib/router/router";
 import BookCard from "$lib/components/BookCard.svelte";
 import NotFoundPage from "$lib/pages/NotFoundPage.svelte";
+import TopNav from "$lib/components/TopNav.svelte";
 import SearchPage from "$lib/pages/SearchPage.svelte";
 
 beforeEach(() => {
@@ -151,6 +152,17 @@ describe("component rendering", () => {
 
     expect(screen.getByRole("heading", { name: "Page not found" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Go home" })).toHaveAttribute("href", "/");
+  });
+
+  it("shouldHideCategoriesNavigationItemFromTopNav", () => {
+    render(TopNav, {
+      props: {
+        activeRoute: "home",
+      },
+    });
+
+    expect(screen.queryByRole("link", { name: /Categories/i })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: /Explore/i }).length).toBeGreaterThan(0);
   });
 });
 
