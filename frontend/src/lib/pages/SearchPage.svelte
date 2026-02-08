@@ -277,8 +277,8 @@
     {#if routeName !== "categories"}
       <div class="flex flex-col gap-3 sm:flex-row">
         <div class="relative flex-1">
-          <input bind:value={query} aria-label="Search by title, author, or ISBN" class="w-full rounded-lg border border-linen-300 px-4 py-2.5 pr-12 text-sm outline-none ring-canvas-300 transition focus:ring-2 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100" placeholder="Search by title, author, ISBN" />
-          <button type="submit" class="absolute right-2 top-1/2 -translate-y-1/2 rounded-md bg-canvas-400 p-1.5 text-white transition hover:bg-canvas-500" aria-label="Search"><Search size={16} /></button>
+          <input bind:value={query} aria-label="Search by title, author, or ISBN" class="w-full rounded-xl border border-gray-300 bg-white px-6 py-4 pr-14 text-base shadow-soft outline-none transition-all duration-200 focus:border-transparent focus:ring-2 focus:ring-canvas-400 focus:shadow-soft-lg dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 md:text-lg" placeholder="Search by title, author, or ISBN..." />
+          <button type="submit" class="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg bg-canvas-400 px-3 py-2.5 text-white transition-all duration-200 hover:bg-canvas-500 hover:shadow-canvas focus:outline-none focus:ring-2 focus:ring-canvas-500 focus:ring-offset-2 md:px-5" aria-label="Search"><Search size={18} /></button>
         </div>
       </div>
     {/if}
