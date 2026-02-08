@@ -162,9 +162,9 @@ public class BookAiContentRequestQueue {
 
     private <T> void executeTask(QueuedTask<T> task) {
         try {
-            T value = task.supplier.get();
-            task.result.complete(value);
-        } catch (Exception exception) {
+            T supplierResult = task.supplier.get();
+            task.result.complete(supplierResult);
+        } catch (RuntimeException exception) {
             task.result.completeExceptionally(exception);
         } finally {
             synchronized (this) {
@@ -202,9 +202,25 @@ public class BookAiContentRequestQueue {
         }
     }
 
+    /**
+     * Point-in-time snapshot of queue depth and concurrency limits.
+     *
+     * @param running  number of tasks currently executing
+     * @param pending  number of tasks waiting to start
+     * @param maxParallel configured concurrency ceiling
+     */
     public record QueueSnapshot(int running, int pending, int maxParallel) {
     }
 
+    /**
+     * A task's current position within the queue.
+     *
+     * @param inQueue     true when the task is still pending
+     * @param position    one-based queue position, null when not pending
+     * @param running     current running count
+     * @param pending     current pending count
+     * @param maxParallel configured concurrency ceiling
+     */
     public record QueuePosition(boolean inQueue,
                                 Integer position,
                                 int running,
@@ -212,6 +228,13 @@ public class BookAiContentRequestQueue {
                                 int maxParallel) {
     }
 
+    /**
+     * Handle returned to callers after enqueue, providing lifecycle futures.
+     *
+     * @param id      unique task identifier
+     * @param started completes when the task begins execution
+     * @param result  completes with the task result or exception
+     */
     public record EnqueuedTask<T>(String id,
                                   CompletableFuture<Void> started,
                                   CompletableFuture<T> result) {

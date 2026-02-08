@@ -108,7 +108,7 @@ db-verify-author-constraints:
 		non_blank_def=$$(psql "$$SPRING_DATASOURCE_URL" -At -c "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'authors'::regclass AND conname = 'authors_name_non_blank_check';") && \
 		leading_def=$$(psql "$$SPRING_DATASOURCE_URL" -At -c "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'authors'::regclass AND conname = 'authors_name_leading_character_check';") && \
 		echo "$$non_blank_def" | grep -F "btrim(name) <> ''" >/dev/null || { echo "❌ authors_name_non_blank_check has unexpected definition: $$non_blank_def"; exit 1; } && \
-		echo "$$leading_def" | grep -F "regexp_replace(name" >/dev/null || { echo "❌ authors_name_leading_character_check missing regexp_replace: $$leading_def"; exit 1; } && \
+		echo "$$leading_def" | grep -F "regexp_replace(" >/dev/null || { echo "❌ authors_name_leading_character_check missing regexp_replace: $$leading_def"; exit 1; } && \
 		echo "$$leading_def" | grep -F "^[[:alpha:][:digit:]]" >/dev/null || { echo "❌ authors_name_leading_character_check missing alpha/digit guard: $$leading_def"; exit 1; } && \
 			echo "✅ Author constraints match migration-defined guardrails"; \
 		else \

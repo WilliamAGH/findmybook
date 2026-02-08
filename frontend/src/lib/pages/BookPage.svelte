@@ -447,7 +447,7 @@
                     size={14}
                     class="shrink-0 transition-transform duration-200 {descriptionCollapsed ? '-rotate-90' : ''}"
                   />
-                  Book Description
+                  From the Publisher
                 </button>
                 <span
                   aria-hidden="true"
