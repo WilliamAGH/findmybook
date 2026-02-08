@@ -42,6 +42,11 @@ class BookExternalBatchPersistenceService {
     private static final Logger logger = LoggerFactory.getLogger(BookExternalBatchPersistenceService.class);
 
     private static final String ALPHANUMERIC_ONLY_PATTERN = "[^a-z0-9]";
+    private static final String CODE_BOOK_BATCH_BACKGROUND_FAILURE = "BOOK_BATCH_BACKGROUND_FAILURE";
+    private static final String CODE_BOOK_BATCH_PARTIAL_FAILURE = "BOOK_BATCH_PARTIAL_FAILURE";
+    private static final String CODE_BOOK_UPSERT_SHUTDOWN_SYSTEMIC = "BOOK_UPSERT_SHUTDOWN_SYSTEMIC_DB";
+    private static final String CODE_BOOK_UPSERT_SYSTEMIC = "BOOK_UPSERT_SYSTEMIC_DB";
+    private static final String CODE_BOOK_UPSERT_NON_SYSTEMIC = "BOOK_UPSERT_NON_SYSTEMIC";
 
     private static final String ERR_CONNECTION = "connection";
     private static final String ERR_REFUSED = "refused";
@@ -103,7 +108,11 @@ class BookExternalBatchPersistenceService {
             .doOnSubscribe(sub -> logger.info("[EXTERNAL-API] [{}] Mono subscribed for persistence", context))
             .subscribe(
                 ignored -> logger.info("[EXTERNAL-API] [{}] Persistence Mono completed", context),
-                error -> logger.error("[EXTERNAL-API] [{}] Background persistence failed: {}", context, error.getMessage(), error)
+                error -> logger.error("[EXTERNAL-API] [{}] Background persistence failed [code={}]: reason={}",
+                    context,
+                    CODE_BOOK_BATCH_BACKGROUND_FAILURE,
+                    resolveFailureReason(error),
+                    error)
             );
 
         logger.info("[EXTERNAL-API] [{}] persistBooksAsync setup complete, async execution scheduled", context);
@@ -123,7 +132,7 @@ class BookExternalBatchPersistenceService {
                 logger.info("[EXTERNAL-API] [{}] {} (suppressed during shutdown)", context, summary);
                 return;
             }
-            logger.warn(summary);
+            logger.warn("{} [code={}]", summary, CODE_BOOK_BATCH_PARTIAL_FAILURE);
             return;
         }
         logger.info("[EXTERNAL-API] [{}] Batch persistence complete: {} succeeded ({} ms)", context, result.successCount(), elapsed);
@@ -181,23 +190,29 @@ class BookExternalBatchPersistenceService {
                 ? new PersistenceOutcome(1, 0, false)
                 : new PersistenceOutcome(0, 1, false);
         } catch (RuntimeException ex) {
+            String reason = resolveFailureReason(ex);
             if (shutdownInProgress && isSystemicDatabaseError(ex)) {
-                logger.info("[EXTERNAL-API] [{}] Skipping book {} during shutdown after systemic error: {}",
-                    context, book.getId(), ex.getMessage());
+                logger.info("[EXTERNAL-API] [{}] Skipping book {} during shutdown after systemic error [code={}]: reason={}",
+                    context,
+                    book.getId(),
+                    CODE_BOOK_UPSERT_SHUTDOWN_SYSTEMIC,
+                    reason);
                 return new PersistenceOutcome(0, 0, true);
             }
             if (isSystemicDatabaseError(ex)) {
-                logger.error("[EXTERNAL-API] [{}] Aborting batch due to systemic database error while persisting book {}: {}",
+                logger.error("[EXTERNAL-API] [{}] Aborting batch due to systemic database error while persisting book {} [code={}]: reason={}",
                     context,
                     book.getId(),
-                    ex.getMessage(),
+                    CODE_BOOK_UPSERT_SYSTEMIC,
+                    reason,
                     ex);
                 return new PersistenceOutcome(0, 1, true);
             }
-            logger.warn("[EXTERNAL-API] [{}] Skipping book {} due to non-systemic persistence failure: {}",
+            logger.warn("[EXTERNAL-API] [{}] Skipping book {} due to non-systemic persistence failure [code={}]: reason={}",
                 context,
                 book.getId(),
-                ex.getMessage());
+                CODE_BOOK_UPSERT_NON_SYSTEMIC,
+                reason);
             if (logger.isDebugEnabled()) {
                 logger.debug("[EXTERNAL-API] [{}] Non-systemic persistence failure stack trace for book {}",
                     context,
@@ -253,10 +268,14 @@ class BookExternalBatchPersistenceService {
             logger.debug("Persisted book via BookUpsertService: {}", book.getId());
             return true;
         } catch (DataAccessException | IllegalArgumentException | IllegalStateException ex) {
+            String reason = resolveFailureReason(ex);
             if (isSystemicDatabaseError(ex)) {
                 if (shutdownInProgress) {
-                    logger.info("Skipping persistence for book {} during shutdown because database connectivity is unavailable",
-                        bookIdForLogging);
+                    logger.info("Skipping persistence for book {} during shutdown because database connectivity is unavailable "
+                            + "[code={}]: reason={}",
+                        bookIdForLogging,
+                        CODE_BOOK_UPSERT_SHUTDOWN_SYSTEMIC,
+                        reason);
                     return false;
                 }
                 if (ex instanceof IllegalStateException stateException) {
@@ -264,14 +283,33 @@ class BookExternalBatchPersistenceService {
                 }
                 throw new IllegalStateException("Systemic database error during upsert", ex);
             }
-            logger.warn("Skipping persistence for book {} due to non-systemic upsert failure: {}",
+            logger.warn("Skipping persistence for book {} due to non-systemic upsert failure [code={}]: reason={}",
                 bookIdForLogging,
-                ex.getMessage());
+                CODE_BOOK_UPSERT_NON_SYSTEMIC,
+                reason);
             if (logger.isDebugEnabled()) {
                 logger.debug("Non-systemic upsert failure stack trace for book {}", bookIdForLogging, ex);
             }
             return false;
         }
+    }
+
+    String classifyBookUpsertFailureCode(Throwable exception) {
+        if (isSystemicDatabaseError(exception)) {
+            return CODE_BOOK_UPSERT_SYSTEMIC;
+        }
+        return CODE_BOOK_UPSERT_NON_SYSTEMIC;
+    }
+
+    private String resolveFailureReason(Throwable exception) {
+        if (exception == null) {
+            return "unknown";
+        }
+        String message = exception.getMessage();
+        if (message == null || message.isBlank()) {
+            return exception.getClass().getSimpleName();
+        }
+        return message;
     }
 
     @PreDestroy
