@@ -94,16 +94,15 @@ public class BookDetailPageController extends SpaShellController {
             resolvedBookMono
                 .map(book -> {
                     if (book == null) {
-                        return spaResponse(bookSeoMetadataService.notFoundMetadata("/book/" + id), "/book/" + id, HttpStatus.NOT_FOUND);
+                        return spaResponse(bookSeoMetadataService.notFoundMetadata("/book/" + id), HttpStatus.NOT_FOUND);
                     }
                     String canonical = canonicalIdentifier(book);
                     homePageSectionsService.recordRecentlyViewed(book);
                     BookSeoMetadataService.SeoMetadata metadata = bookSeoMetadataService.bookMetadata(book, maxDescriptionLength);
-                    return spaResponse(metadata, "/book/" + canonical, HttpStatus.OK);
+                    return spaResponse(metadata, HttpStatus.OK);
                 })
                 .switchIfEmpty(Mono.just(spaResponse(
                     bookSeoMetadataService.notFoundMetadata("/book/" + id),
-                    "/book/" + id,
                     HttpStatus.NOT_FOUND
                 )))
         ).onErrorMap(e -> {
