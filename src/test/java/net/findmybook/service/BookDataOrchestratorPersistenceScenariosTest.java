@@ -238,6 +238,24 @@ class BookDataOrchestratorPersistenceScenariosTest {
     }
 
     @Test
+    void classifyBookUpsertFailureCode_returnsSystemicCode_When_DatabaseConnectivityFailureOccurs() {
+        String code = batchPersistenceService.classifyBookUpsertFailureCode(
+            new DataAccessResourceFailureException("Connection refused")
+        );
+
+        assertThat(code).isEqualTo("BOOK_UPSERT_SYSTEMIC_DB");
+    }
+
+    @Test
+    void classifyBookUpsertFailureCode_returnsNonSystemicCode_When_DomainValidationFailureOccurs() {
+        String code = batchPersistenceService.classifyBookUpsertFailureCode(
+            new IllegalStateException("Cover persistence returned unsuccessful result")
+        );
+
+        assertThat(code).isEqualTo("BOOK_UPSERT_NON_SYSTEMIC");
+    }
+
+    @Test
     void bookImageLinkPersistenceService_shouldReturnFallbackCanonicalUrl_When_CoverPersistenceReturnsUnsuccessful() {
         JdbcTemplate imageJdbcTemplate = mock(JdbcTemplate.class);
         CoverPersistenceService coverPersistenceService = mock(CoverPersistenceService.class);

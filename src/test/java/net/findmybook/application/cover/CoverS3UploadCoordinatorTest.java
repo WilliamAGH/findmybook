@@ -14,7 +14,11 @@ import java.time.Duration;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import net.findmybook.exception.CoverDownloadException;
 import net.findmybook.exception.CoverProcessingException;
+import net.findmybook.exception.CoverTooLargeException;
+import net.findmybook.exception.S3UploadException;
+import net.findmybook.exception.UnsafeUrlException;
 import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.model.image.ImageDetails;
 import net.findmybook.model.image.ImageResolutionPreference;
@@ -256,6 +260,35 @@ class CoverS3UploadCoordinatorTest {
         verify(coverPersistenceService, never()).updateAfterS3Upload(any(), any());
         assertCounterEventuallyEquals("book.cover.s3.upload.success", 0.0d);
         assertCounterEventuallyEquals("book.cover.s3.upload.failure", 1.0d);
+    }
+
+    @Test
+    void should_ClassifyKnownS3FailureCodes_When_ExceptionTypesAreMapped() {
+        assertThat(coordinator.classifyS3FailureCode(
+            new CoverDownloadException("book-1", "https://example.com/a.jpg", new RuntimeException("timeout"))
+        )).isEqualTo("S3_UPLOAD_DOWNLOAD_FAILED");
+
+        assertThat(coordinator.classifyS3FailureCode(
+            new CoverProcessingException("book-2", "https://example.com/b.jpg", "unsupported-format")
+        )).isEqualTo("S3_UPLOAD_PROCESSING_FAILED");
+
+        assertThat(coordinator.classifyS3FailureCode(
+            new CoverTooLargeException("book-3", "https://example.com/c.jpg", 9000000L, 5000000L)
+        )).isEqualTo("S3_UPLOAD_TOO_LARGE");
+
+        assertThat(coordinator.classifyS3FailureCode(
+            new UnsafeUrlException("book-4", "http://localhost/image.jpg")
+        )).isEqualTo("S3_UPLOAD_UNSAFE_URL");
+
+        assertThat(coordinator.classifyS3FailureCode(
+            new S3UploadException("S3 disabled at runtime", "book-5", "https://example.com/d.jpg", false, null)
+        )).isEqualTo("S3_UPLOAD_RUNTIME_CONFIGURATION");
+    }
+
+    @Test
+    void should_ClassifyUnexpectedS3FailureCode_When_ExceptionTypeIsUnknown() {
+        assertThat(coordinator.classifyS3FailureCode(new IllegalStateException("unexpected")))
+            .isEqualTo("S3_UPLOAD_UNEXPECTED_FAILURE");
     }
 
     private void assertCounterEventuallyEquals(String metricName, double expectedValue) {
