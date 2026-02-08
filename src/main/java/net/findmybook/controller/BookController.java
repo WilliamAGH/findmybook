@@ -408,10 +408,15 @@ public class BookController {
             return bookDto;
         }
 
-        return bookAiContentService.findCurrent(bookId)
-            .map(BookAiContentService::toDto)
-            .map(bookDto::withAiContent)
-            .orElse(bookDto);
+        try {
+            return bookAiContentService.findCurrent(bookId)
+                .map(BookAiContentService::toDto)
+                .map(bookDto::withAiContent)
+                .orElse(bookDto);
+        } catch (RuntimeException ex) {
+            log.warn("Failed to attach AI content snapshot for book {}: {}", bookId, ex.getMessage());
+            return bookDto;
+        }
     }
 
     private BookDto toRecommendationDto(RecommendationCard card) {
