@@ -1966,26 +1966,6 @@ create unique index if not exists uq_book_ai_content_current
 create index if not exists idx_book_ai_content_book_created
   on book_ai_content(book_id, created_at desc);
 
-do $$
-begin
-  if exists (
-    select 1
-    from information_schema.columns
-    where table_schema = 'public'
-      and table_name = 'book_ai_content'
-      and column_name = 'analysis_json'
-  ) and not exists (
-    select 1
-    from information_schema.columns
-    where table_schema = 'public'
-      and table_name = 'book_ai_content'
-      and column_name = 'content_json'
-  ) then
-    alter table book_ai_content rename column analysis_json to content_json;
-  end if;
-end
-$$;
-
 alter table book_ai_content
   add column if not exists takeaways jsonb,
   add column if not exists context text;
