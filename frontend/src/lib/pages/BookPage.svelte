@@ -466,10 +466,12 @@
                 <div class="relative">
                   <div
                     bind:this={descriptionContainer}
-                    class="text-sm leading-relaxed text-anthracite-700 dark:text-slate-300 overflow-hidden transition-[max-height] duration-300 ease-in-out"
+                    class="book-description-expandable text-sm leading-relaxed text-anthracite-700 dark:text-slate-300 overflow-hidden transition-[max-height] duration-300 ease-in-out"
                     class:book-description-content={sanitizedDescriptionHtml.length > 0}
                     class:whitespace-pre-wrap={sanitizedDescriptionHtml.length === 0}
-                    style:max-height={descriptionCollapsed ? `${descriptionMaxHeightPx}px` : `${descriptionNaturalHeightPx}px`}
+                    style:--book-description-max-height={descriptionCollapsed
+                      ? `${descriptionMaxHeightPx}px`
+                      : `${descriptionNaturalHeightPx}px`}
                   >
                     {#if sanitizedDescriptionHtml.length > 0}
                       {@html sanitizedDescriptionHtml}
@@ -518,6 +520,10 @@
 </section>
 
 <style>
+  .book-description-expandable {
+    max-height: var(--book-description-max-height);
+  }
+
   .book-description-content :global(p),
   .book-description-content :global(ul),
   .book-description-content :global(ol),

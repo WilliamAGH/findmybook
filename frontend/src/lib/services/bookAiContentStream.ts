@@ -80,6 +80,7 @@ async function readBookAiContentSseStream(
 
   const decoder = new TextDecoder();
   let buffer = "";
+  let pendingCarriageReturn = false;
   let finalResult: StreamBookAiContentResult | null = null;
 
   const processMessage = (message: { event: string; data: string }): StreamBookAiContentResult | null => {
@@ -143,7 +144,16 @@ async function readBookAiContentSseStream(
         break;
       }
 
-      buffer = normalizeSseLineEndings(buffer + decoder.decode(value, { stream: true }));
+      let chunkText = decoder.decode(value, { stream: true });
+      if (pendingCarriageReturn) {
+        chunkText = `\r${chunkText}`;
+        pendingCarriageReturn = false;
+      }
+      if (chunkText.endsWith("\r")) {
+        pendingCarriageReturn = true;
+        chunkText = chunkText.slice(0, -1);
+      }
+      buffer += normalizeSseLineEndings(chunkText);
       while (true) {
         const delimiterIndex = buffer.indexOf("\n\n");
         if (delimiterIndex < 0) {
@@ -166,7 +176,12 @@ async function readBookAiContentSseStream(
       }
     }
 
-    buffer = normalizeSseLineEndings(buffer + decoder.decode());
+    let trailingText = decoder.decode();
+    if (pendingCarriageReturn) {
+      trailingText = `\r${trailingText}`;
+      pendingCarriageReturn = false;
+    }
+    buffer += normalizeSseLineEndings(trailingText);
     if (buffer.trim().length > 0) {
       const trailing = parseSseMessage(buffer);
       if (trailing) {

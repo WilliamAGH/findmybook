@@ -48,7 +48,7 @@
 
   function handleAiQueueUpdate(update: BookAiContentQueueUpdate): void {
     if (update.event === "queued" || update.event === "queue") {
-      aiQueueMessage = update.position
+      aiQueueMessage = update.position != null
         ? `Queued (position ${update.position})`
         : "Queued for generation";
       return;
@@ -231,7 +231,10 @@
         {/if}
       {:else if aiLoading}
         <div class="flex items-center gap-2">
-          <span class="ai-spinner"></span>
+          <span
+            aria-hidden="true"
+            class="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-r-transparent opacity-50"
+          ></span>
           <p class="text-sm text-anthracite-600 dark:text-slate-400">{aiLoadingMessage}</p>
         </div>
         {#if aiQueueMessage}
@@ -251,19 +254,3 @@
     </div>
   {/if}
 </section>
-
-<style>
-  .ai-spinner {
-    display: inline-block;
-    width: 14px;
-    height: 14px;
-    border: 2px solid currentColor;
-    border-right-color: transparent;
-    border-radius: 50%;
-    animation: ai-spin 0.6s linear infinite;
-    opacity: 0.5;
-  }
-  @keyframes ai-spin {
-    to { transform: rotate(360deg); }
-  }
-</style>
