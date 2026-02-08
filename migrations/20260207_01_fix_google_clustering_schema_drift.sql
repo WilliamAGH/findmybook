@@ -255,7 +255,8 @@ $$ LANGUAGE plpgsql;
 
 -- Harden book_image_links auditing and data quality.
 ALTER TABLE book_image_links
-  ADD COLUMN IF NOT EXISTS updated_at timestamptz;
+  ADD COLUMN IF NOT EXISTS updated_at timestamptz,
+  ADD COLUMN IF NOT EXISTS s3_uploaded_at timestamptz;
 
 UPDATE book_image_links
 SET updated_at = coalesce(updated_at, created_at, now())

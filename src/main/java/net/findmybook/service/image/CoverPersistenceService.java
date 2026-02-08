@@ -126,9 +126,13 @@ public class CoverPersistenceService {
                     canonicalHighRes = estimate.highRes();
                 }
                 
-            } catch (DataAccessException | IllegalArgumentException ex) {
-                log.warn("Failed to persist image link for book {} type {}: {}", 
+            } catch (IllegalArgumentException ex) {
+                log.warn("Failed to persist image link for book {} type {}: {}",
                     bookId, imageType, ex.getMessage());
+            } catch (DataAccessException ex) {
+                log.error("Failed to persist image link for book {} type {} due to database error: {}",
+                    bookId, imageType, ex.getMessage(), ex);
+                throw ex;
             }
         }
         
@@ -211,16 +215,20 @@ public class CoverPersistenceService {
         try {
             // Upsert canonical S3 row as authoritative cover
             upsertImageLink(new ImageLinkParams(bookId, "canonical", canonicalUrl, source.name(), width, height, highRes, s3Key));
-            
+
             log.info("Updated cover metadata for book {} after S3 upload: {} ({}x{}, highRes={})",
                 bookId, s3Key, width, height, highRes);
-            
+
             return new PersistenceResult(true, canonicalUrl, width, height, highRes);
-            
-        } catch (DataAccessException | IllegalArgumentException ex) {
-            log.error("Failed to update cover metadata after S3 upload for book {}: {}", 
+
+        } catch (IllegalArgumentException ex) {
+            log.error("Failed to update cover metadata after S3 upload for book {}: {}",
                 bookId, ex.getMessage(), ex);
             return new PersistenceResult(false, canonicalUrl, width, height, highRes);
+        } catch (DataAccessException ex) {
+            log.error("Failed to update cover metadata after S3 upload for book {} due to database error: {}",
+                bookId, ex.getMessage(), ex);
+            throw ex;
         }
     }
     
@@ -265,15 +273,18 @@ public class CoverPersistenceService {
         try {
             upsertImageLink(new ImageLinkParams(bookId, "canonical", resolved.url(), source,
                 resolved.width(), resolved.height(), resolved.highResolution()));
-            
-            log.info("Persisted external cover for book {} from {}: {}x{}", 
+
+            log.info("Persisted external cover for book {} from {}: {}x{}",
                 bookId, source, resolved.width(), resolved.height());
-            
+
             return new PersistenceResult(true, resolved.url(), resolved.width(), resolved.height(), resolved.highResolution());
-            
-        } catch (DataAccessException | IllegalArgumentException ex) {
+
+        } catch (IllegalArgumentException ex) {
             log.error("Failed to persist external cover for book {}: {}", bookId, ex.getMessage(), ex);
             return new PersistenceResult(false, resolved.url(), resolved.width(), resolved.height(), resolved.highResolution());
+        } catch (DataAccessException ex) {
+            log.error("Failed to persist external cover for book {} due to database error: {}", bookId, ex.getMessage(), ex);
+            throw ex;
         }
     }
     
