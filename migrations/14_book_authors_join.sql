@@ -5,6 +5,7 @@ create table if not exists book_authors_join (
   author_id text not null references authors(id) on delete cascade,
   position integer not null default 0, -- Order of author as it appears in the book
   created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
   unique(book_id, author_id)
 );
 

@@ -2,7 +2,7 @@ create table if not exists book_tag_assignments (
   id text primary key, -- NanoID (12 chars)
   book_id uuid not null references books(id) on delete cascade,
   tag_id text not null references book_tags(id) on delete cascade,
-  source text not null check (source = btrim(source) and source <> ''), -- 'SEARCH_QUERY', 'PROVIDER', 'CURATION', etc.
+  source text not null, -- 'SEARCH_QUERY', 'PROVIDER', 'CURATION', etc.
   confidence numeric, -- optional 0..1 confidence score
   metadata jsonb, -- optional extra data (e.g., original phrase, provider payload snippet)
   created_at timestamptz not null default now(),

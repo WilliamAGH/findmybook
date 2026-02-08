@@ -104,8 +104,8 @@ begin
 
     -- Ensure uniqueness
     while exists(select 1 from books where slug = final_slug and id != book_record.id) loop
-      counter := counter + 1;
       final_slug := base_slug || '-' || counter;
+      counter := counter + 1;
     end loop;
 
     -- Update the book with its slug

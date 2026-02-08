@@ -12,7 +12,8 @@ create table if not exists events_outbox (
   payload jsonb not null, -- Event data as JSON
   created_at timestamptz not null default now(),
   sent_at timestamptz, -- NULL until successfully published to WebSocket
-  retry_count int not null default 0
+  retry_count int not null default 0,
+  constraint check_events_outbox_retry_count check (retry_count >= 0)
 );
 
 create index if not exists idx_events_outbox_unsent on events_outbox(created_at) where sent_at is null;

@@ -80,15 +80,36 @@ begin
     group_count := group_count + 1;
     primary_author_id := rec.author_ids[1];
 
-    -- Update all book references to point to primary author
+    -- Remove duplicate secondary rows for books that already have the primary author.
+    delete from book_authors_join baj
+    where baj.author_id = any(rec.author_ids[2:])
+      and exists (
+        select 1
+        from book_authors_join existing
+        where existing.book_id = baj.book_id
+          and existing.author_id = primary_author_id
+      );
+
+    -- Keep one secondary row per book before remapping to avoid transient unique collisions.
+    with secondary_ranked as (
+      select
+        ctid,
+        row_number() over (
+          partition by book_id
+          order by position asc, created_at asc nulls last, id asc
+        ) as rn
+      from book_authors_join
+      where author_id = any(rec.author_ids[2:])
+    )
+    delete from book_authors_join baj
+    using secondary_ranked ranked
+    where baj.ctid = ranked.ctid
+      and ranked.rn > 1;
+
+    -- Update remaining book references to point to primary author.
     update book_authors_join
     set author_id = primary_author_id
-    where author_id = any(rec.author_ids[2:])
-      and not exists (
-        select 1 from book_authors_join baj2
-        where baj2.book_id = book_authors_join.book_id
-          and baj2.author_id = primary_author_id
-      );
+    where author_id = any(rec.author_ids[2:]);
 
     -- Merge author external IDs
     update author_external_ids

@@ -2,8 +2,8 @@
 create table if not exists work_cluster_members (
   cluster_id uuid not null references work_clusters(id) on delete cascade,
   book_id uuid not null references books(id) on delete cascade,
-  is_primary boolean default false, -- The "best" edition in this cluster
-  confidence float default 0.5 check (confidence >= 0 and confidence <= 1),
+  is_primary boolean not null default false, -- The "best" edition in this cluster
+  confidence float not null default 0.5 check (confidence >= 0 and confidence <= 1),
   join_reason text not null, -- 'ISBN_PREFIX', 'OCLC_MATCH', 'OPENLIBRARY_MATCH', etc.
   joined_at timestamptz not null default now(),
   primary key (cluster_id, book_id)

@@ -22,8 +22,8 @@ create table if not exists work_clusters (
   cluster_method text not null, -- 'ISBN_PREFIX', 'EXTERNAL_ID', 'ML_SIMILARITY', 'MANUAL'
 
   -- Statistics
-  member_count integer default 0,
-  constraint check_reasonable_member_count check (member_count <= 100),
+  member_count integer not null default 0,
+  constraint check_reasonable_member_count check (member_count >= 0 and member_count <= 100),
 
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
