@@ -133,6 +133,19 @@ class BookRecommendationEngineApplicationTests {
     }
 
     @Test
+    void should_ApplyJdbcDatabaseUrlFallback_When_UrlAlreadyInJdbcFormat() {
+        MockEnvironment environment = new MockEnvironment();
+        environment.setProperty("JDBC_DATABASE_URL", "jdbc:postgresql://jdbc-db.example.com:5439/jdbc_db?sslmode=require");
+
+        DatabaseUrlEnvironmentPostProcessor processor = new DatabaseUrlEnvironmentPostProcessor();
+        processor.postProcessEnvironment(environment, new SpringApplication(BookRecommendationEngineApplication.class));
+
+        assertEquals("jdbc:postgresql://jdbc-db.example.com:5439/jdbc_db?sslmode=require",
+            environment.getProperty("spring.datasource.url"));
+        assertEquals("org.postgresql.Driver", environment.getProperty("spring.datasource.driver-class-name"));
+    }
+
+    @Test
     void should_UseDedicatedSchedulerPrefixes_WhenContextLoadsTaskSchedulers() {
         ThreadPoolTaskScheduler applicationScheduler =
             assertInstanceOf(ThreadPoolTaskScheduler.class, applicationTaskScheduler);
