@@ -20,8 +20,11 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.context.annotation.Bean;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.retry.annotation.EnableRetry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,6 +45,9 @@ import org.slf4j.LoggerFactory;
 public class BookRecommendationEngineApplication implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(BookRecommendationEngineApplication.class);
+    private static final int APPLICATION_SCHEDULER_POOL_SIZE = 4;
+    private static final int APPLICATION_SCHEDULER_SHUTDOWN_TIMEOUT_SECONDS = 30;
+    private static final String APPLICATION_SCHEDULER_THREAD_PREFIX = "AppScheduler-";
 
     /**
      * Sentinel value set as the OpenAI API key when no real key is configured.
@@ -71,6 +77,24 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
         normalizeDatasourceUrlFromEnv();
         normalizeOpenAiConfig();
         SpringApplication.run(BookRecommendationEngineApplication.class, args);
+    }
+
+    /**
+     * Provides a dedicated scheduler for application {@code @Scheduled} workloads.
+     * This keeps business/background jobs isolated from the STOMP broker heartbeat
+     * scheduler to avoid thread-pool coupling and improve log observability.
+     *
+     * @return application task scheduler used by Spring scheduling infrastructure
+     */
+    @Bean(name = "taskScheduler")
+    public TaskScheduler applicationTaskScheduler() {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setThreadNamePrefix(APPLICATION_SCHEDULER_THREAD_PREFIX);
+        scheduler.setPoolSize(APPLICATION_SCHEDULER_POOL_SIZE);
+        scheduler.setRemoveOnCancelPolicy(true);
+        scheduler.setWaitForTasksToCompleteOnShutdown(true);
+        scheduler.setAwaitTerminationSeconds(APPLICATION_SCHEDULER_SHUTDOWN_TIMEOUT_SECONDS);
+        return scheduler;
     }
 
     private static void disableNettyUnsafeAccess() {

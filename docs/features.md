@@ -7,6 +7,7 @@ See [UML README](../src/main/resources/uml/README.md).
 - Public HTML routes (`/`, `/search`, `/explore`, `/categories`, `/book/*`, `/sitemap/*`, `/error`) now serve a server-generated SPA shell.
 - The shell includes server-side SEO metadata (title, description, canonical, OpenGraph, Twitter) and hydrates the Svelte frontend.
 - The shell also embeds the backend route manifest (`window.__FMB_ROUTE_MANIFEST__`), and the same contract is exposed by `GET /api/pages/routes` for SPA bootstrap.
+- SPA navigation now writes typed history state for each in-app transition so the book detail back action returns to the exact prior route state (including active filters/pagination) instead of reconstructing a generic search URL.
 - Canonical redirects and non-HTML crawler endpoints remain server-owned (`/book/isbn*`, `/sitemap.xml`, `/sitemap-xml/*`, `/robots.txt`).
 
 ## Sitemap Generation

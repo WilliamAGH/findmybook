@@ -16,11 +16,29 @@ export interface RouteMatch {
 
 export type SearchRouteName = "search" | "explore" | "categories";
 
+export const DEFAULT_PASSTHROUGH_PREFIXES: readonly string[] = [
+  "/api",
+  "/admin",
+  "/actuator",
+  "/ws",
+  "/topic",
+  "/sitemap.xml",
+  "/sitemap-xml",
+  "/r",
+];
+
 const EMPTY_ROUTE_MANIFEST: RouteManifest = {
   version: 1,
   publicRoutes: [],
-  passthroughPrefixes: [],
+  passthroughPrefixes: [...DEFAULT_PASSTHROUGH_PREFIXES],
 };
+
+const SPA_HISTORY_MARKER = "findmybook-spa-v1";
+
+interface SpaHistoryState {
+  __fmbSpa: typeof SPA_HISTORY_MARKER;
+  previousPath: string | null;
+}
 
 declare global {
   interface Window {
@@ -34,6 +52,80 @@ let activeRouteManifest = resolveInitialRouteManifest();
 let routeManifestRefreshPromise: Promise<void> | null = null;
 
 export const currentUrl = writable<URL>(INITIAL_URL);
+
+function browserOrigin(): string {
+  return typeof window !== "undefined" ? window.location.origin : "http://localhost";
+}
+
+function pathWithQueryAndHash(url: URL): string {
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function currentPathWithQueryAndHash(): string {
+  if (typeof window === "undefined") {
+    return "/";
+  }
+  return pathWithQueryAndHash(new URL(window.location.href));
+}
+
+function normalizeInternalPath(candidate: string | null): string | null {
+  if (!candidate) {
+    return null;
+  }
+  try {
+    const parsed = new URL(candidate, browserOrigin());
+    if (parsed.origin !== browserOrigin()) {
+      return null;
+    }
+    if (!parsed.pathname.startsWith("/")) {
+      return null;
+    }
+    return pathWithQueryAndHash(parsed);
+  } catch (error) {
+    console.warn("[router] Failed to normalize internal path:", candidate, error);
+    return null;
+  }
+}
+
+function createSpaHistoryState(previousPath: string | null): SpaHistoryState {
+  return {
+    __fmbSpa: SPA_HISTORY_MARKER,
+    previousPath,
+  };
+}
+
+function readSpaHistoryState(): SpaHistoryState | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const state = window.history.state;
+  if (!state || typeof state !== "object") {
+    return null;
+  }
+  const candidate = state as { __fmbSpa?: string; previousPath?: unknown };
+  if (candidate.__fmbSpa !== SPA_HISTORY_MARKER) {
+    return null;
+  }
+  const previousPath = typeof candidate.previousPath === "string"
+    ? normalizeInternalPath(candidate.previousPath)
+    : null;
+  return createSpaHistoryState(previousPath);
+}
+
+function seedSpaHistoryStateIfMissing(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  if (readSpaHistoryState()) {
+    return;
+  }
+  const currentPath = currentPathWithQueryAndHash();
+  window.history.replaceState(createSpaHistoryState(null), "", currentPath);
+}
+
+export function previousSpaPath(): string | null {
+  return readSpaHistoryState()?.previousPath ?? null;
+}
 
 function parsePage(value: string): number {
   const parsed = Number.parseInt(value, 10);
@@ -52,15 +144,16 @@ function safeDecodeURIComponent(value: string): string {
   }
 }
 
-function resolveInitialRouteManifest(): RouteManifest {
+function embeddedRouteManifestFromWindow(): RouteManifest | null {
   if (typeof window === "undefined") {
-    return EMPTY_ROUTE_MANIFEST;
+    return null;
   }
   const manifestCandidate = RouteManifestSchema.safeParse(window.__FMB_ROUTE_MANIFEST__);
-  if (manifestCandidate.success) {
-    return manifestCandidate.data;
-  }
-  return EMPTY_ROUTE_MANIFEST;
+  return manifestCandidate.success ? manifestCandidate.data : null;
+}
+
+function resolveInitialRouteManifest(): RouteManifest {
+  return embeddedRouteManifestFromWindow() ?? EMPTY_ROUTE_MANIFEST;
 }
 
 export function setRouteManifest(manifest: RouteManifest): void {
@@ -114,13 +207,13 @@ function paramsFromRegex(routeDefinition: RouteDefinition, match: RegExpMatchArr
   return params;
 }
 
-async function refreshRouteManifestFromApi(): Promise<void> {
+export async function initializeRouteManifest(): Promise<void> {
   if (typeof window === "undefined") {
     return;
   }
-  const manifestCandidate = RouteManifestSchema.safeParse(window.__FMB_ROUTE_MANIFEST__);
-  if (manifestCandidate.success) {
-    setRouteManifest(manifestCandidate.data);
+  const embeddedManifest = embeddedRouteManifestFromWindow();
+  if (embeddedManifest) {
+    setRouteManifest(embeddedManifest);
     return;
   }
   if (!routeManifestRefreshPromise) {
@@ -136,6 +229,10 @@ async function refreshRouteManifestFromApi(): Promise<void> {
       });
   }
   await routeManifestRefreshPromise;
+}
+
+async function refreshRouteManifestFromApi(): Promise<void> {
+  await initializeRouteManifest();
 }
 
 export function matchRoute(pathname: string): RouteMatch {
@@ -205,17 +302,27 @@ function publishUrl(): void {
 }
 
 export function navigate(pathWithQuery: string, replace = false): void {
-  const target = new URL(pathWithQuery, window.location.origin);
+  if (typeof window === "undefined") {
+    return;
+  }
+  seedSpaHistoryStateIfMissing();
+  const target = new URL(pathWithQuery, browserOrigin());
+  const targetPath = pathWithQueryAndHash(target);
+  const previousPath = replace
+    ? readSpaHistoryState()?.previousPath ?? null
+    : normalizeInternalPath(currentPathWithQueryAndHash());
+  const nextState = createSpaHistoryState(previousPath);
   if (replace) {
-    window.history.replaceState(null, "", `${target.pathname}${target.search}${target.hash}`);
+    window.history.replaceState(nextState, "", targetPath);
   } else {
-    window.history.pushState(null, "", `${target.pathname}${target.search}${target.hash}`);
+    window.history.pushState(nextState, "", targetPath);
   }
   publishUrl();
 }
 
 export function initializeSpaRouting(): () => void {
   void refreshRouteManifestFromApi();
+  seedSpaHistoryStateIfMissing();
 
   const onPopState = (): void => {
     publishUrl();

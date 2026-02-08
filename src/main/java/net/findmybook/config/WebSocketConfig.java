@@ -1,6 +1,7 @@
 package net.findmybook.config;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
@@ -33,7 +34,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
      * TaskScheduler is used for WebSocket heartbeat keepalive.
      */
     public WebSocketConfig(@Value("${app.cors.allowed-origins:*}") String allowedOrigins,
-                           @Lazy TaskScheduler messageBrokerTaskScheduler) {
+                           @Lazy @Qualifier("messageBrokerTaskScheduler") TaskScheduler messageBrokerTaskScheduler) {
         this.allowedOrigins = allowedOrigins;
         this.messageBrokerTaskScheduler = messageBrokerTaskScheduler;
     }

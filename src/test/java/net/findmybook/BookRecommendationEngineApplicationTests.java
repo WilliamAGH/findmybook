@@ -5,6 +5,10 @@ import net.findmybook.config.DatabaseUrlEnvironmentPostProcessor;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.scheduling.TaskScheduler;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -12,6 +16,8 @@ import software.amazon.awssdk.services.s3.S3Client;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -40,11 +46,24 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @ActiveProfiles("test") // Ensure the "test" profile and its Redis configuration are active
 class BookRecommendationEngineApplicationTests {
 
+    private static final String APPLICATION_TASK_SCHEDULER_BEAN = "taskScheduler";
+    private static final String MESSAGE_BROKER_TASK_SCHEDULER_BEAN = "messageBrokerTaskScheduler";
+    private static final String APPLICATION_SCHEDULER_THREAD_PREFIX = "AppScheduler-";
+    private static final String MESSAGE_BROKER_SCHEDULER_THREAD_PREFIX = "MessageBroker-";
+
     @MockitoBean
     private JdbcTemplate jdbcTemplate;
 
     @MockitoBean
     private S3Client s3Client;
+
+    @Autowired
+    @Qualifier(APPLICATION_TASK_SCHEDULER_BEAN)
+    private TaskScheduler applicationTaskScheduler;
+
+    @Autowired
+    @Qualifier(MESSAGE_BROKER_TASK_SCHEDULER_BEAN)
+    private TaskScheduler messageBrokerTaskScheduler;
 
     // No-op: cached repository removed
 
@@ -82,6 +101,18 @@ class BookRecommendationEngineApplicationTests {
         assertEquals("jdbc:postgresql://localhost:5432/db?email=user@example.com", parsed.jdbcUrl);
         assertNull(parsed.username);
         assertNull(parsed.password);
+    }
+
+    @Test
+    void should_UseDedicatedSchedulerPrefixes_WhenContextLoadsTaskSchedulers() {
+        ThreadPoolTaskScheduler applicationScheduler =
+            assertInstanceOf(ThreadPoolTaskScheduler.class, applicationTaskScheduler);
+        ThreadPoolTaskScheduler brokerScheduler =
+            assertInstanceOf(ThreadPoolTaskScheduler.class, messageBrokerTaskScheduler);
+
+        assertEquals(APPLICATION_SCHEDULER_THREAD_PREFIX, applicationScheduler.getThreadNamePrefix());
+        assertEquals(MESSAGE_BROKER_SCHEDULER_THREAD_PREFIX, brokerScheduler.getThreadNamePrefix());
+        assertNotEquals(applicationScheduler.getThreadNamePrefix(), brokerScheduler.getThreadNamePrefix());
     }
 
 }

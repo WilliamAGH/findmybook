@@ -14,7 +14,7 @@ import org.springframework.http.ResponseEntity;
  * {@link BookSeoMetadataService.SeoMetadata}; this class provides the common
  * render-to-{@link org.springframework.http.ResponseEntity} step.
  *
- * @see BookSeoMetadataService#renderSpaShell(BookSeoMetadataService.SeoMetadata, String, int)
+ * @see BookSeoMetadataService#renderSpaShell(BookSeoMetadataService.SeoMetadata)
  */
 abstract class SpaShellController {
 
@@ -26,9 +26,8 @@ abstract class SpaShellController {
 
     /** Renders the SEO-enriched HTML shell and wraps it in an {@link ResponseEntity}. */
     protected ResponseEntity<String> spaResponse(BookSeoMetadataService.SeoMetadata metadata,
-                                                  String requestPath,
-                                                  HttpStatus status) {
-        String html = bookSeoMetadataService.renderSpaShell(metadata, requestPath, status.value());
+                                                 HttpStatus status) {
+        String html = bookSeoMetadataService.renderSpaShell(metadata);
         return ResponseEntity.status(status)
             .contentType(MediaType.TEXT_HTML)
             .body(html);

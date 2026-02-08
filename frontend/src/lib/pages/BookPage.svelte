@@ -5,6 +5,7 @@
   import BookCategories from "$lib/components/BookCategories.svelte";
   import BookEditions from "$lib/components/BookEditions.svelte";
   import BookSimilarBooks from "$lib/components/BookSimilarBooks.svelte";
+  import { previousSpaPath } from "$lib/router/router";
   import { getAffiliateLinks, getBook, getSimilarBooks } from "$lib/services/books";
   import { subscribeToBookCoverUpdates } from "$lib/services/realtime";
   import type { Book } from "$lib/validation/schemas";
@@ -174,10 +175,10 @@
     return "";
   }
 
-  function backToSearchHref(): string {
+  function legacySearchFallbackHref(): string {
     const query = currentUrl.searchParams.get("query");
     if (!query) {
-      return "/search";
+      return "/";
     }
 
     const url = new URL("/search", window.location.origin);
@@ -201,6 +202,19 @@
     }
 
     return `${url.pathname}${url.search}`;
+  }
+
+  function backHref(): string {
+    return previousSpaPath() ?? legacySearchFallbackHref();
+  }
+
+  function goBackToPreviousRoute(event: MouseEvent): void {
+    const spaPreviousPath = previousSpaPath();
+    if (!spaPreviousPath || window.history.length <= 1) {
+      return;
+    }
+    event.preventDefault();
+    window.history.back();
   }
 
   $effect(() => {
@@ -230,9 +244,10 @@
       {errorMessage}
     </div>
   {:else if book}
-    <!-- Back to Search -->
+    <!-- Back to Previous Route -->
     <a
-      href={backToSearchHref()}
+      href={backHref()}
+      onclick={goBackToPreviousRoute}
       class="inline-flex w-fit items-center gap-1.5 rounded-lg border border-linen-300 px-3 py-1.5 text-sm text-anthracite-700 transition hover:bg-linen-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
     >
       <ChevronLeft size={16} />

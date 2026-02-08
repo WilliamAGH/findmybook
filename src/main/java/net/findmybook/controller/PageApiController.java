@@ -20,6 +20,7 @@ import net.findmybook.util.PagingUtils;
 import net.findmybook.util.cover.CoverPrioritizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.util.StringUtils;
 import org.springframework.http.ResponseEntity;
@@ -52,6 +53,7 @@ public class PageApiController {
     private final SitemapProperties sitemapProperties;
     private final AffiliateLinkService affiliateLinkService;
     private final BookSeoMetadataService bookSeoMetadataService;
+    private final int maxDescriptionLength;
 
     /**
      * Creates the page payload controller.
@@ -61,17 +63,20 @@ public class PageApiController {
      * @param sitemapProperties configured sitemap base URL and sizes
      * @param affiliateLinkService service that computes outbound purchase links
      * @param bookSeoMetadataService service that computes route metadata payloads
+     * @param maxDescriptionLength configured maximum description length for route SEO metadata
      */
     public PageApiController(HomePageSectionsService homePageSectionsService,
                              SitemapService sitemapService,
                              SitemapProperties sitemapProperties,
                              AffiliateLinkService affiliateLinkService,
-                             BookSeoMetadataService bookSeoMetadataService) {
+                             BookSeoMetadataService bookSeoMetadataService,
+                             @Value("${app.seo.max-description-length:170}") int maxDescriptionLength) {
         this.homePageSectionsService = homePageSectionsService;
         this.sitemapService = sitemapService;
         this.sitemapProperties = sitemapProperties;
         this.affiliateLinkService = affiliateLinkService;
         this.bookSeoMetadataService = bookSeoMetadataService;
+        this.maxDescriptionLength = maxDescriptionLength;
     }
 
     /**
@@ -253,7 +258,7 @@ public class PageApiController {
                             toPageMetadataPayload(bookSeoMetadataService.notFoundMetadata(normalizedPath), HttpStatus.NOT_FOUND.value())
                         );
                     }
-                    BookSeoMetadataService.SeoMetadata metadata = bookSeoMetadataService.bookMetadata(book, 170);
+                    BookSeoMetadataService.SeoMetadata metadata = bookSeoMetadataService.bookMetadata(book, maxDescriptionLength);
                     return ResponseEntity.ok(toPageMetadataPayload(metadata, HttpStatus.OK.value()));
                 })
                 .switchIfEmpty(Mono.just(ResponseEntity.ok(

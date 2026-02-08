@@ -63,7 +63,7 @@ public class ErrorDiagnosticsController implements ErrorController {
             ? bookSeoMetadataService.notFoundMetadata(requestPath)
             : bookSeoMetadataService.errorMetadata(context.statusCode(), requestPath);
 
-        String html = bookSeoMetadataService.renderSpaShell(metadata, requestPath, context.statusCode());
+        String html = bookSeoMetadataService.renderSpaShell(metadata);
         return ResponseEntity.status(context.statusCode())
             .contentType(MediaType.TEXT_HTML)
             .body(html);
