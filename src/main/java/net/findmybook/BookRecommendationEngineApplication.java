@@ -44,6 +44,22 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
     private static final Logger log = LoggerFactory.getLogger(BookRecommendationEngineApplication.class);
 
     /**
+     * Sentinel value set as the OpenAI API key when no real key is configured.
+     * Runtime code should check {@link #isAiConfigured()} before calling OpenAI.
+     */
+    static final String AI_KEY_NOT_CONFIGURED = "not-configured";
+
+    /**
+     * Returns {@code true} when a real OpenAI API key is available.
+     * Use this guard before any OpenAI call to fail fast with a clear message
+     * instead of sending a request with the sentinel placeholder key.
+     */
+    public static boolean isAiConfigured() {
+        String key = System.getProperty("spring.ai.openai.api-key");
+        return StringUtils.hasText(key) && !AI_KEY_NOT_CONFIGURED.equals(key);
+    }
+
+    /**
      * Main method that starts the Spring Boot application
      *
      * @param args Command line arguments passed to the application
@@ -190,10 +206,13 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
             ));
 
             if (!hasApiKey) {
-                // Set placeholder key so Spring AI auto-configuration doesn't fail.
-                // OpenAI features will be unavailable but the app will boot.
-                System.setProperty("spring.ai.openai.api-key", "not-configured");
-                log.info("[AI] No OpenAI API key configured; Spring AI features disabled");
+                // Spring AI auto-configuration requires this property to exist.
+                // The sentinel value lets the app boot; runtime AI calls will check
+                // for this sentinel and throw immediately with a clear message.
+                System.setProperty("spring.ai.openai.api-key", AI_KEY_NOT_CONFIGURED);
+                log.error("[AI] No OpenAI API key configured. "
+                    + "Set SPRING_AI_OPENAI_API_KEY to enable AI features. "
+                    + "All AI operations will fail until a valid key is provided.");
             }
         } catch (SecurityException e) {
             log.warn("[AI] Unable to set OpenAI system properties due to security restrictions", e);
@@ -246,9 +265,10 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
             String prepared = value.replace("+", "%2B");
             return java.net.URLDecoder.decode(prepared, StandardCharsets.UTF_8);
         } catch (IllegalArgumentException ex) {
-            // Bail out to original value if decoding fails (malformed % sequences)
-            log.warn("Failed to URL-decode datasource credential component (malformed encoding); using raw value", ex);
-            return value;
+            log.error("Failed to URL-decode datasource credential component (malformed encoding). "
+                + "Fix the percent-encoding in SPRING_DATASOURCE_URL or provide credentials separately.", ex);
+            throw new IllegalStateException(
+                "Cannot decode datasource credential: malformed percent-encoding in URL", ex);
         }
     }
 
