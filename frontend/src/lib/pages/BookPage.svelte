@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import DOMPurify from "dompurify";
   import BookAffiliateLinks from "$lib/components/BookAffiliateLinks.svelte";
   import BookAiAnalysisPanel from "$lib/components/BookAiAnalysisPanel.svelte";
@@ -16,6 +16,7 @@
   import type { Book, BookAiSnapshot } from "$lib/validation/schemas";
   import {
     Star,
+    ChevronDown,
     ChevronLeft,
     Globe,
     BookOpen,
@@ -41,6 +42,12 @@
   let liveCoverUrl = $state<string | null>(null);
   const fallbackCoverImage = "/images/placeholder-book-cover.svg";
   let detailCoverUrl = $state<string>(fallbackCoverImage);
+
+  let descriptionContainer = $state<HTMLElement | null>(null);
+  let descriptionExpanded = $state(false);
+  let descriptionMeasured = $state(false);
+  let descriptionOverflows = $state(false);
+  const DESCRIPTION_COLLAPSE_HEIGHT_PX = 288; // 18rem — roughly 12-13 lines at text-sm leading-relaxed
 
   let unsubscribeRealtime: (() => void) | null = null;
   let loadSequence = 0;
@@ -182,11 +189,23 @@
     return date.toLocaleDateString();
   }
 
-  function descriptionHtml(): string {
-    if (book?.descriptionContent?.html && book.descriptionContent.html.trim().length > 0) {
-      return DOMPurify.sanitize(book.descriptionContent.html);
+  let sanitizedDescriptionHtml = $derived(
+    book?.descriptionContent?.html && book.descriptionContent.html.trim().length > 0
+      ? DOMPurify.sanitize(book.descriptionContent.html)
+      : "",
+  );
+
+  /** Whether the description content is currently height-constrained. */
+  let descriptionCollapsed = $derived(
+    !descriptionExpanded && (!descriptionMeasured || descriptionOverflows),
+  );
+
+  async function measureDescriptionOverflow(): Promise<void> {
+    await tick();
+    if (descriptionContainer) {
+      descriptionOverflows = descriptionContainer.scrollHeight > DESCRIPTION_COLLAPSE_HEIGHT_PX;
     }
-    return "";
+    descriptionMeasured = true;
   }
 
   function legacySearchFallbackHref(): string {
@@ -241,6 +260,15 @@
     detailCoverUrl = preferredBookCoverUrl();
   });
 
+  $effect(() => {
+    if (book) {
+      descriptionExpanded = false;
+      descriptionMeasured = false;
+      descriptionOverflows = false;
+      void measureDescriptionOverflow();
+    }
+  });
+
   onMount(() => {
     return () => {
       if (unsubscribeRealtime) {
@@ -290,7 +318,7 @@
 
         <!-- Details -->
         <div class="flex flex-col gap-4">
-          <h1 class="text-3xl font-semibold text-anthracite-900 dark:text-slate-100">
+          <h1 class="text-3xl font-semibold text-balance text-anthracite-900 dark:text-slate-100">
             {book.title ?? "Book details"}
           </h1>
           <p class="text-base text-anthracite-700 dark:text-slate-300">{authorNames()}</p>
@@ -328,12 +356,36 @@
           </dl>
 
           <!-- Description -->
-          {#if descriptionHtml().length > 0}
-            <div class="book-description-content text-sm leading-relaxed text-anthracite-700 dark:text-slate-300">
-              {@html descriptionHtml()}
+          {#if sanitizedDescriptionHtml.length > 0 || book.description}
+            <div class="relative">
+              <div
+                bind:this={descriptionContainer}
+                class="text-sm leading-relaxed text-anthracite-700 dark:text-slate-300 overflow-hidden transition-all duration-300 ease-out"
+                class:book-description-content={sanitizedDescriptionHtml.length > 0}
+                class:whitespace-pre-wrap={sanitizedDescriptionHtml.length === 0}
+                class:max-h-[18rem]={descriptionCollapsed}
+                class:max-h-none={!descriptionCollapsed}
+              >
+                {#if sanitizedDescriptionHtml.length > 0}
+                  {@html sanitizedDescriptionHtml}
+                {:else}
+                  {book.description}
+                {/if}
+              </div>
+              {#if descriptionMeasured && descriptionOverflows && !descriptionExpanded}
+                <div class="pointer-events-none absolute bottom-0 left-0 right-0 h-10 bg-linear-to-t from-canvas-50 to-transparent dark:from-slate-900"></div>
+              {/if}
+              {#if descriptionMeasured && descriptionOverflows}
+                <button
+                  type="button"
+                  onclick={() => descriptionExpanded = !descriptionExpanded}
+                  class="mt-2 inline-flex items-center gap-1 text-xs font-medium text-canvas-500 transition hover:text-canvas-600 dark:text-canvas-400 dark:hover:text-canvas-300"
+                >
+                  <ChevronDown size={14} class={`transition-transform duration-200 ${descriptionExpanded ? 'rotate-180' : ''}`} />
+                  {descriptionExpanded ? 'Show less' : 'Show full description'}
+                </button>
+              {/if}
             </div>
-          {:else if book.description}
-            <p class="whitespace-pre-wrap text-sm leading-relaxed text-anthracite-700 dark:text-slate-300">{book.description}</p>
           {/if}
 
           <BookAiAnalysisPanel
@@ -369,6 +421,14 @@
   .book-description-content :global(ul),
   .book-description-content :global(ol) {
     padding-left: 1.2rem;
+  }
+
+  .book-description-content :global(ul) {
+    list-style-type: disc;
+  }
+
+  .book-description-content :global(ol) {
+    list-style-type: decimal;
   }
 
   .book-description-content :global(li) {

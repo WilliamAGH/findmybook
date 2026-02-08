@@ -47,6 +47,10 @@ public final class BookDtoMapper {
     private static final Pattern MARKDOWN_PATTERN = Pattern.compile(
         "(?m)^(#{1,6}\\s+.+|\\s*[-*+]\\s+.+|\\s*\\d+\\.\\s+.+|\\s*>\\s+.+)|(```|`[^`]+`|\\*\\*[^*]+\\*\\*|\\[[^\\]]+\\]\\([^\\)]+\\))"
     );
+    private static final Pattern BR_TAG_PATTERN = Pattern.compile("(?i)<br\\s*/?>");
+    private static final Pattern EMPTY_BOLD_BR_PATTERN = Pattern.compile("(?i)<b>\\s*(<br\\s*/?>)\\s*</b>");
+    private static final Pattern BOLD_THEN_BULLET_PATTERN = Pattern.compile("(</b>)\\s*([●•])", Pattern.CASE_INSENSITIVE);
+    private static final String BULLET_CHARS = "●•";
     private static final Parser MARKDOWN_PARSER = buildMarkdownParser();
     private static final HtmlRenderer MARKDOWN_RENDERER = buildMarkdownRenderer();
     private static final Cleaner DESCRIPTION_HTML_CLEANER = new Cleaner(buildDescriptionSafelist());
@@ -118,15 +122,11 @@ public final class BookDtoMapper {
         String alternateCandidate = firstNonBlank(detail.thumbnailUrl(), detail.coverUrl());
         String fallbackCandidate = firstNonBlank(detail.thumbnailUrl(), detail.coverUrl());
 
-        CoverDto cover = buildCoverDto(
-            detail.coverUrl(),
-            alternateCandidate,
-            fallbackCandidate,
-            detail.coverWidth(),
-            detail.coverHeight(),
-            detail.coverHighResolution(),
+        CoverDto cover = buildCoverDto(new CoverCandidates(
+            detail.coverUrl(), alternateCandidate, fallbackCandidate,
+            detail.coverWidth(), detail.coverHeight(), detail.coverHighResolution(),
             detail.dataSource()
-        );
+        ));
 
         List<AuthorDto> authors = toAuthorDtos(detail.authors());
         List<CollectionDto> collections = List.of();
@@ -164,15 +164,10 @@ public final class BookDtoMapper {
             return null;
         }
 
-        CoverDto cover = buildCoverDto(
-            card.coverUrl(),                                                    // Primary cover URL (S3 or best available)
-            card.fallbackCoverUrl(),                                            // Fallback URL (external source)
-            card.fallbackCoverUrl(),                                            // External image URL (same as fallback)
-            null,
-            null,
-            null,
-            null
-        );
+        CoverDto cover = buildCoverDto(new CoverCandidates(
+            card.coverUrl(), card.fallbackCoverUrl(), card.fallbackCoverUrl(),
+            null, null, null, null
+        ));
 
         PublicationDto publication = new PublicationDto(null, null, null, null);
 
@@ -206,15 +201,10 @@ public final class BookDtoMapper {
 
         PublicationDto publication = new PublicationDto(null, null, null, null);
 
-        CoverDto cover = buildCoverDto(
-            item.coverUrl(),                                                    // Primary cover URL (S3 or best available)
-            item.coverFallbackUrl(),                                            // Fallback URL (external source)
-            item.coverFallbackUrl(),                                            // External image URL (same as fallback)
-            item.coverWidth(),
-            item.coverHeight(),
-            item.coverHighResolution(),
-            null
-        );
+        CoverDto cover = buildCoverDto(new CoverCandidates(
+            item.coverUrl(), item.coverFallbackUrl(), item.coverFallbackUrl(),
+            item.coverWidth(), item.coverHeight(), item.coverHighResolution(), null
+        ));
 
         return new BookDto(
             item.id(),
@@ -247,7 +237,7 @@ public final class BookDtoMapper {
 
         BookDto.DescriptionFormat detectedFormat = detectSourceFormat(normalizedDescription);
         String renderedHtml = switch (detectedFormat) {
-            case HTML -> normalizedDescription;
+            case HTML -> normalizeHtmlStructure(normalizedDescription);
             case MARKDOWN -> renderMarkdownAsHtml(normalizedDescription);
             case PLAIN_TEXT, UNKNOWN -> renderPlainTextAsHtml(normalizedDescription);
         };
@@ -305,6 +295,67 @@ public final class BookDtoMapper {
         }
 
         return htmlBuilder.toString();
+    }
+
+    /**
+     * Normalizes ad-hoc HTML formatting from providers like Google Books into semantic HTML.
+     * Converts inline bullet characters ({@code ●}, {@code •}) separated by {@code <br>} tags
+     * into proper {@code <ul>/<li>} lists and ensures bold headings are followed by a line break
+     * before bullet content.
+     */
+    private static String normalizeHtmlStructure(String html) {
+        if (!StringUtils.hasText(html)) {
+            return html;
+        }
+
+        // Strip empty bold wrappers around <br>: <b><br></b> → <br>
+        String result = EMPTY_BOLD_BR_PATTERN.matcher(html).replaceAll("$1");
+
+        // Insert <br> between closing </b> and immediately following bullet character
+        result = BOLD_THEN_BULLET_PATTERN.matcher(result).replaceAll("$1<br>$2");
+
+        return convertInlineBulletsToList(result);
+    }
+
+    /**
+     * Splits the HTML by {@code <br>} tags, identifies consecutive segments beginning with
+     * a bullet character ({@code ●} or {@code •}), and wraps each run in
+     * {@code <ul><li>…</li></ul>} while re-joining non-bullet segments with {@code <br>}.
+     */
+    private static String convertInlineBulletsToList(String html) {
+        String[] segments = BR_TAG_PATTERN.split(html, -1);
+        StringBuilder result = new StringBuilder(html.length() + 64);
+        boolean inList = false;
+
+        for (int i = 0; i < segments.length; i++) {
+            String trimmed = segments[i].strip();
+            boolean isBullet = !trimmed.isEmpty()
+                && BULLET_CHARS.indexOf(trimmed.charAt(0)) >= 0;
+
+            if (isBullet) {
+                if (!inList) {
+                    result.append("<ul>");
+                    inList = true;
+                }
+                String bulletContent = trimmed.substring(1).strip();
+                result.append("<li>").append(bulletContent).append("</li>");
+            } else {
+                if (inList) {
+                    result.append("</ul>");
+                    inList = false;
+                }
+                if (i > 0) {
+                    result.append("<br>");
+                }
+                result.append(segments[i]);
+            }
+        }
+
+        if (inList) {
+            result.append("</ul>");
+        }
+
+        return result.toString();
     }
 
     private static String sanitizeDescriptionHtml(String candidateHtml) {
@@ -435,60 +486,48 @@ public final class BookDtoMapper {
         String declaredSource = coverImages != null && coverImages.getSource() != null
             ? coverImages.getSource().name()
             : null;
-        return buildCoverDto(
-            primaryCandidate,
-            alternateCandidate,
-            fallbackCandidate,
-            book.getCoverImageWidth(),
-            book.getCoverImageHeight(),
-            book.getIsCoverHighResolution(),
-            declaredSource
-        );
+        return buildCoverDto(new CoverCandidates(
+            primaryCandidate, alternateCandidate, fallbackCandidate,
+            book.getCoverImageWidth(), book.getCoverImageHeight(),
+            book.getIsCoverHighResolution(), declaredSource
+        ));
     }
 
-    private static CoverDto buildCoverDto(String primaryCandidate,
-                                          String alternateCandidate,
-                                          String fallbackCandidate,
-                                          Integer width,
-                                          Integer height,
-                                          Boolean highResolution,
-                                          String declaredSource) {
+    /**
+     * Input parameters for cover URL resolution.
+     */
+    private record CoverCandidates(
+        String primary,
+        String alternate,
+        String fallback,
+        Integer width,
+        Integer height,
+        Boolean highResolution,
+        String declaredSource
+    ) {}
+
+    private static CoverDto buildCoverDto(CoverCandidates candidates) {
+        String placeholder = ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH;
         CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
-            primaryCandidate,
-            alternateCandidate,
-            width,
-            height,
-            highResolution
+            candidates.primary(), candidates.alternate(),
+            candidates.width(), candidates.height(), candidates.highResolution()
         );
 
-        String placeholder = ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH;
-        String fallbackUrl = firstNonBlank(fallbackCandidate, alternateCandidate, primaryCandidate, placeholder);
+        String fallbackUrl = resolveFallbackUrl(candidates, placeholder);
         boolean fallbackLikely = CoverUrlValidator.isLikelyCoverImage(fallbackUrl);
-        if (!fallbackLikely) {
-            fallbackUrl = placeholder;
-        }
-
         boolean preferredLikely = CoverUrlValidator.isLikelyCoverImage(resolved.url());
         String preferredUrl = StringUtils.hasText(resolved.url()) ? resolved.url() : fallbackUrl;
-        if (!StringUtils.hasText(preferredUrl)) {
-            preferredUrl = fallbackUrl;
-        }
 
         String s3Key = resolved.fromS3() ? resolved.s3Key() : null;
         Integer effectiveWidth = resolved.width();
         Integer effectiveHeight = resolved.height();
         boolean effectiveHighResolution = resolved.highResolution();
-
         String externalUrl = resolved.fromS3()
-            ? firstNonBlank(fallbackCandidate, alternateCandidate)
+            ? firstNonBlank(candidates.fallback(), candidates.alternate())
             : preferredUrl;
 
         if (preferredLikely) {
-            if (placeholder.equals(fallbackUrl)) {
-                externalUrl = null;
-            } else if (!resolved.fromS3()) {
-                externalUrl = preferredUrl;
-            }
+            externalUrl = resolveExternalUrlWhenPreferred(externalUrl, fallbackUrl, placeholder, resolved.fromS3());
         } else {
             s3Key = null;
             if (fallbackLikely && !placeholder.equals(fallbackUrl)) {
@@ -507,29 +546,39 @@ public final class BookDtoMapper {
             externalUrl = null;
         }
 
-        String source = declaredSource;
-        if (!StringUtils.hasText(source)) {
-            if (resolved.fromS3() && preferredLikely) {
-                source = "S3_CACHE";
-            } else {
-                CoverImageSource detected = UrlSourceDetector.detectSource(preferredUrl);
-                source = detected != null ? detected.name() : CoverImageSource.UNDEFINED.name();
-            }
-        }
-        if (preferredUrl.contains("placeholder-book-cover.svg") || placeholder.equals(fallbackUrl)) {
-            source = CoverImageSource.NONE.name();
-        }
+        String source = resolveSourceLabel(candidates.declaredSource(), resolved, preferredUrl, preferredLikely, fallbackUrl, placeholder);
 
-        return new CoverDto(
-            s3Key,
-            externalUrl,
-            effectiveWidth,
-            effectiveHeight,
-            effectiveHighResolution,
-            preferredUrl,
-            fallbackUrl,
-            source
-        );
+        return new CoverDto(s3Key, externalUrl, effectiveWidth, effectiveHeight,
+            effectiveHighResolution, preferredUrl, fallbackUrl, source);
+    }
+
+    private static String resolveFallbackUrl(CoverCandidates candidates, String placeholder) {
+        String url = firstNonBlank(candidates.fallback(), candidates.alternate(), candidates.primary(), placeholder);
+        return CoverUrlValidator.isLikelyCoverImage(url) ? url : placeholder;
+    }
+
+    private static String resolveExternalUrlWhenPreferred(String externalUrl, String fallbackUrl,
+                                                          String placeholder, boolean fromS3) {
+        if (placeholder.equals(fallbackUrl)) {
+            return null;
+        }
+        return fromS3 ? externalUrl : externalUrl;
+    }
+
+    private static String resolveSourceLabel(String declaredSource, CoverUrlResolver.ResolvedCover resolved,
+                                             String preferredUrl, boolean preferredLikely,
+                                             String fallbackUrl, String placeholder) {
+        if (preferredUrl.contains("placeholder-book-cover.svg") || placeholder.equals(fallbackUrl)) {
+            return CoverImageSource.NONE.name();
+        }
+        if (StringUtils.hasText(declaredSource)) {
+            return declaredSource;
+        }
+        if (resolved.fromS3() && preferredLikely) {
+            return "S3_CACHE";
+        }
+        CoverImageSource detected = UrlSourceDetector.detectSource(preferredUrl);
+        return detected != null ? detected.name() : CoverImageSource.UNDEFINED.name();
     }
 
     private static String firstNonBlank(String... values) {

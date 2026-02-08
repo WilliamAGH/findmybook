@@ -167,4 +167,70 @@ class BookDtoMapperTest {
         assertThat(dto.descriptionContent().text()).contains("Second line");
         assertThat(dto.descriptionContent().text()).contains("Third paragraph");
     }
+
+    @Test
+    void should_ConvertInlineBulletsToList_When_HtmlContainsUnicodeBullets() {
+        Book book = new Book();
+        book.setId("inline-bullets");
+        book.setTitle("Inline Bullets");
+        book.setDescription(
+            "<b>Key Features</b>● Feature one<br>● Feature two<br>● Feature three"
+        );
+
+        BookDto dto = BookDtoMapper.toDto(book);
+
+        assertThat(dto.descriptionContent().format()).isEqualTo(BookDto.DescriptionFormat.HTML);
+        assertThat(dto.descriptionContent().html()).contains("<ul>");
+        assertThat(dto.descriptionContent().html()).contains("<li>Feature one</li>");
+        assertThat(dto.descriptionContent().html()).contains("<li>Feature two</li>");
+        assertThat(dto.descriptionContent().html()).contains("<li>Feature three</li>");
+        assertThat(dto.descriptionContent().html()).doesNotContain("●");
+    }
+
+    @Test
+    void should_PreserveNonBulletHtml_When_DescriptionHasNoBullets() {
+        Book book = new Book();
+        book.setId("no-bullets");
+        book.setTitle("No Bullets");
+        book.setDescription("<b>Title</b><br>Some description text<br><br>Another paragraph");
+
+        BookDto dto = BookDtoMapper.toDto(book);
+
+        assertThat(dto.descriptionContent().format()).isEqualTo(BookDto.DescriptionFormat.HTML);
+        assertThat(dto.descriptionContent().html()).contains("<b>Title</b>");
+        assertThat(dto.descriptionContent().html()).doesNotContain("<ul>");
+        assertThat(dto.descriptionContent().html()).doesNotContain("<li>");
+    }
+
+    @Test
+    void should_NormalizeEmptyBoldBrWrappers_When_BoldWrapsBreakTag() {
+        Book book = new Book();
+        book.setId("bold-br");
+        book.setTitle("Bold BR");
+        book.setDescription(
+            "● Item one<br>● Item two<b><br></b><b>Next Section</b>"
+        );
+
+        BookDto dto = BookDtoMapper.toDto(book);
+
+        assertThat(dto.descriptionContent().html()).contains("<li>Item one</li>");
+        assertThat(dto.descriptionContent().html()).contains("<li>Item two</li>");
+        assertThat(dto.descriptionContent().html()).contains("</ul>");
+        assertThat(dto.descriptionContent().html()).contains("<b>Next Section</b>");
+    }
+
+    @Test
+    void should_HandleDotBullets_When_HtmlContainsMidDotCharacter() {
+        Book book = new Book();
+        book.setId("dot-bullets");
+        book.setTitle("Dot Bullets");
+        book.setDescription("<b>Topics</b><br>• Topic one<br>• Topic two");
+
+        BookDto dto = BookDtoMapper.toDto(book);
+
+        assertThat(dto.descriptionContent().html()).contains("<ul>");
+        assertThat(dto.descriptionContent().html()).contains("<li>Topic one</li>");
+        assertThat(dto.descriptionContent().html()).contains("<li>Topic two</li>");
+        assertThat(dto.descriptionContent().html()).doesNotContain("•");
+    }
 }
