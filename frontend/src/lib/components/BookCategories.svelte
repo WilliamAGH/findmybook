@@ -14,8 +14,8 @@
   <div class="relative">
     <div
       class="flex flex-wrap gap-2 overflow-hidden transition-all duration-300 ease-out"
-      class:max-h-[2.75rem]={!expanded}
-      class:max-h-none={expanded}
+      class:max-h-[2.75rem]={!expanded && categories.length > 6}
+      class:max-h-none={expanded || categories.length <= 6}
     >
       {#each categories as category}
         <span class="inline-flex items-center gap-1 rounded-full bg-linen-100 px-3 py-1 text-xs font-medium text-anthracite-700 dark:bg-slate-700 dark:text-slate-200">
