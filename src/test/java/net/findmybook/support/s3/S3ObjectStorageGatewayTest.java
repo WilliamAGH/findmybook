@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import net.findmybook.service.s3.S3FetchResult;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import software.amazon.awssdk.core.ResponseBytes;
@@ -18,8 +19,11 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
+import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
+import software.amazon.awssdk.services.s3.model.CopyObjectRequest;
+import software.amazon.awssdk.services.s3.model.CopyObjectResponse;
 
 @ExtendWith(MockitoExtension.class)
 class S3ObjectStorageGatewayTest {
@@ -46,7 +50,9 @@ class S3ObjectStorageGatewayTest {
         ).join();
 
         assertThat(uploadedUrl).isEqualTo("https://cdn.example.com/covers/book.jpg");
-        verify(s3Client).putObject(any(PutObjectRequest.class), any(RequestBody.class));
+        ArgumentCaptor<PutObjectRequest> putRequestCaptor = ArgumentCaptor.forClass(PutObjectRequest.class);
+        verify(s3Client).putObject(putRequestCaptor.capture(), any(RequestBody.class));
+        assertThat(putRequestCaptor.getValue().acl()).isEqualTo(ObjectCannedACL.PUBLIC_READ);
     }
 
     @Test
@@ -68,6 +74,25 @@ class S3ObjectStorageGatewayTest {
         ).join();
 
         assertThat(uploadedUrl).isEqualTo("https://sfo3.digitaloceanspaces.com/book-finder/covers/book.jpg");
+    }
+
+    @Test
+    void should_UsePublicReadAcl_When_CopyObjectCalled() {
+        when(s3Client.copyObject(any(CopyObjectRequest.class)))
+            .thenReturn(CopyObjectResponse.builder().build());
+        S3ObjectStorageGateway gateway = new S3ObjectStorageGateway(
+            s3Client,
+            "book-finder",
+            "https://cdn.example.com",
+            "https://sfo3.digitaloceanspaces.com"
+        );
+
+        boolean copied = gateway.copyObject("covers/source.jpg", "covers/destination.jpg");
+
+        assertThat(copied).isTrue();
+        ArgumentCaptor<CopyObjectRequest> copyRequestCaptor = ArgumentCaptor.forClass(CopyObjectRequest.class);
+        verify(s3Client).copyObject(copyRequestCaptor.capture());
+        assertThat(copyRequestCaptor.getValue().acl()).isEqualTo(ObjectCannedACL.PUBLIC_READ);
     }
 
     @Test

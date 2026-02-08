@@ -24,6 +24,7 @@ import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
+import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
@@ -79,6 +80,7 @@ public final class S3ObjectStorageGateway {
                     .bucket(bucketName)
                     .key(keyName)
                     .contentType(contentType)
+                    .acl(ObjectCannedACL.PUBLIC_READ)
                     .build();
 
                 client.putObject(putObjectRequest, RequestBody.fromInputStream(inputStream, contentLength));
@@ -221,6 +223,7 @@ public final class S3ObjectStorageGateway {
                 .sourceKey(sourceKey)
                 .destinationBucket(bucketName)
                 .destinationKey(destinationKey)
+                .acl(ObjectCannedACL.PUBLIC_READ)
                 .build();
             s3Client.copyObject(copyRequest);
             logger.info("Copied object from {} to {}", sourceKey, destinationKey);

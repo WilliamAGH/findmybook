@@ -9,8 +9,12 @@ MIGRATE_MAX ?= 0
 MIGRATE_SKIP ?= 0
 MIGRATE_PREFIX ?= books/v1/
 MIGRATE_DEBUG ?= false
+S3_ACL_SCOPE ?= all
+S3_ACL_PREFIX ?=
+S3_ACL_DRY_RUN ?= false
+S3_ACL_VERBOSE ?= false
 
-.PHONY: run build test lint kill-port migrate-books cluster-books check-s3-in-db
+.PHONY: run build test lint kill-port migrate-books cluster-books check-s3-in-db fix-s3-acl-public-all
 
 # Kill any process currently listening on $(PORT)
 kill-port:
@@ -195,3 +199,17 @@ check-s3-in-db:
 		echo "❌ Error: .env file not found"; \
 		exit 1; \
 	fi
+
+# Ensure every object in S3 bucket has public-read ACL.
+# Optional env vars:
+#   S3_ACL_DRY_RUN=true  -> report changes without writing ACLs
+#   S3_ACL_PREFIX=path/  -> limit scan to keys under prefix
+#   S3_ACL_SCOPE=images  -> process image-like keys only
+#   S3_ACL_SCOPE=json    -> process *.json keys only
+#   S3_ACL_VERBOSE=true  -> log every changed key (default: false)
+fix-s3-acl-public-all:
+	@./scripts/fix-s3-object-acl.sh \
+		--scope "$(S3_ACL_SCOPE)" \
+		--prefix "$(S3_ACL_PREFIX)" \
+		--dry-run "$(S3_ACL_DRY_RUN)" \
+		--verbose "$(S3_ACL_VERBOSE)"
