@@ -45,7 +45,7 @@ RUN ./gradlew bootJar --no-daemon -q -x test
 FROM ${BASE_REGISTRY}/eclipse-temurin:25-jre AS extractor
 WORKDIR /app
 COPY --from=build /app/build/libs/findmybook-*.jar application.jar
-RUN java -Djarmode=tools -jar application.jar extract --layers --destination extracted
+RUN java -Djarmode=tools -jar application.jar extract --layers --application-filename application.jar --destination extracted
 
 # ---------- Runtime stage ----------
 FROM ${BASE_REGISTRY}/eclipse-temurin:25-jre AS runtime
