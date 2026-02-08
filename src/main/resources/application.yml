@@ -8,9 +8,9 @@
 
 spring:
   datasource:
-    url: ${SPRING_DATASOURCE_URL:}
-    username: ${SPRING_DATASOURCE_USERNAME:}
-    password: ${SPRING_DATASOURCE_PASSWORD:}
+    url: ${SPRING_DATASOURCE_URL:${DATABASE_URL:}}
+    username: ${SPRING_DATASOURCE_USERNAME:${DATABASE_USERNAME:${PGUSER:}}}
+    password: ${SPRING_DATASOURCE_PASSWORD:${DATABASE_PASSWORD:${PGPASSWORD:}}}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 20

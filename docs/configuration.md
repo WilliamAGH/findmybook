@@ -7,6 +7,7 @@ Key variables in `.env`:
 | -------- | ------- |
 | `SERVER_PORT` | App server port |
 | `SPRING_DATASOURCE_*` | Database connection |
+| `DATABASE_URL` / `POSTGRES_URL` / `JDBC_DATABASE_URL` | Fallback database URL inputs normalized into `spring.datasource.url` when `SPRING_DATASOURCE_URL` is not set |
 | `AI_DEFAULT_OPENAI_API_KEY` / `OPENAI_API_KEY` | OpenAI API key for AI generation |
 | `AI_DEFAULT_OPENAI_BASE_URL` / `OPENAI_BASE_URL` | OpenAI-compatible base URL (`https://api.openai.com/v1` by default) |
 | `AI_DEFAULT_LLM_MODEL` / `OPENAI_MODEL` | Default AI model for book content |

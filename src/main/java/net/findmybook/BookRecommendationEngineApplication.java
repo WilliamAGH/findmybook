@@ -134,7 +134,13 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
         try {
             String url = firstText(
                 System.getenv("SPRING_DATASOURCE_URL"),
-                System.getProperty("SPRING_DATASOURCE_URL")
+                System.getProperty("SPRING_DATASOURCE_URL"),
+                System.getenv("DATABASE_URL"),
+                System.getProperty("DATABASE_URL"),
+                System.getenv("POSTGRES_URL"),
+                System.getProperty("POSTGRES_URL"),
+                System.getenv("JDBC_DATABASE_URL"),
+                System.getProperty("JDBC_DATABASE_URL")
             );
             if (!StringUtils.hasText(url)) {
                 return;
@@ -156,12 +162,16 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
             String existingUser = firstText(
                 System.getenv("SPRING_DATASOURCE_USERNAME"),
                 System.getProperty("SPRING_DATASOURCE_USERNAME"),
+                System.getenv("DATABASE_USERNAME"),
+                System.getenv("PGUSER"),
                 System.getProperty("spring.datasource.username")
             );
 
             String existingPass = firstText(
                 System.getenv("SPRING_DATASOURCE_PASSWORD"),
                 System.getProperty("SPRING_DATASOURCE_PASSWORD"),
+                System.getenv("DATABASE_PASSWORD"),
+                System.getenv("PGPASSWORD"),
                 System.getProperty("spring.datasource.password")
             );
 
@@ -177,9 +187,9 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
 
             // Echo minimal confirmation to stdout (password omitted)
             String safeUrl = jdbcUrl.replaceAll("://[^@]+@", "://***:***@");
-            log.info("[DB] Normalized SPRING_DATASOURCE_URL to JDBC: {}", safeUrl);
+            log.info("[DB] Normalized datasource URL to JDBC: {}", safeUrl);
         } catch (RuntimeException e) {
-            log.error("[DB] Failed to normalize SPRING_DATASOURCE_URL", e);
+            log.error("[DB] Failed to normalize datasource URL", e);
             throw e;
         }
     }

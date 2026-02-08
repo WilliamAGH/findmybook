@@ -15,7 +15,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Normalizes SPRING_DATASOURCE_URL values provided as Postgres URI (postgres://...)
+ * Normalizes datasource URL values provided as Postgres URI (postgres://...)
  * into a JDBC URL (jdbc:postgresql://...).
  *
  * Also sets spring.datasource.username and spring.datasource.password from the URI
@@ -25,6 +25,9 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
 
     private static final String DS_URL = "spring.datasource.url";
     private static final String ENV_DS_URL = "SPRING_DATASOURCE_URL";
+    private static final String ENV_DATABASE_URL = "DATABASE_URL";
+    private static final String ENV_POSTGRES_URL = "POSTGRES_URL";
+    private static final String ENV_JDBC_DATABASE_URL = "JDBC_DATABASE_URL";
     private static final String DS_JDBC_URL = "spring.datasource.jdbc-url";
     private static final String HIKARI_JDBC_URL = "spring.datasource.hikari.jdbc-url";
     private static final String DS_USERNAME = "spring.datasource.username";
@@ -41,6 +44,18 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
      */
     private static boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private static String firstText(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (hasText(value)) {
+                return value;
+            }
+        }
+        return null;
     }
 
     /**
@@ -240,11 +255,13 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
 
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
-        String url = environment.getProperty(DS_URL);
-        if (!hasText(url)) {
-            // Fallback to raw env var if application.yml hasn't mapped it yet
-            url = environment.getProperty(ENV_DS_URL);
-        }
+        String url = firstText(
+            environment.getProperty(DS_URL),
+            environment.getProperty(ENV_DS_URL),
+            environment.getProperty(ENV_DATABASE_URL),
+            environment.getProperty(ENV_POSTGRES_URL),
+            environment.getProperty(ENV_JDBC_DATABASE_URL)
+        );
         java.util.Optional<JdbcParseResult> parsed = normalizePostgresUrl(url);
         if (parsed.isEmpty()) {
             return;
