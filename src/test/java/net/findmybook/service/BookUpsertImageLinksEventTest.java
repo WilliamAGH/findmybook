@@ -8,8 +8,11 @@ import net.findmybook.test.annotations.DbIntegrationTest;
 import net.findmybook.util.IdGenerator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentMatchers;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.context.ApplicationListener;
 import org.springframework.context.PayloadApplicationEvent;
 import org.springframework.context.annotation.Bean;
@@ -22,6 +25,7 @@ import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DbIntegrationTest
 @Import(BookUpsertImageLinksEventTest.EventConfig.class)
@@ -150,6 +154,70 @@ class BookUpsertImageLinksEventTest {
         assertThat(persisted.get("s3_uploaded_at")).isNotNull();
         assertThat(persisted.get("created_at")).isNotNull();
         assertThat(persisted.get("updated_at")).isNotNull();
+    }
+
+    @Test
+    void should_ThrowDataAccessException_When_PersistFromGoogleImageLinksFailsToWrite() {
+        JdbcTemplate failingJdbcTemplate = Mockito.mock(JdbcTemplate.class);
+        CoverPersistenceService failingService = new CoverPersistenceService(failingJdbcTemplate);
+        UUID failingBookId = UUID.randomUUID();
+
+        Mockito.doThrow(new DataAccessResourceFailureException("book_image_links unavailable"))
+            .when(failingJdbcTemplate)
+            .update(ArgumentMatchers.anyString(), ArgumentMatchers.<Object[]>any());
+
+        assertThatThrownBy(() -> failingService.persistFromGoogleImageLinks(
+            failingBookId,
+            Map.of("thumbnail", "https://example.com/thumb.jpg"),
+            "GOOGLE_BOOKS"
+        ))
+            .isInstanceOf(DataAccessResourceFailureException.class)
+            .hasMessageContaining("book_image_links unavailable");
+    }
+
+    @Test
+    void should_ThrowDataAccessException_When_UpdateAfterS3UploadFailsToWrite() {
+        JdbcTemplate failingJdbcTemplate = Mockito.mock(JdbcTemplate.class);
+        CoverPersistenceService failingService = new CoverPersistenceService(failingJdbcTemplate);
+        UUID failingBookId = UUID.randomUUID();
+
+        Mockito.doThrow(new DataAccessResourceFailureException("s3 metadata write failed"))
+            .when(failingJdbcTemplate)
+            .update(ArgumentMatchers.anyString(), ArgumentMatchers.<Object[]>any());
+
+        assertThatThrownBy(() -> failingService.updateAfterS3Upload(
+            failingBookId,
+            new CoverPersistenceService.S3UploadResult(
+                "images/book-covers/" + failingBookId + ".jpg",
+                "https://book-finder.sfo3.digitaloceanspaces.com/images/book-covers/" + failingBookId + ".jpg",
+                640,
+                960,
+                CoverImageSource.GOOGLE_BOOKS
+            )
+        ))
+            .isInstanceOf(DataAccessResourceFailureException.class)
+            .hasMessageContaining("s3 metadata write failed");
+    }
+
+    @Test
+    void should_ThrowDataAccessException_When_PersistExternalCoverFailsToWrite() {
+        JdbcTemplate failingJdbcTemplate = Mockito.mock(JdbcTemplate.class);
+        CoverPersistenceService failingService = new CoverPersistenceService(failingJdbcTemplate);
+        UUID failingBookId = UUID.randomUUID();
+
+        Mockito.doThrow(new DataAccessResourceFailureException("external cover write failed"))
+            .when(failingJdbcTemplate)
+            .update(ArgumentMatchers.anyString(), ArgumentMatchers.<Object[]>any());
+
+        assertThatThrownBy(() -> failingService.persistExternalCover(
+            failingBookId,
+            "https://example.com/external-cover.jpg",
+            "OPEN_LIBRARY",
+            500,
+            800
+        ))
+            .isInstanceOf(DataAccessResourceFailureException.class)
+            .hasMessageContaining("external cover write failed");
     }
 
     private void insertBook() {
