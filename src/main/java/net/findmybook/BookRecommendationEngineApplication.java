@@ -14,6 +14,7 @@ package net.findmybook;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import org.springframework.util.StringUtils;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -48,6 +49,8 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
     private static final int APPLICATION_SCHEDULER_POOL_SIZE = 4;
     private static final int APPLICATION_SCHEDULER_SHUTDOWN_TIMEOUT_SECONDS = 30;
     private static final String APPLICATION_SCHEDULER_THREAD_PREFIX = "AppScheduler-";
+    private static final String NO_DATABASE_PROFILE = "nodb";
+    private static final String TEST_PROFILE = "test";
 
     /**
      * Sentinel value set as the OpenAI API key when no real key is configured.
@@ -80,6 +83,7 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
         loadDotEnvFile();
         disableNettyUnsafeAccess();
         normalizeDatasourceUrlFromEnv();
+        validateDatasourceConfiguration(args);
         normalizeOpenAiSdkConfig();
         SpringApplication.run(BookRecommendationEngineApplication.class, args);
     }
@@ -192,6 +196,77 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
             log.error("[DB] Failed to normalize datasource URL", e);
             throw e;
         }
+    }
+
+    static void validateDatasourceConfiguration(String[] args) {
+        String resolvedProfiles = resolveStartupActiveProfiles(args);
+        if (!isDatasourceRequired(resolvedProfiles)) {
+            return;
+        }
+        if (hasDatasourceConfiguration()) {
+            return;
+        }
+        String message = "Database configuration is required for startup but none was found. "
+            + "Set SPRING_DATASOURCE_URL (preferred) or DATABASE_URL/POSTGRES_URL/JDBC_DATABASE_URL. "
+            + "For explicit no-database startup, set SPRING_PROFILES_ACTIVE=nodb.";
+        log.error("[DB] {}", message);
+        throw new IllegalStateException(message);
+    }
+
+    static String resolveStartupActiveProfiles(String[] args) {
+        String fromCommandLine = extractProfilesFromCommandLine(args);
+        return firstText(
+            fromCommandLine,
+            System.getProperty("spring.profiles.active"),
+            System.getenv("SPRING_PROFILES_ACTIVE")
+        );
+    }
+
+    static boolean isDatasourceRequired(String resolvedProfiles) {
+        if (!StringUtils.hasText(resolvedProfiles)) {
+            return true;
+        }
+        return java.util.Arrays.stream(resolvedProfiles.split(","))
+            .map(String::trim)
+            .filter(StringUtils::hasText)
+            .map(profile -> profile.toLowerCase(Locale.ROOT))
+            .noneMatch(profile -> NO_DATABASE_PROFILE.equals(profile) || TEST_PROFILE.equals(profile));
+    }
+
+    private static boolean hasDatasourceConfiguration() {
+        return StringUtils.hasText(firstText(
+            System.getProperty("spring.datasource.url"),
+            System.getenv("SPRING_DATASOURCE_URL"),
+            System.getProperty("SPRING_DATASOURCE_URL"),
+            System.getenv("DATABASE_URL"),
+            System.getProperty("DATABASE_URL"),
+            System.getenv("POSTGRES_URL"),
+            System.getProperty("POSTGRES_URL"),
+            System.getenv("JDBC_DATABASE_URL"),
+            System.getProperty("JDBC_DATABASE_URL")
+        ));
+    }
+
+    private static String extractProfilesFromCommandLine(String[] args) {
+        if (args == null || args.length == 0) {
+            return null;
+        }
+        for (String arg : args) {
+            if (!StringUtils.hasText(arg)) {
+                continue;
+            }
+            if (arg.startsWith("--spring.profiles.active=")) {
+                String value = arg.substring("--spring.profiles.active=".length()).trim();
+                return StringUtils.hasText(value) ? value : null;
+            }
+        }
+        for (int index = 0; index < args.length - 1; index++) {
+            if ("--spring.profiles.active".equals(args[index])) {
+                String value = args[index + 1];
+                return StringUtils.hasText(value) ? value.trim() : null;
+            }
+        }
+        return null;
     }
 
     /**

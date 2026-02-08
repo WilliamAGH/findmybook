@@ -33,6 +33,7 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
     private static final String DS_USERNAME = "spring.datasource.username";
     private static final String DS_PASSWORD = "spring.datasource.password";
     private static final String DS_DRIVER = "spring.datasource.driver-class-name";
+    private static final String POSTGRES_DRIVER_CLASS = "org.postgresql.Driver";
     private static final String JDBC_POSTGRESQL_PREFIX = "jdbc:postgresql://";
     private static final String DEFAULT_HOST = "localhost";
     private static final String DEFAULT_DATABASE = "postgres";
@@ -43,33 +44,28 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
     /**
      * Checks if a string has meaningful content (not null, not empty, not blank).
      */
-    private static boolean hasText(String value) {
-        return value != null && !value.isBlank();
+    private static boolean hasText(String candidate) {
+        return candidate != null && !candidate.isBlank();
     }
 
     private static String firstText(String... values) {
         if (values == null) {
             return null;
         }
-        for (String value : values) {
-            if (hasText(value)) {
-                return value;
+        for (String candidate : values) {
+            if (hasText(candidate)) {
+                return candidate;
             }
         }
         return null;
     }
 
-    private static boolean isJdbcPostgresUrl(String value) {
-        return hasText(value) && value.trim().toLowerCase(Locale.ROOT).startsWith(JDBC_POSTGRESQL_PREFIX);
+    private static boolean isJdbcPostgresUrl(String candidate) {
+        return hasText(candidate) && candidate.trim().toLowerCase(Locale.ROOT).startsWith(JDBC_POSTGRESQL_PREFIX);
     }
 
-    private static Map<String, Object> createDatasourceOverrides(String jdbcUrl) {
-        Map<String, Object> overrides = new HashMap<>();
-        overrides.put(DS_URL, jdbcUrl);
-        overrides.put(DS_JDBC_URL, jdbcUrl);
-        overrides.put(HIKARI_JDBC_URL, jdbcUrl);
-        overrides.put(DS_DRIVER, "org.postgresql.Driver");
-        return overrides;
+    private static DatasourceOverrides createDatasourceOverrides(String jdbcUrl) {
+        return DatasourceOverrides.forJdbcUrl(jdbcUrl);
     }
 
     /**
@@ -83,6 +79,54 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
      * Value object for parsed host and port.
      */
     private record HostPort(String host, int port) {}
+
+    /**
+     * Typed datasource override values applied before Spring DataSource binding.
+     */
+    private record DatasourceOverrides(String datasourceUrl,
+                                       String datasourceJdbcUrl,
+                                       String hikariJdbcUrl,
+                                       String driverClassName,
+                                       String datasourceUsername,
+                                       String datasourcePassword) {
+
+        private static DatasourceOverrides forJdbcUrl(String jdbcUrl) {
+            return new DatasourceOverrides(
+                jdbcUrl,
+                jdbcUrl,
+                jdbcUrl,
+                POSTGRES_DRIVER_CLASS,
+                null,
+                null
+            );
+        }
+
+        private DatasourceOverrides withCredentials(String username, String password) {
+            return new DatasourceOverrides(
+                datasourceUrl,
+                datasourceJdbcUrl,
+                hikariJdbcUrl,
+                driverClassName,
+                username,
+                password
+            );
+        }
+
+        private Map<String, Object> toPropertyMap() {
+            Map<String, Object> properties = new HashMap<>();
+            properties.put(DS_URL, datasourceUrl);
+            properties.put(DS_JDBC_URL, datasourceJdbcUrl);
+            properties.put(HIKARI_JDBC_URL, hikariJdbcUrl);
+            properties.put(DS_DRIVER, driverClassName);
+            if (hasText(datasourceUsername)) {
+                properties.put(DS_USERNAME, datasourceUsername);
+            }
+            if (hasText(datasourcePassword)) {
+                properties.put(DS_PASSWORD, datasourcePassword);
+            }
+            return properties;
+        }
+    }
 
     /**
      * Defaults empty host to localhost (PostgreSQL convention).
@@ -285,7 +329,8 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
         try {
             if (isJdbcPostgresUrl(datasourceUrl)) {
                 MutablePropertySources sources = environment.getPropertySources();
-                sources.addFirst(new MapPropertySource("databaseUrlProcessor", createDatasourceOverrides(datasourceUrl)));
+                DatasourceOverrides overrides = createDatasourceOverrides(datasourceUrl);
+                sources.addFirst(new MapPropertySource("databaseUrlProcessor", overrides.toPropertyMap()));
                 return;
             }
 
@@ -295,21 +340,18 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
             }
 
             JdbcParseResult result = parsed.get();
-            Map<String, Object> overrides = createDatasourceOverrides(result.jdbcUrl);
+            DatasourceOverrides overrides = createDatasourceOverrides(result.jdbcUrl);
 
             // Set username and password if extracted and not already provided
             String existingUser = environment.getProperty(DS_USERNAME);
             String existingPass = environment.getProperty(DS_PASSWORD);
-            if (!hasText(existingUser) && hasText(result.username)) {
-                overrides.put(DS_USERNAME, result.username);
-            }
-            if (!hasText(existingPass) && hasText(result.password)) {
-                overrides.put(DS_PASSWORD, result.password);
-            }
+            String resolvedUsername = !hasText(existingUser) && hasText(result.username) ? result.username : null;
+            String resolvedPassword = !hasText(existingPass) && hasText(result.password) ? result.password : null;
+            overrides = overrides.withCredentials(resolvedUsername, resolvedPassword);
 
             MutablePropertySources sources = environment.getPropertySources();
             // Highest precedence so these values win over application.yml
-            sources.addFirst(new MapPropertySource("databaseUrlProcessor", overrides));
+            sources.addFirst(new MapPropertySource("databaseUrlProcessor", overrides.toPropertyMap()));
         } catch (RuntimeException e) {
             throw new IllegalStateException(
                 "Failed to normalize datasource properties: " + e.getMessage(), e);

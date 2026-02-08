@@ -18,6 +18,7 @@ import software.amazon.awssdk.services.s3.S3Client;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -155,6 +156,37 @@ class BookRecommendationEngineApplicationTests {
         assertEquals(APPLICATION_SCHEDULER_THREAD_PREFIX, applicationScheduler.getThreadNamePrefix());
         assertEquals(MESSAGE_BROKER_SCHEDULER_THREAD_PREFIX, brokerScheduler.getThreadNamePrefix());
         assertNotEquals(applicationScheduler.getThreadNamePrefix(), brokerScheduler.getThreadNamePrefix());
+    }
+
+    @Test
+    void should_RequireDatasource_When_NoProfilesAreResolved() {
+        assertTrue(BookRecommendationEngineApplication.isDatasourceRequired(null));
+    }
+
+    @Test
+    void should_NotRequireDatasource_When_NodbProfileIsActive() {
+        assertFalse(BookRecommendationEngineApplication.isDatasourceRequired("nodb"));
+        assertFalse(BookRecommendationEngineApplication.isDatasourceRequired("dev,nodb"));
+    }
+
+    @Test
+    void should_NotRequireDatasource_When_TestProfileIsActive() {
+        assertFalse(BookRecommendationEngineApplication.isDatasourceRequired("test"));
+        assertFalse(BookRecommendationEngineApplication.isDatasourceRequired("test,dev"));
+    }
+
+    @Test
+    void should_ResolveProfilesFromCommandLineEqualsSyntax_When_Provided() {
+        String resolved = BookRecommendationEngineApplication.resolveStartupActiveProfiles(
+            new String[]{"--spring.profiles.active=dev,nodb"});
+        assertEquals("dev,nodb", resolved);
+    }
+
+    @Test
+    void should_ResolveProfilesFromCommandLineSplitSyntax_When_Provided() {
+        String resolved = BookRecommendationEngineApplication.resolveStartupActiveProfiles(
+            new String[]{"--spring.profiles.active", "nodb"});
+        assertEquals("nodb", resolved);
     }
 
 }
