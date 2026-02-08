@@ -43,10 +43,10 @@ class BookAiContentRepositoryTest {
     @Test
     void insertNewCurrentVersion_CreatesFirstVersion() {
         UUID bookId = createBook();
-        BookAiContent analysis = new BookAiContent("Summary", "Fit", List.of("Theme1"), List.of("Point1"), "Context.");
+        BookAiContent aiContent = new BookAiContent("Summary", "Fit", List.of("Theme1"), List.of("Point1"), "Context.");
 
         BookAiContentSnapshot snapshot = repository.insertNewCurrentVersion(
-            bookId, analysis, "gpt-model", "openai", "hash123"
+            bookId, aiContent, "gpt-model", "openai", "hash123"
         );
 
         assertThat(snapshot.version()).isEqualTo(1);
@@ -77,8 +77,8 @@ class BookAiContentRepositoryTest {
     @Test
     void fetchCurrent_ReturnsLatestCurrent() {
         UUID bookId = createBook();
-        BookAiContent analysis = new BookAiContent("Summary", "Fit", List.of("Theme1"), List.of("Point1"), "Context.");
-        repository.insertNewCurrentVersion(bookId, analysis, "m1", "p1", "h1");
+        BookAiContent aiContent = new BookAiContent("Summary", "Fit", List.of("Theme1"), List.of("Point1"), "Context.");
+        repository.insertNewCurrentVersion(bookId, aiContent, "m1", "p1", "h1");
 
         assertThat(repository.fetchCurrent(bookId)).isPresent();
     }

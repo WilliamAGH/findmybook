@@ -101,12 +101,12 @@ class BookAiContentServiceTest {
 
     @Test
     void toDto_MapsAllFields() {
-        BookAiContent analysis = new BookAiContent(
+        BookAiContent aiContent = new BookAiContent(
             "Summary", "Fit", List.of("T1", "T2"),
             List.of("Takeaway A", "Takeaway B"), "A context sentence."
         );
         BookAiContentSnapshot snapshot = new BookAiContentSnapshot(
-            UUID.randomUUID(), 3, Instant.parse("2026-02-08T12:00:00Z"), "gpt-5", "openai", analysis
+            UUID.randomUUID(), 3, Instant.parse("2026-02-08T12:00:00Z"), "gpt-5", "openai", aiContent
         );
 
         BookAiContentSnapshotDto dto = BookAiContentService.toDto(snapshot);
@@ -124,8 +124,8 @@ class BookAiContentServiceTest {
     @Test
     void findCurrent_DelegatesToRepository() {
         UUID bookId = UUID.randomUUID();
-        BookAiContent analysis = new BookAiContent("S", "F", List.of("T"), null, null);
-        BookAiContentSnapshot snapshot = new BookAiContentSnapshot(bookId, 1, Instant.now(), "m", "p", analysis);
+        BookAiContent aiContent = new BookAiContent("S", "F", List.of("T"), null, null);
+        BookAiContentSnapshot snapshot = new BookAiContentSnapshot(bookId, 1, Instant.now(), "m", "p", aiContent);
         when(repository.fetchCurrent(bookId)).thenReturn(Optional.of(snapshot));
 
         Optional<BookAiContentSnapshot> result = service.findCurrent(bookId);
