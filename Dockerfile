@@ -32,7 +32,7 @@ COPY frontend/package.json frontend/package-lock.json ./frontend/
 RUN cd frontend && npm ci
 
 # 4. Frontend config and source files (surgical copies avoid node_modules)
-COPY frontend/index.html frontend/input.css ./frontend/
+COPY frontend/index.html ./frontend/
 COPY frontend/vite.config.ts frontend/tsconfig.json frontend/svelte.config.js frontend/tailwind.config.js ./frontend/
 COPY frontend/public ./frontend/public
 COPY frontend/src ./frontend/src
