@@ -46,6 +46,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @ActiveProfiles("test") // Ensure the "test" profile and its Redis configuration are active
 class BookRecommendationEngineApplicationTests {
 
+    private static final String APPLICATION_TASK_SCHEDULER_BEAN = "taskScheduler";
+    private static final String MESSAGE_BROKER_TASK_SCHEDULER_BEAN = "messageBrokerTaskScheduler";
+    private static final String APPLICATION_SCHEDULER_THREAD_PREFIX = "AppScheduler-";
+    private static final String MESSAGE_BROKER_SCHEDULER_THREAD_PREFIX = "MessageBroker-";
+
     @MockitoBean
     private JdbcTemplate jdbcTemplate;
 
@@ -53,11 +58,11 @@ class BookRecommendationEngineApplicationTests {
     private S3Client s3Client;
 
     @Autowired
-    @Qualifier("taskScheduler")
+    @Qualifier(APPLICATION_TASK_SCHEDULER_BEAN)
     private TaskScheduler applicationTaskScheduler;
 
     @Autowired
-    @Qualifier("messageBrokerTaskScheduler")
+    @Qualifier(MESSAGE_BROKER_TASK_SCHEDULER_BEAN)
     private TaskScheduler messageBrokerTaskScheduler;
 
     // No-op: cached repository removed
@@ -105,8 +110,8 @@ class BookRecommendationEngineApplicationTests {
         ThreadPoolTaskScheduler brokerScheduler =
             assertInstanceOf(ThreadPoolTaskScheduler.class, messageBrokerTaskScheduler);
 
-        assertEquals("AppScheduler-", applicationScheduler.getThreadNamePrefix());
-        assertEquals("MessageBroker-", brokerScheduler.getThreadNamePrefix());
+        assertEquals(APPLICATION_SCHEDULER_THREAD_PREFIX, applicationScheduler.getThreadNamePrefix());
+        assertEquals(MESSAGE_BROKER_SCHEDULER_THREAD_PREFIX, brokerScheduler.getThreadNamePrefix());
         assertNotEquals(applicationScheduler.getThreadNamePrefix(), brokerScheduler.getThreadNamePrefix());
     }
 
