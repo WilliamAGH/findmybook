@@ -20,8 +20,9 @@ function getCookie(cookieName: string): string | null {
   const token = entry.substring(cookieName.length + 1);
   try {
     return decodeURIComponent(token);
-  } catch {
-    return token;
+  } catch (error) {
+    console.warn(`[http] Failed to decode ${cookieName} cookie value; discarding corrupt token`, error);
+    return null;
   }
 }
 
