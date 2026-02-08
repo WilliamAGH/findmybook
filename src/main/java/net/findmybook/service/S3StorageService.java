@@ -1,15 +1,16 @@
 package net.findmybook.service;
 
+import jakarta.annotation.Nullable;
 import jakarta.annotation.PostConstruct;
 import java.io.InputStream;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import net.findmybook.config.S3EnvironmentCondition;
 import net.findmybook.service.s3.S3FetchResult;
 import net.findmybook.support.s3.S3ObjectStorageGateway;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Conditional;
-import jakarta.annotation.Nullable;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.s3.S3Client;
 
@@ -77,9 +78,9 @@ public class S3StorageService {
     }
 
     /**
-     * Downloads an object as raw bytes.
+     * Downloads an object as raw bytes, returning empty when the key does not exist in S3.
      */
-    public @Nullable byte[] downloadFileAsBytes(String key) {
+    public Optional<byte[]> downloadFileAsBytes(String key) {
         return s3ObjectStorageGateway.downloadFileAsBytes(key);
     }
 

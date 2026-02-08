@@ -179,9 +179,9 @@ public final class S3ObjectStorageGateway {
     }
 
     /**
-     * Downloads an object as bytes.
+     * Downloads an object as bytes, returning empty when the key does not exist in S3.
      */
-    public @Nullable byte[] downloadFileAsBytes(String key) {
+    public Optional<byte[]> downloadFileAsBytes(String key) {
         if (s3Client == null) {
             throw new IllegalStateException("S3 client is not configured. Cannot download key " + key);
         }
@@ -190,10 +190,10 @@ public final class S3ObjectStorageGateway {
                 request -> request.bucket(bucketName).key(key)
             );
             logger.info("Successfully downloaded {} from bucket {}", key, bucketName);
-            return objectBytes.asByteArray();
-        } catch (NoSuchKeyException _) {
+            return Optional.of(objectBytes.asByteArray());
+        } catch (NoSuchKeyException notFound) {
             logger.warn("S3 key not found: bucket={}, key={}", bucketName, key);
-            return null;
+            return Optional.empty();
         } catch (S3Exception exception) {
             throw new IllegalStateException(
                 "S3 error downloading key " + key + " from bucket " + bucketName + ": " + resolveS3ErrorMessage(exception),

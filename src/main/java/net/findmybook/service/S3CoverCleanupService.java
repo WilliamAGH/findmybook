@@ -13,6 +13,7 @@
  */
 package net.findmybook.service;
 
+import java.util.Optional;
 import net.findmybook.config.S3EnvironmentCondition;
 import net.findmybook.service.image.ImageProcessingService;
 import net.findmybook.service.s3.DryRunSummary;
@@ -93,14 +94,14 @@ public class S3CoverCleanupService {
                 }
 
                 try {
-                    byte[] imageData = s3StorageService.downloadFileAsBytes(key);
-                    if (imageData == null || imageData.length == 0) {
-                        logger.warn("Failed to download or received empty data for S3 object: {}. Skipping.", key);
+                    Optional<byte[]> downloadResult = s3StorageService.downloadFileAsBytes(key);
+                    if (downloadResult.isEmpty() || downloadResult.get().length == 0) {
+                        logger.warn("S3 object not found or empty: {}. Skipping.", key);
                         continue;
                     }
 
                     // Analyze the image
-                    boolean isBadCover = imageProcessingService.isDominantlyWhite(imageData, key);
+                    boolean isBadCover = imageProcessingService.isDominantlyWhite(downloadResult.get(), key);
 
                     if (isBadCover) {
                         totalFlagged.incrementAndGet();
@@ -184,13 +185,13 @@ public class S3CoverCleanupService {
                 }
 
                 try {
-                    byte[] imageData = s3StorageService.downloadFileAsBytes(sourceKey);
-                    if (imageData == null || imageData.length == 0) {
-                        logger.warn("Failed to download or received empty data for S3 object: {}. Skipping.", sourceKey);
+                    Optional<byte[]> downloadResult = s3StorageService.downloadFileAsBytes(sourceKey);
+                    if (downloadResult.isEmpty() || downloadResult.get().length == 0) {
+                        logger.warn("S3 object not found or empty: {}. Skipping.", sourceKey);
                         continue;
                     }
 
-                    boolean isBadCover = imageProcessingService.isDominantlyWhite(imageData, sourceKey);
+                    boolean isBadCover = imageProcessingService.isDominantlyWhite(downloadResult.get(), sourceKey);
 
                     if (isBadCover) {
                         totalFlagged.incrementAndGet();
