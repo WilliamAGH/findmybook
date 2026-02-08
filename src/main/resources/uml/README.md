@@ -35,14 +35,14 @@ There are several ways to generate UML diagrams from the PlantUML files:
 2. Run the following command:
 
    ```bash
-   java -jar plantuml.jar book_recommendation_engine.puml
+   java -jar plantuml.jar findmybook.puml
    ```
 
 3. This will generate a PNG file with the diagram
 
 ## Available UML Diagrams
 
-- `book_recommendation_engine.puml`: Class diagram showing the main classes, their properties, methods, and relationships in the Book Finder project.
+- `findmybook.puml`: Class diagram showing the main classes, their properties, methods, and relationships in the Book Finder project.
 
 ## Understanding the UML Diagram
 

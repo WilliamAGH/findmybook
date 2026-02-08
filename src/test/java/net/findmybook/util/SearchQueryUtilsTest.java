@@ -1,0 +1,59 @@
+package net.findmybook.util;
+
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+class SearchQueryUtilsTest {
+
+    @Test
+    @DisplayName("normalize trims whitespace and preserves non-empty input")
+    void normalizeTrimsAndPreservesContent() {
+        assertThat(SearchQueryUtils.normalize("  The Pragmatic Programmer  "))
+            .isEqualTo("The Pragmatic Programmer");
+    }
+
+    @Test
+    @DisplayName("normalize falls back to wildcard for null or blank input")
+    void normalizeFallsBackToWildcard() {
+        assertThat(SearchQueryUtils.normalize(null)).isEqualTo("*");
+        assertThat(SearchQueryUtils.normalize("   ")).isEqualTo("*");
+    }
+
+    @Test
+    @DisplayName("canonicalize lowercases and trims while preserving null")
+    void canonicalizeLowercasesAndTrims() {
+        assertThat(SearchQueryUtils.canonicalize("  Mixed Case Query  "))
+            .isEqualTo("mixed case query");
+        assertThat(SearchQueryUtils.canonicalize(null)).isNull();
+    }
+
+    @Test
+    @DisplayName("cacheKey sanitizes unsafe characters and appends extension")
+    void cacheKeySanitizesInput() {
+        assertThat(SearchQueryUtils.cacheKey("C# in Depth", "en"))
+            .isEqualTo("c__in_depth-en.json");
+    }
+
+    @Test
+    @DisplayName("cacheKey uses 'any' when language is blank")
+    void cacheKeyUsesAnyLanguageFallback() {
+        assertThat(SearchQueryUtils.cacheKey("Distributed Systems", " "))
+            .isEqualTo("distributed_systems-any.json");
+    }
+
+    @Test
+    @DisplayName("topicKey normalizes whitespace and unsafe characters for realtime routing")
+    void topicKeyNormalizesForRealtimeRouting() {
+        assertThat(SearchQueryUtils.topicKey("  Distributed   Systems!  "))
+            .isEqualTo("distributed___systems_");
+    }
+
+    @Test
+    @DisplayName("topicKey falls back to search for blank-like inputs")
+    void topicKeyFallsBackToSearch() {
+        assertThat(SearchQueryUtils.topicKey(null)).isEqualTo("search");
+        assertThat(SearchQueryUtils.topicKey(" \t ")).isEqualTo("search");
+    }
+}

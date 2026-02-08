@@ -491,28 +491,29 @@ document.addEventListener('DOMContentLoaded', function() {
     function updateAndReinitializeTooltip() {
         // Update display on all toggles
         setThemeDisplay(currentTheme, false);
-        if (typeof bootstrap !== 'undefined' && bootstrap.Tooltip) {
-            // Recreate tooltips for all toggle buttons
-            themeToggleBtns.forEach(btn => {
-                if (btn.tooltipInstance) {
-                    btn.tooltipInstance.dispose();
-                }
-                
-                // Set title to include right-click info
-                const isSystemDefault = !localStorage.getItem('theme');
-                const themeText = currentTheme === 'light' ? 'Dark' : 'Light';
-                let tooltipText = `Switch to ${themeText} Mode`;
-                
-                if (isSystemDefault) {
-                    tooltipText += ' (Using system preference)';
-                } else {
-                    tooltipText += ' (Right-click to use system preference)';
-                }
-                
-                btn.setAttribute('title', tooltipText);
-                btn.tooltipInstance = new bootstrap.Tooltip(btn);
-            });
-        }
+        // Keep native browser hover helpers on theme toggles.
+        // Bootstrap tooltips can suppress the native title attribute when initialized,
+        // so we explicitly preserve title/aria text here.
+        themeToggleBtns.forEach(btn => {
+            if (btn.tooltipInstance && typeof btn.tooltipInstance.dispose === 'function') {
+                btn.tooltipInstance.dispose();
+                btn.tooltipInstance = null;
+            }
+
+            const isSystemDefault = !localStorage.getItem('theme');
+            const themeText = currentTheme === 'light' ? 'dark' : 'light';
+            let helperText = `Switch to ${themeText} mode`;
+
+            if (isSystemDefault) {
+                helperText += ' (using system preference)';
+            } else {
+                helperText += ' (right-click to use system preference)';
+            }
+
+            btn.removeAttribute('data-bs-original-title');
+            btn.setAttribute('title', helperText);
+            btn.setAttribute('aria-label', helperText);
+        });
 
         // Update navbar theme classes for toggler icon color
         const navbar = document.getElementById('main-navbar');

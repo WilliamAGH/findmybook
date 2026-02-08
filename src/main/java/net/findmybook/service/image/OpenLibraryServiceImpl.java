@@ -1,0 +1,132 @@
+/**
+ * Implementation of the Open Library book cover service for retrieving cover images
+ * 
+ * @author William Callahan
+ * 
+ * Features:
+ * - Fetches book cover images from Open Library's free API
+ * - Supports ISBN-based lookups for precise image matching
+ * - Implements rate limiting protection for API compliance
+ * - Handles multiple cover sizes (small, medium, large)
+ * - Provides fallback mechanisms when service is unavailable
+ */
+package net.findmybook.service.image;
+
+import net.findmybook.model.Book;
+import net.findmybook.model.image.CoverImageSource;
+import net.findmybook.model.image.ImageDetails;
+import net.findmybook.model.image.ImageResolutionPreference;
+import org.springframework.util.StringUtils;
+import net.findmybook.util.cover.CoverIdentifierResolver;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+
+@Service
+public class OpenLibraryServiceImpl implements OpenLibraryService {
+
+    private static final Logger logger = LoggerFactory.getLogger(OpenLibraryServiceImpl.class);
+    private static final String OPEN_LIBRARY_SOURCE_NAME = "OpenLibrary";
+
+    /**
+     * Fetches book cover image from Open Library
+     *
+     * @param book The book to fetch a cover for
+     * @return A CompletableFuture emitting ImageDetails for the large-size cover, or null if not available
+     */
+    @Override
+    @RateLimiter(name = "openLibraryServiceRateLimiter", fallbackMethod = "fetchCoverRateLimitFallback")
+    public CompletableFuture<Optional<ImageDetails>> fetchCover(Book book) {
+        String isbn = CoverIdentifierResolver.getPreferredIsbn(book);
+
+        if (!StringUtils.hasText(isbn)) {
+            logger.warn("No ISBN found for book ID: {}, cannot fetch cover from OpenLibrary.", book.getId());
+            return CompletableFuture.completedFuture(Optional.empty());
+        }
+
+        // Provide the Large size URL as the primary candidate
+        String largeUrl = String.format("https://covers.openlibrary.org/b/isbn/%s-L.jpg", isbn);
+        String sourceSystemId = String.format("%s-L-%s", OPEN_LIBRARY_SOURCE_NAME, isbn);
+
+        ImageDetails imageDetails = new ImageDetails(
+            largeUrl,
+            OPEN_LIBRARY_SOURCE_NAME,
+            sourceSystemId,
+            CoverImageSource.OPEN_LIBRARY,
+            ImageResolutionPreference.LARGE
+        );
+
+        return CompletableFuture.completedFuture(Optional.of(imageDetails));
+    }
+
+    /**
+     * Fetches cover image details from OpenLibrary for a specific ISBN and size
+     *
+     * @param isbn The ISBN of the book
+     * @param sizeSuffix The size suffix for the cover (e.g., "L", "M", "S")
+     * @return A CompletableFuture emitting ImageDetails for the specified OpenLibrary cover, or null if ISBN or size is invalid
+     */
+    public CompletableFuture<Optional<ImageDetails>> fetchOpenLibraryCoverDetails(String isbn, String sizeSuffix) {
+        if (isbn == null || isbn.trim().isEmpty()) {
+            logger.warn("No ISBN provided, cannot fetch cover details from OpenLibrary for size suffix: {}", sizeSuffix);
+            return CompletableFuture.completedFuture(Optional.empty());
+        }
+        // Ensure sizeSuffix is valid before proceeding to switch
+        if (sizeSuffix == null || (!sizeSuffix.equals("L") && !sizeSuffix.equals("M") && !sizeSuffix.equals("S"))) {
+            logger.warn("Invalid or unsupported size suffix '{}' for ISBN {}. Cannot fetch OpenLibrary cover details.", sizeSuffix, isbn);
+            return CompletableFuture.completedFuture(Optional.empty());
+        }
+
+        String url = String.format("https://covers.openlibrary.org/b/isbn/%s-%s.jpg", isbn, sizeSuffix);
+        String sourceSystemId = String.format("%s-%s-%s", OPEN_LIBRARY_SOURCE_NAME, sizeSuffix, isbn);
+
+        ImageResolutionPreference resolutionPreference;
+        switch (sizeSuffix) {
+            case "L":
+                resolutionPreference = ImageResolutionPreference.LARGE;
+                break;
+            case "M":
+                resolutionPreference = ImageResolutionPreference.MEDIUM;
+                break;
+            case "S":
+                resolutionPreference = ImageResolutionPreference.SMALL;
+                break;
+            default:
+                // Fallback case
+                resolutionPreference = ImageResolutionPreference.ORIGINAL;
+                logger.debug("Unknown size suffix '{}' for OpenLibrary, using ORIGINAL preference for ISBN {}.", sizeSuffix, isbn);
+                break;
+        }
+
+        ImageDetails details = new ImageDetails(
+            url,
+            OPEN_LIBRARY_SOURCE_NAME,
+            sourceSystemId,
+            CoverImageSource.OPEN_LIBRARY,
+            resolutionPreference
+        );
+        return CompletableFuture.completedFuture(Optional.of(details));
+    }
+
+    /**
+     * Fallback method for rate limiting in fetchCover
+     * - Called when the rate limit for OpenLibrary API is exceeded
+     * - Logs the rate limiting event for monitoring
+     * - Returns empty result to indicate no image is available
+     *
+     * @param book The book that triggered the rate limiter
+     * @param t The throwable from the rate limiter
+     * @return Empty Optional wrapped in CompletableFuture
+     */
+    public CompletableFuture<Optional<ImageDetails>> fetchCoverRateLimitFallback(Book book, Throwable t) {
+        String isbn = CoverIdentifierResolver.getPreferredIsbn(book);
+        logger.warn("OpenLibraryService rate limit exceeded for book ID: {}, ISBN: {}. Error: {}", 
+            book.getId(), isbn, t.getMessage());
+        return CompletableFuture.failedFuture(
+            new IllegalStateException("OpenLibrary cover lookup was rate-limited for book " + book.getId(), t)
+        );
+    }
+}

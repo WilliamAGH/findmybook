@@ -1,0 +1,17 @@
+@import "../src/main/resources/static/css/variables.css";
+@import "../src/main/resources/static/css/main.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body {
+    @apply h-full;
+  }
+  
+  /* Ensure dark mode background reaches the bottom */
+  html.dark {
+    background-color: var(--bg-color);
+  }
+}

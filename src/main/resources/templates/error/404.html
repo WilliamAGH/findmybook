@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en"
+      th:with="
+        pageTitle='Page Not Found',
+        pageDescription='The page you are looking for does not exist.',
+        pageCanonicalUrl=${#httpServletRequest != null ? #httpServletRequest.requestURL.toString() : ''},
+        pageOgImage=@{/images/og-logo.png},
+        pageKeywords='404, page not found, error'
+">
+<head th:replace="~{fragments/layout :: head(title=${pageTitle}, description=${pageDescription}, canonicalUrl=${pageCanonicalUrl}, ogImage=${pageOgImage}, keywords=${pageKeywords})}">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Page Not Found - Book Finder</title>
+</head>
+<body class="modern-layout theme-body text-anthracite-900 dark:text-slate-50 transition-colors duration-300 min-h-full flex flex-col dark:bg-slate-900">
+
+<!-- Navbar -->
+<nav th:replace="~{fragments/layout :: navbar}"></nav>
+
+<!-- Main Content -->
+<main class="main-content flex-grow flex items-center justify-center">
+    <section class="theme-hero-bg py-16 md:py-24 transition-colors duration-300 w-full">
+        <div class="container mx-auto px-4 max-w-4xl text-center">
+            
+            <!-- 404 Icon/Graphic -->
+            <div class="mb-8 text-canvas-400 dark:text-canvas-500">
+                <i class="fas fa-book-open fa-4x opacity-50"></i>
+            </div>
+
+            <!-- Typography -->
+            <h1 class="font-heading text-6xl md:text-8xl font-bold theme-hero-title text-anthracite-900 dark:text-slate-50 mb-6 tracking-tight">
+                404
+            </h1>
+            <h2 class="text-2xl md:text-3xl font-medium theme-hero-text text-anthracite-700 dark:text-slate-300 mb-6">
+                Page Not Found
+            </h2>
+            <p class="text-lg md:text-xl theme-hero-text text-anthracite-600 dark:text-slate-400 max-w-2xl mx-auto font-light leading-relaxed mb-10">
+                Sorry, we couldn't find the page you're looking for. It might have been moved, deleted, or never existed.
+            </p>
+
+            <!-- Search Form -->
+            <form action="/search" method="get" class="mb-10 max-w-xl mx-auto">
+                <div class="relative">
+                    <input
+                        type="text"
+                        name="query"
+                        class="w-full px-6 py-4 pr-14 text-base md:text-lg
+                               border border-gray-300 dark:border-slate-700
+                               theme-search-input rounded-xl shadow-soft focus:shadow-soft-lg
+                               focus:outline-none focus:ring-2 focus:ring-canvas-400
+                               focus:border-transparent transition-all duration-200"
+                        placeholder="Search for a book instead..."
+                        aria-label="Search books"
+                        required>
+                    <button
+                        type="submit"
+                        class="absolute right-2 top-1/2 -translate-y-1/2
+                               px-3 md:px-5 py-2.5 theme-search-button bg-canvas-400 hover:bg-canvas-500
+                               text-white rounded-lg transition-all duration-200
+                               hover:shadow-canvas focus:outline-none focus:ring-2 focus:ring-canvas-500 focus:ring-offset-2"
+                        aria-label="Search">
+                        <i class="fas fa-search"></i>
+                    </button>
+                </div>
+            </form>
+
+            <!-- Action Buttons -->
+            <div class="flex flex-col sm:flex-row justify-center gap-4">
+                <a href="/"
+                   class="px-8 py-3 text-base font-medium bg-canvas-600 hover:bg-canvas-700 text-white rounded-lg shadow-soft hover:shadow-canvas transition-all duration-200">
+                    Go Home
+                </a>
+                <a href="/explore"
+                   class="px-8 py-3 text-base font-medium theme-section-link text-canvas-600 dark:text-canvas-400 border border-canvas-400 dark:border-canvas-600 rounded-lg hover:bg-canvas-50 dark:hover:bg-slate-800 transition-all duration-200">
+                    Explore Books
+                </a>
+            </div>
+            
+            <!-- Debug Info (Optional - hidden by default unless you want it) -->
+            <!-- 
+            <div class="mt-12 p-4 bg-gray-100 dark:bg-slate-800 rounded-lg text-left text-sm font-mono overflow-auto max-w-2xl mx-auto opacity-50 hover:opacity-100 transition-opacity">
+                <p><strong>Path:</strong> <span th:text="${path}"></span></p>
+                <p><strong>Message:</strong> <span th:text="${message}"></span></p>
+            </div> 
+            -->
+        </div>
+    </section>
+</main>
+
+<!-- Footer -->
+<footer th:replace="~{fragments/layout :: footer}"></footer>
+
+<!-- Scripts -->
+<th:block th:replace="~{fragments/layout :: scripts}"></th:block>
+
+</body>
+</html>

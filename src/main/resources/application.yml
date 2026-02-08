@@ -61,6 +61,9 @@ spring:
     max-in-memory-size: 10MB # Configure global max buffer size for WebClient
 
 app:
+  frontend:
+    spa:
+      enabled: ${APP_FRONTEND_SPA_ENABLED:true}
   features:
     external-fallback:
       enabled: ${APP_FEATURE_EXTERNAL_FALLBACK_ENABLED:true}
@@ -158,9 +161,21 @@ resilience4j:
   ratelimiter:
     instances:
       googleBooksServiceRateLimiter:
-        limitForPeriod: 10          # 10 requests per period
-        limitRefreshPeriod: 1s      # Period duration
+        limitForPeriod: 10          # 10 requests per minute
+        limitRefreshPeriod: 1m      # Period duration
         timeoutDuration: 0ms        # Don't wait if limit exceeded (fail fast)
+      openLibraryDataService:
+        limitForPeriod: 30          # 30 requests per minute
+        limitRefreshPeriod: 1m
+        timeoutDuration: 0ms
+      openLibraryServiceRateLimiter:
+        limitForPeriod: 12          # 12 requests per minute (1 every 5 seconds)
+        limitRefreshPeriod: 1m
+        timeoutDuration: 0ms
+      longitoodServiceRateLimiter:
+        limitForPeriod: 100         # 100 requests per minute
+        limitRefreshPeriod: 1m
+        timeoutDuration: 0ms
   bulkhead:
     instances:
       googleBooksServiceBulkhead:
@@ -179,7 +194,7 @@ resilience4j:
 logging:
   level:
     root: INFO # PRODUCTION-SAFE: Standard INFO level
-    "[com.williamcallahan.book_recommendation_engine]": INFO
+    "[net.findmybook]": INFO
     "[org.springframework.cache]": WARN
     "[org.hibernate]": WARN
     "[org.springframework.web]": WARN # PRODUCTION-SAFE: Minimal web logging
@@ -215,7 +230,7 @@ logging:
   level:
     '[org.springframework.boot.devtools]': WARN
     "[org.springframework.web]": INFO # DEV OVERRIDE: More verbose web logging
-    "[com.williamcallahan.book_recommendation_engine]": DEBUG # DEV OVERRIDE: Debug app logging
+    "[net.findmybook]": DEBUG # DEV OVERRIDE: Debug app logging
     "[ro.isdc.wro]": ERROR
     "[ro.isdc.wro.extensions.processor.css.CssVariablesProcessor]": ERROR
 
@@ -251,7 +266,7 @@ spring:
 
 logging:
   level:
-    "[com.williamcallahan.book_recommendation_engine]": INFO
+    "[net.findmybook]": INFO
 
 app:
   environment:
@@ -275,7 +290,7 @@ spring:
 logging:
   level:
     root: WARN
-    "[com.williamcallahan.book_recommendation_engine]": INFO
+    "[net.findmybook]": INFO
     "[org.springframework]": WARN
 
 s3:
@@ -284,5 +299,8 @@ s3:
 app:
   cache:
     enabled: true
+  frontend:
+    spa:
+      enabled: false
   environment:
     mode: test

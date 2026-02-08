@@ -2,16 +2,19 @@ SHELL := /bin/sh
 
 # Configurable variables
 PORT ?= 8095
-MVN ?= mvn
-WRO4J_SKIP ?= true
+GRADLEW ?= ./gradlew
 
 # Migration args (override via: make migrate-books MIGRATE_MAX=100 MIGRATE_SKIP=0 MIGRATE_PREFIX=books/v1/ MIGRATE_DEBUG=true)
 MIGRATE_MAX ?= 0
 MIGRATE_SKIP ?= 0
 MIGRATE_PREFIX ?= books/v1/
 MIGRATE_DEBUG ?= false
+S3_ACL_SCOPE ?= all
+S3_ACL_PREFIX ?=
+S3_ACL_DRY_RUN ?= false
+S3_ACL_VERBOSE ?= false
 
-.PHONY: run build test kill-port migrate-books migrate-books-spring cluster-books
+.PHONY: run build test lint kill-port migrate-books cluster-books check-s3-in-db fix-s3-acl-public-all
 
 # Kill any process currently listening on $(PORT)
 kill-port:
@@ -26,15 +29,23 @@ kill-port:
 
 # Run the application locally in dev mode
 run: kill-port
-	$(MVN) spring-boot:run -P dev -Dspring-boot.run.jvmArguments="-Dserver.port=$(PORT)"
+	SERVER_PORT=$(PORT) SPRING_PROFILES_ACTIVE=dev $(GRADLEW) bootRun
 
 # Build the application JAR
 build:
-	$(MVN) -Dwro4j.skip=$(WRO4J_SKIP) clean package
+	$(GRADLEW) clean build
 
 # Run tests
 test:
-	$(MVN) -Dwro4j.skip=$(WRO4J_SKIP) test
+	$(GRADLEW) test
+
+lint:
+	@echo "Running lint/format..."
+	@if $(GRADLEW) -q tasks --all | grep -q "spotlessApply"; then \
+	  $(GRADLEW) spotlessApply; \
+	else \
+	  echo "spotlessApply task not configured; skipping."; \
+	fi
 
 
 # Fast S3 -> Postgres books migration (standalone Node.js script - v2 refactored)
@@ -42,15 +53,7 @@ test:
 # Uses SPRING_DATASOURCE_URL, S3_* env vars from .env
 migrate-books:
 	@echo "Running standalone S3 -> Postgres migration (v2 - Refactored)..."
-	@node migrate-s3-to-db-v2.js --max=$(MIGRATE_MAX) --skip=$(MIGRATE_SKIP) --prefix=$(MIGRATE_PREFIX) --debug=$(MIGRATE_DEBUG)
-
-# Build JAR and run S3 -> Postgres books backfill via Spring Boot (slower, may hang)
-migrate-books-spring:
-	@echo "Building JAR (tests skipped) ..."
-	@$(MVN) -DskipTests clean package >/dev/null
-	@echo "Launching migration with URL normalization..."
-	@java -Dspring.main.web-application-type=none -jar target/book_recommendation_engine-0.0.1-SNAPSHOT.jar \
-	     --migrate.s3.books --migrate.prefix=$(MIGRATE_PREFIX) --migrate.max=$(MIGRATE_MAX) --migrate.skip=$(MIGRATE_SKIP)
+	@node frontend/scripts/migrate-s3-to-db-v2.js --max=$(MIGRATE_MAX) --skip=$(MIGRATE_SKIP) --prefix=$(MIGRATE_PREFIX) --debug=$(MIGRATE_DEBUG)
 
 # Database schema operations
 db-reset:
@@ -140,3 +143,73 @@ cluster-books:
 		echo "❌ Error: .env file not found"; \
 		exit 1; \
 	fi
+
+# Validate every DB-referenced S3 key and clear stale s3_image_path values when missing
+check-s3-in-db:
+	@echo "Checking book_image_links.s3_image_path against object storage..."
+	@if [ -f .env ]; then \
+		set -a && . ./.env && set +a; \
+		if [ -z "$$SPRING_DATASOURCE_URL" ]; then \
+			echo "❌ Error: SPRING_DATASOURCE_URL not found in .env"; \
+			exit 1; \
+		fi; \
+		if [ -z "$$S3_BUCKET" ]; then \
+			echo "❌ Error: S3_BUCKET not found in .env"; \
+			exit 1; \
+		fi; \
+		if ! command -v aws >/dev/null 2>&1; then \
+			echo "❌ Error: aws CLI not found. Install AWS CLI to run this check."; \
+			exit 1; \
+		fi; \
+		total=$$(psql "$$SPRING_DATASOURCE_URL" -At -c "SELECT count(*) FROM book_image_links WHERE s3_image_path IS NOT NULL AND btrim(s3_image_path) <> ''"); \
+		if [ "$$total" -eq 0 ] 2>/dev/null; then \
+			echo "✅ No non-empty s3_image_path values found."; \
+			exit 0; \
+		fi; \
+		tmp_rows=$$(mktemp); \
+		trap 'rm -f "$$tmp_rows"' EXIT INT TERM; \
+		psql "$$SPRING_DATASOURCE_URL" -At -F "|" -c "SELECT id, s3_image_path FROM book_image_links WHERE s3_image_path IS NOT NULL AND btrim(s3_image_path) <> '' ORDER BY id" > "$$tmp_rows"; \
+		checked=0; \
+		found=0; \
+		missing=0; \
+		update_errors=0; \
+		endpoint_flag=""; \
+		if [ -n "$$S3_SERVER_URL" ]; then \
+			endpoint_flag="--endpoint-url $$S3_SERVER_URL"; \
+		fi; \
+		while IFS='|' read -r row_id s3_key; do \
+			checked=$$((checked + 1)); \
+			printf '[%s/%s] %s ... ' "$$checked" "$$total" "$$s3_key"; \
+			if AWS_PAGER="" aws s3api head-object --bucket "$$S3_BUCKET" --key "$$s3_key" $$endpoint_flag >/dev/null 2>&1; then \
+				found=$$((found + 1)); \
+				echo "OK"; \
+			else \
+				missing=$$((missing + 1)); \
+				echo "MISSING -> clearing DB value"; \
+				escaped_row_id=$$(printf "%s" "$$row_id" | sed "s/'/''/g"); \
+				escaped_s3_key=$$(printf "%s" "$$s3_key" | sed "s/'/''/g"); \
+				if ! psql "$$SPRING_DATASOURCE_URL" -v ON_ERROR_STOP=1 -c "UPDATE book_image_links SET s3_image_path = NULL WHERE id = '$$escaped_row_id' AND s3_image_path = '$$escaped_s3_key'" >/dev/null; then \
+					update_errors=$$((update_errors + 1)); \
+					echo "   ❌ Failed DB update for row $$row_id"; \
+				fi; \
+			fi; \
+		done < "$$tmp_rows"; \
+		echo "✅ Done. checked=$$checked found=$$found missing=$$missing updateErrors=$$update_errors"; \
+	else \
+		echo "❌ Error: .env file not found"; \
+		exit 1; \
+	fi
+
+# Ensure every object in S3 bucket has public-read ACL.
+# Optional env vars:
+#   S3_ACL_DRY_RUN=true  -> report changes without writing ACLs
+#   S3_ACL_PREFIX=path/  -> limit scan to keys under prefix
+#   S3_ACL_SCOPE=images  -> process image-like keys only
+#   S3_ACL_SCOPE=json    -> process *.json keys only
+#   S3_ACL_VERBOSE=true  -> log every changed key (default: false)
+fix-s3-acl-public-all:
+	@./scripts/fix-s3-object-acl.sh \
+		--scope "$(S3_ACL_SCOPE)" \
+		--prefix "$(S3_ACL_PREFIX)" \
+		--dry-run "$(S3_ACL_DRY_RUN)" \
+		--verbose "$(S3_ACL_VERBOSE)"

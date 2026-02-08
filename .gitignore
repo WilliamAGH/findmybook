@@ -34,6 +34,14 @@ node_modules
 ### FORCE INCLUDE ALL STATIC IMAGES ###
 !src/main/resources/static/images/*
 
+### FORCE INCLUDE FAVICONS & WEB ICONS ###
+!src/main/resources/static/favicon*.png
+!src/main/resources/static/favicon.svg
+!src/main/resources/static/apple-touch-icon.png
+!frontend/public/favicon*.png
+!frontend/public/favicon.svg
+!frontend/public/apple-touch-icon.png
+
 ### NetBeans ###
 /nbproject/private/
 /nbbuild/
@@ -63,3 +71,18 @@ migration-logs/
 .DS_Store
 report/
 report/jscpd-report.json
+
+### Gradle ###
+.gradle/
+**/.gradle/
+.gradletasknamecache
+gradle-app.setting
+bin/
+node_modules/
+**/node_modules/
+
+### Frontend Build Artifacts ###
+src/main/resources/static/frontend/app.css
+src/main/resources/static/frontend/app.js
+src/main/resources/static/frontend/app.js.map
+src/main/resources/static/frontend/assets/

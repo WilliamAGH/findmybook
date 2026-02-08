@@ -27,6 +27,8 @@
 - `authors` - Thousands of unique authors
 - `categories` - Hundreds of categories
 
+`book_image_links` additionally carries mutation audit columns (`created_at`, `updated_at`, `s3_uploaded_at`) so cover-link provenance remains traceable over time.
+
 **12 chars (high volume)** - `IdGenerator.generateLong()`
 
 - `book_authors` - Many-to-many, very high volume

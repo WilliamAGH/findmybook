@@ -29,12 +29,14 @@ Books are grouped when they share:
 
 - Calls `cluster_books_by_isbn()` - groups books with matching ISBN prefixes
 - Calls `cluster_books_by_google_canonical()` - groups books with same Google canonical volume
+- If Google clustering hits `check_reasonable_member_count` with canonical ID `\1`, the scheduler skips that Google pass, logs remediation, and continues ISBN clustering.
 
 ### Manual Clustering
 
 After bulk imports or migrations, run:
 
 ```bash
+make db-migrate
 make cluster-books
 ```
 

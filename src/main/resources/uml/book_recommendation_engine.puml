@@ -4,7 +4,7 @@ skinparam nodesep 10
 skinparam ranksep 250
 
 ' Define the package
-package "com.williamcallahan.book_recommendation_engine" {
+package "net.findmybook" {
     ' Style settings
     skinparam classAttributeIconSize 0
     skinparam monochrome true

@@ -1,0 +1,8 @@
+/**
+ * Supplemental tokens consumed by global.css @import.
+ * All color and font tokens live in the @theme block of global.css.
+ * This file provides only non-theme CSS needed before components load.
+ */
+[data-theme="dark"] {
+  color-scheme: dark;
+}

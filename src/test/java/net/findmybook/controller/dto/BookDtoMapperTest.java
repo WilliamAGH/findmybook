@@ -1,0 +1,170 @@
+package net.findmybook.controller.dto;
+
+import net.findmybook.model.Book;
+import net.findmybook.model.Book.EditionInfo;
+import net.findmybook.model.image.CoverImageSource;
+import net.findmybook.model.image.CoverImages;
+import net.findmybook.util.ApplicationConstants;
+import net.findmybook.util.cover.CoverUrlResolver;
+import org.junit.jupiter.api.Test;
+
+import java.util.Date;
+import java.util.List;
+import java.util.Map;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+class BookDtoMapperTest {
+
+    @Test
+    void toDto_mapsBasicFields() {
+        Book book = new Book();
+        book.setId("fixture-id");
+        book.setTitle("Fixture Title");
+        book.setDescription("Fixture Description");
+        book.setAuthors(List.of("Author One"));
+        book.setCategories(List.of("Fiction"));
+        book.setPublishedDate(new Date(1726700000000L));
+        book.setLanguage("en");
+        book.setPageCount(352);
+        book.setPublisher("Fixture Publisher");
+        book.setS3ImagePath(null);
+        book.setExternalImageUrl("https://example.test/fixture.jpg");
+        book.setCoverImageWidth(600);
+        book.setCoverImageHeight(900);
+        book.setIsCoverHighResolution(true);
+        book.setQualifiers(Map.of("nytBestseller", Map.of("year", 2024)));
+        book.setCachedRecommendationIds(List.of("rec-1", "rec-2"));
+
+        CoverImages coverImages = new CoverImages("https://cdn.test/preferred.jpg", "https://cdn.test/fallback.jpg", CoverImageSource.GOOGLE_BOOKS);
+        book.setCoverImages(coverImages);
+
+        EditionInfo editionInfo = new EditionInfo("gb-123", "HARDCOVER", "Identifier", "1234567890", "9781234567890", new Date(1726000000000L), "https://cdn.test/hardcover.jpg");
+        book.setOtherEditions(List.of(editionInfo));
+
+        BookDto dto = BookDtoMapper.toDto(book);
+
+        assertThat(dto.id()).isEqualTo("fixture-id");
+        assertThat(dto.title()).isEqualTo("Fixture Title");
+        assertThat(dto.publication().language()).isEqualTo("en");
+        assertThat(dto.authors()).extracting(AuthorDto::name).containsExactly("Author One");
+        assertThat(dto.categories()).containsExactly("Fiction");
+        assertThat(dto.cover().preferredUrl()).isEqualTo(coverImages.getPreferredUrl());
+        assertThat(dto.cover().source()).isEqualTo(ApplicationConstants.Provider.GOOGLE_BOOKS);
+        assertThat(dto.tags()).hasSize(1);
+        assertThat(dto.editions()).hasSize(1);
+        assertThat(dto.recommendationIds()).containsExactly("rec-1", "rec-2");
+        assertThat(dto.descriptionContent().raw()).isEqualTo("Fixture Description");
+        assertThat(dto.descriptionContent().format()).isEqualTo(BookDto.DescriptionFormat.PLAIN_TEXT);
+        assertThat(dto.descriptionContent().html()).isEqualTo("<p>Fixture Description</p>");
+        assertThat(dto.descriptionContent().text()).isEqualTo("Fixture Description");
+    }
+
+    @Test
+    void toDto_stripsWrappingQuotesFromPublisher() {
+        Book book = new Book();
+        book.setId("id-sanitized");
+        book.setTitle("Quoted Publisher Book");
+        book.setAuthors(List.of("Author"));
+        book.setPublisher("\"O'Reilly Media, Inc.\"");
+
+        BookDto dto = BookDtoMapper.toDto(book);
+
+        assertThat(dto.publication().publisher()).isEqualTo("O'Reilly Media, Inc.");
+    }
+
+    @Test
+    void toDto_replacesInvalidFallbackWithPlaceholder() {
+        Book book = new Book();
+        book.setId("bad-fallback");
+        book.setTitle("Bad Fallback Cover");
+        book.setS3ImagePath("images/book-covers/bad.jpg");
+        book.setExternalImageUrl("https://book-finder.example.invalid/images/book-covers/bad.jpg");
+        book.setCoverImageWidth(400);
+        book.setCoverImageHeight(600);
+
+        CoverImages images = new CoverImages(
+            "https://book-finder.example.invalid/images/book-covers/bad.jpg",
+            "https://books.google.com/books/content?id=BAD&printsec=frontcover"
+        );
+        book.setCoverImages(images);
+
+        BookDto dto = BookDtoMapper.toDto(book);
+
+        assertThat(dto.cover().fallbackUrl()).isEqualTo(ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH);
+        assertThat(dto.cover().source()).isEqualTo(CoverImageSource.NONE.name());
+        assertThat(dto.cover().highResolution()).isFalse();
+    }
+
+    @Test
+    void toDto_doesNotEmitCdnUrlForPlaceholderS3Key() {
+        CoverUrlResolver.setCdnBase("https://cdn.test/");
+        try {
+            Book book = new Book();
+            book.setId("placeholder-s3");
+            book.setTitle("Placeholder S3");
+            book.setS3ImagePath("images/placeholder-book-cover.svg");
+
+            BookDto dto = BookDtoMapper.toDto(book);
+
+            assertThat(dto.cover().preferredUrl()).isEqualTo(ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH);
+            assertThat(dto.cover().s3ImagePath()).isNull();
+            assertThat(dto.cover().source()).isEqualTo(CoverImageSource.NONE.name());
+        } finally {
+            CoverUrlResolver.setCdnBase(null);
+        }
+    }
+
+    @Test
+    void should_SanitizeUnsafeHtml_When_DescriptionContainsScriptTag() {
+        Book book = new Book();
+        book.setId("unsafe-html");
+        book.setTitle("Unsafe HTML");
+        book.setDescription("<p>Hello</p><script>alert('xss')</script><ul><li>One</li></ul>");
+
+        BookDto dto = BookDtoMapper.toDto(book);
+
+        assertThat(dto.descriptionContent().format()).isEqualTo(BookDto.DescriptionFormat.HTML);
+        assertThat(dto.descriptionContent().html()).contains("<p>Hello</p>");
+        assertThat(dto.descriptionContent().html()).contains("<ul><li>One</li></ul>");
+        assertThat(dto.descriptionContent().html()).doesNotContain("<script");
+        assertThat(dto.descriptionContent().text()).contains("Hello");
+        assertThat(dto.descriptionContent().text()).contains("One");
+    }
+
+    @Test
+    void should_RenderMarkdownAsSanitizedHtml_When_DescriptionUsesMarkdownSyntax() {
+        Book book = new Book();
+        book.setId("markdown-description");
+        book.setTitle("Markdown Description");
+        book.setDescription("## Key Features\n- Item one\n- Item two\n**Bold text**");
+
+        BookDto dto = BookDtoMapper.toDto(book);
+
+        assertThat(dto.descriptionContent().format()).isEqualTo(BookDto.DescriptionFormat.MARKDOWN);
+        assertThat(dto.descriptionContent().html()).contains("<h2>Key Features</h2>");
+        assertThat(dto.descriptionContent().html()).contains("<ul>");
+        assertThat(dto.descriptionContent().html()).contains("<li>Item one</li>");
+        assertThat(dto.descriptionContent().html()).contains("<strong>Bold text</strong>");
+        assertThat(dto.descriptionContent().text()).contains("Key Features");
+        assertThat(dto.descriptionContent().text()).contains("Item one");
+    }
+
+    @Test
+    void should_PreserveLineBreaks_When_DescriptionIsPlainTextParagraphs() {
+        Book book = new Book();
+        book.setId("plain-text-description");
+        book.setTitle("Plain Text Description");
+        book.setDescription("First line\nSecond line\n\nThird paragraph");
+
+        BookDto dto = BookDtoMapper.toDto(book);
+
+        assertThat(dto.descriptionContent().format()).isEqualTo(BookDto.DescriptionFormat.PLAIN_TEXT);
+        assertThat(dto.descriptionContent().html()).contains("<p>First line<br");
+        assertThat(dto.descriptionContent().html()).contains("Second line</p>");
+        assertThat(dto.descriptionContent().html()).contains("<p>Third paragraph</p>");
+        assertThat(dto.descriptionContent().text()).contains("First line");
+        assertThat(dto.descriptionContent().text()).contains("Second line");
+        assertThat(dto.descriptionContent().text()).contains("Third paragraph");
+    }
+}

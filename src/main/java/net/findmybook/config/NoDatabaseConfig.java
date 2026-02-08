@@ -1,0 +1,48 @@
+/**
+ * Configuration for operating in database-less mode within the book recommendation engine
+ * 
+ * This configuration provides fallback capabilities when a database is not available 
+ * or not configured. It automatically detects the absence of a database URL and:
+ * 
+ * - Disables all Spring Data JPA and database auto-configuration
+ * - Prevents database connection attempts at startup
+ * - Substitutes database repositories with non-persistent implementations
+ * - Enables the application to run in a memory-only mode
+ * 
+ * Used in development, testing, and certain deployment scenarios where
+ * persistent storage is not required or available
+ *
+ * @author William Callahan
+ */
+package net.findmybook.config;
+
+import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
+import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration;
+import org.springframework.boot.jdbc.autoconfigure.DataSourceTransactionManagerAutoConfiguration;
+import org.springframework.context.annotation.Configuration;
+
+/**
+ * Configuration to disable database components in absence of a database URL
+ *
+ * Features:
+ * - Activates only when no database URL is configured in properties
+ * - Ensures application functions without database dependencies
+ * - Disables Spring's database auto-configuration components
+ * - Prevents database connection attempts at startup
+ * - Provides non-persistent implementations of required repositories
+ * - Enables graceful fallback to memory-only operation
+ * 
+ * @implNote Uses Spring's conditional configuration to detect missing database
+ * The @ConditionalOnExpression annotation checks if spring.datasource.url is empty
+ * Multiple auto-configuration classes are excluded to prevent database startup
+ */
+@Configuration
+@ConditionalOnExpression("!T(org.springframework.util.StringUtils).hasText(environment.getProperty('spring.datasource.url'))")
+@EnableAutoConfiguration(exclude = {
+        DataSourceAutoConfiguration.class,
+        DataSourceTransactionManagerAutoConfiguration.class
+})
+public class NoDatabaseConfig {
+
+}

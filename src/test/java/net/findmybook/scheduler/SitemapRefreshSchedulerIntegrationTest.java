@@ -1,0 +1,120 @@
+package net.findmybook.scheduler;
+
+import tools.jackson.databind.ObjectMapper;
+import net.findmybook.config.SitemapProperties;
+import net.findmybook.model.Book;
+import net.findmybook.service.BookSitemapService;
+import net.findmybook.service.S3StorageService;
+import net.findmybook.service.SitemapService;
+import net.findmybook.service.SitemapService.AuthorSection;
+import net.findmybook.service.SitemapService.BookSitemapItem;
+import net.findmybook.service.SitemapService.PagedResult;
+import net.findmybook.service.SitemapService.SitemapOverview;
+import net.findmybook.service.image.S3BookCoverService;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mockito;
+import org.springframework.beans.factory.ObjectProvider;
+
+import jakarta.annotation.Nonnull;
+
+import java.io.UncheckedIOException;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+class SitemapRefreshSchedulerIntegrationTest {
+
+    private SitemapProperties sitemapProperties;
+    private SitemapService sitemapService;
+    private S3StorageService s3StorageService;
+    private S3BookCoverService coverService;
+
+    @BeforeEach
+    void setUp() {
+        sitemapProperties = new SitemapProperties();
+        sitemapProperties.setSchedulerEnabled(true);
+        sitemapProperties.setSchedulerCoverSampleSize(1);
+        sitemapProperties.setSchedulerExternalHydrationSize(1);
+        sitemapProperties.setS3AccumulatedIdsKey("sitemaps/books.json");
+
+        sitemapService = Mockito.mock(SitemapService.class);
+        s3StorageService = Mockito.mock(S3StorageService.class);
+        coverService = Mockito.mock(S3BookCoverService.class);
+    }
+
+    @Test
+    void refreshSitemapArtifacts_executesSnapshotHydrationAndCoverWarmup() {
+        when(sitemapService.getBooksXmlPageCount()).thenReturn(1);
+        BookSitemapItem sitemapItem = new BookSitemapItem("book-1", "slug-1", "Title", Instant.parse("2024-01-01T00:00:00Z"));
+        when(sitemapService.getBooksForXmlPage(1)).thenReturn(List.of(sitemapItem));
+        when(sitemapService.getOverview()).thenReturn(new SitemapOverview(Map.of("A", 1), Map.of("A", 1)));
+        when(sitemapService.getAuthorsByLetter("A", 1)).thenReturn(new PagedResult<>(List.of(new AuthorSection("author-1", "Author Name", Instant.now(), List.of(sitemapItem))), 1, 1, 1));
+        when(sitemapService.getBooksByLetter("A", 1)).thenReturn(new PagedResult<>(List.of(sitemapItem), 1, 1, 1));
+
+        when(s3StorageService.uploadFileAsync(eq("sitemaps/books.json"), any(), anyLong(), eq("application/json")))
+                .thenReturn(CompletableFuture.completedFuture("https://example.com/sitemaps/books.json"));
+        when(coverService.fetchCover(any(Book.class)))
+                .thenReturn(CompletableFuture.completedFuture(Optional.empty()));
+
+        BookSitemapService bookSitemapService = new BookSitemapService(
+                sitemapService,
+                sitemapProperties,
+                new ObjectMapper(),
+                s3StorageService
+        );
+
+        ObjectProvider<S3BookCoverService> coverProvider = new ObjectProvider<>() {
+            @Override
+            public @Nonnull S3BookCoverService getObject(@Nonnull Object... args) {
+                return coverService;
+            }
+
+            @Override
+            public S3BookCoverService getIfAvailable() {
+                return coverService;
+            }
+
+            @Override
+            public S3BookCoverService getIfUnique() {
+                return coverService;
+            }
+
+            @Override
+            public @Nonnull S3BookCoverService getObject() {
+                return coverService;
+            }
+        };
+
+        SitemapRefreshScheduler scheduler = new SitemapRefreshScheduler(
+                sitemapProperties,
+                bookSitemapService,
+                sitemapService,
+                coverProvider
+        );
+
+        scheduler.refreshSitemapArtifacts();
+
+        ArgumentCaptor<java.io.InputStream> streamCaptor = ArgumentCaptor.forClass(java.io.InputStream.class);
+        verify(s3StorageService).uploadFileAsync(eq("sitemaps/books.json"), streamCaptor.capture(), anyLong(), eq("application/json"));
+        byte[] bytes;
+        try (java.io.InputStream captured = streamCaptor.getValue()) {
+            bytes = captured.readAllBytes();
+        } catch (java.io.IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        String payload = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+        verify(coverService).fetchCover(any(Book.class));
+        assertThat(payload).contains("\"slug\":\"slug-1\"");
+    }
+}

@@ -1,0 +1,255 @@
+/**
+ * Service for cleaning up problematic book cover images in S3
+ *
+ * @author William Callahan
+ *
+ * Features:
+ * - Scans S3 bucket for potentially bad cover images
+ * - Uses ImageProcessingService for content analysis
+ * - Identifies covers with predominantly white backgrounds
+ * - Supports dry run mode for safe evaluation
+ * - Provides detailed logging of scan results
+ * - Handles S3 object retrieval and analysis efficiently
+ */
+package net.findmybook.service;
+
+import java.util.Optional;
+import net.findmybook.config.S3EnvironmentCondition;
+import net.findmybook.service.image.ImageProcessingService;
+import net.findmybook.service.s3.DryRunSummary;
+import net.findmybook.service.s3.MoveActionSummary;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.Conditional;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.ArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
+
+@Service
+@Conditional(S3EnvironmentCondition.class)
+public class S3CoverCleanupService {
+
+    private static final Logger logger = LoggerFactory.getLogger(S3CoverCleanupService.class);
+
+    private final S3StorageService s3StorageService;
+    private final ImageProcessingService imageProcessingService;
+
+    /**
+     * Constructs the S3CoverCleanupService with required dependencies
+     *
+     * @param s3StorageService service for S3 operations
+     * @param imageProcessingService service for analyzing image content
+     */
+    public S3CoverCleanupService(S3StorageService s3StorageService, ImageProcessingService imageProcessingService) {
+        this.s3StorageService = s3StorageService;
+        this.imageProcessingService = imageProcessingService;
+    }
+
+    /**
+     * Performs a dry run of the S3 cover cleanup process
+     * It lists objects in the S3 bucket, downloads each, analyzes them,
+     * and logs those identified as potentially "bad" (e.g., dominantly white)
+     * No actual delete or move operations are performed in this dry run
+     * @param s3Prefix The S3 prefix to scan - can be empty to scan the whole bucket.
+     * @param batchLimit The maximum number of records to process in this run.
+     * @return DryRunSummary containing the counts of scanned and flagged items.
+     */
+    public DryRunSummary performDryRun(String s3Prefix, int batchLimit) {
+        logger.info("Starting S3 Cover Cleanup DRY RUN for prefix '{}', batch limit {}...", s3Prefix, batchLimit);
+
+        String bucketName = s3StorageService.getBucketName();
+        if (bucketName == null || bucketName.isEmpty()) {
+            throw new IllegalStateException("S3 bucket name is not configured. Cannot execute dry run.");
+        }
+        logger.info("Target S3 Bucket: {}", bucketName);
+        
+        String prefix = s3Prefix;
+
+        AtomicInteger totalScanned = new AtomicInteger(0);
+        AtomicInteger totalFlagged = new AtomicInteger(0);
+        List<String> flaggedKeysList = new ArrayList<>();
+
+        try {
+            List<S3StorageService.StoredObjectMetadata> allS3Objects = s3StorageService.listObjects(prefix);
+            logger.info("Found {} total objects in bucket {} with prefix '{}' to scan.", allS3Objects.size(), bucketName, prefix);
+
+            List<S3StorageService.StoredObjectMetadata> objectsToProcess = allS3Objects;
+            if (batchLimit > 0 && allS3Objects.size() > batchLimit) {
+                objectsToProcess = allS3Objects.subList(0, batchLimit);
+                logger.info("Processing a batch of {} objects due to limit {}.", objectsToProcess.size(), batchLimit);
+            } else {
+                logger.info("Processing all {} found objects (batch limit {} not exceeded or not set).", objectsToProcess.size(), batchLimit);
+            }
+
+            for (S3StorageService.StoredObjectMetadata objectMetadata : objectsToProcess) {
+                String key = objectMetadata.key();
+                totalScanned.incrementAndGet();
+                logger.debug("Processing S3 object: {} (Size: {} bytes)", key, objectMetadata.sizeBytes());
+
+                if (objectMetadata.sizeBytes() == null || objectMetadata.sizeBytes() == 0) {
+                    logger.warn("S3 object {} is empty or size is unknown. Skipping.", key);
+                    continue;
+                }
+
+                try {
+                    Optional<byte[]> downloadResult = s3StorageService.downloadFileAsBytes(key);
+                    if (downloadResult.isEmpty() || downloadResult.get().length == 0) {
+                        logger.warn("S3 object not found or empty: {}. Skipping.", key);
+                        continue;
+                    }
+
+                    // Analyze the image
+                    boolean isBadCover = imageProcessingService.isDominantlyWhite(downloadResult.get(), key);
+
+                    if (isBadCover) {
+                        totalFlagged.incrementAndGet();
+                        flaggedKeysList.add(key); // Add key to the list
+                        logger.info("[FLAGGED] S3 object: {} - Identified as potentially bad cover.", key);
+                    } else {
+                        logger.debug("S3 object: {} - Analysis: OK.", key);
+                    }
+
+                } catch (RuntimeException e) {
+                    throw new IllegalStateException("Error processing S3 object during dry run: " + key, e);
+                }
+            }
+
+        } catch (RuntimeException e) {
+            throw new IllegalStateException("Failed to list or process objects from S3 bucket " + bucketName, e);
+        }
+
+        logger.info("S3 Cover Cleanup DRY RUN Finished.");
+        logger.info("Summary: Total Objects Scanned: {}, Total Objects Flagged: {}", totalScanned.get(), totalFlagged.get());
+        return new DryRunSummary(totalScanned.get(), totalFlagged.get(), flaggedKeysList);
+    }
+
+    /**
+     * Performs the action of moving flagged S3 cover images to a quarantine prefix.
+     *
+     * @param s3Prefix The S3 prefix to scan for original images.
+     * @param batchLimit The maximum number of records to process in this run.
+     * @param quarantinePrefix The S3 prefix to move flagged images to.
+     * @return MoveActionSummary containing counts and lists of processed, moved, and failed items.
+     */
+    public MoveActionSummary performMoveAction(String s3Prefix, int batchLimit, String quarantinePrefix) {
+        logger.info("Starting S3 Cover Cleanup MOVE ACTION for prefix '{}', batch limit {}, target quarantine prefix '{}'...",
+                s3Prefix, batchLimit, quarantinePrefix);
+
+        String bucketName = s3StorageService.getBucketName();
+        if (bucketName == null || bucketName.isEmpty()) {
+            throw new IllegalStateException("S3 bucket name is not configured. Cannot execute move action.");
+        }
+        if (quarantinePrefix == null || quarantinePrefix.isEmpty() || quarantinePrefix.equals(s3Prefix)) {
+            throw new IllegalArgumentException(
+                "Quarantine prefix is invalid (null, empty, or same as source prefix): " + quarantinePrefix
+            );
+        }
+        
+        // Ensure quarantinePrefix ends with a slash if it's not empty
+        String normalizedQuarantinePrefix = quarantinePrefix;
+        if (!normalizedQuarantinePrefix.isEmpty() && !normalizedQuarantinePrefix.endsWith("/")) {
+            normalizedQuarantinePrefix += "/";
+        }
+
+
+        AtomicInteger totalScanned = new AtomicInteger(0);
+        AtomicInteger totalFlagged = new AtomicInteger(0);
+        AtomicInteger successfullyMoved = new AtomicInteger(0);
+        AtomicInteger failedToMove = new AtomicInteger(0);
+        List<String> flaggedKeysList = new ArrayList<>();
+        List<String> movedFileKeys = new ArrayList<>(); // Stores original keys of moved files
+        List<String> failedMoveFileKeys = new ArrayList<>(); // Stores original keys of files that failed to move
+
+        try {
+            List<S3StorageService.StoredObjectMetadata> allS3Objects = s3StorageService.listObjects(s3Prefix);
+            logger.info("Found {} total objects in bucket {} with prefix '{}' to scan for move action.", allS3Objects.size(), bucketName, s3Prefix);
+
+            List<S3StorageService.StoredObjectMetadata> objectsToProcess = allS3Objects;
+            if (batchLimit > 0 && allS3Objects.size() > batchLimit) {
+                objectsToProcess = allS3Objects.subList(0, batchLimit);
+                logger.info("Processing a batch of {} objects for move action due to limit {}.", objectsToProcess.size(), batchLimit);
+            } else {
+                logger.info("Processing all {} found objects for move action (batch limit {} not exceeded or not set).", objectsToProcess.size(), batchLimit);
+            }
+
+            for (S3StorageService.StoredObjectMetadata objectMetadata : objectsToProcess) {
+                String sourceKey = objectMetadata.key();
+                totalScanned.incrementAndGet();
+                logger.debug("Processing S3 object for move: {} (Size: {} bytes)", sourceKey, objectMetadata.sizeBytes());
+
+                if (objectMetadata.sizeBytes() == null || objectMetadata.sizeBytes() == 0) {
+                    logger.warn("S3 object {} is empty or size is unknown. Skipping.", sourceKey);
+                    continue;
+                }
+
+                try {
+                    Optional<byte[]> downloadResult = s3StorageService.downloadFileAsBytes(sourceKey);
+                    if (downloadResult.isEmpty() || downloadResult.get().length == 0) {
+                        logger.warn("S3 object not found or empty: {}. Skipping.", sourceKey);
+                        continue;
+                    }
+
+                    boolean isBadCover = imageProcessingService.isDominantlyWhite(downloadResult.get(), sourceKey);
+
+                    if (isBadCover) {
+                        totalFlagged.incrementAndGet();
+                        flaggedKeysList.add(sourceKey);
+                        logger.info("[FLAGGED FOR MOVE] S3 object: {}", sourceKey);
+
+                        String originalFileName;
+                        if (sourceKey.startsWith(s3Prefix)) {
+                            originalFileName = sourceKey.substring(s3Prefix.length());
+                        } else {
+                            originalFileName = sourceKey;
+                        }
+                        if (originalFileName.startsWith("/")) {
+                            originalFileName = originalFileName.substring(1);
+                        }
+                        String destinationKey = normalizedQuarantinePrefix + originalFileName;
+                        
+                        logger.info("Attempting to move {} to {}", sourceKey, destinationKey);
+                        boolean copySuccess = s3StorageService.copyObject(sourceKey, destinationKey);
+                        if (copySuccess) {
+                            logger.info("Successfully copied {} to {}. Attempting to delete original.", sourceKey, destinationKey);
+                            boolean deleteSuccess = s3StorageService.deleteObject(sourceKey);
+                            if (deleteSuccess) {
+                                successfullyMoved.incrementAndGet();
+                                movedFileKeys.add(sourceKey + " -> " + destinationKey);
+                                logger.info("Successfully moved {} to {}", sourceKey, destinationKey);
+                            } else {
+                                failedToMove.incrementAndGet();
+                                failedMoveFileKeys.add(sourceKey);
+                                logger.error("Failed to delete original object {} after copying to {}. Manual cleanup of original might be needed.", sourceKey, destinationKey);
+                            }
+                        } else {
+                            failedToMove.incrementAndGet();
+                            failedMoveFileKeys.add(sourceKey);
+                            logger.error("Failed to copy object {} to {}. Object not moved.", sourceKey, destinationKey);
+                        }
+                    } else {
+                        logger.debug("S3 object: {} - Analysis: OK. No move action needed.", sourceKey);
+                    }
+
+                } catch (RuntimeException e) {
+                    throw new IllegalStateException("Error processing S3 object during move action: " + sourceKey, e);
+                }
+            }
+
+        } catch (RuntimeException e) {
+            throw new IllegalStateException(
+                "Failed to list or process objects from S3 bucket " + bucketName + " for move action",
+                e
+            );
+        }
+
+        logger.info("S3 Cover Cleanup MOVE ACTION Finished.");
+        logger.info("Summary: Total Scanned: {}, Total Flagged: {}, Successfully Moved: {}, Failed to Move: {}",
+                totalScanned.get(), totalFlagged.get(), successfullyMoved.get(), failedToMove.get());
+        
+        return new MoveActionSummary(
+                totalScanned.get(), totalFlagged.get(), successfullyMoved.get(), failedToMove.get(),
+                flaggedKeysList, movedFileKeys, failedMoveFileKeys);
+    }
+}

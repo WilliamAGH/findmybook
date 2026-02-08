@@ -3,43 +3,43 @@
     {
       "name": "app",
       "type": "java.lang.Object",
-      "sourceType": "com.williamcallahan.book_recommendation_engine",
+      "sourceType": "net.findmybook",
       "description": "Application configuration properties"
     },
     {
       "name": "google",
       "type": "java.lang.Object",
-      "sourceType": "com.williamcallahan.book_recommendation_engine",
+      "sourceType": "net.findmybook",
       "description": "Google service configuration properties"
     },
     {
       "name": "nyt",
       "type": "java.lang.Object",
-      "sourceType": "com.williamcallahan.book_recommendation_engine",
+      "sourceType": "net.findmybook",
       "description": "New York Times API configuration properties"
     },
     {
       "name": "openlibrary",
       "type": "java.lang.Object",
-      "sourceType": "com.williamcallahan.book_recommendation_engine",
+      "sourceType": "net.findmybook",
       "description": "Open Library configuration properties"
     },
     {
       "name": "affiliate",
       "type": "java.lang.Object",
-      "sourceType": "com.williamcallahan.book_recommendation_engine",
+      "sourceType": "net.findmybook",
       "description": "Affiliate link provider configuration properties"
     },
     {
       "name": "google.books.api",
       "type": "java.lang.Object",
-      "sourceType": "com.williamcallahan.book_recommendation_engine",
+      "sourceType": "net.findmybook",
       "description": "Google Books API configuration properties"
     },
     {
       "name": "s3",
       "type": "java.lang.Object",
-      "sourceType": "com.williamcallahan.book_recommendation_engine",
+      "sourceType": "net.findmybook",
       "description": "S3 compatible storage configuration properties"
     },
     {
@@ -157,7 +157,7 @@
       "name": "google.books.api.request-limit-per-minute",
       "type": "java.lang.Integer",
       "description": "Maximum requests allowed per minute",
-      "defaultValue": 60
+      "defaultValue": 10
     },
     {
       "name": "s3.bucket-name",

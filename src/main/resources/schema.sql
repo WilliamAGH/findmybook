@@ -163,6 +163,7 @@ create table if not exists work_clusters (
 
   -- Statistics
   member_count integer default 0,
+  constraint check_reasonable_member_count check (member_count <= 100),
 
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -408,6 +409,7 @@ create table if not exists book_image_links (
   height integer, -- Image height in pixels (estimated or actual)
   is_high_resolution boolean default false, -- True for extraLarge/large images
   created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
   unique(book_id, image_type)
 );
 
@@ -628,6 +630,12 @@ begin
     left join work_cluster_members wcm on b.book_id = wcm.book_id
     left join work_clusters wc on wcm.cluster_id = wc.id
     where lower(b.title) = lower(search_query)
+    order by
+      coalesce(wcm.is_primary, false) desc,
+      has_high_res_cover desc,
+      b.published_date desc nulls last,
+      lower(b.title),
+      b.book_id
     limit 50  -- Get more results for deduplication
   ),
   -- Strategy 2: Full-text search with ranking
@@ -662,7 +670,13 @@ begin
     left join work_clusters wc on wcm.cluster_id = wc.id
     where b.search_vector @@ plainto_tsquery('english', search_query)
       and b.book_id not in (select em.book_id from exact_matches em)
-    order by relevance_score desc
+    order by
+      relevance_score desc,
+      coalesce(wcm.is_primary, false) desc,
+      has_high_res_cover desc,
+      b.published_date desc nulls last,
+      lower(b.title),
+      b.book_id
     limit 100  -- Get more results for deduplication
   ),
   -- Strategy 3: Fuzzy matches for typo tolerance
@@ -700,7 +714,13 @@ begin
         select em.book_id from exact_matches em
         union select fm.book_id from fulltext_matches fm
       )
-    order by relevance_score desc
+    order by
+      relevance_score desc,
+      coalesce(wcm.is_primary, false) desc,
+      has_high_res_cover desc,
+      b.published_date desc nulls last,
+      lower(b.title),
+      b.book_id
     limit 50  -- Get more results for deduplication
   ),
   -- Combine all results
@@ -736,7 +756,10 @@ begin
   )
   -- Final results ordered by relevance
   select * from deduplicated
-  order by relevance_score desc
+  order by
+    relevance_score desc,
+    lower(title),
+    coalesce(cluster_id, book_id)
   limit max_results;
 end;
 $$ language plpgsql;
@@ -814,7 +837,11 @@ begin
     group by a.id, a.name, a.search_vector
   )
   select * from author_matches
-  order by relevance_score desc, book_count desc
+  order by
+    relevance_score desc,
+    book_count desc,
+    lower(author_name),
+    author_id
   limit max_results;
 end;
 $$ language plpgsql;
@@ -983,14 +1010,99 @@ add column if not exists width integer,
 add column if not exists height integer,
 add column if not exists file_size_bytes integer,
 add column if not exists is_high_resolution boolean,
+add column if not exists updated_at timestamptz,
 add column if not exists s3_uploaded_at timestamptz,
 add column if not exists download_error text;
+
+update book_image_links
+set updated_at = coalesce(updated_at, created_at, now())
+where updated_at is null;
+
+alter table book_image_links
+alter column updated_at set default now();
+
+update book_image_links
+set s3_uploaded_at = coalesce(s3_uploaded_at, created_at, now())
+where s3_image_path is not null
+  and s3_uploaded_at is null;
+
+delete from book_image_links
+where lower(image_type) in ('preferred', 'fallback', 's3')
+   or lower(url) like '%placeholder-book-cover.svg%'
+   or url !~* '^https?://';
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint c
+    join pg_class t on t.oid = c.conrelid
+    where t.relname = 'book_image_links'
+      and c.conname = 'check_book_image_links_disallowed_types'
+  ) then
+    alter table book_image_links
+      add constraint check_book_image_links_disallowed_types
+      check (lower(image_type) <> all (array['preferred', 'fallback', 's3'])) not valid;
+  end if;
+end
+$$;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint c
+    join pg_class t on t.oid = c.conrelid
+    where t.relname = 'book_image_links'
+      and c.conname = 'check_book_image_links_http_url'
+  ) then
+    alter table book_image_links
+      add constraint check_book_image_links_http_url
+      check (url ~* '^https?://') not valid;
+  end if;
+end
+$$;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint c
+    join pg_class t on t.oid = c.conrelid
+    where t.relname = 'book_image_links'
+      and c.conname = 'check_book_image_links_no_placeholder'
+  ) then
+    alter table book_image_links
+      add constraint check_book_image_links_no_placeholder
+      check (position('placeholder-book-cover.svg' in lower(url)) = 0) not valid;
+  end if;
+end
+$$;
+
+alter table book_image_links validate constraint check_book_image_links_disallowed_types;
+alter table book_image_links validate constraint check_book_image_links_http_url;
+alter table book_image_links validate constraint check_book_image_links_no_placeholder;
+
+create or replace function set_book_image_links_updated_at()
+returns trigger as $$
+begin
+  new.updated_at := now();
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists book_image_links_set_updated_at on book_image_links;
+create trigger book_image_links_set_updated_at
+  before update on book_image_links
+  for each row
+  execute function set_book_image_links_updated_at();
 
 comment on column book_image_links.width is 'Image width in pixels';
 comment on column book_image_links.height is 'Image height in pixels';
 comment on column book_image_links.file_size_bytes is 'File size in bytes';
 comment on column book_image_links.is_high_resolution is 'True if image is high quality (>300px width or >100KB)';
 comment on column book_image_links.s3_image_path is 'S3 path to our persisted copy of this image';
+comment on column book_image_links.updated_at is 'Timestamp of the most recent mutation to this image link row';
 comment on column book_image_links.s3_uploaded_at is 'When we uploaded this image to S3';
 comment on column book_image_links.download_error is 'Error message if download failed';
 
@@ -1351,7 +1463,7 @@ begin
         is_primary = excluded.is_primary,
         confidence = excluded.confidence,
         join_reason = excluded.join_reason,
-        updated_at = now();
+        joined_at = now();
 
       books_count := books_count + 1;
     end loop;
@@ -1456,7 +1568,7 @@ begin
       is_primary = excluded.is_primary,
       confidence = excluded.confidence,
       join_reason = excluded.join_reason,
-      updated_at = now();
+      joined_at = now();
   end loop;
 end;
 $$ language plpgsql;
@@ -1479,6 +1591,10 @@ begin
     and source = 'GOOGLE_BOOKS'
   limit 1;
 
+  if canonical_id is not null then
+    canonical_id := nullif(regexp_replace(canonical_id, '[[:cntrl:]]', '', 'g'), '');
+  end if;
+
   if canonical_id is null then
     select canonical_volume_link into canonical_id
     from book_external_ids
@@ -1488,7 +1604,8 @@ begin
     limit 1;
 
     if canonical_id is not null then
-      canonical_id := regexp_replace(canonical_id, '.*[?&]id=([^&]+).*', '\1');
+      canonical_id := (regexp_match(canonical_id, '[?&]id=([^&]+)'))[1];
+      canonical_id := nullif(regexp_replace(canonical_id, '[[:cntrl:]]', '', 'g'), '');
     end if;
   end if;
 
@@ -1533,10 +1650,10 @@ begin
     join books b on b.id = bei.book_id
     where bei.source = 'GOOGLE_BOOKS'
       and (
-        bei.google_canonical_id = canonical_id
+        nullif(regexp_replace(bei.google_canonical_id, '[[:cntrl:]]', '', 'g'), '') = canonical_id
         or (
           bei.canonical_volume_link is not null
-          and regexp_replace(bei.canonical_volume_link, '.*[?&]id=([^&]+).*', '\1') = canonical_id
+          and (regexp_match(bei.canonical_volume_link, '[?&]id=([^&]+)'))[1] = canonical_id
         )
       )
   ) ranked;
@@ -1580,7 +1697,7 @@ begin
       is_primary = excluded.is_primary,
       confidence = excluded.confidence,
       join_reason = excluded.join_reason,
-      updated_at = now();
+      joined_at = now();
   end loop;
 end;
 $$ language plpgsql;
@@ -1687,8 +1804,8 @@ begin
     from (
       select distinct
         coalesce(
-          bei.google_canonical_id,
-          regexp_replace(bei.canonical_volume_link, '.*[?&]id=([^&]+).*', '\1')
+          nullif(regexp_replace(bei.google_canonical_id, '[[:cntrl:]]', '', 'g'), ''),
+          (regexp_match(bei.canonical_volume_link, '[?&]id=([^&]+)'))[1]
         ) as canonical_id,
         b.id as book_id,
         b.title,
@@ -1726,6 +1843,8 @@ begin
         )
     ) candidate
     where canonical_id is not null
+      and canonical_id <> ''
+      and canonical_id !~ '[[:cntrl:]]'
     group by canonical_id
     having count(*) > 1
   loop
@@ -1768,7 +1887,7 @@ begin
         is_primary = excluded.is_primary,
         confidence = excluded.confidence,
         join_reason = excluded.join_reason,
-        updated_at = now();
+        joined_at = now();
 
       books_count := books_count + 1;
     end loop;

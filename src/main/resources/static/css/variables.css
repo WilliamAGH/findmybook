@@ -214,6 +214,7 @@
      ========================================================================== */
   --bg-color: #0F1419;       /* Page background: Deep cool black (slate-900) */
   --card-bg: #1E293B;        /* Cards: Elevated slate for layering (slate-800) */
+  --footer-background-color: var(--bg-color); /* Match page background */
   --border-color: #334155;   /* Borders: Subtle slate-700 */
 
   /* ==========================================================================
@@ -321,7 +322,7 @@
      DARK THEME - Footer
      Used by: Footer in dark mode
      ========================================================================== */
-  --footer-background-color: #0F1419;     /* Slate-900 */
+  /* --footer-background-color handled in Core Palette above */
   --footer-text-color: #94A3B8;           /* Slate-400 */
 
   /* ==========================================================================

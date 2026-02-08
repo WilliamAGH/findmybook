@@ -570,11 +570,11 @@
         padding-top: 2rem; /* Add space between navbar and content */
     }
     
-    /* Footer dark mode - slate-800 to match navbar elevation */
+    /* Footer dark mode - match body background for seamless look */
     [data-theme="dark"] footer,
     [data-theme="dark"] .theme-footer {
-        background-color: #1E293B; /* slate-800 */
-        border-color: #334155; /* slate-700 */
+        background-color: var(--bg-color); /* Match page background */
+        border-color: var(--border-color); /* slate-700 */
     }
     
     /* Navbar border colors - Light mode default and dark mode override */

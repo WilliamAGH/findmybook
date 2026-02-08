@@ -1,187 +1,56 @@
-# Book Finder
+# findmybook.net
+
+Spring Boot + Svelte application for book lookup and recommendations using OpenAI and Google Books API.
+
+![Find My Book Screenshot](src/main/resources/static/images/book-finder-findmybook-net.png)
 
 **Live Demo:** [findmybook.net](https://findmybook.net)
 
-Spring Boot application for book lookup and recommendations using OpenAI and Google Books API.
-
 ## Quick Start
 
-**Prerequisites:** Java 21, Maven 3.6+
+### Prerequisites
+- Java 25
+- Gradle (via `./gradlew`)
+- Node 22.17.0
 
-1. **Configure:** Copy `.env.example` to `.env` and update values
-2. **Run:** `mvn spring-boot:run -P dev`
-3. **Access:** [http://localhost:8095](http://localhost:8095) (or configured `SERVER_PORT`)
+### Running locally
 
-## Development Shortcuts
+1. **Configure:** Copy `.env.example` to `.env` and update values.
+   ```bash
+   cp .env.example .env
+   ```
+2. **Run:** Start the application in dev mode.
+   ```bash
+   SPRING_PROFILES_ACTIVE=dev SERVER_PORT=8095 ./gradlew bootRun
+   ```
+3. **Frontend (optional HMR):** Run Vite for SPA development.
+   ```bash
+   npm --prefix frontend run dev
+   ```
+4. **Access:** Open [http://localhost:8095](http://localhost:8095).
 
-| Command | Description |
-|---------|-------------|
-| `mvn spring-boot:run -P dev` | Run in dev mode with hot reload (includes clean + compile) |
-| `mvn clean compile -DskipTests` | Quick clean and compile without tests |
-| `mvn test` | Run tests only |
-| `mvn spring-boot:run -Dspring.profiles.active=nodb` | Run without database |
-| `mvn spring-boot:run -Dspring.profiles.active=prod` | Run in production mode |
-| `mvn dependency:tree` | Display dependencies |
-| `mvn clean package` | Build JAR |
+## Documentation
 
-## Environment Variables
+Detailed documentation is available in the `docs/` directory:
 
-Key variables in `.env`:
-
-| Variable | Purpose |
-|----------|---------|
-| `SERVER_PORT` | App server port |
-| `SPRING_DATASOURCE_*` | Database connection |
-| `SPRING_AI_OPENAI_API_KEY` | OpenAI integration |
-| `GOOGLE_BOOKS_API_KEY` | Book data source |
-| `S3_*` | S3 storage (if used) |
-| `APP_ADMIN_PASSWORD` | Admin user password |
-| `APP_USER_PASSWORD` | Basic user password |
-
-## User Accounts
-
-| Username | Role(s) | Access | Password Env Variable |
-|----------|---------|--------|----------------------|
-| `admin` | `ADMIN`, `USER` | All + `/admin/**` | `APP_ADMIN_PASSWORD` |
-| `user` | `USER` | General features | `APP_USER_PASSWORD` |
-
-## Key Endpoints
-
-- **Web Interface:** `http://localhost:{SERVER_PORT}` or `https://findmybook.net`
-- **Health Check:** `/actuator/health`
-- **Book API Examples:**
-  - `GET /api/books/search?query={keyword}`
-  - `GET /api/books/{id}`
-
-### Search Pagination Behavior
-
-- The `/api/books/search` endpoint now defaults to 12 results per page and returns cursor metadata: `hasMore`, `nextStartIndex`, and `prefetchedCount`.
-- Each request prefetches an additional page window to keep pagination deterministic across Postgres and external sources.
-- The web UI caches up to six prefetched pages in-memory (oldest entries evicted first) to prevent unbounded growth while preserving instant next-page loads.
-
-## Troubleshooting
-
-**JVM Warnings:** `export MAVEN_OPTS="-XX:+EnableDynamicAgentLoading -Xshare:off"`
-
-**Port Conflicts:**
-
-```bash
-# macOS/Linux
-kill -9 $(lsof -ti :8095)
-```
-
-```bash
-# Windows
-FOR /F "tokens=5" %i IN ('netstat -ano ^| findstr :8095') DO taskkill /F /PID %i
-```
-
-## Additional Features
-
-### UML Diagram
-
-See [UML README](src/main/resources/uml/README.md).
-
-### Manual Sitemap Generation
-
-```bash
-curl -X POST http://localhost:8095/admin/trigger-sitemap-update
-```
-
-### S3 → Postgres Backfill (Manual CLI)
-
-The app includes CLI flags to backfill S3 JSON into Postgres. Run with your DB and S3 configured (via `.env` or env vars).
-
-- Backfill individual book JSONs (S3 prefix defaults to `books/v1/`):
-
-```bash
-mvn spring-boot:run -Dspring-boot.run.arguments="--migrate.s3.books --migrate.prefix=books/v1/ --migrate.max=0 --migrate.skip=0"
-```
-
-- Backfill list JSONs (e.g., NYT lists under `lists/nyt/`):
-
-```bash
-mvn spring-boot:run -Dspring-boot.run.arguments="--migrate.s3.lists --migrate.lists.provider=NYT --migrate.lists.prefix=lists/nyt/ --migrate.lists.max=0 --migrate.lists.skip=0"
-```
-
-Notes:
-
-- `--migrate.max` (`--migrate.lists.max`) ≤ 0 means no limit. Use a positive number to cap items processed.
-- `--migrate.skip` (`--migrate.lists.skip`) skips the first N JSON files (useful for batching).
-- Enrichment is idempotent: matching records are updated; non-existing ones are created.
-
-#### JDBC URL format (important)
-
-If you use a Postgres URI like `postgres://user:pass@host:port/db?sslmode=prefer`, convert it to JDBC format:
-
-```properties
-spring.datasource.url=jdbc:postgresql://host:port/db?sslmode=prefer
-spring.datasource.username=user
-spring.datasource.password=pass
-```
-
-Or pass via env vars or `.env`:
-
-```bash
-export SPRING_DATASOURCE_URL="jdbc:postgresql://<host>:<port>/<db>?sslmode=prefer"
-export SPRING_DATASOURCE_USERNAME="<user>"
-export SPRING_DATASOURCE_PASSWORD="<pass>"
-```
-
-Then run, for example, to process 1 book JSON from S3:
-
-```bash
-mvn spring-boot:run -P dev -Dspring-boot.run.arguments="--migrate.s3.books --migrate.prefix=books/v1/ --migrate.max=1 --migrate.skip=0"
-```
-
-### Debugging Overrides
-
-To bypass caches for book lookups:
-
-```properties
-googlebooks.api.override.bypass-caches=true
-```
-
-To bypass rate limiter:
-
-```properties
-resilience4j.ratelimiter.instances.googleBooksServiceRateLimiter.limitForPeriod=2147483647
-resilience4j.ratelimiter.instances.googleBooksServiceRateLimiter.limitRefreshPeriod=1ms
-resilience4j.ratelimiter.instances.googleBooksServiceRateLimiter.timeoutDuration=0ms
-```
-
-### Code Analysis Tools
-
-- **PMD:** `mvn pmd:pmd && open target/site/pmd.html`
-- **SpotBugs:** `mvn spotbugs:spotbugs && open target/site/spotbugs/index.html`
-- **Dependency Analysis:** `mvn dependency:analyze`
-
-## Admin API Authentication
-
-Admin endpoints require HTTP Basic Authentication:
-
-- Username: `admin`
-- Password: Set via `APP_ADMIN_PASSWORD` environment variable (as defined in `.env.example`)
-
-Example:
-
-```bash
-dotenv run sh -c 'curl -u admin:$APP_ADMIN_PASSWORD -X POST "http://localhost:${SERVER_PORT}/admin/s3-cleanup/move-flagged?limit=100"'
-```
-
-This uses a `dotenv` wrapper to load `$APP_ADMIN_PASSWORD` and `$SERVER_PORT` from `.env`. For `dotenv-cli`, use `dotenv curl ...`. Alternatively, export variables: `export APP_ADMIN_PASSWORD='your_password'`.
-
-## References
-
-- [Java Docs](https://docs.oracle.com/en/java/index.html)
-- [Spring Boot Docs](https://docs.spring.io/spring-boot/docs/current/reference/html/)
-- [PMD Maven Plugin](https://maven.apache.org/plugins/maven-pmd-plugin/)
-- [SpotBugs Maven Plugin](https://spotbugs.github.io/)
-- [Maven Dependency Plugin](https://maven.apache.org/plugins/maven-dependency-plugin/)
-
-## License
-
-MIT License
+- [Development Guide](docs/development.md) - Shortcuts, JVM settings, and code analysis.
+- [Configuration](docs/configuration.md) - Environment variables, user accounts, and database setup.
+- [API Reference](docs/api.md) - Key endpoints, search pagination details, and admin API.
+- [Features & Operations](docs/features.md) - S3 backfill, sitemap generation, and UML.
+- [Troubleshooting](docs/troubleshooting.md) - Port conflicts and debugging overrides.
 
 ## Contributing
 
-Pull requests and issues are welcome!
+[Open an issue](https://github.com/WilliamAGH/findmybook/issues/new) for bugs or feature requests. PRs welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+## Other Projects
+
+- [Composer](https://composerai.app) — AI-assisted email application ([GitHub](https://github.com/WilliamAGH/ComposerAI))
+- [TUI4J](https://github.com/WilliamAGH/tui4j) — Modern terminal user interface library for Java
+- [Brief](https://williamcallahan.com/projects/brief) — Beautiful terminal AI chat with tool calling ([GitHub](https://github.com/WilliamAGH/brief))
+
+## License
+
+Copyright © 2026 [William Callahan](https://williamcallahan.com).
+
+See [LICENSE.md](LICENSE.md).

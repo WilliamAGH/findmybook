@@ -1,0 +1,2 @@
+org.springframework.boot.EnvironmentPostProcessor=\
+net.findmybook.config.DatabaseUrlEnvironmentPostProcessor
