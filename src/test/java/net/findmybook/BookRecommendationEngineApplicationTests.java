@@ -3,12 +3,14 @@ package net.findmybook;
 // CachedBookRepository removed with Redis cleanup
 import net.findmybook.config.DatabaseUrlEnvironmentPostProcessor;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.SpringApplication;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
+import org.springframework.mock.env.MockEnvironment;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -101,6 +103,33 @@ class BookRecommendationEngineApplicationTests {
         assertEquals("jdbc:postgresql://localhost:5432/db?email=user@example.com", parsed.jdbcUrl);
         assertNull(parsed.username);
         assertNull(parsed.password);
+    }
+
+    @Test
+    void should_ApplyDatabaseUrlFallback_When_SpringDatasourceUrlMissing() {
+        MockEnvironment environment = new MockEnvironment();
+        environment.setProperty("DATABASE_URL", "postgres://fallback_user:fallback_pass@db.example.com:5433/books");
+
+        DatabaseUrlEnvironmentPostProcessor processor = new DatabaseUrlEnvironmentPostProcessor();
+        processor.postProcessEnvironment(environment, new SpringApplication(BookRecommendationEngineApplication.class));
+
+        assertEquals("jdbc:postgresql://db.example.com:5433/books", environment.getProperty("spring.datasource.url"));
+        assertEquals("fallback_user", environment.getProperty("spring.datasource.username"));
+        assertEquals("fallback_pass", environment.getProperty("spring.datasource.password"));
+    }
+
+    @Test
+    void should_PreferSpringDatasourceUrl_When_BothDatasourceUrlEnvironmentVariablesProvided() {
+        MockEnvironment environment = new MockEnvironment();
+        environment.setProperty("SPRING_DATASOURCE_URL", "postgres://primary_user:primary_pass@primary-db.example.com:5432/primary");
+        environment.setProperty("DATABASE_URL", "postgres://fallback_user:fallback_pass@fallback-db.example.com:5432/fallback");
+
+        DatabaseUrlEnvironmentPostProcessor processor = new DatabaseUrlEnvironmentPostProcessor();
+        processor.postProcessEnvironment(environment, new SpringApplication(BookRecommendationEngineApplication.class));
+
+        assertEquals("jdbc:postgresql://primary-db.example.com:5432/primary", environment.getProperty("spring.datasource.url"));
+        assertEquals("primary_user", environment.getProperty("spring.datasource.username"));
+        assertEquals("primary_pass", environment.getProperty("spring.datasource.password"));
     }
 
     @Test
