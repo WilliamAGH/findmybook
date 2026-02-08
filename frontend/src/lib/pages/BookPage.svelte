@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
+  import { onMount } from "svelte";
   import DOMPurify from "dompurify";
   import BookAffiliateLinks from "$lib/components/BookAffiliateLinks.svelte";
   import BookAiAnalysisPanel from "$lib/components/BookAiAnalysisPanel.svelte";
@@ -42,6 +42,10 @@
   let liveCoverUrl = $state<string | null>(null);
   const fallbackCoverImage = "/images/placeholder-book-cover.svg";
   let detailCoverUrl = $state<string>(fallbackCoverImage);
+
+  let titleElement = $state<HTMLHeadingElement | null>(null);
+  let titleExpanded = $state(false);
+  let titleOverflows = $state(false);
 
   let descriptionContainer = $state<HTMLElement | null>(null);
   let descriptionExpanded = $state(false);
@@ -200,12 +204,13 @@
     !descriptionExpanded && (!descriptionMeasured || descriptionOverflows),
   );
 
-  async function measureDescriptionOverflow(): Promise<void> {
-    await tick();
-    if (descriptionContainer) {
-      descriptionOverflows = descriptionContainer.scrollHeight > DESCRIPTION_COLLAPSE_HEIGHT_PX;
-    }
-    descriptionMeasured = true;
+  function measureDescriptionOverflow(): void {
+    requestAnimationFrame(() => {
+      if (descriptionContainer) {
+        descriptionOverflows = descriptionContainer.scrollHeight > DESCRIPTION_COLLAPSE_HEIGHT_PX;
+      }
+      descriptionMeasured = true;
+    });
   }
 
   function legacySearchFallbackHref(): string {
@@ -260,12 +265,24 @@
     detailCoverUrl = preferredBookCoverUrl();
   });
 
+  function measureTitleOverflow(): void {
+    requestAnimationFrame(() => {
+      if (titleElement) {
+        titleOverflows = titleElement.scrollHeight > titleElement.clientHeight;
+      }
+    });
+  }
+
   $effect(() => {
     if (book) {
+      titleExpanded = false;
+      titleOverflows = false;
+      measureTitleOverflow();
+
       descriptionExpanded = false;
       descriptionMeasured = false;
       descriptionOverflows = false;
-      void measureDescriptionOverflow();
+      measureDescriptionOverflow();
     }
   });
 
@@ -318,9 +335,23 @@
 
         <!-- Details -->
         <div class="flex flex-col gap-4">
-          <h1 class="text-3xl font-semibold text-balance text-anthracite-900 dark:text-slate-100">
+          <h1
+            bind:this={titleElement}
+            class="text-3xl font-semibold text-balance text-anthracite-900 dark:text-slate-100"
+            class:line-clamp-3={!titleExpanded}
+            title={book.title ?? undefined}
+          >
             {book.title ?? "Book details"}
           </h1>
+          {#if titleOverflows}
+            <button
+              type="button"
+              onclick={() => titleExpanded = !titleExpanded}
+              class="self-start text-sm font-medium text-canvas-600 transition hover:text-canvas-700 dark:text-canvas-400 dark:hover:text-canvas-300"
+            >
+              {titleExpanded ? "Show less" : "Show full title"}
+            </button>
+          {/if}
           <p class="text-base text-anthracite-700 dark:text-slate-300">{authorNames()}</p>
 
           <!-- Metadata Grid -->
@@ -360,11 +391,10 @@
             <div class="relative">
               <div
                 bind:this={descriptionContainer}
-                class="text-sm leading-relaxed text-anthracite-700 dark:text-slate-300 overflow-hidden transition-all duration-300 ease-out"
+                class="text-sm leading-relaxed text-anthracite-700 dark:text-slate-300 overflow-hidden"
                 class:book-description-content={sanitizedDescriptionHtml.length > 0}
                 class:whitespace-pre-wrap={sanitizedDescriptionHtml.length === 0}
-                class:max-h-[18rem]={descriptionCollapsed}
-                class:max-h-none={!descriptionCollapsed}
+                style:max-height={descriptionCollapsed ? '18rem' : 'none'}
               >
                 {#if sanitizedDescriptionHtml.length > 0}
                   {@html sanitizedDescriptionHtml}
