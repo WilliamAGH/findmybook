@@ -81,7 +81,6 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-aspectj")
     implementation("org.springframework.boot:spring-boot-starter-jdbc")
     implementation("org.springframework.boot:spring-boot-starter-security")
-    implementation("org.springframework.boot:spring-boot-starter-thymeleaf")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-webflux")
@@ -95,7 +94,6 @@ dependencies {
 
     implementation("commons-io:commons-io:2.18.0")
     implementation("com.google.guava:guava:33.4.0-jre")
-    implementation("io.github.wimdeblauwe:htmx-spring-boot-thymeleaf:5.0.0")
     implementation("software.amazon.awssdk:s3:2.29.35")
     implementation("me.paulschwarz:spring-dotenv:5.1.0")
     implementation("org.springframework.retry:spring-retry:2.0.12")
