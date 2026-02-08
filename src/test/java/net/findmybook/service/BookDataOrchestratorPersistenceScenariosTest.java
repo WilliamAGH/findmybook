@@ -3,6 +3,7 @@ package net.findmybook.service;
 import tools.jackson.databind.ObjectMapper;
 import net.findmybook.dto.BookAggregate;
 import net.findmybook.model.Book;
+import net.findmybook.service.image.CoverPersistenceService;
 import net.findmybook.util.ApplicationConstants;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
@@ -14,15 +15,18 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.core.ResultSetExtractor;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.sql.ResultSet;
 import java.time.LocalDate;
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -30,11 +34,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -207,6 +213,78 @@ class BookDataOrchestratorPersistenceScenariosTest {
         boolean persisted = batchPersistenceService.persistBook(incoming, null, null);
 
         assertThat(persisted).isFalse();
+    }
+
+    @Test
+    void persistBook_returnsFalse_When_BookUpsertFailsWithNonSystemicException() {
+        when(googleBooksMapper.map(any())).thenReturn(BookAggregate.builder()
+            .title("Non Systemic Fixture")
+            .slugBase("non-systemic-fixture")
+            .identifiers(BookAggregate.ExternalIdentifiers.builder()
+                .source("OPEN_LIBRARY")
+                .externalId("OL-NON-SYSTEMIC-1")
+                .build())
+            .build());
+        when(bookUpsertService.upsert(any()))
+            .thenThrow(new IllegalStateException("Cover persistence returned unsuccessful result for test-book"));
+
+        Book incoming = new Book();
+        incoming.setId("OL-NON-SYSTEMIC-1");
+        incoming.setTitle("Non Systemic Fixture");
+
+        boolean persisted = batchPersistenceService.persistBook(incoming, null, null);
+
+        assertThat(persisted).isFalse();
+    }
+
+    @Test
+    void bookImageLinkPersistenceService_shouldReturnFallbackCanonicalUrl_When_CoverPersistenceReturnsUnsuccessful() {
+        JdbcTemplate imageJdbcTemplate = mock(JdbcTemplate.class);
+        CoverPersistenceService coverPersistenceService = mock(CoverPersistenceService.class);
+        BookImageLinkPersistenceService imageLinkPersistenceService = new BookImageLinkPersistenceService(
+            imageJdbcTemplate,
+            coverPersistenceService
+        );
+        stubAbsentExistingCoverQuality(imageJdbcTemplate);
+        UUID bookId = UUID.randomUUID();
+        BookAggregate.ExternalIdentifiers identifiers = BookAggregate.ExternalIdentifiers.builder()
+            .source("GOOGLE_BOOKS")
+            .imageLinks(Map.of("thumbnail", "http://example.com/cover.jpg"))
+            .build();
+
+        when(coverPersistenceService.persistFromGoogleImageLinks(eq(bookId), anyMap(), eq("GOOGLE_BOOKS")))
+            .thenReturn(new CoverPersistenceService.PersistenceResult(false, null, null, null, false));
+
+        BookImageLinkPersistenceService.ImageLinkPersistenceResult result =
+            imageLinkPersistenceService.persistImageLinks(bookId, identifiers);
+
+        assertThat(result.persisted()).isFalse();
+        assertThat(result.normalizedImageLinks()).containsEntry("thumbnail", "https://example.com/cover.jpg");
+        assertThat(result.canonicalImageUrl()).isEqualTo("https://example.com/cover.jpg");
+    }
+
+    @Test
+    void bookImageLinkPersistenceService_shouldRethrowDataAccessException_When_CoverPersistenceFailsWithDatabaseError() {
+        JdbcTemplate imageJdbcTemplate = mock(JdbcTemplate.class);
+        CoverPersistenceService coverPersistenceService = mock(CoverPersistenceService.class);
+        BookImageLinkPersistenceService imageLinkPersistenceService = new BookImageLinkPersistenceService(
+            imageJdbcTemplate,
+            coverPersistenceService
+        );
+        stubAbsentExistingCoverQuality(imageJdbcTemplate);
+        UUID bookId = UUID.randomUUID();
+        BookAggregate.ExternalIdentifiers identifiers = BookAggregate.ExternalIdentifiers.builder()
+            .source("GOOGLE_BOOKS")
+            .imageLinks(Map.of("thumbnail", "https://example.com/cover.jpg"))
+            .build();
+
+        when(coverPersistenceService.persistFromGoogleImageLinks(eq(bookId), anyMap(), eq("GOOGLE_BOOKS")))
+            .thenThrow(new DataAccessResourceFailureException("database unavailable"));
+
+        assertThatThrownBy(() -> imageLinkPersistenceService.persistImageLinks(bookId, identifiers))
+            .isInstanceOf(DataAccessResourceFailureException.class)
+            .hasMessageContaining("database unavailable");
+        verify(coverPersistenceService, never()).updateAfterS3Upload(any(), any());
     }
 
     @Test
@@ -389,5 +467,18 @@ class BookDataOrchestratorPersistenceScenariosTest {
                 eq(ApplicationConstants.Provider.GOOGLE_BOOKS),
                 any()
         )).thenReturn(bookId);
+    }
+
+    private void stubAbsentExistingCoverQuality(JdbcTemplate imageJdbcTemplate) {
+        when(imageJdbcTemplate.query(
+            anyString(),
+            org.mockito.ArgumentMatchers.<ResultSetExtractor<Object>>any(),
+            any()
+        )).thenAnswer(invocation -> {
+            ResultSetExtractor<Object> extractor = invocation.getArgument(1);
+            ResultSet resultSet = mock(ResultSet.class);
+            when(resultSet.next()).thenReturn(false);
+            return extractor.extractData(resultSet);
+        });
     }
 }
