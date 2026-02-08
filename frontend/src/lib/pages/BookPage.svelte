@@ -432,34 +432,48 @@
 
           <!-- Description -->
           {#if sanitizedDescriptionHtml.length > 0 || book.description}
-            <div class="relative">
-              <div
-                bind:this={descriptionContainer}
-                class="text-sm leading-relaxed text-anthracite-700 dark:text-slate-300 overflow-hidden"
-                class:book-description-content={sanitizedDescriptionHtml.length > 0}
-                class:whitespace-pre-wrap={sanitizedDescriptionHtml.length === 0}
-                style:max-height={descriptionCollapsed ? `${descriptionMaxHeightPx}px` : 'none'}
-              >
-                {#if sanitizedDescriptionHtml.length > 0}
-                  {@html sanitizedDescriptionHtml}
-                {:else}
-                  {book.description}
-                {/if}
-              </div>
-              {#if descriptionMeasured && descriptionOverflows && !descriptionExpanded}
-                <div class="pointer-events-none absolute bottom-0 left-0 right-0 h-10 bg-linear-to-t from-canvas-50 to-transparent dark:from-slate-900"></div>
-              {/if}
-              {#if descriptionMeasured && descriptionOverflows}
+            <section class="rounded-xl border border-linen-200 bg-linen-50/60 dark:border-slate-700 dark:bg-slate-900/60">
+              <div class="flex items-center justify-between gap-3 px-4 py-3">
                 <button
                   type="button"
+                  class="inline-flex items-center gap-1.5 text-sm font-medium text-anthracite-700 transition hover:text-anthracite-900 disabled:cursor-default disabled:opacity-60 dark:text-slate-300 dark:hover:text-slate-100"
                   onclick={() => descriptionExpanded = !descriptionExpanded}
-                  class="mt-2 inline-flex items-center gap-1 text-xs font-medium text-canvas-500 transition hover:text-canvas-600 dark:text-canvas-400 dark:hover:text-canvas-300"
+                  aria-expanded={descriptionExpanded}
+                  disabled={descriptionMeasured && !descriptionOverflows}
                 >
-                  <ChevronDown size={14} class={`transition-transform duration-200 ${descriptionExpanded ? 'rotate-180' : ''}`} />
-                  {descriptionExpanded ? 'Show less' : 'Show full description'}
+                  <ChevronDown
+                    size={14}
+                    class="shrink-0 transition-transform duration-200 {descriptionExpanded ? '' : '-rotate-90'}"
+                  />
+                  Book Description
                 </button>
-              {/if}
-            </div>
+                {#if descriptionMeasured && descriptionOverflows}
+                  <span class="text-xs font-medium text-canvas-500 dark:text-canvas-400">
+                    {descriptionExpanded ? "Show less" : "Show full description"}
+                  </span>
+                {/if}
+              </div>
+              <div class="border-t border-linen-200 px-4 pb-4 pt-3 dark:border-slate-700">
+                <div class="relative">
+                  <div
+                    bind:this={descriptionContainer}
+                    class="text-sm leading-relaxed text-anthracite-700 dark:text-slate-300 overflow-hidden"
+                    class:book-description-content={sanitizedDescriptionHtml.length > 0}
+                    class:whitespace-pre-wrap={sanitizedDescriptionHtml.length === 0}
+                    style:max-height={descriptionCollapsed ? `${descriptionMaxHeightPx}px` : 'none'}
+                  >
+                    {#if sanitizedDescriptionHtml.length > 0}
+                      {@html sanitizedDescriptionHtml}
+                    {:else}
+                      {book.description}
+                    {/if}
+                  </div>
+                  {#if descriptionMeasured && descriptionOverflows && !descriptionExpanded}
+                    <div class="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-linear-to-t from-canvas-50/90 via-canvas-50/60 to-transparent backdrop-blur-sm dark:from-slate-900/85 dark:via-slate-900/60"></div>
+                  {/if}
+                </div>
+              </div>
+            </section>
           {/if}
 
           <BookAiContentPanel
