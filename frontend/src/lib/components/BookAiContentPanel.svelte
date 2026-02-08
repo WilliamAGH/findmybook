@@ -164,7 +164,7 @@
         size={14}
         class="shrink-0 transition-transform duration-200 {collapsed ? '-rotate-90' : ''}"
       />
-      Book AI Content
+      About This Book
     </button>
     <button
       type="button"

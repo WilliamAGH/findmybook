@@ -54,6 +54,7 @@
   const DESCRIPTION_MAX_LINES = 13;
   const DESCRIPTION_FALLBACK_HEIGHT_PX = 288; // 18rem — roughly 12-13 lines at text-sm leading-relaxed
   let descriptionMaxHeightPx = $state(DESCRIPTION_FALLBACK_HEIGHT_PX);
+  let descriptionNaturalHeightPx = $state(DESCRIPTION_FALLBACK_HEIGHT_PX);
   let descriptionResizeObserver: ResizeObserver | null = null;
 
   let unsubscribeRealtime: (() => void) | null = null;
@@ -223,6 +224,7 @@
       }
       const maxHeightPx = resolveDescriptionMaxHeightPx(descriptionContainer);
       descriptionMaxHeightPx = maxHeightPx;
+      descriptionNaturalHeightPx = descriptionContainer.scrollHeight;
       descriptionOverflows = descriptionContainer.scrollHeight > maxHeightPx + 1;
       descriptionMeasured = true;
     });
@@ -443,15 +445,16 @@
                 >
                   <ChevronDown
                     size={14}
-                    class="shrink-0 transition-transform duration-200 {descriptionExpanded ? '' : '-rotate-90'}"
+                    class="shrink-0 transition-transform duration-200 {descriptionCollapsed ? '-rotate-90' : ''}"
                   />
                   Book Description
                 </button>
-                {#if descriptionMeasured && descriptionOverflows}
-                  <span class="text-xs font-medium text-canvas-500 dark:text-canvas-400">
-                    {descriptionExpanded ? "Show less" : "Show full description"}
-                  </span>
-                {/if}
+                <span
+                  aria-hidden="true"
+                  class="inline-flex items-center justify-center rounded-md p-1 opacity-0"
+                >
+                  <ChevronDown size={14} />
+                </span>
               </div>
               <div class="border-t border-linen-200 px-4 pb-4 pt-3 dark:border-slate-700">
                 <div class="relative">
