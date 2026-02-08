@@ -204,19 +204,25 @@
       searchCache.set(key, response);
       searchResult = response;
 
-      unsubscribeRealtime = await subscribeToSearchTopics(
-        response.queryHash,
-        (message) => {
-          realtimeMessage = message;
-        },
-        (results) => {
-          mergeRealtimeHits(results);
-        },
-        (error) => {
-          console.error("Realtime search subscription error:", error.message);
-          realtimeMessage = null;
-        },
-      );
+      try {
+        unsubscribeRealtime = await subscribeToSearchTopics(
+          response.queryHash,
+          (message) => {
+            realtimeMessage = message;
+          },
+          (results) => {
+            mergeRealtimeHits(results);
+          },
+          (error) => {
+            console.error("Realtime search subscription error:", error.message);
+            realtimeMessage = null;
+          },
+        );
+      } catch (realtimeError) {
+        console.error("Realtime search subscription failed:", realtimeError);
+        realtimeMessage = null;
+        unsubscribeRealtime = null;
+      }
       if (sequence !== searchLoadSequence && unsubscribeRealtime) {
         unsubscribeRealtime();
         unsubscribeRealtime = null;
