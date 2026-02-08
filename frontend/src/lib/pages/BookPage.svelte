@@ -438,7 +438,7 @@
                   type="button"
                   class="inline-flex items-center gap-1.5 text-sm font-medium text-anthracite-700 transition hover:text-anthracite-900 disabled:cursor-default disabled:opacity-60 dark:text-slate-300 dark:hover:text-slate-100"
                   onclick={() => descriptionExpanded = !descriptionExpanded}
-                  aria-expanded={descriptionExpanded}
+                  aria-expanded={!descriptionCollapsed}
                   disabled={descriptionMeasured && !descriptionOverflows}
                 >
                   <ChevronDown
