@@ -1,3 +1,25 @@
+create table if not exists book_tag_assignments (
+  id text primary key, -- NanoID (12 chars)
+  book_id uuid not null references books(id) on delete cascade,
+  tag_id text not null references book_tags(id) on delete cascade,
+  source text not null check (source = btrim(source) and source <> ''), -- 'SEARCH_QUERY', 'PROVIDER', 'CURATION', etc.
+  confidence numeric, -- optional 0..1 confidence score
+  metadata jsonb, -- optional extra data (e.g., original phrase, provider payload snippet)
+  created_at timestamptz not null default now(),
+  unique (book_id, tag_id)
+);
+
+
+create index if not exists idx_book_tag_assignments_book_id on book_tag_assignments(book_id);
+create index if not exists idx_book_tag_assignments_tag_id on book_tag_assignments(tag_id);
+
+comment on table book_tag_assignments is 'Assignments linking canonical books to tags with source + optional metadata.';
+comment on column book_tag_assignments.source is 'Most recent origin of the tag assignment (SEARCH_QUERY, PROVIDER, CURATION, etc).';
+comment on column book_tag_assignments.metadata is 'Additional context, e.g., original query text or provider payload snippet.';
+
+-- ---------------------------------------------------------------------------
+-- Legacy deduplication consolidated into canonical tag assignment migration.
+-- ---------------------------------------------------------------------------
 -- Deduplicate tags + tag assignments and enforce canonical constraints.
 -- Safe to run multiple times.
 

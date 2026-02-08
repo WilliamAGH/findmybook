@@ -1,3 +1,20 @@
+-- Join table linking books to authors (many-to-many)
+create table if not exists book_authors_join (
+  id text primary key, -- NanoID (12 chars via IdGenerator.generateLong() - high volume)
+  book_id uuid not null references books(id) on delete cascade,
+  author_id text not null references authors(id) on delete cascade,
+  position integer not null default 0, -- Order of author as it appears in the book
+  created_at timestamptz not null default now(),
+  unique(book_id, author_id)
+);
+
+create index if not exists idx_book_authors_book_id on book_authors_join(book_id);
+create index if not exists idx_book_authors_author_id on book_authors_join(author_id);
+create index if not exists idx_book_authors_position on book_authors_join(book_id, position);
+
+-- ---------------------------------------------------------------------------
+-- Legacy data cleanup consolidated into canonical author join migration.
+-- ---------------------------------------------------------------------------
 -- Clean author rows with leading non-alphanumeric prefixes and enforce guard constraints.
 -- Safe to run multiple times.
 

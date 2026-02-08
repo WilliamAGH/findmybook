@@ -1,10 +1,7 @@
 -- ============================================================================
--- BOOK AI CONTENT VERSIONING MIGRATION
--- ============================================================================
-
--- Table: book_ai_content
+-- BOOK AI CONTENT
 -- Stores versioned AI-generated content per book.
--- Includes canonical JSON payload, parsed summary/reader_fit/themes, and model metadata.
+-- ============================================================================
 
 create table if not exists book_ai_content (
   id text primary key, -- NanoID (12 chars via IdGenerator.generateLong())
@@ -24,17 +21,18 @@ create table if not exists book_ai_content (
   unique (book_id, version_number)
 );
 
--- Partial index to enforce only one current version per book
 create unique index if not exists uq_book_ai_content_current
   on book_ai_content(book_id)
   where is_current;
 
--- Index for history lookup
 create index if not exists idx_book_ai_content_book_created
   on book_ai_content(book_id, created_at desc);
 
--- Comments
-comment on table book_ai_content is 'Versioned AI-generated book content snapshots with single current version per book';
+alter table book_ai_content
+  add column if not exists takeaways jsonb,
+  add column if not exists context text;
+
+comment on table book_ai_content is 'Versioned AI-generated book content with single current version per book';
 comment on column book_ai_content.content_json is 'Canonical JSON payload returned by the AI model';
 comment on column book_ai_content.reader_fit is 'Who should read this book and why';
 comment on column book_ai_content.key_themes is 'JSON array of short key-theme strings';
