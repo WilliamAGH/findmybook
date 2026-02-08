@@ -1,91 +1,70 @@
 package net.findmybook.controller;
 
+import java.net.URI;
+import java.util.function.Predicate;
+import lombok.extern.slf4j.Slf4j;
 import net.findmybook.model.Book;
-import net.findmybook.service.AffiliateLinkService;
 import net.findmybook.service.BookSeoMetadataService;
-import net.findmybook.service.EnvironmentService;
 import net.findmybook.service.HomePageSectionsService;
-import net.findmybook.util.ApplicationConstants;
 import net.findmybook.util.IsbnUtils;
-import org.springframework.util.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
-import org.springframework.ui.Model;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.util.UriComponentsBuilder;
-import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Mono;
 
-import java.net.URI;
-import java.time.Duration;
-import java.util.List;
-import java.util.function.Predicate;
-
 /**
- * Page controller for book detail views and ISBN redirect endpoints.
- *
- * <p>Extracted from {@link HomeController} to keep each controller under the LOC ceiling.
- * Owns the {@code /book/**} URL space for server-rendered (Thymeleaf) and SPA views.</p>
+ * Page controller for book detail shell rendering and ISBN redirect endpoints.
  */
 @Controller
 @Slf4j
 public class BookDetailPageController {
 
-    private final EnvironmentService environmentService;
-    private final AffiliateLinkService affiliateLinkService;
     private final HomePageSectionsService homePageSectionsService;
     private final BookSeoMetadataService bookSeoMetadataService;
-    private static final Duration SIMILAR_BOOKS_TIMEOUT = Duration.ofMillis(2000);
-    private final boolean spaFrontendEnabled;
     private final int maxDescriptionLength;
 
-    public BookDetailPageController(EnvironmentService environmentService,
-                                    AffiliateLinkService affiliateLinkService,
-                                    HomePageSectionsService homePageSectionsService,
+    public BookDetailPageController(HomePageSectionsService homePageSectionsService,
                                     BookSeoMetadataService bookSeoMetadataService,
-                                    @Value("${app.frontend.spa.enabled:true}") boolean spaFrontendEnabled,
                                     @Value("${app.seo.max-description-length:170}") int maxDescriptionLength) {
-        this.environmentService = environmentService;
-        this.affiliateLinkService = affiliateLinkService;
         this.homePageSectionsService = homePageSectionsService;
         this.bookSeoMetadataService = bookSeoMetadataService;
-        this.spaFrontendEnabled = spaFrontendEnabled;
         this.maxDescriptionLength = maxDescriptionLength;
     }
 
     /**
-     * Groups the optional search-context query parameters that travel together
-     * across book detail requests and redirect URL building.
+     * Groups optional search-context query parameters for canonical redirect construction.
      */
-    record SearchContext(String query, Integer page, String sort, String view) {
-        int effectivePage() { return page != null ? page : 0; }
-        String effectiveSort() { return sort != null && !sort.isBlank() ? sort : "relevance"; }
-        String effectiveView() { return view != null && !view.isBlank() ? view : "grid"; }
+    record SearchContext(String query, Integer page, String orderBy, String view) {
+        int effectivePage() {
+            return page != null ? page : 0;
+        }
+
+        String effectiveOrderBy() {
+            return orderBy != null && !orderBy.isBlank() ? orderBy : "newest";
+        }
+
+        String effectiveView() {
+            return view != null && !view.isBlank() ? view : "grid";
+        }
     }
 
-    /** Renders the detail page for a book identifier and redirects to canonical slug when needed. */
+    /**
+     * Renders the detail SPA shell for a book identifier and redirects to canonical slug when needed.
+     */
     @GetMapping("/book/{id}")
-    public Mono<String> bookDetail(@PathVariable String id,
-                                   SearchContext search,
-                                   Model model) {
+    public Mono<ResponseEntity<String>> bookDetail(@PathVariable String id, SearchContext search) {
         log.info("Looking up book with ID: {}", id);
 
-        applyBaseAttributes(model, "book");
-        model.addAttribute("searchQuery", search.query());
-        model.addAttribute("searchPage", search.effectivePage());
-        model.addAttribute("searchSort", search.effectiveSort());
-        model.addAttribute("searchView", search.effectiveView());
+        Mono<Book> resolvedBookMono = homePageSectionsService.locateBook(id).cache();
 
-        bookSeoMetadataService.apply(model, bookSeoMetadataService.bookFallbackMetadata(id));
-
-        Mono<Book> canonicalBookMono = homePageSectionsService.locateBook(id).cache();
-        Mono<Book> effectiveBookMono = canonicalBookMono;
-
-        Mono<String> redirectIfNonCanonical = effectiveBookMono
+        Mono<ResponseEntity<String>> redirectIfNonCanonical = resolvedBookMono
             .flatMap(book -> {
                 if (book == null) {
                     return Mono.empty();
@@ -94,88 +73,71 @@ public class BookDetailPageController {
                 if (!StringUtils.hasText(canonicalIdentifier) || canonicalIdentifier.equals(id)) {
                     return Mono.empty();
                 }
-                var builder = UriComponentsBuilder.fromPath("/book/" + canonicalIdentifier);
+
+                UriComponentsBuilder builder = UriComponentsBuilder.fromPath("/book/" + canonicalIdentifier);
                 if (StringUtils.hasText(search.query())) {
                     builder.queryParam("query", search.query());
                 }
                 if (search.effectivePage() > 0) {
                     builder.queryParam("page", search.effectivePage());
                 }
-                if (StringUtils.hasText(search.effectiveSort())) {
-                    builder.queryParam("sort", search.effectiveSort());
+                if (StringUtils.hasText(search.effectiveOrderBy())) {
+                    builder.queryParam("orderBy", search.effectiveOrderBy());
                 }
                 if (StringUtils.hasText(search.effectiveView())) {
                     builder.queryParam("view", search.effectiveView());
                 }
-                return Mono.just("redirect:" + builder.build().toUriString());
+                String redirectPath = builder.build().toUriString();
+                return Mono.just(ResponseEntity.status(HttpStatus.SEE_OTHER)
+                    .location(URI.create(redirectPath))
+                    .build());
             });
-
-        Mono<Book> resolvedBookMono = effectiveBookMono.cache();
-
-        if (spaFrontendEnabled) {
-            return redirectIfNonCanonical.switchIfEmpty(
-                resolvedBookMono.flatMap(book -> {
-                    if (book != null) {
-                        applyBookMetadata(book, model);
-                    }
-                    return Mono.just("spa/index");
-                }).switchIfEmpty(Mono.just("spa/index"))
-            ).onErrorMap(e -> {
-                log.error("Error preparing SPA book detail for {}: {}", id, e.getMessage(), e);
-                return new IllegalStateException("Error preparing SPA book detail for " + id, e);
-            });
-        }
-
-        // Load similar books in parallel
-        Mono<List<Book>> similarBooksMono = resolvedBookMono
-            .flatMap(book -> homePageSectionsService.loadSimilarBooks(
-                    book != null ? book.getId() : id,
-                    ApplicationConstants.Paging.DEFAULT_TIERED_LIMIT / 2,
-                    6
-                )
-                .timeout(SIMILAR_BOOKS_TIMEOUT)
-                .onErrorResume(java.util.concurrent.TimeoutException.class, e -> {
-                    log.warn("Similar books timed out after {}ms for {}", SIMILAR_BOOKS_TIMEOUT.toMillis(), id);
-                    return Mono.empty();
-                }))
-            .defaultIfEmpty(List.<Book>of())
-            .doOnNext(list -> model.addAttribute("similarBooks", list))
-            .cache();
 
         return redirectIfNonCanonical.switchIfEmpty(
-            resolvedBookMono.flatMap(book -> {
-                if (book == null) {
-                    model.addAttribute("book", null);
-                    model.addAttribute("error", "Unable to locate this book right now. Please try again later.");
-                    return similarBooksMono.thenReturn("book");
-                }
-
-                applyBookMetadata(book, model);
-                return similarBooksMono.thenReturn("book");
-            }).switchIfEmpty(similarBooksMono.thenReturn("book"))
+            resolvedBookMono
+                .map(book -> {
+                    if (book == null) {
+                        return spaResponse(bookSeoMetadataService.notFoundMetadata("/book/" + id), "/book/" + id, HttpStatus.NOT_FOUND);
+                    }
+                    String canonicalIdentifier = StringUtils.hasText(book.getSlug()) ? book.getSlug() : book.getId();
+                    homePageSectionsService.recordRecentlyViewed(book);
+                    BookSeoMetadataService.SeoMetadata metadata = bookSeoMetadataService.bookMetadata(book, maxDescriptionLength);
+                    return spaResponse(metadata, "/book/" + canonicalIdentifier, HttpStatus.OK);
+                })
+                .switchIfEmpty(Mono.just(spaResponse(
+                    bookSeoMetadataService.notFoundMetadata("/book/" + id),
+                    "/book/" + id,
+                    HttpStatus.NOT_FOUND
+                )))
         ).onErrorMap(e -> {
-            log.error("Error rendering book detail for {}: {}", id, e.getMessage(), e);
+            log.error("Error preparing book detail shell for {}: {}", id, e.getMessage(), e);
             return new ResponseStatusException(
                 HttpStatus.INTERNAL_SERVER_ERROR,
-                "Book detail rendering failed for " + id,
+                "Book detail shell rendering failed for " + id,
                 e
             );
         });
     }
 
-    /** Redirects ISBN requests to canonical `/book/{slugOrId}` URLs when possible. */
+    /**
+     * Redirects ISBN requests to canonical `/book/{slugOrId}` URLs when possible.
+     */
     @GetMapping("/book/isbn/{isbn}")
     public Mono<ResponseEntity<Void>> bookDetailByIsbn(@PathVariable String isbn) {
         return redirectByIsbn(isbn, value -> IsbnUtils.isValidIsbn13(value) || IsbnUtils.isValidIsbn10(value), "invalidIsbn");
     }
 
-    /** Compatibility endpoint for explicit ISBN-13 lookup. */
+    /**
+     * Compatibility endpoint for explicit ISBN-13 lookup.
+     */
     @GetMapping("/book/isbn13/{isbn13}")
     public Mono<ResponseEntity<Void>> bookDetailByIsbn13(@PathVariable String isbn13) {
         return redirectByIsbn(isbn13, IsbnUtils::isValidIsbn13, "invalidIsbn13");
     }
 
-    /** Compatibility endpoint for explicit ISBN-10 lookup. */
+    /**
+     * Compatibility endpoint for explicit ISBN-10 lookup.
+     */
     @GetMapping("/book/isbn10/{isbn10}")
     public Mono<ResponseEntity<Void>> bookDetailByIsbn10(@PathVariable String isbn10) {
         return redirectByIsbn(isbn10, IsbnUtils::isValidIsbn10, "invalidIsbn10");
@@ -206,22 +168,18 @@ public class BookDetailPageController {
             });
     }
 
-    private void applyBaseAttributes(Model model, String activeTab) {
-        model.addAttribute("isDevelopmentMode", environmentService.isDevelopmentMode());
-        model.addAttribute("currentEnv", environmentService.getCurrentEnvironmentMode());
-        model.addAttribute("activeTab", activeTab);
-    }
-
-    private void applyBookMetadata(Book book, Model model) {
-        model.addAttribute("book", book);
-        bookSeoMetadataService.apply(model, bookSeoMetadataService.bookMetadata(book, maxDescriptionLength));
-        model.addAttribute("affiliateLinks", affiliateLinkService.generateLinks(book));
-        homePageSectionsService.recordRecentlyViewed(book);
-    }
-
     private ResponseEntity<Void> redirectTo(String path) {
         return ResponseEntity.status(HttpStatus.SEE_OTHER)
             .location(URI.create(path))
             .build();
+    }
+
+    private ResponseEntity<String> spaResponse(BookSeoMetadataService.SeoMetadata metadata,
+                                               String requestPath,
+                                               HttpStatus status) {
+        String html = bookSeoMetadataService.renderSpaShell(metadata, requestPath, status.value());
+        return ResponseEntity.status(status)
+            .contentType(MediaType.TEXT_HTML)
+            .body(html);
     }
 }

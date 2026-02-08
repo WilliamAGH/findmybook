@@ -8,10 +8,12 @@ import net.findmybook.model.Book;
 import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.model.image.CoverImages;
 import net.findmybook.model.image.ImageResolutionPreference;
+import net.findmybook.service.BookSeoMetadataService;
 import net.findmybook.service.BookDataOrchestrator;
 import net.findmybook.service.BookIdentifierResolver;
 import net.findmybook.service.BookSearchService;
 import net.findmybook.service.SearchPaginationService;
+import net.findmybook.service.image.LocalDiskCoverCacheService;
 import net.findmybook.util.cover.CoverUrlResolver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -55,7 +57,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
 
 @ExtendWith(MockitoExtension.class)
 class BookControllerTest {
@@ -149,6 +150,18 @@ class BookControllerTest {
             .andExpect(jsonPath("$.orderBy", equalTo("newest")))
             .andExpect(jsonPath("$.coverSource", equalTo("ANY")))
             .andExpect(jsonPath("$.resolution", equalTo("ANY")));
+    }
+
+    @Test
+    @DisplayName("GET /api/books/search returns 400 for unsupported orderBy values")
+    void searchBooks_rejectsUnsupportedOrderBy() throws Exception {
+        performAsync(get("/api/books/search")
+            .param("query", "Fixture")
+            .param("orderBy", "rating"))
+            .andExpect(status().isBadRequest())
+            .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+            .andExpect(jsonPath("$.error", equalTo("Invalid orderBy parameter")))
+            .andExpect(jsonPath("$.message", containsString("relevance")));
     }
 
     @Test
@@ -396,7 +409,9 @@ class BookControllerTest {
     @DisplayName("GET /error returns JSON with matching status for API clients")
     void errorDiagnostics_returnsJsonAndStatusForApiAcceptHeader() throws Exception {
         ErrorAttributes errorAttributes = Mockito.mock(ErrorAttributes.class);
-        ErrorDiagnosticsController controller = new ErrorDiagnosticsController(errorAttributes, false, false);
+        LocalDiskCoverCacheService localDiskCoverCacheService = Mockito.mock(LocalDiskCoverCacheService.class);
+        BookSeoMetadataService seoMetadataService = new BookSeoMetadataService(localDiskCoverCacheService);
+        ErrorDiagnosticsController controller = new ErrorDiagnosticsController(errorAttributes, seoMetadataService, false);
         MockMvc errorMvc = MockMvcBuilders.standaloneSetup(controller).build();
 
         Map<String, Object> attributes = new HashMap<>();
@@ -414,10 +429,12 @@ class BookControllerTest {
     }
 
     @Test
-    @DisplayName("GET /error returns 404 view with 404 status for HTML clients")
+    @DisplayName("GET /error returns 404 SPA shell with 404 status for HTML clients")
     void errorDiagnostics_returns404TemplateAndStatusForHtml() throws Exception {
         ErrorAttributes errorAttributes = Mockito.mock(ErrorAttributes.class);
-        ErrorDiagnosticsController controller = new ErrorDiagnosticsController(errorAttributes, false, false);
+        LocalDiskCoverCacheService localDiskCoverCacheService = Mockito.mock(LocalDiskCoverCacheService.class);
+        BookSeoMetadataService seoMetadataService = new BookSeoMetadataService(localDiskCoverCacheService);
+        ErrorDiagnosticsController controller = new ErrorDiagnosticsController(errorAttributes, seoMetadataService, false);
         MockMvc errorMvc = MockMvcBuilders.standaloneSetup(controller).build();
 
         Map<String, Object> attributes = new HashMap<>();
@@ -429,7 +446,8 @@ class BookControllerTest {
 
         errorMvc.perform(get("/error").accept(MediaType.TEXT_HTML))
             .andExpect(status().isNotFound())
-            .andExpect(view().name("error/404"));
+            .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+            .andExpect(content().string(containsString("Page Not Found - Book Finder")));
     }
 
     private Book buildBook(String id, String slug) {
