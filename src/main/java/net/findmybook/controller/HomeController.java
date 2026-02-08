@@ -38,7 +38,7 @@ public class HomeController extends SpaShellController {
 
     @GetMapping("/")
     public Mono<ResponseEntity<String>> home() {
-        return Mono.just(spaResponse(bookSeoMetadataService.homeMetadata(), "/", HttpStatus.OK));
+        return Mono.just(spaResponse(bookSeoMetadataService.homeMetadata(), HttpStatus.OK));
     }
 
     /** Canonicalizes year tokens from free-text queries before rendering. */
@@ -84,17 +84,17 @@ public class HomeController extends SpaShellController {
             }
         }
 
-        return Mono.just(spaResponse(bookSeoMetadataService.searchMetadata(), "/search", HttpStatus.OK));
+        return Mono.just(spaResponse(bookSeoMetadataService.searchMetadata(), HttpStatus.OK));
     }
 
     @GetMapping("/explore")
     public ResponseEntity<String> explore() {
-        return spaResponse(bookSeoMetadataService.exploreMetadata(), "/explore", HttpStatus.OK);
+        return spaResponse(bookSeoMetadataService.exploreMetadata(), HttpStatus.OK);
     }
 
     @GetMapping("/categories")
     public ResponseEntity<String> categories() {
-        return spaResponse(bookSeoMetadataService.categoriesMetadata(), "/categories", HttpStatus.OK);
+        return spaResponse(bookSeoMetadataService.categoriesMetadata(), HttpStatus.OK);
     }
 
 }
