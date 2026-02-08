@@ -179,12 +179,12 @@ public class CoverS3UploadCoordinator {
 
         if (details == null || !StringUtils.hasText(details.getStorageKey())) {
             s3UploadFailures.increment();
-            throw new IllegalStateException(
-                "S3 upload returned non-persistable details for book %s. storageKey='%s'"
-                    .formatted(bookId, details != null ? details.getStorageKey() : null));
+            logger.error("S3 upload returned non-persistable details for book {}. storageKey='{}'",
+                bookId,
+                details != null ? details.getStorageKey() : null);
+            return;
         }
 
-        s3UploadSuccesses.increment();
         CoverPersistenceService.PersistenceResult persistenceResult = coverPersistenceService.updateAfterS3Upload(
             bookUuid,
             new CoverPersistenceService.S3UploadResult(
@@ -197,10 +197,14 @@ public class CoverS3UploadCoordinator {
         );
 
         if (!persistenceResult.success()) {
-            throw new IllegalStateException(
-                "S3 upload metadata persistence reported unsuccessful status for book %s and key %s"
-                    .formatted(bookId, details.getStorageKey()));
+            s3UploadFailures.increment();
+            logger.error("S3 upload metadata persistence reported unsuccessful status for book {} and key {}",
+                bookId,
+                details.getStorageKey());
+            return;
         }
+
+        s3UploadSuccesses.increment();
     }
 
     private void handleUploadError(Throwable error, String bookId, Timer.Sample sample) {
