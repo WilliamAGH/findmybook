@@ -61,7 +61,12 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
      * instead of sending a request with the sentinel placeholder key.
      */
     public static boolean isAiConfigured() {
-        String key = System.getProperty("spring.ai.openai.api-key");
+        String key = firstText(
+            System.getProperty("AI_DEFAULT_OPENAI_API_KEY"),
+            System.getenv("AI_DEFAULT_OPENAI_API_KEY"),
+            System.getProperty("OPENAI_API_KEY"),
+            System.getenv("OPENAI_API_KEY")
+        );
         return StringUtils.hasText(key) && !AI_KEY_NOT_CONFIGURED.equals(key);
     }
 
@@ -75,7 +80,7 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
         loadDotEnvFile();
         disableNettyUnsafeAccess();
         normalizeDatasourceUrlFromEnv();
-        normalizeOpenAiConfig();
+        normalizeOpenAiSdkConfig();
         SpringApplication.run(BookRecommendationEngineApplication.class, args);
     }
 
@@ -180,66 +185,56 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
     }
 
     /**
-     * Normalizes Spring AI OpenAI environment variables to Spring properties.
-     * Sets placeholder key when no credentials are provided so the app can boot
-     * without OpenAI configured (the feature simply won't be available).
+     * Normalizes OpenAI SDK environment variables to deterministic system properties.
      *
-     * <p>Per Spring AI docs, only these properties are recognized:
-     * <ul>
-     *   <li>spring.ai.openai.api-key</li>
-     *   <li>spring.ai.openai.base-url</li>
-     *   <li>spring.ai.openai.chat.options.model</li>
-     * </ul>
+     * <p>Supports this precedence chain for each value:</p>
+     * <ol>
+     *   <li>already-set `AI_DEFAULT_*` system property</li>
+     *   <li>environment `AI_DEFAULT_*`</li>
+     *   <li>fallback legacy names (`OPENAI_*`)</li>
+     * </ol>
      */
-    private static void normalizeOpenAiConfig() {
+    private static void normalizeOpenAiSdkConfig() {
         try {
-            // Normalize API key from environment variable to Spring property
-            String openAiEnvKey = firstText(
-                System.getenv("SPRING_AI_OPENAI_API_KEY"),
-                System.getProperty("SPRING_AI_OPENAI_API_KEY")
+            String apiKey = firstText(
+                System.getProperty("AI_DEFAULT_OPENAI_API_KEY"),
+                System.getenv("AI_DEFAULT_OPENAI_API_KEY"),
+                System.getenv("OPENAI_API_KEY"),
+                System.getProperty("OPENAI_API_KEY")
             );
-
-            if (StringUtils.hasText(openAiEnvKey)
-                && !StringUtils.hasText(System.getProperty("spring.ai.openai.api-key"))) {
-                System.setProperty("spring.ai.openai.api-key", openAiEnvKey);
-            }
-
-            // Normalize base URL from environment variable to Spring property
             String baseUrl = firstText(
-                System.getenv("SPRING_AI_OPENAI_BASE_URL"),
-                System.getProperty("SPRING_AI_OPENAI_BASE_URL")
+                System.getProperty("AI_DEFAULT_OPENAI_BASE_URL"),
+                System.getenv("AI_DEFAULT_OPENAI_BASE_URL"),
+                System.getenv("OPENAI_BASE_URL"),
+                System.getProperty("OPENAI_BASE_URL")
             );
-            if (StringUtils.hasText(baseUrl)
-                && !StringUtils.hasText(System.getProperty("spring.ai.openai.base-url"))) {
-                System.setProperty("spring.ai.openai.base-url", baseUrl);
-            }
-
-            // Normalize model from environment variable to Spring property
             String model = firstText(
-                System.getenv("SPRING_AI_OPENAI_MODEL"),
-                System.getProperty("SPRING_AI_OPENAI_MODEL")
+                System.getProperty("AI_DEFAULT_LLM_MODEL"),
+                System.getenv("AI_DEFAULT_LLM_MODEL"),
+                System.getenv("OPENAI_MODEL"),
+                System.getProperty("OPENAI_MODEL")
             );
-            if (StringUtils.hasText(model)
-                && !StringUtils.hasText(System.getProperty("spring.ai.openai.chat.options.model"))) {
-                System.setProperty("spring.ai.openai.chat.options.model", model);
+
+            if (StringUtils.hasText(baseUrl) && !StringUtils.hasText(System.getProperty("AI_DEFAULT_OPENAI_BASE_URL"))) {
+                System.setProperty("AI_DEFAULT_OPENAI_BASE_URL", baseUrl);
+            }
+            if (StringUtils.hasText(model) && !StringUtils.hasText(System.getProperty("AI_DEFAULT_LLM_MODEL"))) {
+                System.setProperty("AI_DEFAULT_LLM_MODEL", model);
             }
 
-            boolean hasApiKey = StringUtils.hasText(firstText(
-                System.getProperty("spring.ai.openai.api-key"),
-                openAiEnvKey
-            ));
-
-            if (!hasApiKey) {
-                // Spring AI auto-configuration requires this property to exist.
-                // The sentinel value lets the app boot; runtime AI calls will check
-                // for this sentinel and throw immediately with a clear message.
-                System.setProperty("spring.ai.openai.api-key", AI_KEY_NOT_CONFIGURED);
-                log.error("[AI] No OpenAI API key configured. "
-                    + "Set SPRING_AI_OPENAI_API_KEY to enable AI features. "
-                    + "All AI operations will fail until a valid key is provided.");
+            if (StringUtils.hasText(apiKey)) {
+                if (!StringUtils.hasText(System.getProperty("AI_DEFAULT_OPENAI_API_KEY"))) {
+                    System.setProperty("AI_DEFAULT_OPENAI_API_KEY", apiKey);
+                }
+                return;
             }
+
+            System.setProperty("AI_DEFAULT_OPENAI_API_KEY", AI_KEY_NOT_CONFIGURED);
+            log.error("[AI] No OpenAI API key configured. "
+                + "Set AI_DEFAULT_OPENAI_API_KEY or OPENAI_API_KEY to enable AI features. "
+                + "AI generation endpoints will return errors until configured.");
         } catch (SecurityException e) {
-            log.warn("[AI] Unable to set OpenAI system properties due to security restrictions", e);
+            log.warn("[AI] Unable to set OpenAI SDK system properties due to security restrictions", e);
             throw e;
         }
     }

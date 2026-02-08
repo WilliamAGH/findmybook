@@ -7,7 +7,10 @@ Key variables in `.env`:
 | -------- | ------- |
 | `SERVER_PORT` | App server port |
 | `SPRING_DATASOURCE_*` | Database connection |
-| `SPRING_AI_OPENAI_API_KEY` | OpenAI integration |
+| `AI_DEFAULT_OPENAI_API_KEY` / `OPENAI_API_KEY` | OpenAI API key for AI generation |
+| `AI_DEFAULT_OPENAI_BASE_URL` / `OPENAI_BASE_URL` | OpenAI-compatible base URL (`https://api.openai.com/v1` by default) |
+| `AI_DEFAULT_LLM_MODEL` / `OPENAI_MODEL` | Default AI model for book analysis |
+| `AI_DEFAULT_MAX_PARALLEL` | Max concurrent outbound AI requests (queue executor cap) |
 | `GOOGLE_BOOKS_API_KEY` | Book data source |
 | `S3_*` | S3 storage (if used) |
 | `S3_WRITE_ENABLED` | Enables/disables S3 cover uploads at runtime (`false` skips upload attempts) |

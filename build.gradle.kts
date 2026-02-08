@@ -66,12 +66,8 @@ configurations {
 
 repositories {
     mavenCentral()
-    maven {
-        url = uri("https://repo.spring.io/milestone")
-    }
 }
 
-extra["springAiVersion"] = "2.0.0-M2"
 extra["testcontainersVersion"] = "2.0.3"
 extra["resilience4jVersion"] = "2.3.0"
 
@@ -89,8 +85,7 @@ dependencies {
     implementation("org.postgresql:postgresql")
     implementation("com.github.ben-manes.caffeine:caffeine")
 
-    implementation(platform("org.springframework.ai:spring-ai-bom:${property("springAiVersion")}"))
-    implementation("org.springframework.ai:spring-ai-starter-model-openai")
+    implementation("com.openai:openai-java:4.16.1")
 
     implementation("commons-io:commons-io:2.18.0")
     implementation("com.google.guava:guava:33.4.0-jre")
