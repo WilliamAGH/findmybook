@@ -23,8 +23,8 @@ CLI migration flags were removed from application startup. The runtime now fails
 Use manual SQL migration scripts and controlled data-loading steps instead of boot-time flags.
 
 - SQL migration assets: `frontend/scripts/backfill_cover_metadata.sql`, `migrations/`, and `src/main/resources/schema.sql`.
-- Schema module layout: `src/main/resources/schema.sql` is the orchestrator entrypoint and includes split modules such as `src/main/resources/schema/author-domain.sql`.
-- Data hygiene guardrails: `migrations/20260208_03_cleanup_author_name_prefixes_and_constraints.sql` and `migrations/20260208_04_cleanup_book_title_prefixes_and_constraints.sql` clean existing rows before adding non-blank + leading-character constraints for `authors.name` and `books.title`.
+- Schema module layout: `src/main/resources/schema.sql` is the orchestrator entrypoint and includes the ordered canonical modules under `migrations/` (`00_extensions.sql` through `40_book_ai_content.sql`).
+- Data hygiene guardrails are consolidated into canonical table migrations: `migrations/10_books.sql` (book title cleanup + constraints), `migrations/14_book_authors_join.sql` (author cleanup + join dedupe + constraints), `migrations/20_book_tag_assignments.sql` (tag/assignment canonicalization), and `migrations/38_work_clustering_data_hygiene.sql` (Google clustering hygiene rebuild).
 - Controlled data load: run the explicit migration tool directly:
   `node frontend/scripts/migrate-s3-to-db-v2.js --prefix books/v1/ --limit 1000`
 - Verification and rollback guidance: follow `docs/troubleshooting.md` and `docs/edition_clustering.md` after each batch.
