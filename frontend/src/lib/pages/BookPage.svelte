@@ -29,7 +29,9 @@
   let errorMessage = $state<string | null>(null);
   let book = $state<Book | null>(null);
   let similarBooks = $state<Book[]>([]);
+  let similarBooksFailed = $state(false);
   let affiliateLinks = $state<Record<string, string>>({});
+  let affiliateLinksFailed = $state(false);
   let liveCoverUrl = $state<string | null>(null);
   const fallbackCoverImage = "/images/placeholder-book-cover.svg";
   let detailCoverUrl = $state<string>(fallbackCoverImage);
@@ -60,12 +62,20 @@
       book = loadedBook;
       if (similarResult.status === "rejected") {
         console.error("Failed to load similar books for", identifier, similarResult.reason);
+        similarBooks = [];
+        similarBooksFailed = true;
+      } else {
+        similarBooks = similarResult.value;
+        similarBooksFailed = false;
       }
       if (linksResult.status === "rejected") {
         console.error("Failed to load affiliate links for", identifier, linksResult.reason);
+        affiliateLinks = {};
+        affiliateLinksFailed = true;
+      } else {
+        affiliateLinks = linksResult.value;
+        affiliateLinksFailed = false;
       }
-      similarBooks = similarResult.status === "fulfilled" ? similarResult.value : [];
-      affiliateLinks = linksResult.status === "fulfilled" ? linksResult.value : {};
       liveCoverUrl = null;
 
       const topicIdentifier = loadedBook.id;
@@ -92,7 +102,9 @@
       errorMessage = error instanceof Error ? error.message : "Unable to load this book";
       book = null;
       similarBooks = [];
+      similarBooksFailed = false;
       affiliateLinks = {};
+      affiliateLinksFailed = false;
     } finally {
       if (sequence === loadSequence) {
         loading = false;
@@ -297,14 +309,14 @@
 
           <BookCategories categories={book.categories} />
 
-          <BookAffiliateLinks links={affiliateLinks} />
+          <BookAffiliateLinks links={affiliateLinks} loadFailed={affiliateLinksFailed} />
         </div>
       </div>
     </article>
 
     <BookEditions editions={book.editions} />
 
-    <BookSimilarBooks books={similarBooks} />
+    <BookSimilarBooks books={similarBooks} loadFailed={similarBooksFailed} />
   {:else}
     <p class="text-sm text-anthracite-600 dark:text-slate-300">Book not found.</p>
   {/if}

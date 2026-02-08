@@ -11,7 +11,7 @@
     ExternalLink,
   } from "@lucide/svelte";
 
-  let { links }: { links: Record<string, string> } = $props();
+  let { links, loadFailed = false }: { links: Record<string, string>; loadFailed?: boolean } = $props();
 
   type AffiliateConfig = {
     label: string;
@@ -55,5 +55,10 @@
         </a>
       {/each}
     </div>
+  </div>
+{:else if loadFailed}
+  <div class="space-y-3">
+    <p class="text-sm font-medium text-anthracite-800 dark:text-slate-200">Buy or Preview</p>
+    <p class="text-sm text-anthracite-500 dark:text-slate-400">Unable to load purchase links.</p>
   </div>
 {/if}

@@ -6,7 +6,7 @@
   import BookCard, { type BookCardDisplay } from "$lib/components/BookCard.svelte";
   import type { Book } from "$lib/validation/schemas";
 
-  let { books }: { books: Book[] } = $props();
+  let { books, loadFailed = false }: { books: Book[]; loadFailed?: boolean } = $props();
 
   function toCard(item: Book): BookCardDisplay {
     return {
@@ -29,5 +29,10 @@
         <BookCard book={toCard(item)} href={`/book/${encodeURIComponent(item.slug ?? item.id)}`} />
       {/each}
     </div>
+  </section>
+{:else if loadFailed}
+  <section class="space-y-3">
+    <h2 class="text-xl font-semibold text-anthracite-900 dark:text-slate-100">Similar books</h2>
+    <p class="text-sm text-anthracite-500 dark:text-slate-400">Unable to load similar books.</p>
   </section>
 {/if}
