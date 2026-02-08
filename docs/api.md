@@ -9,6 +9,8 @@
   - `GET /api/books/authors/search?query={author}`
 - **Page API (Svelte SPA):**
   - `GET /api/pages/home`
+  - `GET /api/pages/routes`
+  - `GET /api/pages/meta?path={routePath}`
   - `GET /api/pages/sitemap?view={authors|books}&letter={A-Z|0-9}&page={n}`
   - `GET /api/pages/book/{identifier}/affiliate-links`
   - `GET /api/pages/categories/facets?limit={n}&minBooks={n}`
@@ -18,10 +20,11 @@
   - `query` (required)
   - `startIndex` (default `0`)
   - `maxResults` (default `12`)
-  - `orderBy` (`relevance`, `newest`, `title`, `author`, `rating`)
+  - `orderBy` (`relevance`, `newest`, `title`, `author`)
   - `publishedYear` (optional integer year filter)
   - `coverSource` (default `ANY`)
   - `resolution` (default `ANY`)
+- Unsupported `orderBy` values return `400 Bad Request`.
 - Response includes deterministic pagination metadata plus `queryHash` for realtime routing.
 - `GET /api/books/{identifier}` and search hit payloads include canonical description fields:
   - `description` (legacy string; retained for backward compatibility)
@@ -45,6 +48,20 @@
   - Home payload enforces cover-bearing cards only:
     - Placeholder/null-equivalent cover values are excluded from both arrays.
     - Entries with real cover images are returned first, preserving section order among valid covers.
+- `GET /api/pages/meta?path={routePath}`
+  - Query params:
+    - `path` (required route path, for example `/`, `/search`, `/book/the-hobbit`)
+  - Response fields:
+    - `title`, `description`, `canonicalUrl`, `keywords`, `ogImage`
+    - `statusCode` (semantic route status for head/error handling in SPA)
+- `GET /api/pages/routes`
+  - Response fields:
+    - `version: number`
+    - `publicRoutes: Array<{ name, matchType, pattern, paramNames, defaults, allowedQueryParams, canonicalPathTemplate }>`
+    - `passthroughPrefixes: string[]`
+  - Contract purpose:
+    - Defines route matching/canonical behavior once on the backend.
+    - The SPA router consumes the same manifest (embedded at shell render time and available from this endpoint).
 - `GET /api/pages/sitemap`
   - Query params:
     - `view` (`authors` or `books`, default `authors`)
@@ -83,8 +100,8 @@
   - Notes: `orderBy` accepts only `relevance` or `newest`; unsupported values must be normalized server-side.
 - **Open Library Search API**
   - Endpoint: `GET https://openlibrary.org/search.json`
-  - Required/important params: `q`, `mode=everything`, `limit`, `fields`
-  - Notes: backend search uses OpenLibrary web-style query semantics (`q` + `mode=everything`) with explicit fields (`key,title,author_name,isbn,cover_i,first_publish_year,subject,publisher,language`) to keep ranking consistent with direct Open Library search.
+  - Required/important params: `q`, `mode=everything`, `limit`, `fields`; optional `sort` facet when provider sorting is requested
+  - Notes: backend search uses OpenLibrary web-style query semantics (`q` + `mode=everything`) with explicit fields (`key,title,author_name,isbn,cover_i,first_publish_year,number_of_pages_median,subject,publisher,language,first_sentence`); `orderBy=newest` maps to Open Library `sort=new`, while unsupported provider sort facets are handled by backend re-sorting.
 - **Open Library Books API**
   - Endpoint: `GET https://openlibrary.org/api/books`
   - Required/important params: `bibkeys`, `format=json`, `jscmd=data|details`
