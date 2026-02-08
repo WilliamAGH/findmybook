@@ -47,6 +47,7 @@ public class BookAiController {
 
     private static final long SSE_TIMEOUT_MILLIS = Duration.ofMinutes(4).toMillis();
     private static final long QUEUE_POSITION_TICK_MILLIS = 350L;
+    private static final long KEEPALIVE_INTERVAL_MILLIS = 15_000L;
     private static final int AUTO_TRIGGER_QUEUE_THRESHOLD = 5;
     private static final int DEFAULT_GENERATION_PRIORITY = 0;
 
@@ -180,9 +181,21 @@ public class BookAiController {
             }
         }, QUEUE_POSITION_TICK_MILLIS, QUEUE_POSITION_TICK_MILLIS, TimeUnit.MILLISECONDS);
 
+        ScheduledFuture<?> keepaliveTicker = queueTickerExecutor.scheduleAtFixedRate(() -> {
+            if (streamClosed.get()) {
+                return;
+            }
+            try {
+                sendSseComment(emitter, "keepalive");
+            } catch (IllegalStateException keepaliveException) {
+                log.debug("Keepalive delivery failed: {}", keepaliveException.getMessage());
+            }
+        }, KEEPALIVE_INTERVAL_MILLIS, KEEPALIVE_INTERVAL_MILLIS, TimeUnit.MILLISECONDS);
+
         Runnable cancelPendingIfOpen = () -> {
             if (streamClosed.compareAndSet(false, true)) {
                 queueTicker.cancel(true);
+                keepaliveTicker.cancel(true);
                 requestQueue.cancelPending(queuedTask.id());
             }
         };
@@ -218,6 +231,7 @@ public class BookAiController {
 
         queuedTask.result().whenComplete((result, throwable) -> {
             queueTicker.cancel(true);
+            keepaliveTicker.cancel(true);
             if (!streamClosed.compareAndSet(false, true)) {
                 return;
             }
@@ -300,6 +314,16 @@ public class BookAiController {
                 emitter.send(SseEmitter.event().name(eventName).data(payload));
             } catch (IOException ioException) {
                 throw new IllegalStateException("SSE send failed for event: " + eventName, ioException);
+            }
+        }
+    }
+
+    private void sendSseComment(SseEmitter emitter, String comment) {
+        synchronized (emitter) {
+            try {
+                emitter.send(SseEmitter.event().comment(comment));
+            } catch (IOException ioException) {
+                throw new IllegalStateException("SSE comment send failed", ioException);
             }
         }
     }

@@ -143,4 +143,39 @@ class BookAiControllerTest {
         assertThat(responseBody).contains("AI queue is currently busy");
         verify(requestQueue, never()).enqueue(anyInt(), any());
     }
+
+    @Test
+    @DisplayName("POST stream returns error event when book identifier not found")
+    void streamAnalysis_returnsError_WhenBookNotFound() throws Exception {
+        when(analysisService.resolveBookId("unknown-slug")).thenReturn(Optional.empty());
+
+        String responseBody = mockMvc.perform(post("/api/books/unknown-slug/ai/analysis/stream"))
+            .andExpect(status().isOk())
+            .andExpect(content().contentType("text/event-stream"))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+        assertThat(responseBody).contains("event:error");
+        assertThat(responseBody).contains("Book not found");
+    }
+
+    @Test
+    @DisplayName("POST stream returns error event when AI service not available")
+    void streamAnalysis_returnsError_WhenServiceNotAvailable() throws Exception {
+        UUID bookId = UUID.randomUUID();
+        when(analysisService.resolveBookId("slug")).thenReturn(Optional.of(bookId));
+        when(analysisService.findCurrent(bookId)).thenReturn(Optional.empty());
+        when(analysisService.isAvailable()).thenReturn(false);
+
+        String responseBody = mockMvc.perform(post("/api/books/slug/ai/analysis/stream"))
+            .andExpect(status().isOk())
+            .andExpect(content().contentType("text/event-stream"))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+        assertThat(responseBody).contains("event:error");
+        assertThat(responseBody).contains("not configured");
+    }
 }
