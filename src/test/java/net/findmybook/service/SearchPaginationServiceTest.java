@@ -624,7 +624,7 @@ class SearchPaginationServiceTest {
 
         assertThat(page).isNotNull();
         assertThat(page.pageItems()).extracting(Book::getId)
-            .containsExactly(postgresCovered.toString(), postgresSuppressed.toString(), "OL-OPEN-1");
+            .containsExactly(postgresSuppressed.toString(), postgresCovered.toString(), "OL-OPEN-1");
         verify(eventPublisher, timeout(300).times(0)).publishEvent(any());
         verifyNoInteractions(googleApiFetcher);
     }
