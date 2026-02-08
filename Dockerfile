@@ -9,11 +9,13 @@ WORKDIR /app
 
 # 0. Install Node.js for frontend build
 # Using NodeSource to get Node.js 22.x (required by Vite/Svelte)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates gnupg \
-    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/*
+RUN set -eux; \
+    apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates gnupg; \
+    curl -fsSL https://deb.nodesource.com/setup_22.x -o /tmp/nodesource_setup.sh; \
+    bash /tmp/nodesource_setup.sh; \
+    apt-get install -y --no-install-recommends nodejs; \
+    rm -rf /var/lib/apt/lists/* /tmp/nodesource_setup.sh
 
 # 1. Gradle wrapper & configuration (rarely changes)
 COPY gradlew .
