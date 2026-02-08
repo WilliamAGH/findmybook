@@ -45,7 +45,7 @@
     - `model: string | null`
     - `provider: string | null`
 
-## Book AI Streaming Contract
+## Book AI Content Streaming Contract
 - `GET /api/books/ai/content/queue`
   - Response fields:
     - `running: number`
