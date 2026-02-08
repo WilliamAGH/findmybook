@@ -1,25 +1,13 @@
 <script lang="ts">
   import type { RouteName } from "$lib/router/router";
   import { navigate } from "$lib/router/router";
-  import { themeMode, toggleTheme } from "$lib/stores/theme";
-  import type { ResolvedTheme } from "$lib/stores/theme";
-  import { Home, Search, BookOpen, Moon, Sun, Menu, X } from "@lucide/svelte";
+  import { Home, Search, BookOpen, Menu, X } from "@lucide/svelte";
+  import ThemeToggle from "$lib/components/ThemeToggle.svelte";
 
   let { activeRoute }: { activeRoute: RouteName } = $props();
 
   let quickQuery = $state("");
   let mobileOpen = $state(false);
-  let currentTheme = $state<ResolvedTheme>("light");
-
-  const unsubscribe = themeMode.subscribe((value) => {
-    currentTheme = value;
-  });
-
-  $effect(() => {
-    return () => {
-      unsubscribe();
-    };
-  });
 
   function submitQuickSearch(event: SubmitEvent): void {
     event.preventDefault();
@@ -29,14 +17,6 @@
     }
     mobileOpen = false;
     navigate(`/search?query=${encodeURIComponent(trimmed)}`);
-  }
-
-  function handleToggleTheme(): void {
-    void toggleTheme();
-  }
-
-  function themeToggleHelperText(): string {
-    return currentTheme === "light" ? "Switch to dark mode" : "Switch to light mode";
   }
 
   type NavItem = { href: string; route: RouteName | "explore"; label: string };
@@ -105,40 +85,12 @@
 
     <!-- Theme Toggle (RIGHT) — fixed width matching logo -->
     <div class="hidden w-[200px] shrink-0 justify-end lg:flex">
-      <button
-        type="button"
-        onclick={handleToggleTheme}
-        class="group inline-flex items-center justify-center rounded-md p-2 text-anthracite-700 dark:text-slate-400 transition-all duration-200 hover:text-anthracite-800 dark:hover:text-slate-50 hover:bg-canvas-400/8 dark:hover:bg-slate-700/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-canvas-400"
-        title={themeToggleHelperText()}
-        aria-label={themeToggleHelperText()}
-      >
-        {#if currentTheme === "light"}
-          <Sun size={18} class="block group-hover:hidden" />
-          <Moon size={18} class="hidden group-hover:block" />
-        {:else}
-          <Moon size={18} class="block group-hover:hidden" />
-          <Sun size={18} class="hidden group-hover:block" />
-        {/if}
-      </button>
+      <ThemeToggle />
     </div>
 
     <!-- Mobile Controls (RIGHT) -->
     <div class="ml-auto flex items-center gap-1.5 lg:hidden">
-      <button
-        type="button"
-        onclick={handleToggleTheme}
-        class="group inline-flex items-center justify-center rounded-md p-2 text-anthracite-700 dark:text-slate-400 transition hover:bg-canvas-400/8 dark:hover:bg-slate-700/50"
-        title={themeToggleHelperText()}
-        aria-label={themeToggleHelperText()}
-      >
-        {#if currentTheme === "light"}
-          <Sun size={18} class="block group-hover:hidden" />
-          <Moon size={18} class="hidden group-hover:block" />
-        {:else}
-          <Moon size={18} class="block group-hover:hidden" />
-          <Sun size={18} class="hidden group-hover:block" />
-        {/if}
-      </button>
+      <ThemeToggle />
 
       <button
         type="button"
