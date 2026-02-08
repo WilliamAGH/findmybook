@@ -4,6 +4,7 @@ set -euo pipefail
 readonly ALL_USERS_URI="http://acs.amazonaws.com/groups/global/AllUsers"
 readonly DEFAULT_SCOPE="all"
 readonly DEFAULT_PROGRESS_EVERY=100
+readonly CONSECUTIVE_ERROR_LIMIT=5
 
 print_usage() {
   cat <<'USAGE'
@@ -202,6 +203,7 @@ main() {
   local updated=0
   local would_update=0
   local errors=0
+  local consecutive_errors=0
   local processed_page_keys=0
 
   echo "Repairing S3 object ACLs to public-read..."
@@ -245,13 +247,22 @@ main() {
         echo "progress matched=$checked alreadyPublic=$already_public updated=$updated wouldUpdate=$would_update errors=$errors lastKey=$key"
       fi
 
-      local acl_json
-      acl_json="$(AWS_PAGER="" aws s3api get-object-acl --bucket "$S3_BUCKET" --key "$key" "${endpoint_args[@]}" --output json 2>/dev/null || true)"
+      local acl_json acl_stderr
+      acl_stderr="$(mktemp)"
+      acl_json="$(AWS_PAGER="" aws s3api get-object-acl --bucket "$S3_BUCKET" --key "$key" "${endpoint_args[@]}" --output json 2>"$acl_stderr")" || true
       if [[ -z "$acl_json" ]]; then
         errors=$((errors + 1))
-        echo "ERROR: [$checked] Failed to read ACL for key '$key'"
+        consecutive_errors=$((consecutive_errors + 1))
+        error "[$checked] Failed to read ACL for key '$key': $(cat "$acl_stderr")"
+        rm -f "$acl_stderr"
+        if (( consecutive_errors >= CONSECUTIVE_ERROR_LIMIT )); then
+          error "Halting: $CONSECUTIVE_ERROR_LIMIT consecutive failures indicate a systemic problem (credentials, network, permissions)."
+          exit 1
+        fi
         continue
       fi
+      rm -f "$acl_stderr"
+      consecutive_errors=0
 
       if printf "%s" "$acl_json" | jq -e --arg uri "$ALL_USERS_URI" '.Grants[]? | select(.Permission == "READ" and .Grantee.Type == "Group" and .Grantee.URI == $uri)' >/dev/null; then
         already_public=$((already_public + 1))
@@ -264,14 +275,24 @@ main() {
           echo "DRY-RUN: [$checked] Would set public-read ACL for key '$key'"
         fi
       else
-        if AWS_PAGER="" aws s3api put-object-acl --bucket "$S3_BUCKET" --key "$key" --acl public-read "${endpoint_args[@]}" >/dev/null 2>&1; then
+        local put_stderr
+        put_stderr="$(mktemp)"
+        if AWS_PAGER="" aws s3api put-object-acl --bucket "$S3_BUCKET" --key "$key" --acl public-read "${endpoint_args[@]}" >/dev/null 2>"$put_stderr"; then
           updated=$((updated + 1))
+          consecutive_errors=0
+          rm -f "$put_stderr"
           if [[ "$verbose" == "true" ]]; then
             echo "UPDATED: [$checked] Set public-read ACL for key '$key'"
           fi
         else
           errors=$((errors + 1))
-          echo "ERROR: [$checked] Failed to set ACL for key '$key'"
+          consecutive_errors=$((consecutive_errors + 1))
+          error "[$checked] Failed to set ACL for key '$key': $(cat "$put_stderr")"
+          rm -f "$put_stderr"
+          if (( consecutive_errors >= CONSECUTIVE_ERROR_LIMIT )); then
+            error "Halting: $CONSECUTIVE_ERROR_LIMIT consecutive failures indicate a systemic problem (credentials, network, permissions)."
+            exit 1
+          fi
         fi
       fi
     done
