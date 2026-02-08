@@ -284,7 +284,9 @@ class BookControllerTest {
             new BookAiAnalysis(
                 "A compact summary.",
                 "Best for readers who want practical guidance.",
-                List.of("Theme one", "Theme two")
+                List.of("Theme one", "Theme two"),
+                List.of("Key insight one"),
+                "Sits within the productivity genre."
             )
         );
         when(bookAiAnalysisService.findCurrent(UUID.fromString(fixtureBook.getId())))

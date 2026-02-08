@@ -43,7 +43,7 @@ class BookAiAnalysisRepositoryTest {
     @Test
     void insertNewCurrentVersion_CreatesFirstVersion() {
         UUID bookId = createBook();
-        BookAiAnalysis analysis = new BookAiAnalysis("Summary", "Fit", List.of("Theme1"));
+        BookAiAnalysis analysis = new BookAiAnalysis("Summary", "Fit", List.of("Theme1"), List.of("Point1"), "Context.");
 
         BookAiSnapshot snapshot = repository.insertNewCurrentVersion(
             bookId, analysis, "gpt-model", "openai", "hash123"
@@ -57,8 +57,8 @@ class BookAiAnalysisRepositoryTest {
     @Test
     void insertNewCurrentVersion_IncrementsVersion_AndUpdatesCurrentFlag() {
         UUID bookId = createBook();
-        BookAiAnalysis a1 = new BookAiAnalysis("Old", "Fit", List.of("T1"));
-        BookAiAnalysis a2 = new BookAiAnalysis("New", "Fit", List.of("T2"));
+        BookAiAnalysis a1 = new BookAiAnalysis("Old", "Fit", List.of("T1"), null, null);
+        BookAiAnalysis a2 = new BookAiAnalysis("New", "Fit", List.of("T2"), List.of("P1"), "Ctx");
 
         repository.insertNewCurrentVersion(bookId, a1, "m1", "p1", "h1");
         BookAiSnapshot s2 = repository.insertNewCurrentVersion(bookId, a2, "m2", "p2", "h2");
@@ -68,7 +68,7 @@ class BookAiAnalysisRepositoryTest {
 
         // Verify version 1 is no longer current
         Boolean v1Current = jdbcTemplate.queryForObject(
-            "SELECT is_current FROM book_ai_analysis_versions WHERE book_id = ? AND version_number = 1",
+            "SELECT is_current FROM book_ai_content WHERE book_id = ? AND version_number = 1",
             Boolean.class, bookId
         );
         assertThat(v1Current).isFalse();
@@ -77,7 +77,7 @@ class BookAiAnalysisRepositoryTest {
     @Test
     void fetchCurrent_ReturnsLatestCurrent() {
         UUID bookId = createBook();
-        BookAiAnalysis analysis = new BookAiAnalysis("Summary", "Fit", List.of("Theme1"));
+        BookAiAnalysis analysis = new BookAiAnalysis("Summary", "Fit", List.of("Theme1"), List.of("Point1"), "Context.");
         repository.insertNewCurrentVersion(bookId, analysis, "m1", "p1", "h1");
 
         assertThat(repository.fetchCurrent(bookId)).isPresent();

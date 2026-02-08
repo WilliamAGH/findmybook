@@ -18,8 +18,8 @@ import tools.jackson.databind.ObjectMapper;
 /**
  * Postgres adapter for versioned book AI analysis records.
  *
- * <p>This adapter owns all SQL for the {@code book_ai_analysis_versions} table so
- * service-layer orchestration can remain persistence-agnostic.</p>
+ * <p>Owns all SQL for the {@code book_ai_content} table so service-layer
+ * orchestration remains persistence-agnostic.</p>
  */
 @Repository
 public class BookAiAnalysisRepository {
@@ -48,7 +48,7 @@ public class BookAiAnalysisRepository {
 
         String sql = """
             SELECT version_number, created_at, model, provider, analysis_json
-            FROM book_ai_analysis_versions
+            FROM book_ai_content
             WHERE book_id = ? AND is_current = true
             ORDER BY version_number DESC
             LIMIT 1
@@ -94,18 +94,20 @@ public class BookAiAnalysisRepository {
         int nextVersion = resolveNextVersion(bookId);
         String rowId = IdGenerator.generateLong();
         String analysisJson = serializeAnalysis(analysis);
-        String keyThemesJson = serializeKeyThemes(analysis);
+        String keyThemesJson = serializeStringList(analysis.keyThemes());
+        String takeawaysJson = serializeStringList(analysis.takeaways());
 
         jdbcTemplate.update(
-            "UPDATE book_ai_analysis_versions SET is_current = false WHERE book_id = ? AND is_current = true",
+            "UPDATE book_ai_content SET is_current = false WHERE book_id = ? AND is_current = true",
             bookId
         );
 
         String insertSql = """
-            INSERT INTO book_ai_analysis_versions
+            INSERT INTO book_ai_content
               (id, book_id, version_number, is_current, analysis_json, summary, reader_fit, key_themes,
-               model, provider, prompt_hash, created_at)
-            VALUES (?, ?, ?, true, CAST(? AS jsonb), ?, ?, CAST(? AS jsonb), ?, ?, ?, NOW())
+               takeaways, context, model, provider, prompt_hash, created_at)
+            VALUES (?, ?, ?, true, CAST(? AS jsonb), ?, ?, CAST(? AS jsonb),
+                    CAST(? AS jsonb), ?, ?, ?, ?, NOW())
             """;
 
         jdbcTemplate.update(
@@ -117,6 +119,8 @@ public class BookAiAnalysisRepository {
             analysis.summary(),
             analysis.readerFit(),
             keyThemesJson,
+            takeawaysJson,
+            analysis.context(),
             model,
             provider,
             promptHash
@@ -128,7 +132,7 @@ public class BookAiAnalysisRepository {
 
     private int resolveNextVersion(UUID bookId) {
         Integer version = jdbcTemplate.queryForObject(
-            "SELECT COALESCE(MAX(version_number), 0) + 1 FROM book_ai_analysis_versions WHERE book_id = ?",
+            "SELECT COALESCE(MAX(version_number), 0) + 1 FROM book_ai_content WHERE book_id = ?",
             Integer.class,
             bookId
         );
@@ -146,11 +150,14 @@ public class BookAiAnalysisRepository {
         }
     }
 
-    private String serializeKeyThemes(BookAiAnalysis analysis) {
+    private String serializeStringList(java.util.List<String> values) {
+        if (values == null) {
+            return null;
+        }
         try {
-            return objectMapper.writeValueAsString(analysis.keyThemes());
+            return objectMapper.writeValueAsString(values);
         } catch (JacksonException ex) {
-            throw new IllegalStateException("Failed to serialize AI key themes", ex);
+            throw new IllegalStateException("Failed to serialize AI string list", ex);
         }
     }
 

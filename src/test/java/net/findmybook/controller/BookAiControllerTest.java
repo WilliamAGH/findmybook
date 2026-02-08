@@ -86,7 +86,9 @@ class BookAiControllerTest {
                 new BookAiAnalysis(
                     "Short summary",
                     "Great for pragmatic readers",
-                    List.of("Theme one", "Theme two")
+                    List.of("Theme one", "Theme two"),
+                    List.of("Insight one", "Insight two"),
+                    "Placed in the self-help genre."
                 )
             )
         ));

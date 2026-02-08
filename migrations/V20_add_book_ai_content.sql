@@ -2,11 +2,11 @@
 -- BOOK AI ANALYSIS VERSIONING MIGRATION
 -- ============================================================================
 
--- Table: book_ai_analysis_versions
--- Stores versioned AI-generated "Reader Fit Snapshot" content per book.
+-- Table: book_ai_content
+-- Stores versioned AI-generated analysis content per book.
 -- Includes canonical JSON payload, parsed summary/reader_fit/themes, and model metadata.
 
-create table if not exists book_ai_analysis_versions (
+create table if not exists book_ai_content (
   id text primary key, -- NanoID (12 chars via IdGenerator.generateLong())
   book_id uuid not null references books(id) on delete cascade,
   version_number integer not null check (version_number > 0),
@@ -23,16 +23,16 @@ create table if not exists book_ai_analysis_versions (
 );
 
 -- Partial index to enforce only one current version per book
-create unique index if not exists uq_book_ai_analysis_versions_current
-  on book_ai_analysis_versions(book_id)
+create unique index if not exists uq_book_ai_content_current
+  on book_ai_content(book_id)
   where is_current;
 
 -- Index for history lookup
-create index if not exists idx_book_ai_analysis_versions_book_created
-  on book_ai_analysis_versions(book_id, created_at desc);
+create index if not exists idx_book_ai_content_book_created
+  on book_ai_content(book_id, created_at desc);
 
 -- Comments
-comment on table book_ai_analysis_versions is 'Versioned AI-generated book analysis snapshots with single current version per book';
-comment on column book_ai_analysis_versions.analysis_json is 'Canonical JSON payload returned by the AI model';
-comment on column book_ai_analysis_versions.reader_fit is 'Who should read this book and why';
-comment on column book_ai_analysis_versions.key_themes is 'JSON array of short key-theme strings';
+comment on table book_ai_content is 'Versioned AI-generated book analysis snapshots with single current version per book';
+comment on column book_ai_content.analysis_json is 'Canonical JSON payload returned by the AI model';
+comment on column book_ai_content.reader_fit is 'Who should read this book and why';
+comment on column book_ai_content.key_themes is 'JSON array of short key-theme strings';

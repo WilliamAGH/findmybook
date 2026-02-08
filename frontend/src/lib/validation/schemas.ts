@@ -57,6 +57,8 @@ export const BookAiSnapshotSchema = z.object({
   summary: z.string(),
   readerFit: z.string(),
   keyThemes: z.array(z.string()).optional().default([]),
+  takeaways: z.array(z.string()).nullable().optional(),
+  context: z.string().nullable().optional(),
   version: z.number().int().nullable().optional(),
   generatedAt: z.string().datetime().nullable().optional(),
   model: z.string().nullable().optional(),

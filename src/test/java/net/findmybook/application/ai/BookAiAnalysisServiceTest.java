@@ -101,7 +101,10 @@ class BookAiAnalysisServiceTest {
 
     @Test
     void toDto_MapsAllFields() {
-        BookAiAnalysis analysis = new BookAiAnalysis("Summary", "Fit", List.of("T1", "T2"));
+        BookAiAnalysis analysis = new BookAiAnalysis(
+            "Summary", "Fit", List.of("T1", "T2"),
+            List.of("Takeaway A", "Takeaway B"), "A context sentence."
+        );
         BookAiSnapshot snapshot = new BookAiSnapshot(
             UUID.randomUUID(), 3, Instant.parse("2026-02-08T12:00:00Z"), "gpt-5", "openai", analysis
         );
@@ -111,6 +114,8 @@ class BookAiAnalysisServiceTest {
         assertThat(dto.summary()).isEqualTo("Summary");
         assertThat(dto.readerFit()).isEqualTo("Fit");
         assertThat(dto.keyThemes()).containsExactly("T1", "T2");
+        assertThat(dto.takeaways()).containsExactly("Takeaway A", "Takeaway B");
+        assertThat(dto.context()).isEqualTo("A context sentence.");
         assertThat(dto.version()).isEqualTo(3);
         assertThat(dto.model()).isEqualTo("gpt-5");
         assertThat(dto.provider()).isEqualTo("openai");
@@ -119,7 +124,7 @@ class BookAiAnalysisServiceTest {
     @Test
     void findCurrent_DelegatesToRepository() {
         UUID bookId = UUID.randomUUID();
-        BookAiAnalysis analysis = new BookAiAnalysis("S", "F", List.of("T"));
+        BookAiAnalysis analysis = new BookAiAnalysis("S", "F", List.of("T"), null, null);
         BookAiSnapshot snapshot = new BookAiSnapshot(bookId, 1, Instant.now(), "m", "p", analysis);
         when(repository.fetchCurrent(bookId)).thenReturn(Optional.of(snapshot));
 

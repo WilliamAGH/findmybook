@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { Sparkles, RefreshCw } from "@lucide/svelte";
+  import { ChevronDown, RefreshCw } from "@lucide/svelte";
   import { streamBookAiAnalysis } from "$lib/services/bookAiStream";
   import { getBookAiQueueStats } from "$lib/services/books";
   import type { Book, BookAiModelStreamUpdate, BookAiQueueUpdate, BookAiSnapshot } from "$lib/validation/schemas";
@@ -14,31 +14,42 @@
   let { identifier, book, onAnalysisUpdate }: Props = $props();
 
   const AI_AUTO_TRIGGER_QUEUE_THRESHOLD = 5;
+  const COLLAPSE_STORAGE_KEY = "findmybook:ai-collapsed";
 
   let aiLoading = $state(false);
   let aiErrorMessage = $state<string | null>(null);
   let aiQueueMessage = $state<string | null>(null);
-  let aiStreamingText = $state("");
-  let aiLoadingMessage = $state("Generating reader-fit snapshot...");
+  let aiLoadingMessage = $state("Generating analysis...");
   let aiAutoTriggerDeferred = $state(false);
+  let collapsed = $state(false);
   let aiAbortController: AbortController | null = null;
 
-  function formatAiGeneratedAt(value: string | null | undefined): string {
-    if (!value) {
-      return "Unknown";
+  function readCollapseState(): boolean {
+    try {
+      return localStorage.getItem(COLLAPSE_STORAGE_KEY) === "true";
+    } catch {
+      return false;
     }
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) {
-      return value;
+  }
+
+  function writeCollapseState(value: boolean): void {
+    try {
+      localStorage.setItem(COLLAPSE_STORAGE_KEY, String(value));
+    } catch {
+      /* localStorage unavailable */
     }
-    return parsed.toLocaleString();
+  }
+
+  function toggleCollapsed(): void {
+    collapsed = !collapsed;
+    writeCollapseState(collapsed);
   }
 
   function handleAiQueueUpdate(update: BookAiQueueUpdate): void {
     if (update.event === "queued" || update.event === "queue") {
       aiQueueMessage = update.position
-        ? `Queued for AI generation (position ${update.position})`
-        : "Queued for AI generation";
+        ? `Queued (position ${update.position})`
+        : "Queued for generation";
       return;
     }
     aiQueueMessage = null;
@@ -46,16 +57,14 @@
 
   function handleAiStreamEvent(event: BookAiModelStreamUpdate): void {
     if (event.event === "message_start") {
-      aiStreamingText = "";
-      aiLoadingMessage = "AI is generating a fresh snapshot...";
+      aiLoadingMessage = "Generating analysis...";
       return;
     }
     if (event.event === "message_delta") {
-      aiStreamingText += event.data.delta;
       return;
     }
     if (event.event === "message_done") {
-      aiStreamingText = event.data.message;
+      /* noop — result arrives via the resolved promise */
     }
   }
 
@@ -66,7 +75,7 @@
         aiQueueMessage = `Queue busy (${queueStats.pending} waiting)`;
         aiAutoTriggerDeferred = !refresh;
         if (refresh) {
-          aiErrorMessage = "AI queue is busy right now. Please try refresh again shortly.";
+          aiErrorMessage = "Queue is busy right now. Try again shortly.";
         }
         return false;
       }
@@ -74,7 +83,7 @@
     } catch (queueError) {
       const message = queueError instanceof Error
         ? queueError.message
-        : "Unable to check AI queue status";
+        : "Unable to check queue status";
       aiErrorMessage = message;
       aiAutoTriggerDeferred = false;
       return false;
@@ -98,10 +107,9 @@
     aiLoading = true;
     aiErrorMessage = null;
     aiQueueMessage = null;
-    aiStreamingText = "";
     aiLoadingMessage = refresh
-      ? "Refreshing reader-fit snapshot..."
-      : "Generating reader-fit snapshot...";
+      ? "Refreshing analysis..."
+      : "Generating analysis...";
 
     try {
       const result = await streamBookAiAnalysis(identifier, {
@@ -112,15 +120,14 @@
       });
 
       onAnalysisUpdate(result.analysis);
-      
+
       aiQueueMessage = null;
       aiErrorMessage = null;
-      aiStreamingText = "";
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
         return;
       }
-      aiErrorMessage = error instanceof Error ? error.message : "Unable to generate AI snapshot";
+      aiErrorMessage = error instanceof Error ? error.message : "Unable to generate analysis";
       console.error("Book AI analysis failed:", error);
     } finally {
       aiLoading = false;
@@ -128,9 +135,8 @@
   }
 
   onMount(() => {
-    // Auto-trigger only after the parent has finished loading the book (book.ai is hydrated
-    // from Postgres on the initial GET /api/books/{id} call, so if the field is null here
-    // the book genuinely has no cached analysis yet).
+    collapsed = readCollapseState();
+
     const autoTriggerDelay = setTimeout(() => {
       if (!book.ai && !aiLoading && !aiAutoTriggerDeferred) {
         void triggerAiGeneration(false);
@@ -144,57 +150,119 @@
   });
 </script>
 
-<section class="rounded-xl border border-linen-200 bg-linen-50/60 p-4 dark:border-slate-700 dark:bg-slate-900/60">
-  <div class="mb-2 flex items-center justify-between gap-3">
-    <h2 class="inline-flex items-center gap-2 text-sm font-semibold text-anthracite-900 dark:text-slate-100">
-      <Sparkles size={16} class="text-canvas-500" />
-      Reader Fit Snapshot
-    </h2>
+<section class="rounded-xl border border-linen-200 bg-linen-50/60 dark:border-slate-700 dark:bg-slate-900/60">
+  <!-- Header toggle row -->
+  <div class="flex items-center justify-between gap-3 px-4 py-3">
     <button
       type="button"
-      class="inline-flex items-center gap-1 rounded-md border border-linen-300 px-2.5 py-1 text-xs font-medium text-anthracite-700 transition hover:bg-linen-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+      class="inline-flex items-center gap-1.5 text-sm font-medium text-anthracite-700 transition hover:text-anthracite-900 dark:text-slate-300 dark:hover:text-slate-100"
+      onclick={toggleCollapsed}
+      aria-expanded={!collapsed}
+    >
+      <ChevronDown
+        size={14}
+        class="shrink-0 transition-transform duration-200 {collapsed ? '-rotate-90' : ''}"
+      />
+      Book analysis
+    </button>
+    <button
+      type="button"
+      class="inline-flex items-center justify-center rounded-md p-1 text-anthracite-500 transition hover:bg-linen-100 hover:text-anthracite-700 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
       disabled={aiLoading}
       onclick={() => triggerAiGeneration(true)}
+      title="Refresh"
+      aria-label="Refresh"
     >
-      <RefreshCw size={13} class={aiLoading ? "animate-spin" : ""} />
-      Refresh
+      <RefreshCw size={14} class={aiLoading ? "animate-spin" : ""} />
     </button>
   </div>
 
-  {#if book.ai}
-    <p class="text-sm leading-relaxed text-anthracite-800 dark:text-slate-200">{book.ai.summary}</p>
-    <p class="mt-2 text-xs text-anthracite-700 dark:text-slate-300">{book.ai.readerFit}</p>
-    {#if book.ai.keyThemes.length > 0}
-      <div class="mt-3 flex flex-wrap gap-1.5">
-        {#each book.ai.keyThemes as theme}
-          <span class="rounded-full border border-linen-300 px-2 py-0.5 text-[11px] text-anthracite-700 dark:border-slate-600 dark:text-slate-300">
-            {theme}
-          </span>
-        {/each}
-      </div>
-    {/if}
-    <p class="mt-3 text-[11px] text-anthracite-500 dark:text-slate-400">
-      Version {book.ai.version ?? "?"}
-      • {book.ai.model ?? "Unknown model"}
-      • {formatAiGeneratedAt(book.ai.generatedAt)}
-    </p>
-  {:else if aiLoading}
-    <p class="text-sm text-anthracite-700 dark:text-slate-300">{aiLoadingMessage}</p>
-    {#if aiQueueMessage}
-      <p class="mt-2 text-xs text-anthracite-500 dark:text-slate-400">{aiQueueMessage}</p>
-    {/if}
-    {#if aiStreamingText}
-      <p class="mt-2 whitespace-pre-wrap text-xs text-anthracite-600 dark:text-slate-300">{aiStreamingText}</p>
-    {/if}
-  {:else if aiAutoTriggerDeferred}
-    <p class="text-xs text-anthracite-600 dark:text-slate-300">
-      AI generation is temporarily paused while the site-wide queue is busy.
-    </p>
-  {:else if aiErrorMessage}
-    <p class="text-xs text-red-700 dark:text-red-300">{aiErrorMessage}</p>
-  {:else}
-    <p class="text-xs text-anthracite-600 dark:text-slate-300">
-      Generate a concise AI snapshot of who this book is best for.
-    </p>
+  <!-- Collapsible body -->
+  {#if !collapsed}
+    <div class="border-t border-linen-200 px-4 pb-4 pt-3 dark:border-slate-700">
+      {#if book.ai}
+        <!-- Summary -->
+        <p class="text-sm leading-relaxed text-anthracite-800 dark:text-slate-200">
+          {book.ai.summary}
+        </p>
+
+        <!-- Key Points -->
+        {#if book.ai.takeaways && book.ai.takeaways.length > 0}
+          <div class="mt-3">
+            <h3 class="mb-1.5 text-xs font-semibold uppercase tracking-wide text-anthracite-500 dark:text-slate-400">
+              Key Points
+            </h3>
+            <ul class="space-y-1 pl-4">
+              {#each book.ai.takeaways as point}
+                <li class="list-disc text-sm text-anthracite-700 dark:text-slate-300">{point}</li>
+              {/each}
+            </ul>
+          </div>
+        {/if}
+
+        <!-- Audience -->
+        <div class="mt-3">
+          <h3 class="mb-1 text-xs font-semibold uppercase tracking-wide text-anthracite-500 dark:text-slate-400">
+            Audience
+          </h3>
+          <p class="text-sm text-anthracite-700 dark:text-slate-300">{book.ai.readerFit}</p>
+        </div>
+
+        <!-- Context -->
+        {#if book.ai.context}
+          <div class="mt-3">
+            <h3 class="mb-1 text-xs font-semibold uppercase tracking-wide text-anthracite-500 dark:text-slate-400">
+              Context
+            </h3>
+            <p class="text-sm text-anthracite-700 dark:text-slate-300">{book.ai.context}</p>
+          </div>
+        {/if}
+
+        <!-- Topic pills -->
+        {#if book.ai.keyThemes.length > 0}
+          <div class="mt-3 flex flex-wrap gap-1.5">
+            {#each book.ai.keyThemes as theme}
+              <span class="rounded-full border border-linen-300 px-2 py-0.5 text-[11px] text-anthracite-700 dark:border-slate-600 dark:text-slate-300">
+                {theme}
+              </span>
+            {/each}
+          </div>
+        {/if}
+      {:else if aiLoading}
+        <div class="flex items-center gap-2">
+          <span class="ai-spinner"></span>
+          <p class="text-sm text-anthracite-600 dark:text-slate-400">{aiLoadingMessage}</p>
+        </div>
+        {#if aiQueueMessage}
+          <p class="mt-1.5 text-xs text-anthracite-500 dark:text-slate-400">{aiQueueMessage}</p>
+        {/if}
+      {:else if aiAutoTriggerDeferred}
+        <p class="text-xs text-anthracite-500 dark:text-slate-400">
+          Generation paused while the queue is busy.
+        </p>
+      {:else if aiErrorMessage}
+        <p class="text-xs text-red-700 dark:text-red-300">{aiErrorMessage}</p>
+      {:else}
+        <p class="text-xs text-anthracite-500 dark:text-slate-400">
+          No analysis available yet.
+        </p>
+      {/if}
+    </div>
   {/if}
 </section>
+
+<style>
+  .ai-spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: ai-spin 0.6s linear infinite;
+    opacity: 0.5;
+  }
+  @keyframes ai-spin {
+    to { transform: rotate(360deg); }
+  }
+</style>

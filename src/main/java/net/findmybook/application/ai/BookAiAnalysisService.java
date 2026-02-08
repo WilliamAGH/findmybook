@@ -1,5 +1,6 @@
 package net.findmybook.application.ai;
 
+import jakarta.annotation.Nullable;
 import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
 import com.openai.core.RequestOptions;
@@ -38,7 +39,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Coordinates cache-first reader-fit AI analysis for book detail pages.
+ * Coordinates cache-first AI analysis for book detail pages.
  *
  * <p>This application service keeps controller logic thin by owning:
  * prompt construction, OpenAI streaming, strict response parsing, and
@@ -55,19 +56,26 @@ public class BookAiAnalysisService {
     private static final int MAX_KEY_THEME_COUNT = 6;
     private static final int MIN_KEY_THEME_COUNT = 1;
 
+    private static final int MAX_TAKEAWAY_COUNT = 5;
+    private static final int MIN_TAKEAWAY_COUNT = 1;
+
     private static final String SYSTEM_PROMPT = """
-        You write concise, helpful reader-fit analysis for a single book.
+        You write concise, useful book analysis.
         Return ONLY strict JSON using this exact shape:
         {
           \"summary\": string,
           \"readerFit\": string,
-          \"keyThemes\": string[]
+          \"keyThemes\": string[],
+          \"takeaways\": string[],
+          \"context\": string
         }
 
         Rules:
-        - summary: 2 concise sentences, concrete and specific.
-        - readerFit: 1-2 concise sentences on who should read it and why.
-        - keyThemes: 3 to 6 short phrases.
+        - summary: 2 concise sentences describing the book's content.
+        - readerFit: 1-2 sentences on who should read it and why.
+        - keyThemes: 3 to 6 short topic phrases.
+        - takeaways: 2 to 5 specific insights or points a reader will gain.
+        - context: 1-2 sentences placing the book in its genre or field.
         - No markdown, no prose outside JSON, no extra keys.
         """;
 
@@ -209,6 +217,8 @@ public class BookAiAnalysisService {
             snapshot.analysis().summary(),
             snapshot.analysis().readerFit(),
             snapshot.analysis().keyThemes(),
+            snapshot.analysis().takeaways(),
+            snapshot.analysis().context(),
             snapshot.version(),
             snapshot.generatedAt(),
             snapshot.model(),
@@ -286,8 +296,10 @@ public class BookAiAnalysisService {
         String summary = requireText(payload, "summary");
         String readerFit = requireText(payload, "readerFit", "reader_fit", "idealReader");
         List<String> themes = requireThemeList(payload, "keyThemes", "key_themes", "themes");
+        List<String> takeaways = parseOptionalStringList(payload, "takeaways");
+        String context = parseOptionalText(payload, "context");
 
-        return new BookAiAnalysis(summary, readerFit, themes);
+        return new BookAiAnalysis(summary, readerFit, themes, takeaways, context);
     }
 
     private JsonNode parseJsonPayload(String responseText) {
@@ -363,6 +375,34 @@ public class BookAiAnalysisService {
         }
 
         return List.copyOf(values);
+    }
+
+    @Nullable
+    private List<String> parseOptionalStringList(JsonNode payload, String field) {
+        JsonNode node = payload.get(field);
+        if (!isNonEmptyArray(node)) {
+            return null;
+        }
+        List<String> values = new ArrayList<>();
+        for (JsonNode item : node) {
+            String value = textOrNull(item);
+            if (StringUtils.hasText(value)) {
+                values.add(value);
+            }
+        }
+        if (values.isEmpty()) {
+            return null;
+        }
+        if (values.size() > MAX_TAKEAWAY_COUNT) {
+            values = values.subList(0, MAX_TAKEAWAY_COUNT);
+        }
+        return List.copyOf(values);
+    }
+
+    @Nullable
+    private String parseOptionalText(JsonNode payload, String field) {
+        String value = textOrNull(payload.get(field));
+        return StringUtils.hasText(value) ? value : null;
     }
 
     private boolean isNonEmptyArray(JsonNode node) {
