@@ -123,6 +123,33 @@ export const CategoriesFacetsPayloadSchema = z.object({
   minBooks: z.number().int().nonnegative(),
 });
 
+export const PageMetadataSchema = z.object({
+  title: z.string(),
+  description: z.string(),
+  canonicalUrl: z.string(),
+  keywords: z.string(),
+  ogImage: z.string(),
+  statusCode: z.number().int(),
+});
+
+export const RouteNameSchema = z.enum(["home", "search", "book", "sitemap", "explore", "categories", "notFound"]);
+
+export const RouteDefinitionSchema = z.object({
+  name: RouteNameSchema,
+  matchType: z.enum(["exact", "regex"]),
+  pattern: z.string(),
+  paramNames: z.array(z.string()),
+  defaults: z.record(z.string(), z.string()),
+  allowedQueryParams: z.array(z.string()),
+  canonicalPathTemplate: z.string(),
+});
+
+export const RouteManifestSchema = z.object({
+  version: z.number().int(),
+  publicRoutes: z.array(RouteDefinitionSchema),
+  passthroughPrefixes: z.array(z.string()),
+});
+
 export const SitemapBookSchema = z.object({
   id: z.string().nullable().optional(),
   slug: z.string(),
@@ -200,5 +227,8 @@ export type BookCard = z.infer<typeof BookCardSchema>;
 export type HomePayload = z.infer<typeof HomePayloadSchema>;
 export type CategoryFacet = z.infer<typeof CategoryFacetSchema>;
 export type CategoriesFacetsPayload = z.infer<typeof CategoriesFacetsPayloadSchema>;
+export type PageMetadata = z.infer<typeof PageMetadataSchema>;
+export type RouteManifest = z.infer<typeof RouteManifestSchema>;
+export type RouteDefinition = z.infer<typeof RouteDefinitionSchema>;
 export type SitemapPayload = z.infer<typeof SitemapPayloadSchema>;
 export type ThemePreference = z.infer<typeof ThemePreferenceSchema>;
