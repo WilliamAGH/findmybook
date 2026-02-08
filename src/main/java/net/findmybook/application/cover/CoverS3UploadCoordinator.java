@@ -131,14 +131,14 @@ public class CoverS3UploadCoordinator {
                 "non-uuid-book-id");
             return;
         }
-        executeUpload(event.getBookId(), bookUuid, canonicalImageUrl, source, s3BookCoverService.get());
+        executeUpload(event.getBookId(), bookUuid, canonicalImageUrl, source);
     }
 
     private void executeUpload(String bookId,
                                UUID bookUuid,
                                String canonicalImageUrl,
-                               String source,
-                               S3BookCoverService service) {
+                               String source) {
+        S3BookCoverService service = s3BookCoverService.get();
         if (!service.isUploadEnabled()) {
             logger.debug("Skipping S3 upload for book {} because upload availability changed before execution.", bookId);
             return;
