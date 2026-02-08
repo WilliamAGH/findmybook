@@ -97,6 +97,25 @@ class BookDtoMapperTest {
     }
 
     @Test
+    void should_UseFallbackExternalUrl_When_PreferredIsNonS3() {
+        Book book = new Book();
+        book.setId("non-s3-fallback");
+        book.setTitle("Non-S3 Fallback");
+        book.setAuthors(List.of("Author"));
+
+        CoverImages images = new CoverImages(
+            "https://covers.openlibrary.org/b/id/123-L.jpg",
+            "https://books.google.com/books/content?id=ABC&printsec=frontcover&edge=curl"
+        );
+        book.setCoverImages(images);
+
+        BookDto dto = BookDtoMapper.toDto(book);
+
+        assertThat(dto.cover().preferredUrl()).isEqualTo(images.getPreferredUrl());
+        assertThat(dto.cover().externalImageUrl()).isEqualTo(images.getFallbackUrl());
+    }
+
+    @Test
     void toDto_doesNotEmitCdnUrlForPlaceholderS3Key() {
         CoverUrlResolver.setCdnBase("https://cdn.test/");
         try {
@@ -264,6 +283,37 @@ class BookDtoMapperTest {
         // Ensure <br> is between heading and numbered list
         assertThat(html).doesNotContain("</b>1.");
         assertThat(html).contains("1. First Chapter");
+    }
+
+    @Test
+    void should_InsertBreakAfterStrong_When_FollowedByText() {
+        Book book = new Book();
+        book.setId("strong-then-text");
+        book.setTitle("Strong Then Text");
+        book.setDescription("<strong>Book Description</strong>Intro text starts here.");
+
+        BookDto dto = BookDtoMapper.toDto(book);
+
+        String html = dto.descriptionContent().html();
+        assertThat(html)
+            .contains("<strong>Book Description</strong>")
+            .contains("</strong><br>")
+            .doesNotContain("</strong>Intro");
+    }
+
+    @Test
+    void should_InsertBreakAfterList_When_FollowedByBoldHeading() {
+        Book book = new Book();
+        book.setId("list-then-heading");
+        book.setTitle("List Then Heading");
+        book.setDescription("<ul><li>Item one</li><li>Item two</li></ul><b>Next Section</b>Intro text.");
+
+        BookDto dto = BookDtoMapper.toDto(book);
+
+        String html = dto.descriptionContent().html();
+        assertThat(html)
+            .contains("</ul><br><b>Next Section</b>")
+            .doesNotContain("</ul><b>Next Section</b>");
     }
 
     @Test

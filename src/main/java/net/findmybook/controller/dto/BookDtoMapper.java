@@ -48,10 +48,11 @@ public final class BookDtoMapper {
         "(?m)^(#{1,6}\\s+.+|\\s*[-*+]\\s+.+|\\s*\\d+\\.\\s+.+|\\s*>\\s+.+)|(```|`[^`]+`|\\*\\*[^*]+\\*\\*|\\[[^\\]]+\\]\\([^\\)]+\\))"
     );
     private static final Pattern BR_TAG_PATTERN = Pattern.compile("(?i)<br\\s*/?>");
-    private static final Pattern EMPTY_BOLD_BR_PATTERN = Pattern.compile("(?i)<b>\\s*(<br\\s*/?>)\\s*</b>");
-    private static final Pattern CONSECUTIVE_BOLD_PATTERN = Pattern.compile("(?i)(</b>)\\s*(<b[\\s>])");
-    private static final Pattern BOLD_CLOSE_THEN_TEXT_PATTERN = Pattern.compile("(?i)(</b>)(?!\\s*<br)\\s*([^<\\s])");
-    private static final Pattern PUNCT_THEN_BOLD_OPEN_PATTERN = Pattern.compile("([.!?])\\s*(<b[\\s>])");
+    private static final Pattern EMPTY_BOLD_BR_PATTERN = Pattern.compile("(?i)<(b|strong)>\\s*(<br\\s*/?>)\\s*</\\1>");
+    private static final Pattern CONSECUTIVE_BOLD_PATTERN = Pattern.compile("(?i)(</(?:b|strong)>)\\s*(<(?:b|strong)[\\s>])");
+    private static final Pattern BOLD_CLOSE_THEN_TEXT_PATTERN = Pattern.compile("(?i)(</(?:b|strong)>)(?!\\s*<br)\\s*([^<\\s])");
+    private static final Pattern PUNCT_THEN_BOLD_OPEN_PATTERN = Pattern.compile("([.!?])\\s*(<(?:b|strong)[\\s>])");
+    private static final Pattern LIST_CLOSE_THEN_BOLD_PATTERN = Pattern.compile("(?i)(</(?:ul|ol)>)\\s*(<(?:b|strong)[\\s>])");
     private static final Pattern TRIPLE_BR_PATTERN = Pattern.compile("(?i)(<br\\s*/?>\\s*){3,}");
     private static final String BULLET_CHARS = "●•";
     private static final Parser MARKDOWN_PARSER = buildMarkdownParser();
@@ -315,7 +316,7 @@ public final class BookDtoMapper {
         }
 
         // Strip empty bold wrappers around <br>: <b><br></b> → <br>
-        String result = EMPTY_BOLD_BR_PATTERN.matcher(html).replaceAll("$1");
+        String result = EMPTY_BOLD_BR_PATTERN.matcher(html).replaceAll("$2");
 
         // Ensure <br> between consecutive bold blocks: </b><b> → </b><br><b>
         result = CONSECUTIVE_BOLD_PATTERN.matcher(result).replaceAll("$1<br>$2");
@@ -328,10 +329,15 @@ public final class BookDtoMapper {
         // Handles patterns like "...with confidence.<b>What you will learn</b>"
         result = PUNCT_THEN_BOLD_OPEN_PATTERN.matcher(result).replaceAll("$1<br>$2");
 
+        result = convertInlineBulletsToList(result);
+
+        // Ensure a break between list blocks and following bold headings.
+        result = LIST_CLOSE_THEN_BOLD_PATTERN.matcher(result).replaceAll("$1<br>$2");
+
         // Collapse triple-or-more consecutive <br> into exactly double <br> (paragraph break)
         result = TRIPLE_BR_PATTERN.matcher(result).replaceAll("<br><br>");
 
-        return convertInlineBulletsToList(result);
+        return result;
     }
 
     /**
@@ -576,10 +582,10 @@ public final class BookDtoMapper {
 
     private static String resolveExternalUrlWhenPreferred(String externalUrl, String fallbackUrl,
                                                           String placeholder, boolean fromS3) {
-        if (placeholder.equals(fallbackUrl)) {
-            return null;
+        if (!fromS3) {
+            return placeholder.equals(fallbackUrl) ? externalUrl : fallbackUrl;
         }
-        return fromS3 ? externalUrl : externalUrl;
+        return placeholder.equals(fallbackUrl) ? null : externalUrl;
     }
 
     private static String resolveSourceLabel(String declaredSource, CoverUrlResolver.ResolvedCover resolved,
