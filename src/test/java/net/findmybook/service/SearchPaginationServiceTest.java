@@ -578,7 +578,7 @@ class SearchPaginationServiceTest {
     }
 
     @Test
-    @DisplayName("search() should merge Open Library covers ahead of Postgres no-cover results")
+    @DisplayName("search() should merge Open Library candidates and sort by relevance score")
     void should_MergeOpenLibraryCandidates_When_PostgresHasCoverGaps() {
         UUID postgresCovered = UUID.randomUUID();
         UUID postgresSuppressed = UUID.randomUUID();
@@ -624,7 +624,7 @@ class SearchPaginationServiceTest {
 
         assertThat(page).isNotNull();
         assertThat(page.pageItems()).extracting(Book::getId)
-            .containsExactly(postgresCovered.toString(), "OL-OPEN-1", postgresSuppressed.toString());
+            .containsExactly(postgresCovered.toString(), postgresSuppressed.toString(), "OL-OPEN-1");
         verify(eventPublisher, timeout(300).times(0)).publishEvent(any());
         verifyNoInteractions(googleApiFetcher);
     }
