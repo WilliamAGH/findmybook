@@ -205,9 +205,11 @@ function sortSearchHits(hits: SearchHit[], orderBy: SortOption): SearchHit[] {
         return sourceRankDelta;
       }
 
-      const relevanceDelta = relevanceScore(right.hit) - relevanceScore(left.hit);
-      if (relevanceDelta !== 0) {
-        return relevanceDelta;
+      if (orderBy !== "relevance") {
+        const relevanceDelta = relevanceScore(right.hit) - relevanceScore(left.hit);
+        if (relevanceDelta !== 0) {
+          return relevanceDelta;
+        }
       }
 
       return left.index - right.index;
