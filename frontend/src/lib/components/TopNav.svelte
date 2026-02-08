@@ -179,6 +179,7 @@
         />
         <button
           type="submit"
+          aria-label="Submit quick search"
           class="rounded-lg bg-canvas-400 px-3 py-2 text-sm font-medium text-white transition hover:bg-canvas-500 hover:shadow-canvas"
         >
           <Search size={16} />
