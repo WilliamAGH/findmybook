@@ -11,14 +11,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 import net.findmybook.config.SitemapProperties;
 import net.findmybook.dto.BookCard;
 import net.findmybook.model.Book;
 import net.findmybook.service.AffiliateLinkService;
+import net.findmybook.service.BookSeoMetadataService;
 import net.findmybook.service.BookSearchService;
 import net.findmybook.service.HomePageSectionsService;
 import net.findmybook.service.SitemapService;
 import net.findmybook.util.ApplicationConstants;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.CacheManager;
@@ -48,7 +51,17 @@ class PageApiControllerTest {
     private AffiliateLinkService affiliateLinkService;
 
     @MockitoBean
+    private BookSeoMetadataService bookSeoMetadataService;
+
+    @MockitoBean
     private CacheManager cacheManager;
+
+    @BeforeEach
+    void setUp() {
+        when(bookSeoMetadataService.bookRoutePattern()).thenReturn(Pattern.compile("^/book/([^/]+)$"));
+        when(bookSeoMetadataService.sitemapRoutePattern()).thenReturn(Pattern.compile("^/sitemap/(authors|books)/([^/]+)/(\\d+)$"));
+        when(bookSeoMetadataService.defaultSitemapPath()).thenReturn("/sitemap/authors/A/1");
+    }
 
     @Test
     void shouldReturnHomePayloadWhenEndpointRequested() throws Exception {
@@ -188,5 +201,130 @@ class PageApiControllerTest {
             .andExpect(jsonPath("$.limit").value(10))
             .andExpect(jsonPath("$.minBooks").value(3))
             .andExpect(jsonPath("$.generatedAt").isNotEmpty());
+    }
+
+    @Test
+    void should_ReturnMetadataPayload_When_HomePathRequested() throws Exception {
+        when(bookSeoMetadataService.homeMetadata()).thenReturn(new BookSeoMetadataService.SeoMetadata(
+            "Home",
+            "Home description",
+            "https://findmybook.net/",
+            "home keywords",
+            "https://findmybook.net/images/og-logo.png"
+        ));
+
+        var asyncResult = mockMvc.perform(get("/api/pages/meta").param("path", "/"))
+            .andExpect(status().isOk())
+            .andReturn();
+
+        mockMvc.perform(asyncDispatch(asyncResult))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.title").value("Home"))
+            .andExpect(jsonPath("$.canonicalUrl").value("https://findmybook.net/"))
+            .andExpect(jsonPath("$.statusCode").value(200));
+    }
+
+    @Test
+    void should_ReturnNotFoundMetadata_When_BookPathCannotBeResolved() throws Exception {
+        when(homePageSectionsService.locateBook(eq("missing-book"))).thenReturn(Mono.empty());
+        when(bookSeoMetadataService.notFoundMetadata(eq("/book/missing-book"))).thenReturn(
+            new BookSeoMetadataService.SeoMetadata(
+                "Page Not Found",
+                "Missing page.",
+                "https://findmybook.net/book/missing-book",
+                "404",
+                "https://findmybook.net/images/og-logo.png"
+            )
+        );
+
+        var asyncResult = mockMvc.perform(get("/api/pages/meta").param("path", "/book/missing-book"))
+            .andExpect(status().isOk())
+            .andReturn();
+
+        mockMvc.perform(asyncDispatch(asyncResult))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.title").value("Page Not Found"))
+            .andExpect(jsonPath("$.statusCode").value(404));
+    }
+
+    @Test
+    void should_ReturnClampedSitemapMetadata_When_MetadataPathPageExceedsIntegerRange() throws Exception {
+        when(bookSeoMetadataService.sitemapRoutePattern()).thenReturn(
+            Pattern.compile("^/sitemap/(authors|books)/([^/]+)/(\\d+)$")
+        );
+        when(sitemapService.normalizeBucket(eq("A"))).thenReturn("A");
+        String expectedPath = "/sitemap/books/A/" + Integer.MAX_VALUE;
+        when(bookSeoMetadataService.sitemapMetadata(eq(expectedPath))).thenReturn(
+            new BookSeoMetadataService.SeoMetadata(
+                "Sitemap",
+                "Sitemap description",
+                "https://findmybook.net" + expectedPath,
+                "sitemap",
+                "https://findmybook.net/images/og-logo.png"
+            )
+        );
+
+        var asyncResult = mockMvc.perform(get("/api/pages/meta").param("path", "/sitemap/books/A/2147483648"))
+            .andExpect(status().isOk())
+            .andReturn();
+
+        mockMvc.perform(asyncDispatch(asyncResult))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.canonicalUrl").value("https://findmybook.net" + expectedPath))
+            .andExpect(jsonPath("$.statusCode").value(200));
+    }
+
+    @Test
+    void should_ReturnFirstSitemapPageMetadata_When_MetadataPathPageCannotBeParsedAsLong() throws Exception {
+        when(bookSeoMetadataService.sitemapRoutePattern()).thenReturn(
+            Pattern.compile("^/sitemap/(authors|books)/([^/]+)/(\\d+)$")
+        );
+        when(sitemapService.normalizeBucket(eq("A"))).thenReturn("A");
+        String expectedPath = "/sitemap/books/A/1";
+        when(bookSeoMetadataService.sitemapMetadata(eq(expectedPath))).thenReturn(
+            new BookSeoMetadataService.SeoMetadata(
+                "Sitemap",
+                "Sitemap description",
+                "https://findmybook.net" + expectedPath,
+                "sitemap",
+                "https://findmybook.net/images/og-logo.png"
+            )
+        );
+
+        var asyncResult = mockMvc.perform(get("/api/pages/meta")
+                .param("path", "/sitemap/books/A/999999999999999999999999999999999999"))
+            .andExpect(status().isOk())
+            .andReturn();
+
+        mockMvc.perform(asyncDispatch(asyncResult))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.canonicalUrl").value("https://findmybook.net" + expectedPath))
+            .andExpect(jsonPath("$.statusCode").value(200));
+    }
+
+    @Test
+    void should_ReturnRouteManifest_When_RoutesEndpointRequested() throws Exception {
+        BookSeoMetadataService.RouteManifest routeManifest = new BookSeoMetadataService.RouteManifest(
+            1,
+            List.of(
+                new BookSeoMetadataService.RouteDefinition(
+                    "home",
+                    "exact",
+                    "/",
+                    List.of(),
+                    Map.of(),
+                    List.of(),
+                    "/"
+                )
+            ),
+            List.of("/api")
+        );
+        when(bookSeoMetadataService.routeManifest()).thenReturn(routeManifest);
+
+        mockMvc.perform(get("/api/pages/routes"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.version").value(1))
+            .andExpect(jsonPath("$.publicRoutes[0].name").value("home"))
+            .andExpect(jsonPath("$.passthroughPrefixes[0]").value("/api"));
     }
 }
