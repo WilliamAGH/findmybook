@@ -247,6 +247,14 @@ public class BookSeoMetadataService {
         return SITEMAP_ROUTE_PATTERN;
     }
 
+    /**
+     * Renders the SPA shell HTML for the supplied SEO metadata.
+     * Falls back to {@link #homeMetadata()} when {@code seoMetadata} is {@code null}.
+     *
+     * @param seoMetadata route-level metadata used to populate title, description, canonical,
+     *                    OpenGraph, and Twitter meta tags; may be {@code null}
+     * @return complete HTML shell with metadata and SPA bootstrap script
+     */
     public String renderSpaShell(SeoMetadata seoMetadata) {
         SeoMetadata effectiveMetadata = seoMetadata != null ? seoMetadata : homeMetadata();
         String normalizedCanonical = normalizeCanonicalUrl(effectiveMetadata.canonicalUrl());
