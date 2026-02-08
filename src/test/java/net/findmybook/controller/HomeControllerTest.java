@@ -93,7 +93,7 @@ class HomeControllerTest {
         webTestClient.get()
             .uri(uriBuilder -> uriBuilder.path("/search")
                 .queryParam("query", "dune 2020")
-                .queryParam("sort", "title")
+                .queryParam("orderBy", "title")
                 .build())
             .exchange()
             .expectStatus().isEqualTo(HttpStatus.SEE_OTHER)
@@ -130,10 +130,10 @@ class HomeControllerTest {
         canonical.setSlug("canonical-book");
         when(homePageSectionsService.locateBook("book-id")).thenReturn(Mono.just(canonical));
 
-        webTestClient.get().uri("/book/book-id?query=foo&page=2&sort=newest&view=list")
+        webTestClient.get().uri("/book/book-id?query=foo&page=2&orderBy=newest&view=list")
             .exchange()
             .expectStatus().isEqualTo(HttpStatus.SEE_OTHER)
-            .expectHeader().valueEquals("Location", "/book/canonical-book?query=foo&page=2&sort=newest&view=list");
+            .expectHeader().valueEquals("Location", "/book/canonical-book?query=foo&page=2&orderBy=newest&view=list");
     }
 
     @Test

@@ -5,6 +5,7 @@
  * Includes normalizers for realtime search hits received via WebSocket.
  */
 import { getJson } from "$lib/services/http";
+import type { SortOption } from "$lib/services/searchConfig";
 import { validateWithSchema } from "$lib/validation/validate";
 import {
   type Book,
@@ -24,7 +25,7 @@ export interface SearchParams {
   query: string;
   startIndex: number;
   maxResults: number;
-  orderBy: string;
+  orderBy: SortOption;
   coverSource: string;
   resolution: string;
   publishedYear?: number | null;
@@ -146,10 +147,54 @@ function sourceRank(hit: SearchHit): number {
   return 3;
 }
 
-function sortSearchHits(hits: SearchHit[]): SearchHit[] {
+function publishedTimestamp(hit: SearchHit): number {
+  const publishedDate = hit.publication?.publishedDate ?? null;
+  if (publishedDate == null) {
+    return Number.MIN_SAFE_INTEGER;
+  }
+  if (typeof publishedDate === "number") {
+    return Number.isFinite(publishedDate) ? publishedDate : Number.MIN_SAFE_INTEGER;
+  }
+  const parsedDate = new Date(publishedDate);
+  return Number.isNaN(parsedDate.getTime()) ? Number.MIN_SAFE_INTEGER : parsedDate.getTime();
+}
+
+function primaryAuthorName(hit: SearchHit): string {
+  const name = hit.authors[0]?.name ?? "";
+  return name.trim().toLowerCase();
+}
+
+function relevanceScore(hit: SearchHit): number {
+  const score = hit.relevanceScore ?? 0;
+  return Number.isFinite(score) ? score : 0;
+}
+
+function sortSearchHits(hits: SearchHit[], orderBy: SortOption): SearchHit[] {
   return hits
     .map((hit, index) => ({ hit, index }))
     .sort((left, right) => {
+      if (orderBy === "newest") {
+        const publishedDelta = publishedTimestamp(right.hit) - publishedTimestamp(left.hit);
+        if (publishedDelta !== 0) {
+          return publishedDelta;
+        }
+      } else if (orderBy === "title") {
+        const titleDelta = (left.hit.title ?? "").localeCompare(right.hit.title ?? "", undefined, { sensitivity: "base" });
+        if (titleDelta !== 0) {
+          return titleDelta;
+        }
+      } else if (orderBy === "author") {
+        const authorDelta = primaryAuthorName(left.hit).localeCompare(primaryAuthorName(right.hit), undefined, { sensitivity: "base" });
+        if (authorDelta !== 0) {
+          return authorDelta;
+        }
+      } else {
+        const relevanceDelta = relevanceScore(right.hit) - relevanceScore(left.hit);
+        if (relevanceDelta !== 0) {
+          return relevanceDelta;
+        }
+      }
+
       const coverRankDelta = Number(hasCover(right.hit)) - Number(hasCover(left.hit));
       if (coverRankDelta !== 0) {
         return coverRankDelta;
@@ -158,6 +203,11 @@ function sortSearchHits(hits: SearchHit[]): SearchHit[] {
       const sourceRankDelta = sourceRank(left.hit) - sourceRank(right.hit);
       if (sourceRankDelta !== 0) {
         return sourceRankDelta;
+      }
+
+      const relevanceDelta = relevanceScore(right.hit) - relevanceScore(left.hit);
+      if (relevanceDelta !== 0) {
+        return relevanceDelta;
       }
 
       return left.index - right.index;
@@ -223,12 +273,16 @@ export function normalizeRealtimeSearchHits(incoming: unknown[]): SearchHit[] {
     .filter((item): item is SearchHit => item !== null);
 }
 
-export function mergeSearchHits(existingHits: SearchHit[], incomingHits: SearchHit[]): SearchHit[] {
+export function mergeSearchHits(
+  existingHits: SearchHit[],
+  incomingHits: SearchHit[],
+  orderBy: SortOption,
+): SearchHit[] {
   const merged = new Map(existingHits.map((hit) => [hit.id, hit]));
   for (const candidate of incomingHits) {
     if (!merged.has(candidate.id)) {
       merged.set(candidate.id, candidate);
     }
   }
-  return sortSearchHits(Array.from(merged.values()));
+  return sortSearchHits(Array.from(merged.values()), orderBy);
 }

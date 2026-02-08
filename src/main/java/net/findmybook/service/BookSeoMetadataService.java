@@ -47,7 +47,7 @@ public class BookSeoMetadataService {
                 "/search",
                 List.of(),
                 Map.of(),
-                List.of("query", "year", "page", "sort", "source", "coverSource", "resolution", "genre", "view"),
+                List.of("query", "year", "page", "orderBy", "source", "coverSource", "resolution", "genre", "view"),
                 "/search"
             ),
             new RouteDefinition(
@@ -56,7 +56,7 @@ public class BookSeoMetadataService {
                 "/explore",
                 List.of(),
                 Map.of(),
-                List.of("query", "year", "page", "sort", "source", "coverSource", "resolution", "genre", "view"),
+                List.of("query", "year", "page", "orderBy", "source", "coverSource", "resolution", "genre", "view"),
                 "/explore"
             ),
             new RouteDefinition(
@@ -65,7 +65,7 @@ public class BookSeoMetadataService {
                 "/categories",
                 List.of(),
                 Map.of(),
-                List.of("query", "year", "page", "sort", "source", "coverSource", "resolution", "genre", "view"),
+                List.of("query", "year", "page", "orderBy", "source", "coverSource", "resolution", "genre", "view"),
                 "/categories"
             ),
             new RouteDefinition(
@@ -74,7 +74,7 @@ public class BookSeoMetadataService {
                 "^/book/([^/]+)$",
                 List.of("identifier"),
                 Map.of(),
-                List.of("query", "page", "sort", "view"),
+                List.of("query", "page", "orderBy", "view"),
                 "/book/{identifier}"
             ),
             new RouteDefinition(

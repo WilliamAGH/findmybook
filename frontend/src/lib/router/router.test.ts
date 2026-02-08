@@ -242,7 +242,7 @@ describe("SearchPage loading state", () => {
     searchBooksMock.mockReturnValue(pendingSearch.promise);
 
     const currentUrlWithQuery = new URL(
-      "https://findmybook.net/search?query=alpha&page=1&sort=newest&view=grid&coverSource=ANY&resolution=HIGH_FIRST",
+      "https://findmybook.net/search?query=alpha&page=1&orderBy=newest&view=grid&coverSource=ANY&resolution=HIGH_FIRST",
     );
     const { rerender } = render(SearchPage, {
       props: { currentUrl: currentUrlWithQuery, routeName: "search" },
@@ -253,7 +253,7 @@ describe("SearchPage loading state", () => {
     });
 
     const currentUrlWithoutQuery = new URL(
-      "https://findmybook.net/search?page=1&sort=newest&view=grid&coverSource=ANY&resolution=HIGH_FIRST",
+      "https://findmybook.net/search?page=1&orderBy=newest&view=grid&coverSource=ANY&resolution=HIGH_FIRST",
     );
     await rerender({ currentUrl: currentUrlWithoutQuery, routeName: "search" });
 
