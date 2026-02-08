@@ -350,4 +350,8 @@
     text-decoration: underline;
     text-underline-offset: 2px;
   }
+
+  :global([data-theme="dark"]) .book-description-content :global(a) {
+    color: #60a5fa;
+  }
 </style>
