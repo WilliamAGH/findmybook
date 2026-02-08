@@ -5,12 +5,12 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * API projection of AI-generated book analysis for a book detail page.
+ * API projection of AI-generated book content for a book detail page.
  *
  * <p>The payload is compact and stable so clients can render inline enrichment
  * without coupling to provider-specific response formats.</p>
  */
-public record BookAiSnapshotDto(
+public record BookAiContentSnapshotDto(
     String summary,
     String readerFit,
     List<String> keyThemes,

@@ -1938,7 +1938,7 @@ comment on function get_normalized_authors is 'Get normalized author list for a 
 
 -- ============================================================================
 -- BOOK AI CONTENT
--- Stores versioned AI-generated analysis content per book.
+-- Stores versioned AI-generated content per book.
 -- ============================================================================
 
 create table if not exists book_ai_content (
@@ -1966,7 +1966,6 @@ create unique index if not exists uq_book_ai_content_current
 create index if not exists idx_book_ai_content_book_created
   on book_ai_content(book_id, created_at desc);
 
--- Align legacy column naming from earlier analysis schema variants.
 do $$
 begin
   if exists (
@@ -1984,16 +1983,6 @@ begin
   ) then
     alter table book_ai_content rename column analysis_json to content_json;
   end if;
-
-  if not exists (
-    select 1
-    from information_schema.columns
-    where table_schema = 'public'
-      and table_name = 'book_ai_content'
-      and column_name = 'content_json'
-  ) then
-    raise exception 'book_ai_content.content_json is required but missing';
-  end if;
 end
 $$;
 
@@ -2001,7 +1990,7 @@ alter table book_ai_content
   add column if not exists takeaways jsonb,
   add column if not exists context text;
 
-comment on table book_ai_content is 'Versioned AI-generated book analysis content with single current version per book';
+comment on table book_ai_content is 'Versioned AI-generated book content with single current version per book';
 comment on column book_ai_content.content_json is 'Canonical JSON payload returned by the AI model';
 comment on column book_ai_content.reader_fit is 'Who should read this book and why';
 comment on column book_ai_content.key_themes is 'JSON array of short key-theme strings';

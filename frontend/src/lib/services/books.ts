@@ -9,10 +9,10 @@ import type { SortOption } from "$lib/services/searchConfig";
 import { validateWithSchema } from "$lib/validation/validate";
 import {
   type Book,
-  type BookAiQueueStats,
+  type BookAiContentQueueStats,
   type SearchHit,
   type SearchResponse,
-  BookAiQueueStatsSchema,
+  BookAiContentQueueStatsSchema,
   BookSchema,
   SearchResponseSchema,
   SimilarBooksSchema,
@@ -85,8 +85,8 @@ export function getAffiliateLinks(identifier: string): Promise<Record<string, st
   );
 }
 
-export function getBookAiQueueStats(): Promise<BookAiQueueStats> {
-  return getJson("/api/books/ai/queue", BookAiQueueStatsSchema, "getBookAiQueueStats");
+export function getBookAiContentQueueStats(): Promise<BookAiContentQueueStats> {
+  return getJson("/api/books/ai/content/queue", BookAiContentQueueStatsSchema, "getBookAiContentQueueStats");
 }
 
 function normalizeAuthorNames(rawAuthors: string[]): Array<{ id: string | null; name: string }> {

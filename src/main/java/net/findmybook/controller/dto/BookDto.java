@@ -20,7 +20,7 @@ public record BookDto(String id,
                       List<String> recommendationIds,
                       Map<String, Object> extras,
                       DescriptionContent descriptionContent,
-                      BookAiSnapshotDto ai) {
+                      BookAiContentSnapshotDto aiContent) {
     /**
      * Canonical description payload formatted on the backend for deterministic client rendering.
      *
@@ -53,7 +53,7 @@ public record BookDto(String id,
     /**
      * Returns a copy with an updated AI snapshot while preserving all existing fields.
      */
-    public BookDto withAi(BookAiSnapshotDto aiSnapshot) {
+    public BookDto withAiContent(BookAiContentSnapshotDto aiContentSnapshot) {
         return new BookDto(
             id,
             slug,
@@ -69,7 +69,7 @@ public record BookDto(String id,
             recommendationIds,
             extras,
             descriptionContent,
-            aiSnapshot
+            aiContentSnapshot
         );
     }
 }

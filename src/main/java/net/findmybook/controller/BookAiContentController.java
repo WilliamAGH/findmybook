@@ -14,10 +14,10 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import net.findmybook.application.ai.BookAiAnalysisService;
-import net.findmybook.controller.dto.BookAiSnapshotDto;
-import net.findmybook.domain.ai.BookAiSnapshot;
-import net.findmybook.support.ai.BookAiRequestQueue;
+import net.findmybook.application.ai.BookAiContentService;
+import net.findmybook.controller.dto.BookAiContentSnapshotDto;
+import net.findmybook.domain.ai.BookAiContentSnapshot;
+import net.findmybook.support.ai.BookAiContentRequestQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -33,7 +33,7 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Streams and exposes queue state for book AI analysis generation.
+ * Streams and exposes queue state for book AI content generation.
  *
  * <p>This controller implements cache-first behavior:
  * existing Postgres snapshots are returned immediately unless the caller
@@ -41,9 +41,9 @@ import tools.jackson.databind.ObjectMapper;
  */
 @RestController
 @RequestMapping("/api/books")
-public class BookAiController {
+public class BookAiContentController {
 
-    private static final Logger log = LoggerFactory.getLogger(BookAiController.class);
+    private static final Logger log = LoggerFactory.getLogger(BookAiContentController.class);
 
     private static final long SSE_TIMEOUT_MILLIS = Duration.ofMinutes(4).toMillis();
     private static final long QUEUE_POSITION_TICK_MILLIS = 350L;
@@ -51,18 +51,18 @@ public class BookAiController {
     private static final int AUTO_TRIGGER_QUEUE_THRESHOLD = 5;
     private static final int DEFAULT_GENERATION_PRIORITY = 0;
 
-    private final BookAiAnalysisService analysisService;
-    private final BookAiRequestQueue requestQueue;
+    private final BookAiContentService aiContentService;
+    private final BookAiContentRequestQueue requestQueue;
     private final ObjectMapper objectMapper;
     private final ScheduledExecutorService queueTickerExecutor;
 
     /**
      * Creates a controller with queue/state dependencies.
      */
-    public BookAiController(BookAiAnalysisService analysisService,
-                            BookAiRequestQueue requestQueue,
-                            ObjectMapper objectMapper) {
-        this.analysisService = analysisService;
+    public BookAiContentController(BookAiContentService aiContentService,
+                                   BookAiContentRequestQueue requestQueue,
+                                   ObjectMapper objectMapper) {
+        this.aiContentService = aiContentService;
         this.requestQueue = requestQueue;
         this.objectMapper = objectMapper;
         ThreadFactory threadFactory = runnable -> {
@@ -77,9 +77,9 @@ public class BookAiController {
     /**
      * Returns global queue depth for AI generation tasks.
      */
-    @GetMapping("/ai/queue")
+    @GetMapping("/ai/content/queue")
     public ResponseEntity<QueueStatsPayload> queueStats() {
-        BookAiRequestQueue.QueueSnapshot snapshot = requestQueue.snapshot();
+        BookAiContentRequestQueue.QueueSnapshot snapshot = requestQueue.snapshot();
         return ResponseEntity.ok(new QueueStatsPayload(snapshot.running(), snapshot.pending(), snapshot.maxParallel()));
     }
 
@@ -89,11 +89,11 @@ public class BookAiController {
      * <p>When {@code refresh=false}, cached Postgres content is returned without
      * invoking the upstream model.</p>
      */
-    @PostMapping(path = "/{identifier}/ai/analysis/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    @RateLimiter(name = "bookAiAnalysisRateLimiter")
-    public SseEmitter streamAnalysis(@PathVariable String identifier,
-                                     @RequestParam(name = "refresh", defaultValue = "false") boolean refresh,
-                                     HttpServletResponse response) {
+    @PostMapping(path = "/{identifier}/ai/content/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @RateLimiter(name = "bookAiContentRateLimiter")
+    public SseEmitter streamAiContent(@PathVariable String identifier,
+                                      @RequestParam(name = "refresh", defaultValue = "false") boolean refresh,
+                                      HttpServletResponse response) {
         response.setHeader("X-Accel-Buffering", "no");
         response.setHeader("Cache-Control", "no-cache, no-transform");
 
@@ -107,15 +107,15 @@ public class BookAiController {
 
         UUID bookId = resolution.bookId();
         if (!refresh) {
-            Optional<BookAiSnapshot> cachedSnapshot = analysisService.findCurrent(bookId);
+            Optional<BookAiContentSnapshot> cachedSnapshot = aiContentService.findCurrent(bookId);
             if (cachedSnapshot.isPresent()) {
                 streamDoneFromCache(emitter, cachedSnapshot.get());
                 return emitter;
             }
         }
 
-        if (!analysisService.isAvailable()) {
-            emitTerminalError(emitter, "AI analysis service is not configured");
+        if (!aiContentService.isAvailable()) {
+            emitTerminalError(emitter, "AI content service is not configured");
             return emitter;
         }
 
@@ -137,7 +137,7 @@ public class BookAiController {
         if (identifier == null || identifier.isBlank()) {
             return new OptionalResolution(null, "Book identifier is required");
         }
-        return analysisService.resolveBookId(identifier)
+        return aiContentService.resolveBookId(identifier)
             .map(bookId -> new OptionalResolution(bookId, null))
             .orElseGet(() -> new OptionalResolution(null, "Book not found"));
     }
@@ -147,24 +147,24 @@ public class BookAiController {
         AtomicBoolean streamClosed = new AtomicBoolean(false);
         AtomicBoolean messageStarted = new AtomicBoolean(false);
 
-        BookAiRequestQueue.EnqueuedTask<BookAiAnalysisService.GeneratedAnalysis> queuedTask =
+        BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent> queuedTask =
             requestQueue.enqueue(DEFAULT_GENERATION_PRIORITY, () -> {
                 sendMessageStartEvent(emitter, messageStarted);
-                BookAiAnalysisService.GeneratedAnalysis generated = analysisService.generateAndPersist(bookId, delta -> {
+                BookAiContentService.GeneratedContent generated = aiContentService.generateAndPersist(bookId, delta -> {
                     sendEvent(emitter, "message_delta", new MessageDeltaPayload(delta));
                 });
                 sendEvent(emitter, "message_done", new MessageDonePayload(generated.rawMessage()));
                 return generated;
             });
 
-        BookAiRequestQueue.QueuePosition initialPosition = requestQueue.getPosition(queuedTask.id());
+        BookAiContentRequestQueue.QueuePosition initialPosition = requestQueue.getPosition(queuedTask.id());
         sendEvent(emitter, "queued", toQueuePositionPayload(initialPosition));
 
         ScheduledFuture<?> queueTicker = queueTickerExecutor.scheduleAtFixedRate(() -> {
             if (streamClosed.get()) {
                 return;
             }
-            BookAiRequestQueue.QueuePosition position = requestQueue.getPosition(queuedTask.id());
+            BookAiContentRequestQueue.QueuePosition position = requestQueue.getPosition(queuedTask.id());
             if (!position.inQueue()) {
                 return;
             }
@@ -215,7 +215,7 @@ public class BookAiController {
                 return;
             }
             long queueWaitMs = Math.max(0L, System.currentTimeMillis() - enqueuedAtMs);
-            BookAiRequestQueue.QueueSnapshot snapshot = requestQueue.snapshot();
+            BookAiContentRequestQueue.QueueSnapshot snapshot = requestQueue.snapshot();
             sendEvent(emitter, "started", new QueueStartedPayload(
                 snapshot.running(),
                 snapshot.pending(),
@@ -246,7 +246,7 @@ public class BookAiController {
                 return;
             }
 
-            BookAiSnapshotDto snapshotDto = BookAiAnalysisService.toDto(result.snapshot());
+            BookAiContentSnapshotDto snapshotDto = BookAiContentService.toDto(result.snapshot());
             try {
                 sendEvent(emitter, "done", new DonePayload(result.rawMessage(), snapshotDto));
             } catch (IllegalStateException doneEventException) {
@@ -263,25 +263,25 @@ public class BookAiController {
                 "message_start",
                 new MessageStartPayload(
                     UUID.randomUUID().toString(),
-                    analysisService.configuredModel(),
-                    analysisService.apiMode()
+                    aiContentService.configuredModel(),
+                    aiContentService.apiMode()
                 )
             );
         }
     }
 
-    private void streamDoneFromCache(SseEmitter emitter, BookAiSnapshot snapshot) {
+    private void streamDoneFromCache(SseEmitter emitter, BookAiContentSnapshot snapshot) {
         try {
-            String cachedMessage = objectMapper.writeValueAsString(snapshot.analysis());
-            sendEvent(emitter, "done", new DonePayload(cachedMessage, BookAiAnalysisService.toDto(snapshot)));
+            String cachedMessage = objectMapper.writeValueAsString(snapshot.aiContent());
+            sendEvent(emitter, "done", new DonePayload(cachedMessage, BookAiContentService.toDto(snapshot)));
             safelyComplete(emitter);
         } catch (JacksonException exception) {
-            log.error("Failed to serialize cached AI analysis for bookId={}", snapshot.bookId(), exception);
-            emitTerminalError(emitter, "Cached AI analysis could not be serialized");
+            log.error("Failed to serialize cached AI content for bookId={}", snapshot.bookId(), exception);
+            emitTerminalError(emitter, "Cached AI content could not be serialized");
         }
     }
 
-    private QueuePositionPayload toQueuePositionPayload(BookAiRequestQueue.QueuePosition position) {
+    private QueuePositionPayload toQueuePositionPayload(BookAiContentRequestQueue.QueuePosition position) {
         return new QueuePositionPayload(
             position.position(),
             position.running(),
@@ -347,6 +347,6 @@ public class BookAiController {
     private record MessageStartPayload(String id, String model, String apiMode) {}
     private record MessageDeltaPayload(String delta) {}
     private record MessageDonePayload(String message) {}
-    private record DonePayload(String message, BookAiSnapshotDto analysis) {}
+    private record DonePayload(String message, BookAiContentSnapshotDto aiContent) {}
     private record ErrorPayload(String error) {}
 }

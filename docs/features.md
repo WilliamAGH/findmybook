@@ -24,6 +24,7 @@ Use manual SQL migration scripts and controlled data-loading steps instead of bo
 
 - SQL migration assets: `frontend/scripts/backfill_cover_metadata.sql`, `migrations/`, and `src/main/resources/schema.sql`.
 - Schema module layout: `src/main/resources/schema.sql` is the orchestrator entrypoint and includes split modules such as `src/main/resources/schema/author-domain.sql`.
+- Data hygiene guardrails: `migrations/20260208_03_cleanup_author_name_prefixes_and_constraints.sql` and `migrations/20260208_04_cleanup_book_title_prefixes_and_constraints.sql` clean existing rows before adding non-blank + leading-character constraints for `authors.name` and `books.title`.
 - Controlled data load: run the explicit migration tool directly:
   `node frontend/scripts/migrate-s3-to-db-v2.js --prefix books/v1/ --limit 1000`
 - Verification and rollback guidance: follow `docs/troubleshooting.md` and `docs/edition_clustering.md` after each batch.

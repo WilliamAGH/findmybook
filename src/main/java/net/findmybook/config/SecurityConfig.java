@@ -99,7 +99,7 @@ public class SecurityConfig {
             matcherBuilder.matcher(HttpMethod.GET, "/admin/s3-cleanup/dry-run"),
             matcherBuilder.matcher(HttpMethod.GET, "/admin/api-metrics/**"),
             matcherBuilder.matcher(HttpMethod.POST, "/api/theme"),
-            matcherBuilder.matcher(HttpMethod.POST, "/api/books/{identifier}/ai/analysis/stream")
+            matcherBuilder.matcher(HttpMethod.POST, "/api/books/{identifier}/ai/content/stream")
         };
     }
 

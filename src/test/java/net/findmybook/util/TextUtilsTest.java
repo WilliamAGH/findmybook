@@ -80,6 +80,24 @@ public class TextUtilsTest {
         assertEquals(title3, TextUtils.normalizeBookTitle(title3));
     }
 
+    @Test
+    void should_RemoveLeadingPunctuation_When_NormalizeBookTitleHasCatalogPrefixNoise() {
+        String input = "... Annual Report of Purdue University";
+        assertEquals("Annual Report of Purdue University", TextUtils.normalizeBookTitle(input));
+    }
+
+    @Test
+    void should_RemoveWrappingQuotes_When_NormalizeBookTitleIsQuoted() {
+        String input = "\"A New Declaration of Independence\"";
+        assertEquals("A New Declaration of Independence", TextUtils.normalizeBookTitle(input));
+    }
+
+    @Test
+    void should_ReturnEmptyString_When_NormalizeBookTitleHasOnlyPrefixSymbols() {
+        String input = " -- ";
+        assertEquals("", TextUtils.normalizeBookTitle(input));
+    }
+
     /**
      * Tests author name normalization with special prefix handling.
      * Covers Mc/Mac/O' prefixes and nobility particles (von, van, de).

@@ -4,7 +4,7 @@
 package net.findmybook.controller;
 
 import com.fasterxml.jackson.annotation.JsonUnwrapped;
-import net.findmybook.application.ai.BookAiAnalysisService;
+import net.findmybook.application.ai.BookAiContentService;
 import net.findmybook.controller.dto.BookDto;
 import net.findmybook.controller.dto.BookDtoMapper;
 import org.springframework.web.server.ResponseStatusException;
@@ -58,7 +58,7 @@ public class BookController {
     private final BookSearchService bookSearchService;
     private final BookIdentifierResolver bookIdentifierResolver;
     private final SearchPaginationService searchPaginationService;
-    private final BookAiAnalysisService bookAiAnalysisService;
+    private final BookAiContentService bookAiContentService;
     /**
      * The book data orchestrator, may be null when disabled.
      */
@@ -70,18 +70,18 @@ public class BookController {
      * @param bookSearchService the book search service
      * @param bookIdentifierResolver the identifier resolver
      * @param searchPaginationService the pagination service
-     * @param bookAiAnalysisService service for cache-first AI reader-fit snapshots
+     * @param bookAiContentService service for cache-first AI reader-fit snapshots
      * @param bookDataOrchestrator the data orchestrator, or null when disabled
      */
     public BookController(BookSearchService bookSearchService,
                           BookIdentifierResolver bookIdentifierResolver,
                           SearchPaginationService searchPaginationService,
-                          BookAiAnalysisService bookAiAnalysisService,
+                          BookAiContentService bookAiContentService,
                           BookDataOrchestrator bookDataOrchestrator) {
         this.bookSearchService = bookSearchService;
         this.bookIdentifierResolver = bookIdentifierResolver;
         this.searchPaginationService = searchPaginationService;
-        this.bookAiAnalysisService = bookAiAnalysisService;
+        this.bookAiContentService = bookAiContentService;
         this.bookDataOrchestrator = bookDataOrchestrator;
     }
 
@@ -345,7 +345,7 @@ public class BookController {
             .flatMap(dto -> dto == null ? Mono.<BookDto>empty() : Mono.just(dto))
             .switchIfEmpty(fetchBookViaFallback(trimmed));
 
-        return resolvedBook.flatMap(dto -> Mono.fromCallable(() -> attachAiSnapshot(dto))
+        return resolvedBook.flatMap(dto -> Mono.fromCallable(() -> attachAiContentSnapshot(dto))
             .subscribeOn(Schedulers.boundedElastic()));
     }
 
@@ -398,7 +398,7 @@ public class BookController {
             .doOnNext(bookDto -> log.debug("BookController fallback resolved '{}' via orchestrator", identifier));
     }
 
-    private BookDto attachAiSnapshot(BookDto bookDto) {
+    private BookDto attachAiContentSnapshot(BookDto bookDto) {
         if (bookDto == null || !StringUtils.hasText(bookDto.id())) {
             return bookDto;
         }
@@ -408,9 +408,9 @@ public class BookController {
             return bookDto;
         }
 
-        return bookAiAnalysisService.findCurrent(bookId)
-            .map(BookAiAnalysisService::toDto)
-            .map(bookDto::withAi)
+        return bookAiContentService.findCurrent(bookId)
+            .map(BookAiContentService::toDto)
+            .map(bookDto::withAiContent)
             .orElse(bookDto);
     }
 

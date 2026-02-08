@@ -173,7 +173,7 @@ resilience4j:
         limitForPeriod: 100         # 100 requests per minute
         limitRefreshPeriod: 1m
         timeoutDuration: 0ms
-      bookAiAnalysisRateLimiter:
+      bookAiContentRateLimiter:
         limitForPeriod: 10          # 10 AI requests per minute
         limitRefreshPeriod: 1m
         timeoutDuration: 0ms        # Fail fast when limit exceeded

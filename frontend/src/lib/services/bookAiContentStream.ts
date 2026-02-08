@@ -1,23 +1,23 @@
 import { validateWithSchema } from "$lib/validation/validate";
 import {
-  type BookAiModelStreamUpdate,
-  type BookAiQueueUpdate,
-  type BookAiSnapshot,
-  BookAiModelStreamUpdateSchema,
-  BookAiQueueUpdateSchema,
-  BookAiStreamDoneSchema,
+  type BookAiContentModelStreamUpdate,
+  type BookAiContentQueueUpdate,
+  type BookAiContentSnapshot,
+  BookAiContentModelStreamUpdateSchema,
+  BookAiContentQueueUpdateSchema,
+  BookAiContentStreamDoneSchema,
 } from "$lib/validation/schemas";
 
-export interface StreamBookAiAnalysisOptions {
+export interface StreamBookAiContentOptions {
   refresh?: boolean;
   signal?: AbortSignal;
-  onQueueUpdate?: (update: BookAiQueueUpdate) => void;
-  onStreamEvent?: (event: BookAiModelStreamUpdate) => void;
+  onQueueUpdate?: (update: BookAiContentQueueUpdate) => void;
+  onStreamEvent?: (event: BookAiContentModelStreamUpdate) => void;
 }
 
-export interface StreamBookAiAnalysisResult {
+export interface StreamBookAiContentResult {
   message: string;
-  analysis: BookAiSnapshot;
+  aiContent: BookAiContentSnapshot;
 }
 
 function parseSseMessage(raw: string): { event: string; data: string } | null {
@@ -69,10 +69,10 @@ async function assertSseContentType(response: Response): Promise<void> {
   );
 }
 
-async function readBookAiSseStream(
+async function readBookAiContentSseStream(
   response: Response,
-  options: StreamBookAiAnalysisOptions,
-): Promise<StreamBookAiAnalysisResult> {
+  options: StreamBookAiContentOptions,
+): Promise<StreamBookAiContentResult> {
   const reader = response.body?.getReader();
   if (!reader) {
     throw new Error("Book AI stream is not readable");
@@ -80,9 +80,9 @@ async function readBookAiSseStream(
 
   const decoder = new TextDecoder();
   let buffer = "";
-  let finalResult: StreamBookAiAnalysisResult | null = null;
+  let finalResult: StreamBookAiContentResult | null = null;
 
-  const processMessage = (message: { event: string; data: string }): StreamBookAiAnalysisResult | null => {
+  const processMessage = (message: { event: string; data: string }): StreamBookAiContentResult | null => {
     if (message.event === "error") {
       const parsed = safeParseJson(message.data, "error");
       if (typeof parsed === "object" && parsed !== null && "error" in parsed) {
@@ -97,9 +97,9 @@ async function readBookAiSseStream(
     if (message.event === "queued" || message.event === "queue" || message.event === "started") {
       const parsed = safeParseJson(message.data, message.event);
       const queueUpdate = validateWithSchema(
-        BookAiQueueUpdateSchema,
+        BookAiContentQueueUpdateSchema,
         { ...(parsed as Record<string, unknown>), event: message.event },
-        `bookAiQueueUpdate:${message.event}`,
+        `bookAiContentQueueUpdate:${message.event}`,
       );
       if (queueUpdate.success) {
         options.onQueueUpdate?.(queueUpdate.data);
@@ -110,9 +110,9 @@ async function readBookAiSseStream(
     if (message.event === "message_start" || message.event === "message_delta" || message.event === "message_done") {
       const parsed = safeParseJson(message.data, message.event);
       const streamUpdate = validateWithSchema(
-        BookAiModelStreamUpdateSchema,
+        BookAiContentModelStreamUpdateSchema,
         { event: message.event, data: parsed },
-        `bookAiModelStreamUpdate:${message.event}`,
+        `bookAiContentModelStreamUpdate:${message.event}`,
       );
       if (streamUpdate.success) {
         options.onStreamEvent?.(streamUpdate.data);
@@ -122,7 +122,7 @@ async function readBookAiSseStream(
 
     if (message.event === "done") {
       const parsed = safeParseJson(message.data, "done");
-      const done = validateWithSchema(BookAiStreamDoneSchema, parsed, "bookAiStreamDone");
+      const done = validateWithSchema(BookAiContentStreamDoneSchema, parsed, "bookAiContentStreamDone");
       if (!done.success) {
         throw new Error("Book AI stream done payload was invalid");
       }
@@ -187,13 +187,13 @@ async function readBookAiSseStream(
   throw new Error("Book AI stream ended unexpectedly");
 }
 
-export async function streamBookAiAnalysis(
+export async function streamBookAiContent(
   identifier: string,
-  options: StreamBookAiAnalysisOptions = {},
-): Promise<StreamBookAiAnalysisResult> {
+  options: StreamBookAiContentOptions = {},
+): Promise<StreamBookAiContentResult> {
   const refresh = options.refresh ?? false;
   const response = await fetch(
-    `/api/books/${encodeURIComponent(identifier)}/ai/analysis/stream?refresh=${refresh ? "true" : "false"}`,
+    `/api/books/${encodeURIComponent(identifier)}/ai/content/stream?refresh=${refresh ? "true" : "false"}`,
     {
       method: "POST",
       headers: {
@@ -209,5 +209,5 @@ export async function streamBookAiAnalysis(
   }
 
   await assertSseContentType(response);
-  return readBookAiSseStream(response, options);
+  return readBookAiContentSseStream(response, options);
 }

@@ -4,8 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
 import java.util.UUID;
-import net.findmybook.domain.ai.BookAiAnalysis;
-import net.findmybook.domain.ai.BookAiSnapshot;
+import net.findmybook.domain.ai.BookAiContent;
+import net.findmybook.domain.ai.BookAiContentSnapshot;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -21,8 +21,8 @@ import tools.jackson.databind.ObjectMapper;
 @SpringBootTest
 @Testcontainers
 @org.junit.jupiter.api.Disabled("Requires Docker environment")
-@Import({BookAiAnalysisRepository.class, ObjectMapper.class})
-class BookAiAnalysisRepositoryTest {
+@Import({BookAiContentRepository.class, ObjectMapper.class})
+class BookAiContentRepositoryTest {
 
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15-alpine");
@@ -35,7 +35,7 @@ class BookAiAnalysisRepositoryTest {
     }
 
     @Autowired
-    private BookAiAnalysisRepository repository;
+    private BookAiContentRepository repository;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -43,28 +43,28 @@ class BookAiAnalysisRepositoryTest {
     @Test
     void insertNewCurrentVersion_CreatesFirstVersion() {
         UUID bookId = createBook();
-        BookAiAnalysis analysis = new BookAiAnalysis("Summary", "Fit", List.of("Theme1"), List.of("Point1"), "Context.");
+        BookAiContent analysis = new BookAiContent("Summary", "Fit", List.of("Theme1"), List.of("Point1"), "Context.");
 
-        BookAiSnapshot snapshot = repository.insertNewCurrentVersion(
+        BookAiContentSnapshot snapshot = repository.insertNewCurrentVersion(
             bookId, analysis, "gpt-model", "openai", "hash123"
         );
 
         assertThat(snapshot.version()).isEqualTo(1);
         assertThat(snapshot.model()).isEqualTo("gpt-model");
-        assertThat(snapshot.analysis().summary()).isEqualTo("Summary");
+        assertThat(snapshot.aiContent().summary()).isEqualTo("Summary");
     }
 
     @Test
     void insertNewCurrentVersion_IncrementsVersion_AndUpdatesCurrentFlag() {
         UUID bookId = createBook();
-        BookAiAnalysis a1 = new BookAiAnalysis("Old", "Fit", List.of("T1"), null, null);
-        BookAiAnalysis a2 = new BookAiAnalysis("New", "Fit", List.of("T2"), List.of("P1"), "Ctx");
+        BookAiContent a1 = new BookAiContent("Old", "Fit", List.of("T1"), null, null);
+        BookAiContent a2 = new BookAiContent("New", "Fit", List.of("T2"), List.of("P1"), "Ctx");
 
         repository.insertNewCurrentVersion(bookId, a1, "m1", "p1", "h1");
-        BookAiSnapshot s2 = repository.insertNewCurrentVersion(bookId, a2, "m2", "p2", "h2");
+        BookAiContentSnapshot s2 = repository.insertNewCurrentVersion(bookId, a2, "m2", "p2", "h2");
 
         assertThat(s2.version()).isEqualTo(2);
-        assertThat(s2.analysis().summary()).isEqualTo("New");
+        assertThat(s2.aiContent().summary()).isEqualTo("New");
 
         // Verify version 1 is no longer current
         Boolean v1Current = jdbcTemplate.queryForObject(
@@ -77,7 +77,7 @@ class BookAiAnalysisRepositoryTest {
     @Test
     void fetchCurrent_ReturnsLatestCurrent() {
         UUID bookId = createBook();
-        BookAiAnalysis analysis = new BookAiAnalysis("Summary", "Fit", List.of("Theme1"), List.of("Point1"), "Context.");
+        BookAiContent analysis = new BookAiContent("Summary", "Fit", List.of("Theme1"), List.of("Point1"), "Context.");
         repository.insertNewCurrentVersion(bookId, analysis, "m1", "p1", "h1");
 
         assertThat(repository.fetchCurrent(bookId)).isPresent();

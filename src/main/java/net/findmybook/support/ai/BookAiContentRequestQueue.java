@@ -24,7 +24,7 @@ import org.springframework.stereotype.Service;
  * pending position, running count, and bounded parallel execution.</p>
  */
 @Service
-public class BookAiRequestQueue {
+public class BookAiContentRequestQueue {
 
     private static final int MAX_ALLOWED_PARALLEL = 20;
 
@@ -36,7 +36,7 @@ public class BookAiRequestQueue {
 
     private int runningCount;
 
-    public BookAiRequestQueue(@Value("${AI_DEFAULT_MAX_PARALLEL:1}") int configuredParallelism) {
+    public BookAiContentRequestQueue(@Value("${AI_DEFAULT_MAX_PARALLEL:1}") int configuredParallelism) {
         this.maxParallel = coerceParallelism(configuredParallelism);
         this.pendingByPriority = new TreeMap<>(Comparator.reverseOrder());
         this.pendingById = new HashMap<>();

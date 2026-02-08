@@ -1,9 +1,9 @@
 -- ============================================================================
--- BOOK AI ANALYSIS VERSIONING MIGRATION
+-- BOOK AI CONTENT VERSIONING MIGRATION
 -- ============================================================================
 
 -- Table: book_ai_content
--- Stores versioned AI-generated analysis content per book.
+-- Stores versioned AI-generated content per book.
 -- Includes canonical JSON payload, parsed summary/reader_fit/themes, and model metadata.
 
 create table if not exists book_ai_content (
@@ -11,10 +11,12 @@ create table if not exists book_ai_content (
   book_id uuid not null references books(id) on delete cascade,
   version_number integer not null check (version_number > 0),
   is_current boolean not null default false,
-  analysis_json jsonb not null,
+  content_json jsonb not null,
   summary text not null,
   reader_fit text not null,
   key_themes jsonb not null,
+  takeaways jsonb,
+  context text,
   model text not null,
   provider text not null,
   prompt_hash text,
@@ -32,7 +34,9 @@ create index if not exists idx_book_ai_content_book_created
   on book_ai_content(book_id, created_at desc);
 
 -- Comments
-comment on table book_ai_content is 'Versioned AI-generated book analysis snapshots with single current version per book';
-comment on column book_ai_content.analysis_json is 'Canonical JSON payload returned by the AI model';
+comment on table book_ai_content is 'Versioned AI-generated book content snapshots with single current version per book';
+comment on column book_ai_content.content_json is 'Canonical JSON payload returned by the AI model';
 comment on column book_ai_content.reader_fit is 'Who should read this book and why';
 comment on column book_ai_content.key_themes is 'JSON array of short key-theme strings';
+comment on column book_ai_content.takeaways is 'JSON array of specific insight/point strings';
+comment on column book_ai_content.context is 'Genre or field placement note';

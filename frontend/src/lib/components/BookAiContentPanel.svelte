@@ -1,17 +1,17 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { ChevronDown, RefreshCw } from "@lucide/svelte";
-  import { streamBookAiAnalysis } from "$lib/services/bookAiStream";
-  import { getBookAiQueueStats } from "$lib/services/books";
-  import type { Book, BookAiModelStreamUpdate, BookAiQueueUpdate, BookAiSnapshot } from "$lib/validation/schemas";
+  import { streamBookAiContent } from "$lib/services/bookAiContentStream";
+  import { getBookAiContentQueueStats } from "$lib/services/books";
+  import type { Book, BookAiContentModelStreamUpdate, BookAiContentQueueUpdate, BookAiContentSnapshot } from "$lib/validation/schemas";
 
   interface Props {
     identifier: string;
     book: Book;
-    onAnalysisUpdate: (analysis: BookAiSnapshot) => void;
+    onAiContentUpdate: (aiContent: BookAiContentSnapshot) => void;
   }
 
-  let { identifier, book, onAnalysisUpdate }: Props = $props();
+  let { identifier, book, onAiContentUpdate }: Props = $props();
 
   const AI_AUTO_TRIGGER_QUEUE_THRESHOLD = 5;
   const COLLAPSE_STORAGE_KEY = "findmybook:ai-collapsed";
@@ -19,7 +19,7 @@
   let aiLoading = $state(false);
   let aiErrorMessage = $state<string | null>(null);
   let aiQueueMessage = $state<string | null>(null);
-  let aiLoadingMessage = $state("Generating analysis...");
+  let aiLoadingMessage = $state("Generating AI content...");
   let aiAutoTriggerDeferred = $state(false);
   let collapsed = $state(false);
   let aiAbortController: AbortController | null = null;
@@ -46,7 +46,7 @@
     writeCollapseState(collapsed);
   }
 
-  function handleAiQueueUpdate(update: BookAiQueueUpdate): void {
+  function handleAiQueueUpdate(update: BookAiContentQueueUpdate): void {
     if (update.event === "queued" || update.event === "queue") {
       aiQueueMessage = update.position
         ? `Queued (position ${update.position})`
@@ -56,9 +56,9 @@
     aiQueueMessage = null;
   }
 
-  function handleAiStreamEvent(event: BookAiModelStreamUpdate): void {
+  function handleAiStreamEvent(event: BookAiContentModelStreamUpdate): void {
     if (event.event === "message_start") {
-      aiLoadingMessage = "Generating analysis...";
+      aiLoadingMessage = "Generating AI content...";
       return;
     }
     if (event.event === "message_delta") {
@@ -71,7 +71,7 @@
 
   async function hasQueueCapacity(refresh: boolean): Promise<boolean> {
     try {
-      const queueStats = await getBookAiQueueStats();
+      const queueStats = await getBookAiContentQueueStats();
       if (queueStats.pending > AI_AUTO_TRIGGER_QUEUE_THRESHOLD) {
         aiQueueMessage = `Queue busy (${queueStats.pending} waiting)`;
         aiAutoTriggerDeferred = !refresh;
@@ -109,18 +109,18 @@
     aiErrorMessage = null;
     aiQueueMessage = null;
     aiLoadingMessage = refresh
-      ? "Refreshing analysis..."
-      : "Generating analysis...";
+      ? "Refreshing AI content..."
+      : "Generating AI content...";
 
     try {
-      const result = await streamBookAiAnalysis(identifier, {
+      const result = await streamBookAiContent(identifier, {
         refresh,
         signal: aiAbortController.signal,
         onQueueUpdate: handleAiQueueUpdate,
         onStreamEvent: handleAiStreamEvent,
       });
 
-      onAnalysisUpdate(result.analysis);
+      onAiContentUpdate(result.aiContent);
 
       aiQueueMessage = null;
       aiErrorMessage = null;
@@ -128,8 +128,8 @@
       if (error instanceof DOMException && error.name === "AbortError") {
         return;
       }
-      aiErrorMessage = error instanceof Error ? error.message : "Unable to generate analysis";
-      console.error("Book AI analysis failed:", error);
+      aiErrorMessage = error instanceof Error ? error.message : "Unable to generate AI content";
+      console.error("Book AI content generation failed:", error);
     } finally {
       aiLoading = false;
     }
@@ -139,7 +139,7 @@
     collapsed = readCollapseState();
 
     const autoTriggerDelay = setTimeout(() => {
-      if (!book.ai && !aiLoading && !aiAutoTriggerDeferred) {
+      if (!book.aiContent && !aiLoading && !aiAutoTriggerDeferred) {
         void triggerAiGeneration(false);
       }
     }, 0);
@@ -164,7 +164,7 @@
         size={14}
         class="shrink-0 transition-transform duration-200 {collapsed ? '-rotate-90' : ''}"
       />
-      Book analysis
+      Book AI Content
     </button>
     <button
       type="button"
@@ -181,20 +181,20 @@
   <!-- Collapsible body -->
   {#if !collapsed}
     <div class="border-t border-linen-200 px-4 pb-4 pt-3 dark:border-slate-700">
-      {#if book.ai}
+      {#if book.aiContent}
         <!-- Summary -->
         <p class="text-sm leading-relaxed text-anthracite-800 dark:text-slate-200">
-          {book.ai.summary}
+          {book.aiContent.summary}
         </p>
 
         <!-- Key Points -->
-        {#if book.ai.takeaways && book.ai.takeaways.length > 0}
+        {#if book.aiContent.takeaways && book.aiContent.takeaways.length > 0}
           <div class="mt-3">
             <h3 class="mb-1.5 text-xs font-semibold uppercase tracking-wide text-anthracite-500 dark:text-slate-400">
               Key Points
             </h3>
             <ul class="space-y-1 pl-4">
-              {#each book.ai.takeaways as point}
+              {#each book.aiContent.takeaways as point}
                 <li class="list-disc text-sm text-anthracite-700 dark:text-slate-300">{point}</li>
               {/each}
             </ul>
@@ -206,23 +206,23 @@
           <h3 class="mb-1 text-xs font-semibold uppercase tracking-wide text-anthracite-500 dark:text-slate-400">
             Audience
           </h3>
-          <p class="text-sm text-anthracite-700 dark:text-slate-300">{book.ai.readerFit}</p>
+          <p class="text-sm text-anthracite-700 dark:text-slate-300">{book.aiContent.readerFit}</p>
         </div>
 
         <!-- Context -->
-        {#if book.ai.context}
+        {#if book.aiContent.context}
           <div class="mt-3">
             <h3 class="mb-1 text-xs font-semibold uppercase tracking-wide text-anthracite-500 dark:text-slate-400">
               Context
             </h3>
-            <p class="text-sm text-anthracite-700 dark:text-slate-300">{book.ai.context}</p>
+            <p class="text-sm text-anthracite-700 dark:text-slate-300">{book.aiContent.context}</p>
           </div>
         {/if}
 
         <!-- Topic pills -->
-        {#if book.ai.keyThemes.length > 0}
+        {#if book.aiContent.keyThemes.length > 0}
           <div class="mt-3 flex flex-wrap gap-1.5">
-            {#each book.ai.keyThemes as theme}
+            {#each book.aiContent.keyThemes as theme}
               <span class="rounded-full border border-linen-300 px-2 py-0.5 text-[11px] text-anthracite-700 dark:border-slate-600 dark:text-slate-300">
                 {theme}
               </span>
@@ -245,7 +245,7 @@
         <p class="text-xs text-red-700 dark:text-red-300">{aiErrorMessage}</p>
       {:else}
         <p class="text-xs text-anthracite-500 dark:text-slate-400">
-          No analysis available yet.
+          No AI content available yet.
         </p>
       {/if}
     </div>

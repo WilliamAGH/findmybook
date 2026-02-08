@@ -19,10 +19,10 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
-import net.findmybook.application.ai.BookAiAnalysisService;
-import net.findmybook.domain.ai.BookAiAnalysis;
-import net.findmybook.domain.ai.BookAiSnapshot;
-import net.findmybook.support.ai.BookAiRequestQueue;
+import net.findmybook.application.ai.BookAiContentService;
+import net.findmybook.domain.ai.BookAiContent;
+import net.findmybook.domain.ai.BookAiContentSnapshot;
+import net.findmybook.support.ai.BookAiContentRequestQueue;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -36,20 +36,20 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import tools.jackson.databind.ObjectMapper;
 
 @ExtendWith(MockitoExtension.class)
-class BookAiControllerTest {
+class BookAiContentControllerTest {
 
     @Mock
-    private BookAiAnalysisService analysisService;
+    private BookAiContentService aiContentService;
 
     @Mock
-    private BookAiRequestQueue requestQueue;
+    private BookAiContentRequestQueue requestQueue;
 
-    private BookAiController controller;
+    private BookAiContentController controller;
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
-        controller = new BookAiController(analysisService, requestQueue, new ObjectMapper());
+        controller = new BookAiContentController(aiContentService, requestQueue, new ObjectMapper());
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
     }
 
@@ -59,11 +59,11 @@ class BookAiControllerTest {
     }
 
     @Test
-    @DisplayName("GET /api/books/ai/queue returns queue snapshot")
+    @DisplayName("GET /api/books/ai/content/queue returns queue snapshot")
     void queueStats_returnsQueueSnapshot() throws Exception {
-        when(requestQueue.snapshot()).thenReturn(new BookAiRequestQueue.QueueSnapshot(1, 3, 2));
+        when(requestQueue.snapshot()).thenReturn(new BookAiContentRequestQueue.QueueSnapshot(1, 3, 2));
 
-        mockMvc.perform(get("/api/books/ai/queue"))
+        mockMvc.perform(get("/api/books/ai/content/queue"))
             .andExpect(status().isOk())
             .andExpect(content().contentType(MediaType.APPLICATION_JSON))
             .andExpect(jsonPath("$.running").value(1))
@@ -73,17 +73,17 @@ class BookAiControllerTest {
 
     @Test
     @DisplayName("POST stream returns cached done event when refresh=false and snapshot exists")
-    void streamAnalysis_returnsCachedDoneEvent() throws Exception {
+    void streamAiContent_returnsCachedDoneEvent() throws Exception {
         UUID bookId = UUID.fromString("11111111-1111-4111-8111-111111111111");
-        when(analysisService.resolveBookId("fixture-slug")).thenReturn(Optional.of(bookId));
-        when(analysisService.findCurrent(bookId)).thenReturn(Optional.of(
-            new BookAiSnapshot(
+        when(aiContentService.resolveBookId("fixture-slug")).thenReturn(Optional.of(bookId));
+        when(aiContentService.findCurrent(bookId)).thenReturn(Optional.of(
+            new BookAiContentSnapshot(
                 bookId,
                 1,
                 Instant.parse("2026-02-08T12:00:00Z"),
                 "gpt-5-mini",
                 "openai",
-                new BookAiAnalysis(
+                new BookAiContent(
                     "Short summary",
                     "Great for pragmatic readers",
                     List.of("Theme one", "Theme two"),
@@ -93,32 +93,32 @@ class BookAiControllerTest {
             )
         ));
 
-        mockMvc.perform(post("/api/books/fixture-slug/ai/analysis/stream"))
+        mockMvc.perform(post("/api/books/fixture-slug/ai/content/stream"))
             .andExpect(status().isOk())
             .andExpect(content().contentType("text/event-stream"));
     }
 
     @Test
     @DisplayName("POST stream queues task when cache miss")
-    void streamAnalysis_queuesTask_WhenCacheMiss() throws Exception {
+    void streamAiContent_queuesTask_WhenCacheMiss() throws Exception {
         UUID bookId = UUID.randomUUID();
-        when(analysisService.resolveBookId("slug")).thenReturn(Optional.of(bookId));
-        when(analysisService.findCurrent(bookId)).thenReturn(Optional.empty());
-        when(analysisService.isAvailable()).thenReturn(true);
-        when(requestQueue.snapshot()).thenReturn(new BookAiRequestQueue.QueueSnapshot(0, 0, 1));
+        when(aiContentService.resolveBookId("slug")).thenReturn(Optional.of(bookId));
+        when(aiContentService.findCurrent(bookId)).thenReturn(Optional.empty());
+        when(aiContentService.isAvailable()).thenReturn(true);
+        when(requestQueue.snapshot()).thenReturn(new BookAiContentRequestQueue.QueueSnapshot(0, 0, 1));
 
-        BookAiRequestQueue.EnqueuedTask<BookAiAnalysisService.GeneratedAnalysis> task =
-            new BookAiRequestQueue.EnqueuedTask<>("task-1", new CompletableFuture<>(), new CompletableFuture<>());
+        BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent> task =
+            new BookAiContentRequestQueue.EnqueuedTask<>("task-1", new CompletableFuture<>(), new CompletableFuture<>());
 
-        when(requestQueue.<BookAiAnalysisService.GeneratedAnalysis>enqueue(
+        when(requestQueue.<BookAiContentService.GeneratedContent>enqueue(
             anyInt(),
-            org.mockito.ArgumentMatchers.<Supplier<BookAiAnalysisService.GeneratedAnalysis>>any()
+            org.mockito.ArgumentMatchers.<Supplier<BookAiContentService.GeneratedContent>>any()
         )).thenReturn(task);
         when(requestQueue.getPosition("task-1")).thenReturn(
-            new BookAiRequestQueue.QueuePosition(true, 1, 0, 1, 5)
+            new BookAiContentRequestQueue.QueuePosition(true, 1, 0, 1, 5)
         );
 
-        mockMvc.perform(post("/api/books/slug/ai/analysis/stream"))
+        mockMvc.perform(post("/api/books/slug/ai/content/stream"))
             .andExpect(status().isOk())
             .andExpect(content().contentType("text/event-stream"));
             
@@ -127,14 +127,14 @@ class BookAiControllerTest {
 
     @Test
     @DisplayName("POST stream returns error event when queue is above threshold")
-    void streamAnalysis_returnsError_WhenQueueIsBusy() throws Exception {
+    void streamAiContent_returnsError_WhenQueueIsBusy() throws Exception {
         UUID bookId = UUID.randomUUID();
-        when(analysisService.resolveBookId("busy-slug")).thenReturn(Optional.of(bookId));
-        when(analysisService.findCurrent(bookId)).thenReturn(Optional.empty());
-        when(analysisService.isAvailable()).thenReturn(true);
-        when(requestQueue.snapshot()).thenReturn(new BookAiRequestQueue.QueueSnapshot(1, 6, 1));
+        when(aiContentService.resolveBookId("busy-slug")).thenReturn(Optional.of(bookId));
+        when(aiContentService.findCurrent(bookId)).thenReturn(Optional.empty());
+        when(aiContentService.isAvailable()).thenReturn(true);
+        when(requestQueue.snapshot()).thenReturn(new BookAiContentRequestQueue.QueueSnapshot(1, 6, 1));
 
-        String responseBody = mockMvc.perform(post("/api/books/busy-slug/ai/analysis/stream"))
+        String responseBody = mockMvc.perform(post("/api/books/busy-slug/ai/content/stream"))
             .andExpect(status().isOk())
             .andExpect(content().contentType("text/event-stream"))
             .andReturn()
@@ -148,10 +148,10 @@ class BookAiControllerTest {
 
     @Test
     @DisplayName("POST stream returns error event when book identifier not found")
-    void streamAnalysis_returnsError_WhenBookNotFound() throws Exception {
-        when(analysisService.resolveBookId("unknown-slug")).thenReturn(Optional.empty());
+    void streamAiContent_returnsError_WhenBookNotFound() throws Exception {
+        when(aiContentService.resolveBookId("unknown-slug")).thenReturn(Optional.empty());
 
-        String responseBody = mockMvc.perform(post("/api/books/unknown-slug/ai/analysis/stream"))
+        String responseBody = mockMvc.perform(post("/api/books/unknown-slug/ai/content/stream"))
             .andExpect(status().isOk())
             .andExpect(content().contentType("text/event-stream"))
             .andReturn()
@@ -164,13 +164,13 @@ class BookAiControllerTest {
 
     @Test
     @DisplayName("POST stream returns error event when AI service not available")
-    void streamAnalysis_returnsError_WhenServiceNotAvailable() throws Exception {
+    void streamAiContent_returnsError_WhenServiceNotAvailable() throws Exception {
         UUID bookId = UUID.randomUUID();
-        when(analysisService.resolveBookId("slug")).thenReturn(Optional.of(bookId));
-        when(analysisService.findCurrent(bookId)).thenReturn(Optional.empty());
-        when(analysisService.isAvailable()).thenReturn(false);
+        when(aiContentService.resolveBookId("slug")).thenReturn(Optional.of(bookId));
+        when(aiContentService.findCurrent(bookId)).thenReturn(Optional.empty());
+        when(aiContentService.isAvailable()).thenReturn(false);
 
-        String responseBody = mockMvc.perform(post("/api/books/slug/ai/analysis/stream"))
+        String responseBody = mockMvc.perform(post("/api/books/slug/ai/content/stream"))
             .andExpect(status().isOk())
             .andExpect(content().contentType("text/event-stream"))
             .andReturn()

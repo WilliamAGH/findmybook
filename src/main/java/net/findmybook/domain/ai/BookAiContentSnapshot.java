@@ -4,14 +4,14 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Persisted AI analysis version for a book, including metadata used by API/UI.
+ * Persisted AI content version for a book, including metadata used by API/UI.
  */
-public record BookAiSnapshot(
+public record BookAiContentSnapshot(
     UUID bookId,
     int version,
     Instant generatedAt,
     String model,
     String provider,
-    BookAiAnalysis analysis
+    BookAiContent aiContent
 ) {
 }

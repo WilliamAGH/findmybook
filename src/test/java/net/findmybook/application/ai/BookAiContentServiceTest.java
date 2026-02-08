@@ -9,10 +9,10 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import net.findmybook.adapters.persistence.BookAiAnalysisRepository;
-import net.findmybook.controller.dto.BookAiSnapshotDto;
-import net.findmybook.domain.ai.BookAiAnalysis;
-import net.findmybook.domain.ai.BookAiSnapshot;
+import net.findmybook.adapters.persistence.BookAiContentRepository;
+import net.findmybook.controller.dto.BookAiContentSnapshotDto;
+import net.findmybook.domain.ai.BookAiContent;
+import net.findmybook.domain.ai.BookAiContentSnapshot;
 import net.findmybook.service.BookIdentifierResolver;
 import net.findmybook.service.BookSearchService;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,22 +21,22 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import tools.jackson.databind.ObjectMapper;
 
-class BookAiAnalysisServiceTest {
+class BookAiContentServiceTest {
 
-    private BookAiAnalysisRepository repository;
+    private BookAiContentRepository repository;
     private BookIdentifierResolver identifierResolver;
     private BookSearchService bookSearchService;
     private ObjectMapper objectMapper;
-    private BookAiAnalysisService service;
+    private BookAiContentService service;
 
     @BeforeEach
     void setUp() {
-        repository = mock(BookAiAnalysisRepository.class);
+        repository = mock(BookAiContentRepository.class);
         identifierResolver = mock(BookIdentifierResolver.class);
         bookSearchService = mock(BookSearchService.class);
         objectMapper = new ObjectMapper();
         
-        service = new BookAiAnalysisService(
+        service = new BookAiContentService(
             repository,
             identifierResolver,
             bookSearchService,
@@ -56,7 +56,7 @@ class BookAiAnalysisServiceTest {
 
     @Test
     void isAvailable_ReturnsFalse_WhenApiKeyMissing() {
-        BookAiAnalysisService disabledService = new BookAiAnalysisService(
+        BookAiContentService disabledService = new BookAiContentService(
             repository, identifierResolver, bookSearchService, objectMapper,
             "", "", "model", 10, 10
         );
@@ -81,12 +81,12 @@ class BookAiAnalysisServiceTest {
         "https://popos-sf7.com/,https://popos-sf7.com/v1"
     })
     void should_NormalizeOpenAiBaseUrl_When_ValueProvided(String input, String expected) {
-        assertThat(BookAiAnalysisService.normalizeSdkBaseUrl(input)).isEqualTo(expected);
+        assertThat(BookAiContentService.normalizeSdkBaseUrl(input)).isEqualTo(expected);
     }
 
     @Test
     void should_DefaultOpenAiBaseUrl_When_ValueMissing() {
-        assertThat(BookAiAnalysisService.normalizeSdkBaseUrl(" ")).isEqualTo("https://api.openai.com/v1");
+        assertThat(BookAiContentService.normalizeSdkBaseUrl(" ")).isEqualTo("https://api.openai.com/v1");
     }
 
     @Test
@@ -101,15 +101,15 @@ class BookAiAnalysisServiceTest {
 
     @Test
     void toDto_MapsAllFields() {
-        BookAiAnalysis analysis = new BookAiAnalysis(
+        BookAiContent analysis = new BookAiContent(
             "Summary", "Fit", List.of("T1", "T2"),
             List.of("Takeaway A", "Takeaway B"), "A context sentence."
         );
-        BookAiSnapshot snapshot = new BookAiSnapshot(
+        BookAiContentSnapshot snapshot = new BookAiContentSnapshot(
             UUID.randomUUID(), 3, Instant.parse("2026-02-08T12:00:00Z"), "gpt-5", "openai", analysis
         );
 
-        BookAiSnapshotDto dto = BookAiAnalysisService.toDto(snapshot);
+        BookAiContentSnapshotDto dto = BookAiContentService.toDto(snapshot);
 
         assertThat(dto.summary()).isEqualTo("Summary");
         assertThat(dto.readerFit()).isEqualTo("Fit");
@@ -124,19 +124,19 @@ class BookAiAnalysisServiceTest {
     @Test
     void findCurrent_DelegatesToRepository() {
         UUID bookId = UUID.randomUUID();
-        BookAiAnalysis analysis = new BookAiAnalysis("S", "F", List.of("T"), null, null);
-        BookAiSnapshot snapshot = new BookAiSnapshot(bookId, 1, Instant.now(), "m", "p", analysis);
+        BookAiContent analysis = new BookAiContent("S", "F", List.of("T"), null, null);
+        BookAiContentSnapshot snapshot = new BookAiContentSnapshot(bookId, 1, Instant.now(), "m", "p", analysis);
         when(repository.fetchCurrent(bookId)).thenReturn(Optional.of(snapshot));
 
-        Optional<BookAiSnapshot> result = service.findCurrent(bookId);
+        Optional<BookAiContentSnapshot> result = service.findCurrent(bookId);
 
         assertThat(result).isPresent();
-        assertThat(result.get().analysis().summary()).isEqualTo("S");
+        assertThat(result.get().aiContent().summary()).isEqualTo("S");
     }
 
     @Test
     void generateAndPersist_ThrowsWhenServiceDisabled() {
-        BookAiAnalysisService disabledService = new BookAiAnalysisService(
+        BookAiContentService disabledService = new BookAiContentService(
             repository, identifierResolver, bookSearchService, objectMapper,
             "", "", "model", 10, 10
         );

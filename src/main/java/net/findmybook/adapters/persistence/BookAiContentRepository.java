@@ -4,8 +4,8 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
-import net.findmybook.domain.ai.BookAiAnalysis;
-import net.findmybook.domain.ai.BookAiSnapshot;
+import net.findmybook.domain.ai.BookAiContent;
+import net.findmybook.domain.ai.BookAiContentSnapshot;
 import net.findmybook.util.IdGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,20 +16,20 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Postgres adapter for versioned book AI analysis records.
+ * Postgres adapter for versioned book AI content records.
  *
  * <p>Owns all SQL for the {@code book_ai_content} table so service-layer
  * orchestration remains persistence-agnostic.</p>
  */
 @Repository
-public class BookAiAnalysisRepository {
+public class BookAiContentRepository {
 
-    private static final Logger log = LoggerFactory.getLogger(BookAiAnalysisRepository.class);
+    private static final Logger log = LoggerFactory.getLogger(BookAiContentRepository.class);
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
 
-    public BookAiAnalysisRepository(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) {
+    public BookAiContentRepository(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
     }
@@ -41,13 +41,13 @@ public class BookAiAnalysisRepository {
      * @return current snapshot when present
      */
     @Transactional(readOnly = true)
-    public Optional<BookAiSnapshot> fetchCurrent(UUID bookId) {
+    public Optional<BookAiContentSnapshot> fetchCurrent(UUID bookId) {
         if (bookId == null) {
             return Optional.empty();
         }
 
         String sql = """
-            SELECT version_number, created_at, model, provider, analysis_json
+            SELECT version_number, created_at, model, provider, content_json
             FROM book_ai_content
             WHERE book_id = ? AND is_current = true
             ORDER BY version_number DESC
@@ -58,7 +58,7 @@ public class BookAiAnalysisRepository {
             sql,
             rs -> {
                 if (!rs.next()) {
-                    return Optional.<BookAiSnapshot>empty();
+                    return Optional.<BookAiContentSnapshot>empty();
                 }
 
                 int version = rs.getInt("version_number");
@@ -66,10 +66,10 @@ public class BookAiAnalysisRepository {
                 Instant generatedAt = createdAt != null ? createdAt.toInstant() : Instant.now();
                 String model = rs.getString("model");
                 String provider = rs.getString("provider");
-                String analysisJson = rs.getString("analysis_json");
+                String aiContentJson = rs.getString("content_json");
 
-                BookAiAnalysis analysis = deserializeAnalysis(analysisJson);
-                return Optional.of(new BookAiSnapshot(bookId, version, generatedAt, model, provider, analysis));
+                BookAiContent aiContent = deserializeAiContent(aiContentJson);
+                return Optional.of(new BookAiContentSnapshot(bookId, version, generatedAt, model, provider, aiContent));
             },
             bookId
         );
@@ -79,23 +79,23 @@ public class BookAiAnalysisRepository {
      * Stores a new version and marks it current for the supplied book.
      *
      * @param bookId canonical book UUID
-     * @param analysis normalized analysis payload
+     * @param aiContent normalized AI content payload
      * @param model resolved model identifier
-    * @param provider provider label
-    * @param promptHash prompt hash used for observability/dedup diagnostics
-    * @return persisted current snapshot
+     * @param provider provider label
+     * @param promptHash prompt hash used for observability/dedup diagnostics
+     * @return persisted current snapshot
      */
     @Transactional
-    public BookAiSnapshot insertNewCurrentVersion(UUID bookId,
-                                                  BookAiAnalysis analysis,
-                                                  String model,
-                                                  String provider,
-                                                  String promptHash) {
+    public BookAiContentSnapshot insertNewCurrentVersion(UUID bookId,
+                                                         BookAiContent aiContent,
+                                                         String model,
+                                                         String provider,
+                                                         String promptHash) {
         int nextVersion = resolveNextVersion(bookId);
         String rowId = IdGenerator.generateLong();
-        String analysisJson = serializeJson(analysis);
-        String keyThemesJson = serializeJson(analysis.keyThemes());
-        String takeawaysJson = serializeJson(analysis.takeaways());
+        String contentJson = serializeJson(aiContent);
+        String keyThemesJson = serializeJson(aiContent.keyThemes());
+        String takeawaysJson = serializeJson(aiContent.takeaways());
 
         jdbcTemplate.update(
             "UPDATE book_ai_content SET is_current = false WHERE book_id = ? AND is_current = true",
@@ -104,7 +104,7 @@ public class BookAiAnalysisRepository {
 
         String insertSql = """
             INSERT INTO book_ai_content
-              (id, book_id, version_number, is_current, analysis_json, summary, reader_fit, key_themes,
+              (id, book_id, version_number, is_current, content_json, summary, reader_fit, key_themes,
                takeaways, context, model, provider, prompt_hash, created_at)
             VALUES (?, ?, ?, true, CAST(? AS jsonb), ?, ?, CAST(? AS jsonb),
                     CAST(? AS jsonb), ?, ?, ?, ?, NOW())
@@ -115,19 +115,19 @@ public class BookAiAnalysisRepository {
             rowId,
             bookId,
             nextVersion,
-            analysisJson,
-            analysis.summary(),
-            analysis.readerFit(),
+            contentJson,
+            aiContent.summary(),
+            aiContent.readerFit(),
             keyThemesJson,
             takeawaysJson,
-            analysis.context(),
+            aiContent.context(),
             model,
             provider,
             promptHash
         );
 
         return fetchCurrent(bookId)
-            .orElseThrow(() -> new IllegalStateException("Inserted AI analysis could not be reloaded for book " + bookId));
+            .orElseThrow(() -> new IllegalStateException("Inserted AI content could not be reloaded for book " + bookId));
     }
 
     private int resolveNextVersion(UUID bookId) {
@@ -149,16 +149,16 @@ public class BookAiAnalysisRepository {
         try {
             return objectMapper.writeValueAsString(value);
         } catch (JacksonException ex) {
-            throw new IllegalStateException("Failed to serialize AI analysis value: " + value.getClass().getSimpleName(), ex);
+            throw new IllegalStateException("Failed to serialize AI content value: " + value.getClass().getSimpleName(), ex);
         }
     }
 
-    private BookAiAnalysis deserializeAnalysis(String analysisJson) {
+    private BookAiContent deserializeAiContent(String aiContentJson) {
         try {
-            return objectMapper.readValue(analysisJson, BookAiAnalysis.class);
+            return objectMapper.readValue(aiContentJson, BookAiContent.class);
         } catch (JacksonException ex) {
-            log.error("Failed to deserialize persisted analysis: {}", analysisJson, ex);
-            throw new IllegalStateException("Persisted AI analysis payload is invalid", ex);
+            log.error("Failed to deserialize persisted AI content: {}", aiContentJson, ex);
+            throw new IllegalStateException("Persisted AI content payload is invalid", ex);
         }
     }
 }

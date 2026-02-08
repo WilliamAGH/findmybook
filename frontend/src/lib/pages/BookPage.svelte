@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import DOMPurify from "dompurify";
   import BookAffiliateLinks from "$lib/components/BookAffiliateLinks.svelte";
-  import BookAiAnalysisPanel from "$lib/components/BookAiAnalysisPanel.svelte";
+  import BookAiContentPanel from "$lib/components/BookAiContentPanel.svelte";
   import BookCategories from "$lib/components/BookCategories.svelte";
   import BookEditions from "$lib/components/BookEditions.svelte";
   import BookSimilarBooks from "$lib/components/BookSimilarBooks.svelte";
@@ -13,7 +13,7 @@
     getSimilarBooks,
   } from "$lib/services/books";
   import { subscribeToBookCoverUpdates } from "$lib/services/realtime";
-  import type { Book, BookAiSnapshot } from "$lib/validation/schemas";
+  import type { Book, BookAiContentSnapshot } from "$lib/validation/schemas";
   import {
     Star,
     ChevronDown,
@@ -51,7 +51,10 @@
   let descriptionExpanded = $state(false);
   let descriptionMeasured = $state(false);
   let descriptionOverflows = $state(false);
-  const DESCRIPTION_COLLAPSE_HEIGHT_PX = 288; // 18rem — roughly 12-13 lines at text-sm leading-relaxed
+  const DESCRIPTION_MAX_LINES = 13;
+  const DESCRIPTION_FALLBACK_HEIGHT_PX = 288; // 18rem — roughly 12-13 lines at text-sm leading-relaxed
+  let descriptionMaxHeightPx = $state(DESCRIPTION_FALLBACK_HEIGHT_PX);
+  let descriptionResizeObserver: ResizeObserver | null = null;
 
   let unsubscribeRealtime: (() => void) | null = null;
   let loadSequence = 0;
@@ -129,11 +132,11 @@
     }
   }
 
-  function handleAiAnalysisUpdate(analysis: BookAiSnapshot): void {
+  function handleAiContentUpdate(aiContent: BookAiContentSnapshot): void {
     if (book) {
       book = {
         ...book,
-        ai: analysis,
+        aiContent,
       };
     }
   }
@@ -204,11 +207,23 @@
     !descriptionExpanded && (!descriptionMeasured || descriptionOverflows),
   );
 
+  function resolveDescriptionMaxHeightPx(container: HTMLElement): number {
+    const lineHeight = Number.parseFloat(getComputedStyle(container).lineHeight);
+    if (!Number.isFinite(lineHeight) || lineHeight <= 0) {
+      return DESCRIPTION_FALLBACK_HEIGHT_PX;
+    }
+    return Math.ceil(lineHeight * DESCRIPTION_MAX_LINES);
+  }
+
   function measureDescriptionOverflow(): void {
     requestAnimationFrame(() => {
-      if (descriptionContainer) {
-        descriptionOverflows = descriptionContainer.scrollHeight > DESCRIPTION_COLLAPSE_HEIGHT_PX;
+      if (!descriptionContainer) {
+        descriptionMeasured = false;
+        return;
       }
+      const maxHeightPx = resolveDescriptionMaxHeightPx(descriptionContainer);
+      descriptionMaxHeightPx = maxHeightPx;
+      descriptionOverflows = descriptionContainer.scrollHeight > maxHeightPx + 1;
       descriptionMeasured = true;
     });
   }
@@ -284,6 +299,35 @@
       descriptionOverflows = false;
       measureDescriptionOverflow();
     }
+  });
+
+  $effect(() => {
+    if (!descriptionContainer) {
+      if (descriptionResizeObserver) {
+        descriptionResizeObserver.disconnect();
+        descriptionResizeObserver = null;
+      }
+      return;
+    }
+
+    sanitizedDescriptionHtml;
+    book?.description;
+    measureDescriptionOverflow();
+
+    if (descriptionResizeObserver) {
+      descriptionResizeObserver.disconnect();
+    }
+    descriptionResizeObserver = new ResizeObserver(() => {
+      measureDescriptionOverflow();
+    });
+    descriptionResizeObserver.observe(descriptionContainer);
+
+    return () => {
+      if (descriptionResizeObserver) {
+        descriptionResizeObserver.disconnect();
+        descriptionResizeObserver = null;
+      }
+    };
   });
 
   onMount(() => {
@@ -394,7 +438,7 @@
                 class="text-sm leading-relaxed text-anthracite-700 dark:text-slate-300 overflow-hidden"
                 class:book-description-content={sanitizedDescriptionHtml.length > 0}
                 class:whitespace-pre-wrap={sanitizedDescriptionHtml.length === 0}
-                style:max-height={descriptionCollapsed ? '18rem' : 'none'}
+                style:max-height={descriptionCollapsed ? `${descriptionMaxHeightPx}px` : 'none'}
               >
                 {#if sanitizedDescriptionHtml.length > 0}
                   {@html sanitizedDescriptionHtml}
@@ -418,10 +462,10 @@
             </div>
           {/if}
 
-          <BookAiAnalysisPanel
+          <BookAiContentPanel
             {identifier}
             {book}
-            onAnalysisUpdate={handleAiAnalysisUpdate}
+            onAiContentUpdate={handleAiContentUpdate}
           />
 
           <BookCategories categories={book.categories} />

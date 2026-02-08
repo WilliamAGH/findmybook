@@ -4,9 +4,9 @@ import jakarta.annotation.Nullable;
 import java.util.List;
 
 /**
- * Immutable AI-generated analysis payload for a single book.
+ * Immutable AI-generated content payload for a single book.
  */
-public record BookAiAnalysis(
+public record BookAiContent(
     String summary,
     String readerFit,
     List<String> keyThemes,
