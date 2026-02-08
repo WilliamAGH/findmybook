@@ -247,7 +247,7 @@ public class BookSeoMetadataService {
         return SITEMAP_ROUTE_PATTERN;
     }
 
-    public String renderSpaShell(SeoMetadata seoMetadata, String requestPath, int statusCode) {
+    public String renderSpaShell(SeoMetadata seoMetadata) {
         SeoMetadata effectiveMetadata = seoMetadata != null ? seoMetadata : homeMetadata();
         String normalizedCanonical = normalizeCanonicalUrl(effectiveMetadata.canonicalUrl());
         String absoluteOgImage = normalizeCanonicalUrl(effectiveMetadata.ogImage());
@@ -257,7 +257,6 @@ public class BookSeoMetadataService {
         String escapedKeywords = escapeHtml(defaultIfBlank(effectiveMetadata.keywords(), DEFAULT_KEYWORDS));
         String escapedCanonicalUrl = escapeHtml(normalizedCanonical);
         String escapedOgImage = escapeHtml(absoluteOgImage);
-        String escapedRequestPath = escapeJson(normalizeRequestPath(requestPath));
         String escapedRouteManifestJson = escapeInlineScriptJson(routeManifestJson());
 
         return """
@@ -308,10 +307,6 @@ public class BookSeoMetadataService {
               <div id="app"></div>
               <script>
                 window.__FMB_ROUTE_MANIFEST__ = %s;
-                window.__FMB_INITIAL_CONTEXT__ = {
-                  path: "%s",
-                  status: %d
-                };
               </script>
               <script type="module" src="/frontend/app.js"></script>
             </body>
@@ -329,9 +324,7 @@ public class BookSeoMetadataService {
             escapedTitle,
             escapedDescription,
             escapedOgImage,
-            escapedRouteManifestJson,
-            escapedRequestPath,
-            statusCode
+            escapedRouteManifestJson
         );
     }
 
