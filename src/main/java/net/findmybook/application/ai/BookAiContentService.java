@@ -59,6 +59,12 @@ public class BookAiContentService {
     private static final int MAX_TAKEAWAY_COUNT = 5;
     private static final int MIN_TAKEAWAY_COUNT = 1;
 
+    /**
+     * Sentinel value set by {@code normalizeOpenAiSdkConfig} when no real API key is available.
+     * Must match {@code BookRecommendationEngineApplication.AI_KEY_NOT_CONFIGURED}.
+     */
+    private static final String API_KEY_SENTINEL = "not-configured";
+
     private static final String SYSTEM_PROMPT = """
         You write concise, useful book content.
         Return ONLY strict JSON using this exact shape:
@@ -111,7 +117,8 @@ public class BookAiContentService {
         this.requestTimeoutSeconds = Math.max(1L, requestTimeoutSeconds);
         this.readTimeoutSeconds = Math.max(1L, readTimeoutSeconds);
 
-        if (StringUtils.hasText(apiKey)) {
+        if (StringUtils.hasText(apiKey)
+                && !API_KEY_SENTINEL.equals(apiKey.trim())) {
             String resolvedBaseUrl = normalizeSdkBaseUrl(baseUrl);
             this.openAiClient = OpenAIOkHttpClient.builder()
                 .apiKey(apiKey.trim())
