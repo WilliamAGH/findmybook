@@ -2,7 +2,6 @@ package net.findmybook.controller;
 
 import net.findmybook.service.BookSeoMetadataService;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,30 +16,32 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.springframework.http.HttpStatus;
 
+/**
+ * Serves SEO-enriched HTML shells for top-level navigational routes
+ * ({@code /}, {@code /search}, {@code /explore}, {@code /categories}).
+ *
+ * <p>The {@code /search} endpoint also canonicalizes year tokens embedded in
+ * free-text queries into an explicit {@code year} query parameter via 303 redirect.
+ */
 @Controller
 @Slf4j
-public class HomeController {
+public class HomeController extends SpaShellController {
 
-    private final BookSeoMetadataService bookSeoMetadataService;
     private final boolean isYearFilteringEnabled;
     private static final Pattern YEAR_PATTERN = Pattern.compile("\\b(19\\d{2}|20\\d{2})\\b");
 
-    /**
-     * Constructs the SPA-first home controller.
-     */
     public HomeController(BookSeoMetadataService bookSeoMetadataService,
                           @Value("${app.feature.year-filtering.enabled:false}") boolean isYearFilteringEnabled) {
-        this.bookSeoMetadataService = bookSeoMetadataService;
+        super(bookSeoMetadataService);
         this.isYearFilteringEnabled = isYearFilteringEnabled;
     }
 
-    /** Renders the homepage SPA shell with server-side SEO metadata. */
     @GetMapping("/")
     public Mono<ResponseEntity<String>> home() {
         return Mono.just(spaResponse(bookSeoMetadataService.homeMetadata(), "/", HttpStatus.OK));
     }
 
-    /** Renders the search SPA shell and preserves year parameter canonicalization. */
+    /** Canonicalizes year tokens from free-text queries before rendering. */
     @GetMapping("/search")
     public Mono<ResponseEntity<String>> search(@RequestParam(required = false) String query,
                                                @RequestParam(required = false) Integer year,
@@ -86,24 +87,14 @@ public class HomeController {
         return Mono.just(spaResponse(bookSeoMetadataService.searchMetadata(), "/search", HttpStatus.OK));
     }
 
-    /** Renders the explore SPA shell with server-side metadata. */
     @GetMapping("/explore")
     public ResponseEntity<String> explore() {
         return spaResponse(bookSeoMetadataService.exploreMetadata(), "/explore", HttpStatus.OK);
     }
 
-    /** Renders the categories SPA shell with server-side metadata. */
     @GetMapping("/categories")
     public ResponseEntity<String> categories() {
         return spaResponse(bookSeoMetadataService.categoriesMetadata(), "/categories", HttpStatus.OK);
     }
 
-    private ResponseEntity<String> spaResponse(BookSeoMetadataService.SeoMetadata metadata,
-                                               String requestPath,
-                                               HttpStatus status) {
-        String html = bookSeoMetadataService.renderSpaShell(metadata, requestPath, status.value());
-        return ResponseEntity.status(status)
-            .contentType(MediaType.TEXT_HTML)
-            .body(html);
-    }
 }
