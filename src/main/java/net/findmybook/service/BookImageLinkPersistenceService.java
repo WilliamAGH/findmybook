@@ -70,6 +70,7 @@ public class BookImageLinkPersistenceService {
         }
 
         String source = identifiers.getSource() != null ? identifiers.getSource() : "GOOGLE_BOOKS";
+        String fallbackCanonicalImageUrl = CoverImageUrlSelector.selectPreferredImageUrl(normalizedImageLinks);
         try {
             CoverPersistenceService.PersistenceResult result = coverPersistenceService.persistFromGoogleImageLinks(
                 bookId,
@@ -77,25 +78,28 @@ public class BookImageLinkPersistenceService {
                 source
             );
             if (!result.success()) {
-                throw new IllegalStateException("Cover persistence returned unsuccessful result for " + bookId);
+                log.warn("Cover persistence returned unsuccessful result for book {}. Proceeding with canonical fallback URL.", bookId);
+                return new ImageLinkPersistenceResult(false, normalizedImageLinks, fallbackCanonicalImageUrl);
             }
 
             String canonicalImageUrl = result.canonicalUrl() != null && !result.canonicalUrl().isBlank()
                 ? result.canonicalUrl()
-                : CoverImageUrlSelector.selectPreferredImageUrl(normalizedImageLinks);
+                : fallbackCanonicalImageUrl;
             return new ImageLinkPersistenceResult(true, normalizedImageLinks, canonicalImageUrl);
         } catch (DataAccessException exception) {
             log.error("Cover persistence data access failure for book {}: {}", bookId, exception.getMessage(), exception);
             throw exception;
-        } catch (IllegalArgumentException | IllegalStateException exception) {
-            log.error("Cover persistence validation failure for book {}: {}", bookId, exception.getMessage(), exception);
-            throw exception;
+        } catch (IllegalArgumentException exception) {
+            log.warn("Cover persistence validation failure for book {}: {}. Proceeding without persisted cover updates.",
+                bookId,
+                exception.getMessage());
+            return new ImageLinkPersistenceResult(false, normalizedImageLinks, fallbackCanonicalImageUrl);
         }
     }
 
     private CoverQualitySnapshot fetchExistingCoverQuality(UUID bookId) {
         try {
-            return jdbcTemplate.query(
+            CoverQualitySnapshot snapshot = jdbcTemplate.query(
                 """
                 SELECT s3_image_path, url, width, height, is_high_resolution
                 FROM book_image_links
@@ -121,6 +125,7 @@ public class BookImageLinkPersistenceService {
                 },
                 bookId
             );
+            return snapshot != null ? snapshot : CoverQualitySnapshot.absent();
         } catch (DataAccessException exception) {
             log.error("Failed to evaluate existing cover quality for book {}: {}", bookId, exception.getMessage(), exception);
             throw new IllegalStateException("Cover quality evaluation failed for book " + bookId, exception);
