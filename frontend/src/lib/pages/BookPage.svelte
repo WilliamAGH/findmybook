@@ -1,22 +1,18 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import DOMPurify from "dompurify";
-  import BookCard, { type BookCardDisplay } from "$lib/components/BookCard.svelte";
+  import BookAffiliateLinks from "$lib/components/BookAffiliateLinks.svelte";
+  import BookCategories from "$lib/components/BookCategories.svelte";
+  import BookEditions from "$lib/components/BookEditions.svelte";
+  import BookSimilarBooks from "$lib/components/BookSimilarBooks.svelte";
   import { getAffiliateLinks, getBook, getSimilarBooks } from "$lib/services/books";
   import { subscribeToBookCoverUpdates } from "$lib/services/realtime";
   import type { Book } from "$lib/validation/schemas";
   import {
     Star,
     ChevronLeft,
-    ChevronDown,
-    ShoppingCart,
-    Store,
-    ShoppingBag,
-    Headphones,
-    ExternalLink,
     Globe,
     BookOpen,
-    Tag,
     Calendar,
     Info,
   } from "@lucide/svelte";
@@ -35,7 +31,6 @@
   let similarBooks = $state<Book[]>([]);
   let affiliateLinks = $state<Record<string, string>>({});
   let liveCoverUrl = $state<string | null>(null);
-  let tagsExpanded = $state(false);
   const fallbackCoverImage = "/images/placeholder-book-cover.svg";
   let detailCoverUrl = $state<string>(fallbackCoverImage);
 
@@ -63,20 +58,31 @@
       if (sequence !== loadSequence) return;
 
       book = loadedBook;
+      if (similarResult.status === "rejected") {
+        console.error("Failed to load similar books for", identifier, similarResult.reason);
+      }
+      if (linksResult.status === "rejected") {
+        console.error("Failed to load affiliate links for", identifier, linksResult.reason);
+      }
       similarBooks = similarResult.status === "fulfilled" ? similarResult.value : [];
       affiliateLinks = linksResult.status === "fulfilled" ? linksResult.value : {};
       liveCoverUrl = null;
 
       const topicIdentifier = loadedBook.id;
-      unsubscribeRealtime = await subscribeToBookCoverUpdates(
-        topicIdentifier,
-        (coverUrl) => {
-          liveCoverUrl = coverUrl;
-        },
-        (error) => {
-          console.error("Realtime cover update error:", error.message);
-        },
-      );
+      try {
+        unsubscribeRealtime = await subscribeToBookCoverUpdates(
+          topicIdentifier,
+          (coverUrl) => {
+            liveCoverUrl = coverUrl;
+          },
+          (error) => {
+            console.error("Realtime cover update error:", error.message);
+          },
+        );
+      } catch (realtimeError) {
+        console.error("Realtime cover subscription failed:", realtimeError);
+        unsubscribeRealtime = null;
+      }
       if (sequence !== loadSequence && unsubscribeRealtime) {
         unsubscribeRealtime();
         unsubscribeRealtime = null;
@@ -149,18 +155,6 @@
     return date.toLocaleDateString();
   }
 
-  function similarCard(item: Book): BookCardDisplay {
-    return {
-      id: item.id,
-      slug: item.slug ?? item.id,
-      title: item.title ?? "Untitled",
-      authors: item.authors.map((author) => author.name),
-      description: item.descriptionContent?.text ?? item.description,
-      coverUrl: item.cover?.preferredUrl ?? item.cover?.s3ImagePath ?? item.cover?.externalImageUrl ?? null,
-      fallbackCoverUrl: item.cover?.fallbackUrl ?? "/images/placeholder-book-cover.svg",
-    };
-  }
-
   function descriptionHtml(): string {
     if (book?.descriptionContent?.html && book.descriptionContent.html.trim().length > 0) {
       return DOMPurify.sanitize(book.descriptionContent.html);
@@ -195,28 +189,6 @@
     }
 
     return `${url.pathname}${url.search}`;
-  }
-
-  type AffiliateConfig = {
-    label: string;
-    icon: typeof ShoppingCart;
-    bgClass: string;
-    hoverClass: string;
-  };
-
-  const AFFILIATE_BRAND_CONFIG: Record<string, AffiliateConfig> = {
-    amazon: { label: "Amazon", icon: ShoppingCart, bgClass: "bg-canvas-400", hoverClass: "hover:bg-canvas-500" },
-    barnesAndNoble: { label: "Barnes & Noble", icon: Store, bgClass: "bg-[#00563F]", hoverClass: "hover:bg-[#004832]" },
-    bookshop: { label: "Bookshop.org", icon: ShoppingBag, bgClass: "bg-[#4C32C0]", hoverClass: "hover:bg-[#3D28A0]" },
-    audible: { label: "Audible", icon: Headphones, bgClass: "bg-[#FF9900]", hoverClass: "hover:bg-[#E68A00]" },
-  };
-
-  function affiliateConfig(key: string): AffiliateConfig {
-    return AFFILIATE_BRAND_CONFIG[key] ?? { label: key, icon: ExternalLink, bgClass: "bg-canvas-400", hoverClass: "hover:bg-canvas-500" };
-  }
-
-  function sortedAffiliateEntries(): Array<[string, string]> {
-    return Object.entries(affiliateLinks).sort(([left], [right]) => left.localeCompare(right));
   }
 
   $effect(() => {
@@ -323,108 +295,16 @@
             <p class="whitespace-pre-wrap text-sm leading-relaxed text-anthracite-700 dark:text-slate-300">{book.description}</p>
           {/if}
 
-          <!-- Categories -->
-          {#if book.categories.length > 0}
-            <div class="relative">
-              <div
-                class="flex flex-wrap gap-2 overflow-hidden transition-all duration-300 ease-out"
-                class:max-h-[2.75rem]={!tagsExpanded}
-                class:max-h-none={tagsExpanded}
-              >
-                {#each book.categories as category}
-                  <span class="inline-flex items-center gap-1 rounded-full bg-linen-100 px-3 py-1 text-xs font-medium text-anthracite-700 dark:bg-slate-700 dark:text-slate-200">
-                    <Tag size={12} />
-                    {category}
-                  </span>
-                {/each}
-              </div>
-              {#if !tagsExpanded && book.categories.length > 6}
-                <div class="pointer-events-none absolute bottom-0 left-0 right-0 h-6 bg-linear-to-t from-canvas-50 to-transparent dark:from-slate-900"></div>
-              {/if}
-              {#if book.categories.length > 6}
-                <button
-                  type="button"
-                  onclick={() => tagsExpanded = !tagsExpanded}
-                  class="mt-2 inline-flex items-center gap-1 text-xs font-medium text-canvas-500 transition hover:text-canvas-600 dark:text-canvas-400 dark:hover:text-canvas-300"
-                >
-                  <ChevronDown size={14} class={`transition-transform duration-200 ${tagsExpanded ? 'rotate-180' : ''}`} />
-                  {tagsExpanded ? 'Show less' : `Show all ${book.categories.length} tags`}
-                </button>
-              {/if}
-            </div>
-          {/if}
+          <BookCategories categories={book.categories} />
 
-          <!-- Affiliate Links (Branded Buttons) -->
-          {#if sortedAffiliateEntries().length > 0}
-            <div class="space-y-3">
-              <p class="text-sm font-medium text-anthracite-800 dark:text-slate-200">Buy or Preview</p>
-              <div class="flex flex-wrap gap-2">
-                {#each sortedAffiliateEntries() as [label, url]}
-                  {@const config = affiliateConfig(label)}
-                  {@const AffIcon = config.icon}
-                  <a
-                    href={url}
-                    data-no-spa="true"
-                    target="_blank"
-                    rel="noopener sponsored"
-                    class={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white shadow-sm transition-all duration-200 ${config.bgClass} ${config.hoverClass} hover:shadow-canvas focus:outline-none focus:ring-2 focus:ring-canvas-500 focus:ring-offset-2`}
-                  >
-                    <AffIcon size={16} />
-                    {config.label}
-                  </a>
-                {/each}
-              </div>
-            </div>
-          {/if}
+          <BookAffiliateLinks links={affiliateLinks} />
         </div>
       </div>
     </article>
 
-    <!-- Editions -->
-    {#if book.editions.length > 0}
-      <section class="space-y-3">
-        <h2 class="text-xl font-semibold text-anthracite-900 dark:text-slate-100">Editions</h2>
-        <div class="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-          {#each book.editions as edition}
-            <article class="flex gap-3 rounded-xl border border-linen-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-800">
-              {#if edition.coverImageUrl}
-                <img
-                  src={edition.coverImageUrl}
-                  alt="Edition cover"
-                  class="h-24 w-auto shrink-0 rounded-md object-contain"
-                  loading="lazy"
-                />
-              {/if}
-              <div class="flex min-w-0 flex-col gap-0.5">
-                <p class="text-sm font-medium text-anthracite-800 dark:text-slate-100">
-                  {edition.identifier ?? edition.googleBooksId ?? "Edition"}
-                </p>
-                {#if edition.isbn13}
-                  <p class="text-xs text-anthracite-600 dark:text-slate-300">ISBN-13: {edition.isbn13}</p>
-                {/if}
-                {#if edition.publishedDate}
-                  <p class="text-xs text-anthracite-500 dark:text-slate-400">
-                    Published: {new Date(edition.publishedDate).toLocaleDateString()}
-                  </p>
-                {/if}
-              </div>
-            </article>
-          {/each}
-        </div>
-      </section>
-    {/if}
+    <BookEditions editions={book.editions} />
 
-    <!-- Similar Books -->
-    {#if similarBooks.length > 0}
-      <section class="space-y-3">
-        <h2 class="text-xl font-semibold text-anthracite-900 dark:text-slate-100">Similar books</h2>
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {#each similarBooks as item (item.id)}
-            <BookCard book={similarCard(item)} href={`/book/${encodeURIComponent(item.slug ?? item.id)}`} />
-          {/each}
-        </div>
-      </section>
-    {/if}
+    <BookSimilarBooks books={similarBooks} />
   {:else}
     <p class="text-sm text-anthracite-600 dark:text-slate-300">Book not found.</p>
   {/if}
