@@ -10,6 +10,8 @@ import net.findmybook.service.event.BookCoverUpdatedEvent;
 import net.findmybook.service.event.BookUpsertEvent;
 import net.findmybook.service.event.SearchProgressEvent;
 import net.findmybook.service.event.SearchResultsUpdatedEvent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -21,6 +23,8 @@ import org.springframework.util.StringUtils;
  */
 @Component
 public class CoverRealtimePayloadFactory {
+
+    private static final Logger logger = LoggerFactory.getLogger(CoverRealtimePayloadFactory.class);
 
     /**
      * Builds a cover-update payload for a book-specific realtime topic.
@@ -155,7 +159,9 @@ public class CoverRealtimePayloadFactory {
 
         try {
             return Double.parseDouble(qualifier.toString());
-        } catch (IllegalArgumentException ignored) {
+        } catch (NumberFormatException parseFailure) {
+            logger.warn("Qualifier '{}' for book {} is not a valid double: '{}'",
+                key, book.getId(), qualifier);
             return null;
         }
     }

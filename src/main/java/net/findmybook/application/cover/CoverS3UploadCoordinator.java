@@ -121,15 +121,17 @@ public class CoverS3UploadCoordinator {
         }
 
         String source = StringUtils.hasText(event.getSource()) ? event.getSource() : "UNKNOWN";
+        UUID bookUuid;
         try {
-            UUID bookUuid = UUID.fromString(event.getBookId());
-            executeUpload(event.getBookId(), bookUuid, canonicalImageUrl, source, s3BookCoverService.get());
-        } catch (IllegalArgumentException ignored) {
+            bookUuid = UUID.fromString(event.getBookId());
+        } catch (IllegalArgumentException uuidParseFailure) {
             logger.warn("BookUpsertEvent contains non-UUID bookId '{}' [code={}]: reason={}",
                 event.getBookId(),
                 CODE_S3_EVENT_INVALID_BOOK_ID,
                 "non-uuid-book-id");
+            return;
         }
+        executeUpload(event.getBookId(), bookUuid, canonicalImageUrl, source, s3BookCoverService.get());
     }
 
     private void executeUpload(String bookId,
@@ -181,10 +183,29 @@ public class CoverS3UploadCoordinator {
             return shouldRetry;
         }
 
-        logger.warn("Retrying S3 upload for book {} after unexpected error [code={}]: reason={}",
+        if (throwable instanceof Error) {
+            logger.error("Not retrying S3 upload for book {} after fatal error [code={}]: reason={}",
+                bookId,
+                CODE_S3_RETRY_UNEXPECTED,
+                reason,
+                throwable);
+            return false;
+        }
+        boolean likelyTransient = throwable instanceof java.io.IOException
+            || throwable instanceof java.util.concurrent.TimeoutException;
+        if (!likelyTransient) {
+            logger.warn("Not retrying S3 upload for book {} after non-transient error [code={}]: reason={}",
+                bookId,
+                CODE_S3_RETRY_UNEXPECTED,
+                reason,
+                throwable);
+            return false;
+        }
+        logger.warn("Retrying S3 upload for book {} after transient error [code={}]: reason={}",
             bookId,
             CODE_S3_RETRY_UNEXPECTED,
-            reason);
+            reason,
+            throwable);
         return true;
     }
 
