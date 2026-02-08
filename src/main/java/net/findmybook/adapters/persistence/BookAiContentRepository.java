@@ -43,7 +43,7 @@ public class BookAiContentRepository {
     @Transactional(readOnly = true)
     public Optional<BookAiContentSnapshot> fetchCurrent(UUID bookId) {
         if (bookId == null) {
-            return Optional.empty();
+            throw new IllegalArgumentException("bookId is required");
         }
 
         String sql = """
@@ -63,7 +63,10 @@ public class BookAiContentRepository {
 
                 int version = rs.getInt("version_number");
                 Timestamp createdAt = rs.getTimestamp("created_at");
-                Instant generatedAt = createdAt != null ? createdAt.toInstant() : Instant.now();
+                if (createdAt == null) {
+                    throw new IllegalStateException("Persisted AI content missing created_at for book " + bookId);
+                }
+                Instant generatedAt = createdAt.toInstant();
                 String model = rs.getString("model");
                 String provider = rs.getString("provider");
                 String aiContentJson = rs.getString("content_json");

@@ -191,7 +191,7 @@ public class BookAiContentService {
             });
         } catch (Exception ex) {
             log.error("Book AI streaming failed for bookId={} model={}", bookId, configuredModel, ex);
-            throw ex;
+            throw new BookAiGenerationException("AI streaming failed for book: " + bookId, ex);
         }
 
         String rawMessage = fullResponseBuilder.toString();
@@ -389,10 +389,10 @@ public class BookAiContentService {
     /** Extracts non-blank text values from a JSON array node. */
     private List<String> collectTextValues(JsonNode arrayNode) {
         List<String> values = new ArrayList<>();
-        for (JsonNode item : arrayNode) {
-            String value = textOrNull(item);
-            if (StringUtils.hasText(value)) {
-                values.add(value);
+        for (JsonNode elementNode : arrayNode) {
+            String elementText = textOrNull(elementNode);
+            if (StringUtils.hasText(elementText)) {
+                values.add(elementText);
             }
         }
         return values;
@@ -420,10 +420,10 @@ public class BookAiContentService {
         return StringUtils.hasText(value) ? value.trim() : fallback;
     }
 
-    private String sha256(String value) {
+    private String sha256(String input) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hashed = digest.digest(value.getBytes(StandardCharsets.UTF_8));
+            byte[] hashed = digest.digest(input.getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(hashed);
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 unavailable", exception);
