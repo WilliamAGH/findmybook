@@ -5,10 +5,12 @@ import com.openai.client.okhttp.OpenAIOkHttpClient;
 import com.openai.core.RequestOptions;
 import com.openai.core.Timeout;
 import com.openai.core.http.StreamResponse;
-import com.openai.models.ResponsesModel;
-import com.openai.models.responses.ResponseCreateParams;
-import com.openai.models.responses.ResponseStreamEvent;
-import com.openai.models.responses.ResponseTextDeltaEvent;
+import com.openai.models.ChatModel;
+import com.openai.models.chat.completions.ChatCompletionChunk;
+import com.openai.models.chat.completions.ChatCompletionCreateParams;
+import com.openai.models.chat.completions.ChatCompletionMessageParam;
+import com.openai.models.chat.completions.ChatCompletionSystemMessageParam;
+import com.openai.models.chat.completions.ChatCompletionUserMessageParam;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -48,7 +50,7 @@ public class BookAiAnalysisService {
     private static final Logger log = LoggerFactory.getLogger(BookAiAnalysisService.class);
 
     private static final String DEFAULT_PROVIDER = "openai";
-    private static final String DEFAULT_API_MODE = "responses";
+    private static final String DEFAULT_API_MODE = "chat";
     private static final String DEFAULT_MODEL = "gpt-5-mini";
     private static final int MAX_KEY_THEME_COUNT = 6;
     private static final int MIN_KEY_THEME_COUNT = 1;
@@ -102,7 +104,7 @@ public class BookAiAnalysisService {
         this.readTimeoutSeconds = Math.max(1L, readTimeoutSeconds);
 
         if (StringUtils.hasText(apiKey)) {
-            String resolvedBaseUrl = normalizeBaseUrl(baseUrl);
+            String resolvedBaseUrl = normalizeSdkBaseUrl(baseUrl);
             this.openAiClient = OpenAIOkHttpClient.builder()
                 .apiKey(apiKey.trim())
                 .baseUrl(resolvedBaseUrl)
@@ -145,41 +147,50 @@ public class BookAiAnalysisService {
         String prompt = buildPrompt(promptContext);
         String promptHash = sha256(prompt);
 
-        ResponseCreateParams params = ResponseCreateParams.builder()
-            .model(ResponsesModel.ofString(configuredModel))
-            .instructions(SYSTEM_PROMPT)
-            .input(prompt)
+        ChatCompletionCreateParams params = ChatCompletionCreateParams.builder()
+            .model(ChatModel.of(configuredModel))
+            .messages(List.of(
+                ChatCompletionMessageParam.ofSystem(
+                    ChatCompletionSystemMessageParam.builder().content(SYSTEM_PROMPT).build()
+                ),
+                ChatCompletionMessageParam.ofUser(
+                    ChatCompletionUserMessageParam.builder().content(prompt).build()
+                )
+            ))
+            .maxTokens(1000L)
+            .temperature(0.7)
             .build();
 
-        RequestOptions requestOptions = RequestOptions.builder()
+        RequestOptions options = RequestOptions.builder()
             .timeout(Timeout.builder()
                 .request(Duration.ofSeconds(requestTimeoutSeconds))
                 .read(Duration.ofSeconds(readTimeoutSeconds))
                 .build())
             .build();
 
-        StringBuilder streamedText = new StringBuilder();
-        try (StreamResponse<ResponseStreamEvent> stream = openAiClient.responses().createStreaming(params, requestOptions)) {
-            stream.stream().forEach(event -> {
-                Optional<ResponseTextDeltaEvent> deltaEvent = event.outputTextDelta();
-                if (deltaEvent.isEmpty()) {
+        StringBuilder fullResponseBuilder = new StringBuilder();
+
+        try (StreamResponse<ChatCompletionChunk> stream = openAiClient.chat().completions().createStreaming(params, options)) {
+            stream.stream().forEach(chunk -> {
+                if (chunk.choices().isEmpty()) {
                     return;
                 }
-                String delta = deltaEvent.get().delta();
-                if (!StringUtils.hasText(delta)) {
-                    return;
+                String delta = chunk.choices().get(0).delta().content().orElse("");
+                if (!delta.isEmpty()) {
+                    fullResponseBuilder.append(delta);
+                    onDelta.accept(delta);
                 }
-                streamedText.append(delta);
-                onDelta.accept(delta);
             });
-        } catch (RuntimeException exception) {
-            log.error("Book AI streaming failed for bookId={} model={}", bookId, configuredModel, exception);
-            throw new IllegalStateException("AI analysis generation failed", exception);
+        } catch (Exception ex) {
+            log.error("Book AI streaming failed for bookId={} model={}", bookId, configuredModel, ex);
+            throw ex;
         }
 
-        String rawMessage = streamedText.toString().trim();
+        String rawMessage = fullResponseBuilder.toString();
         BookAiAnalysis analysis = parseAnalysis(rawMessage);
-        BookAiSnapshot persistedSnapshot = repository.insertNewCurrentVersion(
+
+        // Persist the new version
+        BookAiSnapshot snapshot = repository.insertNewCurrentVersion(
             bookId,
             analysis,
             configuredModel,
@@ -187,7 +198,7 @@ public class BookAiAnalysisService {
             promptHash
         );
 
-        return new GeneratedAnalysis(rawMessage, persistedSnapshot);
+        return new GeneratedAnalysis(rawMessage, snapshot);
     }
 
     /**
@@ -293,6 +304,8 @@ public class BookAiAnalysisService {
             if (openBrace < 0 || closeBrace <= openBrace) {
                 throw new IllegalStateException("AI response did not include a valid JSON object");
             }
+            log.warn("AI response required brace extraction fallback (initial parse failed: {})",
+                initialParseException.getMessage());
             String extracted = cleaned.substring(openBrace, closeBrace + 1);
             try {
                 return objectMapper.readTree(extracted);
@@ -378,15 +391,31 @@ public class BookAiAnalysisService {
         }
     }
 
-    private String normalizeBaseUrl(String value) {
+    /**
+     * Normalizes an OpenAI-compatible base URL for the SDK.
+     *
+     * <p>Mirrors the normalization logic from the java-chat project's
+     * {@code OpenAiSdkUrlNormalizer}: strips trailing slashes, strips
+     * trailing {@code /embeddings}, and ensures a {@code /v1} suffix.</p>
+     *
+     * @param value raw base URL from environment configuration
+     * @return SDK-ready base URL ending in {@code /v1}
+     */
+    public static String normalizeSdkBaseUrl(String value) {
         if (!StringUtils.hasText(value)) {
             return "https://api.openai.com/v1";
         }
-        String trimmed = value.trim();
-        while (trimmed.endsWith("/")) {
-            trimmed = trimmed.substring(0, trimmed.length() - 1);
+        String normalized = value.trim();
+        while (normalized.endsWith("/")) {
+            normalized = normalized.substring(0, normalized.length() - 1);
         }
-        return trimmed;
+        if (normalized.endsWith("/embeddings")) {
+            normalized = normalized.substring(0, normalized.length() - "/embeddings".length());
+        }
+        if (!normalized.endsWith("/v1")) {
+            normalized = normalized + "/v1";
+        }
+        return normalized;
     }
 
     /**

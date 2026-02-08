@@ -1,22 +1,24 @@
 package net.findmybook.application.ai;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.openai.client.OpenAIClient;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import net.findmybook.adapters.persistence.BookAiAnalysisRepository;
+import net.findmybook.controller.dto.BookAiSnapshotDto;
 import net.findmybook.domain.ai.BookAiAnalysis;
-import net.findmybook.dto.BookDetail;
+import net.findmybook.domain.ai.BookAiSnapshot;
 import net.findmybook.service.BookIdentifierResolver;
 import net.findmybook.service.BookSearchService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import tools.jackson.databind.ObjectMapper;
 
 class BookAiAnalysisServiceTest {
@@ -61,18 +63,82 @@ class BookAiAnalysisServiceTest {
         assertThat(disabledService.isAvailable()).isFalse();
     }
 
-    // Since parseAnalysis is private, we can test it indirectly via generateAndPersist if we mock the SDK,
-    // or we can use reflection, or package-private visibility.
-    // However, mocking the OpenAI SDK's fluent builder chain is extremely painful.
-    // Instead, let's trust the integration test for the full flow, and perhaps
-    // check if we can extract the parser to a package-private helper or just rely on the repo test for the JSON part.
-    
-    // Actually, we can test resolveBookId which is simple.
     @Test
     void resolveBookId_DelegatesToResolver() {
         UUID id = UUID.randomUUID();
         when(identifierResolver.resolveToUuid("slug")).thenReturn(Optional.of(id));
         
         assertThat(service.resolveBookId("slug")).contains(id);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "https://api.openai.com,https://api.openai.com/v1",
+        "https://api.openai.com/v1,https://api.openai.com/v1",
+        "https://models.inference.ai.azure.com/inference,https://models.inference.ai.azure.com/inference/v1",
+        "https://api.openai.com/embeddings,https://api.openai.com/v1",
+        "https://api.openai.com/v1/embeddings,https://api.openai.com/v1",
+        "https://popos-sf7.com/,https://popos-sf7.com/v1"
+    })
+    void should_NormalizeOpenAiBaseUrl_When_ValueProvided(String input, String expected) {
+        assertThat(BookAiAnalysisService.normalizeSdkBaseUrl(input)).isEqualTo(expected);
+    }
+
+    @Test
+    void should_DefaultOpenAiBaseUrl_When_ValueMissing() {
+        assertThat(BookAiAnalysisService.normalizeSdkBaseUrl(" ")).isEqualTo("https://api.openai.com/v1");
+    }
+
+    @Test
+    void configuredModel_ReturnsConfiguredValue() {
+        assertThat(service.configuredModel()).isEqualTo("gpt-5-mini");
+    }
+
+    @Test
+    void apiMode_ReturnsChat() {
+        assertThat(service.apiMode()).isEqualTo("chat");
+    }
+
+    @Test
+    void toDto_MapsAllFields() {
+        BookAiAnalysis analysis = new BookAiAnalysis("Summary", "Fit", List.of("T1", "T2"));
+        BookAiSnapshot snapshot = new BookAiSnapshot(
+            UUID.randomUUID(), 3, Instant.parse("2026-02-08T12:00:00Z"), "gpt-5", "openai", analysis
+        );
+
+        BookAiSnapshotDto dto = BookAiAnalysisService.toDto(snapshot);
+
+        assertThat(dto.summary()).isEqualTo("Summary");
+        assertThat(dto.readerFit()).isEqualTo("Fit");
+        assertThat(dto.keyThemes()).containsExactly("T1", "T2");
+        assertThat(dto.version()).isEqualTo(3);
+        assertThat(dto.model()).isEqualTo("gpt-5");
+        assertThat(dto.provider()).isEqualTo("openai");
+    }
+
+    @Test
+    void findCurrent_DelegatesToRepository() {
+        UUID bookId = UUID.randomUUID();
+        BookAiAnalysis analysis = new BookAiAnalysis("S", "F", List.of("T"));
+        BookAiSnapshot snapshot = new BookAiSnapshot(bookId, 1, Instant.now(), "m", "p", analysis);
+        when(repository.fetchCurrent(bookId)).thenReturn(Optional.of(snapshot));
+
+        Optional<BookAiSnapshot> result = service.findCurrent(bookId);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().analysis().summary()).isEqualTo("S");
+    }
+
+    @Test
+    void generateAndPersist_ThrowsWhenServiceDisabled() {
+        BookAiAnalysisService disabledService = new BookAiAnalysisService(
+            repository, identifierResolver, bookSearchService, objectMapper,
+            "", "", "model", 10, 10
+        );
+        UUID bookId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> disabledService.generateAndPersist(bookId, delta -> {}))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("not configured");
     }
 }
