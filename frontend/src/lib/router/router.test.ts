@@ -219,6 +219,21 @@ describe("component rendering", () => {
     expect(screen.queryByRole("link", { name: /Categories/i })).not.toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: /Explore/i }).length).toBeGreaterThan(0);
   });
+
+  it("shouldExposeThemeToggleHoverHelperTextInTopNav", () => {
+    render(TopNav, {
+      props: {
+        activeRoute: "home",
+      },
+    });
+
+    const themeButtons = screen.getAllByRole("button", { name: "Switch to dark mode" });
+    expect(themeButtons.length).toBeGreaterThan(0);
+    themeButtons.forEach((button) => {
+      expect(button).toHaveAttribute("title", "Switch to dark mode");
+      expect(button).toHaveAttribute("aria-label", "Switch to dark mode");
+    });
+  });
 });
 
 describe("SearchPage loading state", () => {

@@ -35,6 +35,10 @@
     void toggleTheme();
   }
 
+  function themeToggleHelperText(): string {
+    return currentTheme === "light" ? "Switch to dark mode" : "Switch to light mode";
+  }
+
   type NavItem = { href: string; route: RouteName | "explore"; label: string };
 
   const navItems: NavItem[] = [
@@ -105,8 +109,8 @@
         type="button"
         onclick={handleToggleTheme}
         class="group inline-flex items-center justify-center rounded-md p-2 text-anthracite-700 dark:text-slate-400 transition-all duration-200 hover:text-anthracite-800 dark:hover:text-slate-50 hover:bg-canvas-400/8 dark:hover:bg-slate-700/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-canvas-400"
-        title={currentTheme === "light" ? "Light \u2192 Dark" : "Dark \u2192 Light"}
-        aria-label={currentTheme === "light" ? "Switch to dark mode" : "Switch to light mode"}
+        title={themeToggleHelperText()}
+        aria-label={themeToggleHelperText()}
       >
         {#if currentTheme === "light"}
           <Sun size={18} class="block group-hover:hidden" />
@@ -124,8 +128,8 @@
         type="button"
         onclick={handleToggleTheme}
         class="group inline-flex items-center justify-center rounded-md p-2 text-anthracite-700 dark:text-slate-400 transition hover:bg-canvas-400/8 dark:hover:bg-slate-700/50"
-        title={currentTheme === "light" ? "Light \u2192 Dark" : "Dark \u2192 Light"}
-        aria-label={currentTheme === "light" ? "Switch to dark mode" : "Switch to light mode"}
+        title={themeToggleHelperText()}
+        aria-label={themeToggleHelperText()}
       >
         {#if currentTheme === "light"}
           <Sun size={18} class="block group-hover:hidden" />
