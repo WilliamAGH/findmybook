@@ -1,7 +1,7 @@
 package net.findmybook.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import net.findmybook.model.Book;
 import net.findmybook.service.image.LocalDiskCoverCacheService;
 import net.findmybook.util.ApplicationConstants;
@@ -406,7 +406,7 @@ public class BookSeoMetadataService {
     private static String serializeRouteManifest(RouteManifest routeManifest) {
         try {
             return OBJECT_MAPPER.writeValueAsString(routeManifest);
-        } catch (JsonProcessingException ex) {
+        } catch (JacksonException ex) {
             throw new IllegalStateException("Failed to serialize SPA route manifest", ex);
         }
     }
