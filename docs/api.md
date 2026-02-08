@@ -6,6 +6,8 @@
 - **Book API:**
   - `GET /api/books/search?query={keyword}`
   - `GET /api/books/{id}`
+  - `GET /api/books/ai/queue`
+  - `POST /api/books/{identifier}/ai/analysis/stream?refresh={true|false}`
   - `GET /api/books/authors/search?query={author}`
 - **Page API (Svelte SPA):**
   - `GET /api/pages/home`
@@ -33,6 +35,36 @@
     - `format: "HTML" | "MARKDOWN" | "PLAIN_TEXT" | "UNKNOWN"`
     - `html: string` (sanitized deterministic HTML for rendering)
     - `text: string` (plain text for snippets and metadata)
+- `GET /api/books/{identifier}` also includes optional AI snapshot metadata:
+  - `ai` (nullable object)
+    - `summary: string`
+    - `readerFit: string`
+    - `keyThemes: string[]`
+    - `version: number | null`
+    - `generatedAt: ISO-8601 datetime | null`
+    - `model: string | null`
+    - `provider: string | null`
+
+## Book AI Streaming Contract
+- `GET /api/books/ai/queue`
+  - Response fields:
+    - `running: number`
+    - `pending: number`
+    - `maxParallel: number`
+- `POST /api/books/{identifier}/ai/analysis/stream`
+  - Query params:
+    - `refresh` (`false` by default; when `false`, cached Postgres AI snapshot is returned when present)
+  - Response content type:
+    - `text/event-stream`
+  - SSE events:
+    - `queued`: `{ position, running, pending, maxParallel }`
+    - `queue`: periodic queue position update while pending
+    - `started`: `{ running, pending, maxParallel, queueWaitMs }`
+    - `message_start`: `{ id, model, apiMode }`
+    - `message_delta`: `{ delta }`
+    - `message_done`: `{ message }`
+    - `done`: `{ message, analysis }` where `analysis` matches the `book.ai` contract
+    - `error`: `{ error }`
 
 ## Search Pagination
 - The `/api/books/search` endpoint defaults to 12 results per page.

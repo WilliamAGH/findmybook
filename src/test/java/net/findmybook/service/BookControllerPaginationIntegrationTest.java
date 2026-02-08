@@ -1,5 +1,6 @@
 package net.findmybook.service;
 
+import net.findmybook.application.ai.BookAiAnalysisService;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import net.findmybook.controller.BookController;
@@ -64,6 +65,9 @@ class BookControllerPaginationIntegrationTest {
 
     @MockitoBean
     private CacheManager cacheManager;
+
+    @MockitoBean
+    private BookAiAnalysisService bookAiAnalysisService;
 
     private final List<UUID> bookIds = new ArrayList<>();
     private final List<BookSearchService.SearchResult> searchResults = new ArrayList<>();

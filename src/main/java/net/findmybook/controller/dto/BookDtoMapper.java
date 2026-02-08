@@ -94,7 +94,8 @@ public final class BookDtoMapper {
                 editions,
                 recommendationIds,
                 book.getQualifiers() == null ? Map.of() : Map.copyOf(book.getQualifiers()),
-                descriptionContent
+                descriptionContent,
+                null
         );
     }
 
@@ -149,7 +150,8 @@ public final class BookDtoMapper {
             editions,
             List.of(),
             extras == null ? Map.of() : Map.copyOf(extras),
-            descriptionContent
+            descriptionContent,
+            null
         );
     }
 
@@ -188,7 +190,8 @@ public final class BookDtoMapper {
             List.of(),
             List.of(),
             extras == null ? Map.of() : Map.copyOf(extras),
-            formatDescription(null)
+            formatDescription(null),
+            null
         );
     }
 
@@ -227,7 +230,8 @@ public final class BookDtoMapper {
             List.of(),
             List.of(),
             extras == null ? Map.of() : Map.copyOf(extras),
-            formatDescription(item.description())
+            formatDescription(item.description()),
+            null
         );
     }
 

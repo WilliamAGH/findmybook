@@ -248,7 +248,10 @@ comment on view book_work_editions is 'Shows all editions of books in the same w
 
 create table if not exists book_tags (
   id text primary key, -- NanoID (10 chars)
-  key text not null, -- canonical tag key (e.g., 'nyt_bestseller')
+  key text not null check (
+    key = lower(regexp_replace(btrim(key), '[[:space:]]+', '_', 'g'))
+    and key <> ''
+  ), -- canonical tag key (e.g., 'nyt_bestseller')
   display_name text, -- human friendly label (e.g., 'NYT Bestseller')
   tag_type text not null default 'QUALIFIER', -- QUALIFIER, PROVIDER_TAG, USER_TAG, etc.
   description text,
@@ -269,11 +272,11 @@ create table if not exists book_tag_assignments (
   id text primary key, -- NanoID (12 chars)
   book_id uuid not null references books(id) on delete cascade,
   tag_id text not null references book_tags(id) on delete cascade,
-  source text not null, -- 'SEARCH_QUERY', 'PROVIDER', 'CURATION', etc.
+  source text not null check (source = btrim(source) and source <> ''), -- 'SEARCH_QUERY', 'PROVIDER', 'CURATION', etc.
   confidence numeric, -- optional 0..1 confidence score
   metadata jsonb, -- optional extra data (e.g., original phrase, provider payload snippet)
   created_at timestamptz not null default now(),
-  unique (book_id, tag_id, source)
+  unique (book_id, tag_id)
 );
 
 create index if not exists idx_book_tag_equivalents_canonical on book_tag_equivalents(canonical_tag_id);
@@ -290,7 +293,7 @@ comment on column book_tag_equivalents.canonical_tag_id is 'Primary tag in an eq
 comment on column book_tag_equivalents.equivalent_tag_id is 'Alias tag that resolves to the canonical tag.';
 
 comment on table book_tag_assignments is 'Assignments linking canonical books to tags with source + optional metadata.';
-comment on column book_tag_assignments.source is 'Origin of the tag assignment (SEARCH_QUERY, PROVIDER, CURATION, etc).';
+comment on column book_tag_assignments.source is 'Most recent origin of the tag assignment (SEARCH_QUERY, PROVIDER, CURATION, etc).';
 comment on column book_tag_assignments.metadata is 'Additional context, e.g., original query text or provider payload snippet.';
 
 -- Authors table for storing unique author names
@@ -1980,3 +1983,36 @@ $$ language plpgsql stable;
 
 comment on function normalize_title_for_clustering is 'Normalize book title for clustering: lowercase, remove punctuation, collapse whitespace';
 comment on function get_normalized_authors is 'Get normalized author list for a book as pipe-separated string';
+
+-- ============================================================================
+-- BOOK AI ANALYSIS VERSIONING
+-- Stores versioned AI-generated "Reader Fit Snapshot" content per book.
+-- ============================================================================
+
+create table if not exists book_ai_analysis_versions (
+  id text primary key, -- NanoID (12 chars via IdGenerator.generateLong())
+  book_id uuid not null references books(id) on delete cascade,
+  version_number integer not null check (version_number > 0),
+  is_current boolean not null default false,
+  analysis_json jsonb not null,
+  summary text not null,
+  reader_fit text not null,
+  key_themes jsonb not null,
+  model text not null,
+  provider text not null,
+  prompt_hash text,
+  created_at timestamptz not null default now(),
+  unique (book_id, version_number)
+);
+
+create unique index if not exists uq_book_ai_analysis_versions_current
+  on book_ai_analysis_versions(book_id)
+  where is_current;
+
+create index if not exists idx_book_ai_analysis_versions_book_created
+  on book_ai_analysis_versions(book_id, created_at desc);
+
+comment on table book_ai_analysis_versions is 'Versioned AI-generated book analysis snapshots with single current version per book';
+comment on column book_ai_analysis_versions.analysis_json is 'Canonical JSON payload returned by the AI model';
+comment on column book_ai_analysis_versions.reader_fit is 'Who should read this book and why';
+comment on column book_ai_analysis_versions.key_themes is 'JSON array of short key-theme strings';

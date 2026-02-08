@@ -4,6 +4,7 @@
 package net.findmybook.controller;
 
 import com.fasterxml.jackson.annotation.JsonUnwrapped;
+import net.findmybook.application.ai.BookAiAnalysisService;
 import net.findmybook.controller.dto.BookDto;
 import net.findmybook.controller.dto.BookDtoMapper;
 import org.springframework.web.server.ResponseStatusException;
@@ -57,6 +58,7 @@ public class BookController {
     private final BookSearchService bookSearchService;
     private final BookIdentifierResolver bookIdentifierResolver;
     private final SearchPaginationService searchPaginationService;
+    private final BookAiAnalysisService bookAiAnalysisService;
     /**
      * The book data orchestrator, may be null when disabled.
      */
@@ -68,15 +70,18 @@ public class BookController {
      * @param bookSearchService the book search service
      * @param bookIdentifierResolver the identifier resolver
      * @param searchPaginationService the pagination service
+     * @param bookAiAnalysisService service for cache-first AI reader-fit snapshots
      * @param bookDataOrchestrator the data orchestrator, or null when disabled
      */
     public BookController(BookSearchService bookSearchService,
                           BookIdentifierResolver bookIdentifierResolver,
                           SearchPaginationService searchPaginationService,
+                          BookAiAnalysisService bookAiAnalysisService,
                           BookDataOrchestrator bookDataOrchestrator) {
         this.bookSearchService = bookSearchService;
         this.bookIdentifierResolver = bookIdentifierResolver;
         this.searchPaginationService = searchPaginationService;
+        this.bookAiAnalysisService = bookAiAnalysisService;
         this.bookDataOrchestrator = bookDataOrchestrator;
     }
 
@@ -335,10 +340,13 @@ public class BookController {
         }
 
         String trimmed = identifier.trim();
-        return Mono.fromCallable(() -> locateBookDto(trimmed))
+        Mono<BookDto> resolvedBook = Mono.fromCallable(() -> locateBookDto(trimmed))
             .subscribeOn(Schedulers.boundedElastic())
             .flatMap(dto -> dto == null ? Mono.<BookDto>empty() : Mono.just(dto))
             .switchIfEmpty(fetchBookViaFallback(trimmed));
+
+        return resolvedBook.flatMap(dto -> Mono.fromCallable(() -> attachAiSnapshot(dto))
+            .subscribeOn(Schedulers.boundedElastic()));
     }
 
     private BookDto locateBookDto(String identifier) {
@@ -388,6 +396,22 @@ public class BookController {
         return bookDataOrchestrator.fetchCanonicalBookReactive(identifier)
             .map(BookDtoMapper::toDto)
             .doOnNext(bookDto -> log.debug("BookController fallback resolved '{}' via orchestrator", identifier));
+    }
+
+    private BookDto attachAiSnapshot(BookDto bookDto) {
+        if (bookDto == null || !StringUtils.hasText(bookDto.id())) {
+            return bookDto;
+        }
+
+        UUID bookId = UuidUtils.parseUuidOrNull(bookDto.id());
+        if (bookId == null) {
+            return bookDto;
+        }
+
+        return bookAiAnalysisService.findCurrent(bookId)
+            .map(BookAiAnalysisService::toDto)
+            .map(bookDto::withAi)
+            .orElse(bookDto);
     }
 
     private BookDto toRecommendationDto(RecommendationCard card) {
