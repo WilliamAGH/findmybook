@@ -14,7 +14,7 @@ S3_ACL_PREFIX ?=
 S3_ACL_DRY_RUN ?= false
 S3_ACL_VERBOSE ?= false
 
-.PHONY: run build test lint kill-port migrate-books cluster-books check-s3-in-db fix-s3-acl-public-all
+.PHONY: run build test lint kill-port migrate-books cluster-books check-s3-in-db fix-s3-acl-public-all db-verify-author-constraints
 
 # Kill any process currently listening on $(PORT)
 kill-port:
@@ -86,6 +86,31 @@ db-migrate:
 		fi && \
 		psql "$$SPRING_DATASOURCE_URL" -f src/main/resources/schema.sql && \
 		echo "✅ Schema migration complete"; \
+	else \
+		echo "❌ Error: .env file not found"; \
+		exit 1; \
+	fi
+
+# Verify author constraints align with migration-defined guardrails
+db-verify-author-constraints:
+	@echo "Verifying author schema constraints..."
+	@if [ -f .env ]; then \
+		set -a && source .env && set +a && \
+		if [ -z "$$SPRING_DATASOURCE_URL" ]; then \
+			echo "❌ Error: SPRING_DATASOURCE_URL not found in .env"; \
+			exit 1; \
+		fi && \
+		missing=$$(psql "$$SPRING_DATASOURCE_URL" -At -c "SELECT string_agg(expected, ',') FROM (VALUES ('authors_name_non_blank_check'), ('authors_name_leading_character_check')) AS expected_constraints(expected) LEFT JOIN pg_constraint c ON c.conname = expected_constraints.expected AND c.conrelid = 'authors'::regclass WHERE c.oid IS NULL;") && \
+		if [ -n "$$missing" ]; then \
+			echo "❌ Missing author constraints: $$missing"; \
+			exit 1; \
+		fi && \
+		non_blank_def=$$(psql "$$SPRING_DATASOURCE_URL" -At -c "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'authors'::regclass AND conname = 'authors_name_non_blank_check';") && \
+		leading_def=$$(psql "$$SPRING_DATASOURCE_URL" -At -c "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'authors'::regclass AND conname = 'authors_name_leading_character_check';") && \
+		echo "$$non_blank_def" | grep -F "btrim(name) <> ''" >/dev/null || { echo "❌ authors_name_non_blank_check has unexpected definition: $$non_blank_def"; exit 1; } && \
+		echo "$$leading_def" | grep -F "regexp_replace(name" >/dev/null || { echo "❌ authors_name_leading_character_check missing regexp_replace: $$leading_def"; exit 1; } && \
+		echo "$$leading_def" | grep -F "^[[:alpha:][:digit:]]" >/dev/null || { echo "❌ authors_name_leading_character_check missing alpha/digit guard: $$leading_def"; exit 1; } && \
+		echo "✅ Author constraints match migration-defined guardrails"; \
 	else \
 		echo "❌ Error: .env file not found"; \
 		exit 1; \

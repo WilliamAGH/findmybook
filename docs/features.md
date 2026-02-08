@@ -22,7 +22,8 @@ CLI migration flags were removed from application startup. The runtime now fails
 
 Use manual SQL migration scripts and controlled data-loading steps instead of boot-time flags.
 
-- SQL migration assets: `frontend/scripts/backfill_cover_metadata.sql` and `src/main/resources/schema.sql` (slug population helpers around `generate_all_book_slugs`).
+- SQL migration assets: `frontend/scripts/backfill_cover_metadata.sql`, `migrations/`, and `src/main/resources/schema.sql`.
+- Schema module layout: `src/main/resources/schema.sql` is the orchestrator entrypoint and includes split modules such as `src/main/resources/schema/author-domain.sql`.
 - Controlled data load: run the explicit migration tool directly:
   `node frontend/scripts/migrate-s3-to-db-v2.js --prefix books/v1/ --limit 1000`
 - Verification and rollback guidance: follow `docs/troubleshooting.md` and `docs/edition_clustering.md` after each batch.

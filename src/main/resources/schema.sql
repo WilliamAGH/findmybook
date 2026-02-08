@@ -518,6 +518,7 @@ end;
 $$;
 
 -- Main search function combining multiple strategies with cluster deduplication
+drop function if exists search_books(text, integer);
 create or replace function search_books(
   search_query text,
   max_results integer default 20
@@ -707,6 +708,7 @@ end;
 $$ language plpgsql;
 
 -- ISBN search function for barcode scanning
+drop function if exists search_by_isbn(text);
 create or replace function search_by_isbn(isbn_query text)
 returns table (
   book_id uuid,
@@ -746,6 +748,7 @@ end;
 $$ language plpgsql;
 
 -- Author search function
+drop function if exists search_authors(text, integer);
 create or replace function search_authors(
   search_query text,
   max_results integer default 20
@@ -800,7 +803,8 @@ comment on function refresh_book_search_view is 'Refresh the search materialized
 -- ============================================================================
 
 -- Function to find book by slug or ID (supports legacy URLs)
-create or replace function find_book_by_slug_or_id(identifier text)
+drop function if exists find_book_by_slug_or_id(text);
+create function find_book_by_slug_or_id(identifier text)
 returns table (
   book_id uuid,
   title text,
@@ -1105,6 +1109,7 @@ $$ language plpgsql immutable;
 comment on function normalize_author_name is 'Normalizes author names for deduplication: handles accents, suffixes, corporate names';
 
 -- Function to merge duplicate authors with same normalized name
+drop function if exists merge_duplicate_authors();
 create or replace function merge_duplicate_authors()
 returns table (
   groups_found integer,
@@ -1313,6 +1318,7 @@ end;
 $$ language plpgsql immutable;
 
 -- Cluster books by ISBN prefix
+drop function if exists cluster_books_by_isbn();
 create or replace function cluster_books_by_isbn()
 returns table (clusters_created integer, books_clustered integer) as $$
 declare
@@ -1690,6 +1696,7 @@ create trigger work_cluster_primary_change
   execute function notify_primary_edition_change();
 
 -- Get all editions of a book
+drop function if exists get_book_editions(uuid);
 create or replace function get_book_editions(target_book_id uuid)
 returns table (
   book_id uuid,
@@ -1727,6 +1734,7 @@ end;
 $$ language plpgsql;
 
 -- Cluster books by Google canonical links
+drop function if exists cluster_books_by_google_canonical();
 create or replace function cluster_books_by_google_canonical()
 returns table (clusters_created integer, books_clustered integer) as $$
 declare
@@ -1840,6 +1848,7 @@ end;
 $$ language plpgsql;
 
 -- Statistics function
+drop function if exists get_clustering_stats();
 create or replace function get_clustering_stats()
 returns table (
   total_books bigint,

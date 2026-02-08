@@ -142,6 +142,24 @@ public class TextUtilsTest {
         assertEquals("John Smith", TextUtils.normalizeAuthorName(input));
     }
 
+    @Test
+    void testNormalizeAuthorName_StripsLeadingPunctuation() {
+        String input = "-- Anonymous";
+        assertEquals("Anonymous", TextUtils.normalizeAuthorName(input));
+    }
+
+    @Test
+    void testNormalizeAuthorName_CleansBracketWrappedPlaceholders() {
+        String input = "[Author Unknown].";
+        assertEquals("Author Unknown", TextUtils.normalizeAuthorName(input));
+    }
+
+    @Test
+    void testNormalizeAuthorName_StripsLeadingBacktick() {
+        String input = "`Abd'ul-Bahā";
+        assertEquals("Abd'ul-Bahā", TextUtils.normalizeAuthorName(input));
+    }
+
     /** Tests colon-separated subtitle capitalization. */
     @Test
     void testTitleCaseWithSubtitle() {
