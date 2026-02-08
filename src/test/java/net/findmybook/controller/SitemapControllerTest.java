@@ -85,7 +85,7 @@ class SitemapControllerTest {
             "https://findmybook.net/images/og-logo.png"
         );
         when(bookSeoMetadataService.sitemapMetadata(any())).thenReturn(sitemapMetadata);
-        when(bookSeoMetadataService.renderSpaShell(any(), any(), anyInt()))
+        when(bookSeoMetadataService.renderSpaShell(any()))
             .thenReturn("<!doctype html><html><head><title>Sitemap - Book Finder</title></head><body><div id=\"app\"></div></body></html>");
     }
 
