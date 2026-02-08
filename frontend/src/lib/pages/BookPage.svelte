@@ -460,10 +460,10 @@
                 <div class="relative">
                   <div
                     bind:this={descriptionContainer}
-                    class="text-sm leading-relaxed text-anthracite-700 dark:text-slate-300 overflow-hidden"
+                    class="text-sm leading-relaxed text-anthracite-700 dark:text-slate-300 overflow-hidden transition-[max-height] duration-300 ease-in-out"
                     class:book-description-content={sanitizedDescriptionHtml.length > 0}
                     class:whitespace-pre-wrap={sanitizedDescriptionHtml.length === 0}
-                    style:max-height={descriptionCollapsed ? `${descriptionMaxHeightPx}px` : 'none'}
+                    style:max-height={descriptionCollapsed ? `${descriptionMaxHeightPx}px` : `${descriptionNaturalHeightPx}px`}
                   >
                     {#if sanitizedDescriptionHtml.length > 0}
                       {@html sanitizedDescriptionHtml}
@@ -472,9 +472,22 @@
                     {/if}
                   </div>
                   {#if descriptionMeasured && descriptionOverflows && !descriptionExpanded}
-                    <div class="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-linear-to-t from-canvas-50/90 via-canvas-50/60 to-transparent backdrop-blur-sm dark:from-slate-900/85 dark:via-slate-900/60"></div>
+                    <div class="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-linear-to-t from-linen-50 via-linen-50/70 to-transparent dark:from-slate-900 dark:via-slate-900/70"></div>
                   {/if}
                 </div>
+                {#if descriptionMeasured && descriptionOverflows}
+                  <button
+                    type="button"
+                    onclick={() => descriptionExpanded = !descriptionExpanded}
+                    class="mx-auto mt-1 flex items-center justify-center rounded-md p-1 text-anthracite-400 transition hover:text-anthracite-700 dark:text-slate-500 dark:hover:text-slate-200"
+                    aria-label={descriptionExpanded ? 'Collapse description' : 'Expand description'}
+                  >
+                    <ChevronDown
+                      size={18}
+                      class="transition-transform duration-200 {descriptionExpanded ? 'rotate-180' : ''}"
+                    />
+                  </button>
+                {/if}
               </div>
             </section>
           {/if}
