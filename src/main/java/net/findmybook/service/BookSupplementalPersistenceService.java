@@ -56,7 +56,7 @@ public class BookSupplementalPersistenceService {
             if (!StringUtils.hasText(canonicalAuthorName)) {
                 continue;
             }
-            String normalized = normalizeAuthorKey(canonicalAuthorName);
+            String normalized = nullIfBlank(normalizeAuthorKey(canonicalAuthorName));
             String authorId = upsertAuthor(canonicalAuthorName, normalized);
             JdbcUtils.executeUpdate(
                 jdbcTemplate,
@@ -231,10 +231,13 @@ public class BookSupplementalPersistenceService {
     }
 
     private String normalizeAuthorKey(String authorName) {
-        String normalized = authorName.toLowerCase(Locale.ROOT)
+        return authorName.toLowerCase(Locale.ROOT)
             .replaceAll(AUTHOR_NAME_NORMALIZE_PATTERN, "")
             .trim();
-        return normalized.isBlank() ? null : normalized;
+    }
+
+    private String nullIfBlank(String candidate) {
+        return (candidate != null && !candidate.isBlank()) ? candidate : null;
     }
 
     private String normalizeTagKey(String key) {

@@ -92,8 +92,8 @@ public class TextUtils {
         return result.trim();
     }
 
-    private static String stripLeadingTitleNonAlphanumeric(String value) {
-        String result = value;
+    private static String stripLeadingTitleNonAlphanumeric(String titleText) {
+        String result = titleText;
         while (!result.isEmpty() && !Character.isLetterOrDigit(result.charAt(0))) {
             result = result.substring(1).trim();
         }
@@ -304,8 +304,8 @@ public class TextUtils {
         return result;
     }
 
-    private static String stripLeadingAuthorNonAlphanumeric(String value) {
-        String result = value;
+    private static String stripLeadingAuthorNonAlphanumeric(String authorText) {
+        String result = authorText;
         while (!result.isEmpty() && !Character.isLetterOrDigit(result.charAt(0))) {
             result = result.substring(1).trim();
         }

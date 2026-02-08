@@ -166,7 +166,7 @@ public class BookUpsertTransactionService {
                 continue;
             }
 
-            String normalized = normalizeAuthorKey(canonicalAuthorName);
+            String normalized = nullIfBlank(normalizeAuthorKey(canonicalAuthorName));
             String authorId = upsertAuthor(canonicalAuthorName, normalized);
 
             jdbcTemplate.update(
@@ -350,10 +350,9 @@ public class BookUpsertTransactionService {
     }
 
     private String normalizeAuthorKey(String authorName) {
-        String normalized = authorName.toLowerCase(Locale.ROOT)
+        return authorName.toLowerCase(Locale.ROOT)
             .replaceAll(AUTHOR_NAME_NORMALIZE_PATTERN, "")
             .trim();
-        return normalized.isBlank() ? null : normalized;
     }
 
     private String nullIfBlank(String value) {
