@@ -3,7 +3,7 @@
   import { navigate } from "$lib/router/router";
   import { themeMode, toggleTheme } from "$lib/stores/theme";
   import type { ResolvedTheme } from "$lib/stores/theme";
-  import { Home, Search, BookOpen, List, Moon, Sun, Menu, X } from "@lucide/svelte";
+  import { Home, Search, BookOpen, Moon, Sun, Menu, X } from "@lucide/svelte";
 
   let { activeRoute }: { activeRoute: RouteName } = $props();
 
@@ -35,13 +35,12 @@
     void toggleTheme();
   }
 
-  type NavItem = { href: string; route: RouteName | "explore" | "categories"; label: string };
+  type NavItem = { href: string; route: RouteName | "explore"; label: string };
 
   const navItems: NavItem[] = [
     { href: "/", route: "home", label: "Home" },
     { href: "/search", route: "search", label: "Search" },
     { href: "/explore", route: "explore", label: "Explore" },
-    { href: "/categories", route: "categories", label: "Categories" },
   ];
 
   function navIcon(route: string): typeof Home {
@@ -49,7 +48,6 @@
       case "home": return Home;
       case "search": return Search;
       case "explore": return BookOpen;
-      case "categories": return List;
       default: return Home;
     }
   }
