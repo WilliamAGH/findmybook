@@ -29,7 +29,14 @@ vi.mock("$lib/services/realtime", () => ({
   subscribeToSearchTopics: subscribeToSearchTopicsMock,
 }));
 
-import { matchRoute, searchBasePathForRoute } from "$lib/router/router";
+import {
+  DEFAULT_PASSTHROUGH_PREFIXES,
+  initializeSpaRouting,
+  matchRoute,
+  navigate,
+  previousSpaPath,
+  searchBasePathForRoute,
+} from "$lib/router/router";
 import BookCard from "$lib/components/BookCard.svelte";
 import NotFoundPage from "$lib/pages/NotFoundPage.svelte";
 import TopNav from "$lib/components/TopNav.svelte";
@@ -45,6 +52,7 @@ beforeEach(() => {
   getCategoryFacetsMock.mockResolvedValue({ genres: [] });
   subscribeToSearchTopicsMock.mockReset();
   subscribeToSearchTopicsMock.mockResolvedValue(() => {});
+  window.history.replaceState(null, "", "/");
 });
 
 function createDeferred<T>() {
@@ -104,6 +112,54 @@ describe("searchBasePathForRoute", () => {
 
   it("shouldReturnCategoriesPathWhenRouteIsCategories", () => {
     expect(searchBasePathForRoute("categories")).toBe("/categories");
+  });
+});
+
+describe("route manifest fallback", () => {
+  it("shouldExposeBackendPassthroughPrefixesForEmptyManifestFallback", () => {
+    expect(DEFAULT_PASSTHROUGH_PREFIXES).toEqual([
+      "/api",
+      "/admin",
+      "/actuator",
+      "/ws",
+      "/topic",
+      "/sitemap.xml",
+      "/sitemap-xml",
+      "/r",
+    ]);
+  });
+});
+
+describe("spa navigation history state", () => {
+  it("shouldTrackPreviousPathWhenNavigatingForward", () => {
+    window.history.replaceState(null, "", "/search?query=alpha&page=2&orderBy=title&view=list");
+
+    navigate("/book/the-hobbit?query=alpha&page=2&orderBy=title&view=list");
+
+    expect(window.location.pathname).toBe("/book/the-hobbit");
+    expect(previousSpaPath()).toBe("/search?query=alpha&page=2&orderBy=title&view=list");
+  });
+
+  it("shouldPreservePreviousPathWhenReplacingCurrentRoute", () => {
+    navigate("/explore");
+    expect(previousSpaPath()).toBe("/");
+
+    navigate("/explore?query=fantasy&page=1&orderBy=newest&view=grid", true);
+
+    expect(window.location.pathname).toBe("/explore");
+    expect(previousSpaPath()).toBe("/");
+  });
+
+  it("shouldSeedHistoryStateWhenSpaRoutingStarts", () => {
+    window.history.replaceState(null, "", "/categories?genre=Fantasy");
+
+    const cleanup = initializeSpaRouting();
+    try {
+      expect(previousSpaPath()).toBeNull();
+      expect((window.history.state as { __fmbSpa?: string } | null)?.__fmbSpa).toBe("findmybook-spa-v1");
+    } finally {
+      cleanup();
+    }
   });
 });
 
