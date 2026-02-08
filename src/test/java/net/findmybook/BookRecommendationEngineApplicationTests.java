@@ -5,6 +5,10 @@ import net.findmybook.config.DatabaseUrlEnvironmentPostProcessor;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.scheduling.TaskScheduler;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -12,6 +16,8 @@ import software.amazon.awssdk.services.s3.S3Client;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -45,6 +51,14 @@ class BookRecommendationEngineApplicationTests {
 
     @MockitoBean
     private S3Client s3Client;
+
+    @Autowired
+    @Qualifier("taskScheduler")
+    private TaskScheduler applicationTaskScheduler;
+
+    @Autowired
+    @Qualifier("messageBrokerTaskScheduler")
+    private TaskScheduler messageBrokerTaskScheduler;
 
     // No-op: cached repository removed
 
@@ -82,6 +96,18 @@ class BookRecommendationEngineApplicationTests {
         assertEquals("jdbc:postgresql://localhost:5432/db?email=user@example.com", parsed.jdbcUrl);
         assertNull(parsed.username);
         assertNull(parsed.password);
+    }
+
+    @Test
+    void should_UseDedicatedSchedulerPrefixes_WhenContextLoadsTaskSchedulers() {
+        ThreadPoolTaskScheduler applicationScheduler =
+            assertInstanceOf(ThreadPoolTaskScheduler.class, applicationTaskScheduler);
+        ThreadPoolTaskScheduler brokerScheduler =
+            assertInstanceOf(ThreadPoolTaskScheduler.class, messageBrokerTaskScheduler);
+
+        assertEquals("AppScheduler-", applicationScheduler.getThreadNamePrefix());
+        assertEquals("MessageBroker-", brokerScheduler.getThreadNamePrefix());
+        assertNotEquals(applicationScheduler.getThreadNamePrefix(), brokerScheduler.getThreadNamePrefix());
     }
 
 }
