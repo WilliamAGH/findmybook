@@ -22,6 +22,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -31,6 +32,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.timeout;
@@ -210,8 +212,8 @@ class SearchPaginationServiceTest {
     }
 
     @Test
-    @DisplayName("search() keeps cover-first ordering when orderBy=newest")
-    void searchCoverFirstWhenNewest() {
+    @DisplayName("search() applies newest ordering ahead of cover quality when orderBy=newest")
+    void searchNewestOrderingWhenNewest() {
         UUID newerLowQuality = UUID.randomUUID();
         UUID olderHighQuality = UUID.randomUUID();
 
@@ -222,8 +224,24 @@ class SearchPaginationServiceTest {
 
         when(bookSearchService.searchBooks("cover-newest", 24)).thenReturn(searchResults);
         when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(List.of(
-            buildListItem(newerLowQuality, "Newest Low Quality", 1200, 120, false, "https://example.test/low.jpg?w=1200&h=120"),
-            buildListItem(olderHighQuality, "Older High Quality", 900, 1400, true, "https://cdn.test/high.jpg")
+            buildListItem(
+                newerLowQuality,
+                "Newest Low Quality",
+                1200,
+                120,
+                false,
+                "https://example.test/low.jpg?w=1200&h=120",
+                LocalDate.parse("2025-01-10")
+            ),
+            buildListItem(
+                olderHighQuality,
+                "Older High Quality",
+                900,
+                1400,
+                true,
+                "https://cdn.test/high.jpg",
+                LocalDate.parse("2020-06-01")
+            )
         ));
 
         SearchPaginationService.SearchRequest request = new SearchPaginationService.SearchRequest(
@@ -239,7 +257,7 @@ class SearchPaginationServiceTest {
         assertThat(page).isNotNull();
         assertThat(page.pageItems())
             .extracting(Book::getId)
-            .containsExactly(olderHighQuality.toString(), newerLowQuality.toString());
+            .containsExactly(newerLowQuality.toString(), olderHighQuality.toString());
     }
 
     @Test
@@ -278,7 +296,7 @@ class SearchPaginationServiceTest {
     }
 
     @Test
-    @DisplayName("search() treats null-equivalent cover values as no-cover and ranks them after valid covers")
+    @DisplayName("search() treats null-equivalent cover values as no-cover but sorts by relevance")
     void searchDemotesNullEquivalentCoverValues() {
         UUID nullEquivalent = UUID.randomUUID();
         UUID validCover = UUID.randomUUID();
@@ -322,7 +340,7 @@ class SearchPaginationServiceTest {
         assertThat(page).isNotNull();
         assertThat(page.pageItems())
             .extracting(Book::getId)
-            .containsExactly(validCover.toString(), nullEquivalent.toString());
+            .containsExactly(nullEquivalent.toString(), validCover.toString());
     }
 
     @Test
@@ -385,7 +403,8 @@ class SearchPaginationServiceTest {
         Book openLibraryTwo = buildOpenLibraryCandidate("OL-PRIMARY-2", "Open Primary Two");
 
         when(bookSearchService.searchBooks("fallback", 2)).thenReturn(List.of());
-        when(openLibraryBookDataService.queryBooksByEverything("fallback")).thenReturn(Flux.just(openLibraryOne, openLibraryTwo));
+        when(openLibraryBookDataService.queryBooksByEverything(eq("fallback"), anyString()))
+            .thenReturn(Flux.just(openLibraryOne, openLibraryTwo));
 
         SearchPaginationService openLibraryPrimaryService = new SearchPaginationService(
             bookSearchService,
@@ -412,6 +431,7 @@ class SearchPaginationServiceTest {
         assertThat(page).isNotNull();
         assertThat(page.totalUnique()).isEqualTo(2);
         assertThat(page.pageItems()).extracting(Book::getId).containsExactly("OL-PRIMARY-1");
+        verify(openLibraryBookDataService).queryBooksByEverything("fallback", "newest");
         verifyNoInteractions(googleApiFetcher);
         verifyNoInteractions(googleBooksMapper);
     }
@@ -438,7 +458,8 @@ class SearchPaginationServiceTest {
             .build();
 
         when(bookSearchService.searchBooks("fallback", 4)).thenReturn(List.of());
-        when(openLibraryBookDataService.queryBooksByEverything("fallback")).thenReturn(Flux.just(openLibraryOnly));
+        when(openLibraryBookDataService.queryBooksByEverything(eq("fallback"), anyString()))
+            .thenReturn(Flux.just(openLibraryOnly));
         when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
         when(googleApiFetcher.streamSearchItems("fallback", 3, "newest", null, true)).thenReturn(Flux.just(node));
         when(googleApiFetcher.isFallbackAllowed()).thenReturn(false);
@@ -482,7 +503,7 @@ class SearchPaginationServiceTest {
         openLibraryCandidate.setLanguage("eng");
 
         when(bookSearchService.searchBooks("john grisham", 2)).thenReturn(List.of());
-        when(openLibraryBookDataService.queryBooksByEverything("john grisham"))
+        when(openLibraryBookDataService.queryBooksByEverything(eq("john grisham"), anyString()))
             .thenReturn(Flux.just(openLibraryCandidate));
 
         SearchPaginationService openLibraryPrimaryService = new SearchPaginationService(
@@ -522,7 +543,8 @@ class SearchPaginationServiceTest {
         Book openLibraryOnly = buildOpenLibraryCandidate("OL-PRIMARY-1", "Open Primary One");
 
         when(bookSearchService.searchBooks("fallback", 4)).thenReturn(List.of());
-        when(openLibraryBookDataService.queryBooksByEverything("fallback")).thenReturn(Flux.just(openLibraryOnly));
+        when(openLibraryBookDataService.queryBooksByEverything(eq("fallback"), anyString()))
+            .thenReturn(Flux.just(openLibraryOnly));
         when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
         when(googleApiFetcher.streamSearchItems("fallback", 3, "newest", null, true))
             .thenReturn(Flux.error(new IllegalStateException("rate limited")));
@@ -575,7 +597,7 @@ class SearchPaginationServiceTest {
         openLibraryCandidate.setCoverImageWidth(600);
         openLibraryCandidate.setCoverImageHeight(900);
         openLibraryCandidate.setIsCoverHighResolution(true);
-        when(openLibraryBookDataService.queryBooksByEverything("john grisham"))
+        when(openLibraryBookDataService.queryBooksByEverything(eq("john grisham"), anyString()))
             .thenReturn(Flux.just(openLibraryCandidate));
 
         SearchPaginationService openLibraryAugmentingService = new SearchPaginationService(
@@ -634,7 +656,7 @@ class SearchPaginationServiceTest {
         openLibraryCandidate.setPublisher("Doubleday");
         openLibraryCandidate.setLanguage("eng");
         openLibraryCandidate.setExternalImageUrl("https://covers.openlibrary.org/b/id/9323420-L.jpg");
-        when(openLibraryBookDataService.queryBooksByEverything("john grisham"))
+        when(openLibraryBookDataService.queryBooksByEverything(eq("john grisham"), anyString()))
             .thenReturn(Flux.just(openLibraryCandidate));
 
         SearchPaginationService metadataRefreshingService = new SearchPaginationService(
@@ -660,7 +682,7 @@ class SearchPaginationServiceTest {
         SearchPaginationService.SearchPage page = metadataRefreshingService.search(request).block();
 
         assertThat(page).isNotNull();
-        verify(openLibraryBookDataService).queryBooksByEverything("john grisham");
+        verify(openLibraryBookDataService).queryBooksByEverything("john grisham", "relevance");
         verify(bookDataOrchestrator).persistBooksAsync(
             argThat(books -> books != null
                 && books.size() == 1
@@ -710,7 +732,7 @@ class SearchPaginationServiceTest {
     @DisplayName("search() uses unauthenticated Google fallback when API key is unavailable")
     void should_UseUnauthenticatedGoogleFallback_When_ApiKeyMissing() {
         when(bookSearchService.searchBooks("distributed systems", 24)).thenReturn(List.of());
-        when(openLibraryBookDataService.queryBooksByEverything("distributed systems"))
+        when(openLibraryBookDataService.queryBooksByEverything(eq("distributed systems"), anyString()))
             .thenReturn(Flux.empty());
 
         ObjectMapper mapper = new ObjectMapper();
@@ -800,7 +822,7 @@ class SearchPaginationServiceTest {
             .thenReturn(Flux.just(node));
         when(googleApiFetcher.isFallbackAllowed()).thenReturn(false);
         when(googleBooksMapper.map(node)).thenReturn(aggregate);
-        when(openLibraryBookDataService.queryBooksByEverything("distributed systems"))
+        when(openLibraryBookDataService.queryBooksByEverything(eq("distributed systems"), anyString()))
             .thenReturn(Flux.empty());
 
         SearchPaginationService realtimeService = new SearchPaginationService(
@@ -828,6 +850,8 @@ class SearchPaginationServiceTest {
         assertThat(page).isNotNull();
         verify(googleApiFetcher, times(1))
             .streamSearchItems("distributed systems", 12, "relevance", null, true);
+        verify(openLibraryBookDataService, timeout(2000).atLeastOnce())
+            .queryBooksByEverything("distributed systems", "author");
         verify(eventPublisher, timeout(2000).atLeastOnce()).publishEvent((Object) argThat(event ->
             event instanceof SearchResultsUpdatedEvent
                 && "GOOGLE_BOOKS".equals(((SearchResultsUpdatedEvent) event).getSource())
@@ -848,7 +872,7 @@ class SearchPaginationServiceTest {
         when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(List.of(
             buildListItem(postgresId, "Designing Data-Intensive Applications")
         ));
-        when(openLibraryBookDataService.queryBooksByEverything("distributed systems"))
+        when(openLibraryBookDataService.queryBooksByEverything(eq("distributed systems"), anyString()))
             .thenReturn(Flux.just(openRealtime));
 
         SearchPaginationService realtimeService = new SearchPaginationService(
@@ -960,7 +984,17 @@ class SearchPaginationServiceTest {
                                        int height,
                                        boolean highResolution,
                                        String coverUrl) {
-        return buildListItem(id, title, List.of("Fixture Author"), width, height, highResolution, coverUrl);
+        return buildListItem(id, title, List.of("Fixture Author"), width, height, highResolution, coverUrl, null);
+    }
+
+    private BookListItem buildListItem(UUID id,
+                                       String title,
+                                       int width,
+                                       int height,
+                                       boolean highResolution,
+                                       String coverUrl,
+                                       LocalDate publishedDate) {
+        return buildListItem(id, title, List.of("Fixture Author"), width, height, highResolution, coverUrl, publishedDate);
     }
 
     private BookListItem buildListItem(UUID id,
@@ -970,6 +1004,17 @@ class SearchPaginationServiceTest {
                                        int height,
                                        boolean highResolution,
                                        String coverUrl) {
+        return buildListItem(id, title, authors, width, height, highResolution, coverUrl, null);
+    }
+
+    private BookListItem buildListItem(UUID id,
+                                       String title,
+                                       List<String> authors,
+                                       int width,
+                                       int height,
+                                       boolean highResolution,
+                                       String coverUrl,
+                                       LocalDate publishedDate) {
         Map<String, Object> tags = Map.<String, Object>of();
         return new BookListItem(
             id.toString(),
@@ -986,7 +1031,8 @@ class SearchPaginationServiceTest {
             highResolution,
             4.0,
             25,
-            tags
+            tags,
+            publishedDate
         );
     }
 

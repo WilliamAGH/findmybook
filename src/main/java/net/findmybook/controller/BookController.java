@@ -6,6 +6,7 @@ package net.findmybook.controller;
 import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import net.findmybook.controller.dto.BookDto;
 import net.findmybook.controller.dto.BookDtoMapper;
+import org.springframework.web.server.ResponseStatusException;
 import net.findmybook.dto.BookCard;
 import net.findmybook.dto.BookDetail;
 import net.findmybook.dto.RecommendationCard;
@@ -20,6 +21,7 @@ import net.findmybook.service.BookSearchService.AuthorResult;
 import net.findmybook.util.ApplicationConstants;
 import net.findmybook.util.PagingUtils;
 import net.findmybook.util.ReactiveControllerUtils;
+import net.findmybook.util.SearchExternalProviderUtils;
 import net.findmybook.util.SearchQueryUtils;
 import org.springframework.util.StringUtils;
 import net.findmybook.util.SlugGenerator;
@@ -86,7 +88,7 @@ public class BookController {
                          Integer publishedYear, String coverSource, String resolution) {
         int effectiveStartIndex() { return startIndex != null ? startIndex : 0; }
         int effectiveMaxResults() { return maxResults != null ? maxResults : 12; }
-        String effectiveOrderBy() { return orderBy != null && !orderBy.isBlank() ? orderBy : "newest"; }
+        String effectiveOrderBy() { return SearchExternalProviderUtils.normalizeOrderBy(orderBy); }
         String effectiveCoverSource() { return coverSource != null && !coverSource.isBlank() ? coverSource : "ANY"; }
         String effectiveResolution() { return resolution != null && !resolution.isBlank() ? resolution : "ANY"; }
     }
@@ -95,6 +97,12 @@ public class BookController {
     public Mono<ResponseEntity<SearchResponse>> searchBooks(@RequestParam String query,
                                                             SearchFilters filters) {
         String normalizedQuery = SearchQueryUtils.normalize(query);
+        if (StringUtils.hasText(filters.orderBy())
+            && !SearchExternalProviderUtils.isSupportedOrderBy(filters.orderBy())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                "Invalid orderBy parameter: Supported values: "
+                    + String.join(", ", SearchExternalProviderUtils.supportedOrderByValues()));
+        }
         CoverImageSource coverSourcePreference = EnumParsingUtils.parseOrDefault(
             filters.effectiveCoverSource(),
             CoverImageSource.class,
@@ -117,14 +125,15 @@ public class BookController {
             filters.publishedYear()
         );
 
-        Mono<SearchResponse> responseMono = searchPaginationService.search(request)
-            .map(this::toSearchResponse);
-
-        return withEmptyFallback(
-            responseMono,
-            () -> emptySearchResponse(normalizedQuery, request),
-            () -> String.format("Failed to search books for query '%s'", normalizedQuery)
-        );
+        return searchPaginationService.search(request)
+            .map(this::toSearchResponse)
+            .map(ResponseEntity::ok)
+            .onErrorResume(ex -> {
+                log.error("Failed to search books for query '{}': {}. Returning explicit error status.",
+                    normalizedQuery, ex.getMessage(), ex);
+                return Mono.fromSupplier(() -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(emptySearchResponse(normalizedQuery, request)));
+            });
     }
 
     @GetMapping("/authors/search")
@@ -435,7 +444,7 @@ public class BookController {
         return dtos;
     }
 
-    private record SearchResponse(String query,
+    record SearchResponse(String query,
                                   String queryHash,
                                   int startIndex,
                                   int maxResults,

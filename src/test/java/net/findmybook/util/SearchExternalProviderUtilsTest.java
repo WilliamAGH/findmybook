@@ -21,6 +21,33 @@ class SearchExternalProviderUtilsTest {
     }
 
     @Test
+    @DisplayName("normalizeOpenLibrarySortFacet maps newest and leaves unsupported values empty")
+    void normalizeOpenLibrarySortFacetContracts() {
+        assertThat(SearchExternalProviderUtils.normalizeOpenLibrarySortFacet("newest")).contains("new");
+        assertThat(SearchExternalProviderUtils.normalizeOpenLibrarySortFacet("relevance")).isEmpty();
+        assertThat(SearchExternalProviderUtils.normalizeOpenLibrarySortFacet("author")).isEmpty();
+        assertThat(SearchExternalProviderUtils.normalizeOpenLibrarySortFacet(null)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("orderBy validation accepts supported values and rejects removed rating")
+    void orderByValidationContracts() {
+        assertThat(SearchExternalProviderUtils.isSupportedOrderBy("relevance")).isTrue();
+        assertThat(SearchExternalProviderUtils.isSupportedOrderBy("newest")).isTrue();
+        assertThat(SearchExternalProviderUtils.isSupportedOrderBy("title")).isTrue();
+        assertThat(SearchExternalProviderUtils.isSupportedOrderBy("author")).isTrue();
+        assertThat(SearchExternalProviderUtils.isSupportedOrderBy("rating")).isFalse();
+    }
+
+    @Test
+    @DisplayName("normalizeOrderBy defaults unsupported and missing values to newest")
+    void normalizeOrderByContracts() {
+        assertThat(SearchExternalProviderUtils.normalizeOrderBy("author")).isEqualTo("author");
+        assertThat(SearchExternalProviderUtils.normalizeOrderBy("rating")).isEqualTo("newest");
+        assertThat(SearchExternalProviderUtils.normalizeOrderBy(null)).isEqualTo("newest");
+    }
+
+    @Test
     @DisplayName("normalizeExternalQuery removes google-specific field qualifiers")
     void normalizeExternalQueryRemovesGoogleQualifiers() {
         assertThat(SearchExternalProviderUtils.normalizeExternalQuery("intitle: Clean Code inauthor: Martin"))
