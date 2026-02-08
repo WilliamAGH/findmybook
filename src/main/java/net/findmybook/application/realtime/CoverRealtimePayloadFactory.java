@@ -4,6 +4,7 @@ import jakarta.annotation.Nullable;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import net.findmybook.model.Book;
 import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.service.event.BookCoverUpdatedEvent;
@@ -86,7 +87,7 @@ public class CoverRealtimePayloadFactory {
 
     private SearchResultBookSnapshot toBookSnapshot(Book book, String eventSource) {
         String matchType = qualifierAsString(book, "search.matchType");
-        Double relevanceScore = qualifierAsDouble(book, "search.relevanceScore");
+        Double relevanceScore = qualifierAsDouble(book, "search.relevanceScore").orElse(null);
         CoverSnapshot cover = toCoverSnapshot(book);
 
         return new SearchResultBookSnapshot(
@@ -142,27 +143,26 @@ public class CoverRealtimePayloadFactory {
         return qualifier == null ? null : qualifier.toString();
     }
 
-    @Nullable
-    private Double qualifierAsDouble(Book book, String key) {
+    private Optional<Double> qualifierAsDouble(Book book, String key) {
         Map<String, Object> qualifiers = book.getQualifiers();
         if (qualifiers == null || !StringUtils.hasText(key)) {
-            return null;
+            return Optional.empty();
         }
 
         var qualifier = qualifiers.get(key);
         if (qualifier == null) {
-            return null;
+            return Optional.empty();
         }
         if (qualifier instanceof Number number) {
-            return number.doubleValue();
+            return Optional.of(number.doubleValue());
         }
 
         try {
-            return Double.parseDouble(qualifier.toString());
+            return Optional.of(Double.parseDouble(qualifier.toString()));
         } catch (NumberFormatException parseFailure) {
             logger.warn("Qualifier '{}' for book {} is not a valid double: '{}'",
-                key, book.getId(), qualifier);
-            return null;
+                key, book.getId(), qualifier, parseFailure);
+            return Optional.empty();
         }
     }
 
