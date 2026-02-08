@@ -58,6 +58,8 @@ public class BookAiContentService {
 
     private static final int MAX_TAKEAWAY_COUNT = 5;
     private static final int MIN_TAKEAWAY_COUNT = 1;
+    private static final long MAX_COMPLETION_TOKENS = 1000L;
+    private static final double SAMPLING_TEMPERATURE = 0.7;
 
     /**
      * Sentinel value set by {@code normalizeOpenAiSdkConfig} when no real API key is available.
@@ -172,8 +174,8 @@ public class BookAiContentService {
                     ChatCompletionUserMessageParam.builder().content(prompt).build()
                 )
             ))
-            .maxTokens(1000L) // LM Studio 0.4.x only supports max_tokens, not max_completion_tokens
-            .temperature(0.7)
+            .maxTokens(MAX_COMPLETION_TOKENS) // LM Studio 0.4.x only supports max_tokens, not max_completion_tokens
+            .temperature(SAMPLING_TEMPERATURE)
             .build();
 
         RequestOptions options = RequestOptions.builder()
