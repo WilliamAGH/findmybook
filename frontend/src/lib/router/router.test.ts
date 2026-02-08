@@ -1,8 +1,60 @@
-import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/svelte";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor } from "@testing-library/svelte";
+
+const {
+  searchBooksMock,
+  normalizeRealtimeSearchHitsMock,
+  mergeSearchHitsMock,
+  getCategoryFacetsMock,
+  subscribeToSearchTopicsMock,
+} = vi.hoisted(() => ({
+  searchBooksMock: vi.fn(),
+  normalizeRealtimeSearchHitsMock: vi.fn(() => []),
+  mergeSearchHitsMock: vi.fn((existingResults: unknown[]) => existingResults),
+  getCategoryFacetsMock: vi.fn(),
+  subscribeToSearchTopicsMock: vi.fn(async () => () => {}),
+}));
+
+vi.mock("$lib/services/books", () => ({
+  searchBooks: searchBooksMock,
+  normalizeRealtimeSearchHits: normalizeRealtimeSearchHitsMock,
+  mergeSearchHits: mergeSearchHitsMock,
+}));
+
+vi.mock("$lib/services/pages", () => ({
+  getCategoryFacets: getCategoryFacetsMock,
+}));
+
+vi.mock("$lib/services/realtime", () => ({
+  subscribeToSearchTopics: subscribeToSearchTopicsMock,
+}));
+
 import { matchRoute, searchBasePathForRoute } from "$lib/router/router";
 import BookCard from "$lib/components/BookCard.svelte";
 import NotFoundPage from "$lib/pages/NotFoundPage.svelte";
+import SearchPage from "$lib/pages/SearchPage.svelte";
+
+beforeEach(() => {
+  searchBooksMock.mockReset();
+  normalizeRealtimeSearchHitsMock.mockReset();
+  normalizeRealtimeSearchHitsMock.mockReturnValue([]);
+  mergeSearchHitsMock.mockReset();
+  mergeSearchHitsMock.mockImplementation((existingResults: unknown[]) => existingResults);
+  getCategoryFacetsMock.mockReset();
+  getCategoryFacetsMock.mockResolvedValue({ genres: [] });
+  subscribeToSearchTopicsMock.mockReset();
+  subscribeToSearchTopicsMock.mockResolvedValue(() => {});
+});
+
+function createDeferred<T>() {
+  let resolvePromise!: (value: T | PromiseLike<T>) => void;
+  let rejectPromise!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolve, reject) => {
+    resolvePromise = resolve;
+    rejectPromise = reject;
+  });
+  return { promise, resolvePromise, rejectPromise };
+}
 
 describe("matchRoute", () => {
   it("shouldMatchBookRouteWhenBookSlugProvided", () => {
@@ -99,5 +151,33 @@ describe("component rendering", () => {
 
     expect(screen.getByRole("heading", { name: "Page not found" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Go home" })).toHaveAttribute("href", "/");
+  });
+});
+
+describe("SearchPage loading state", () => {
+  it("shouldClearLoadingWhenQueryIsRemovedDuringInFlightSearch", async () => {
+    const pendingSearch = createDeferred<never>();
+    searchBooksMock.mockReturnValue(pendingSearch.promise);
+
+    const currentUrlWithQuery = new URL(
+      "https://findmybook.net/search?query=alpha&page=1&sort=newest&view=grid&coverSource=ANY&resolution=HIGH_FIRST",
+    );
+    const { rerender } = render(SearchPage, {
+      props: { currentUrl: currentUrlWithQuery, routeName: "search" },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Searching books...")).toBeInTheDocument();
+    });
+
+    const currentUrlWithoutQuery = new URL(
+      "https://findmybook.net/search?page=1&sort=newest&view=grid&coverSource=ANY&resolution=HIGH_FIRST",
+    );
+    await rerender({ currentUrl: currentUrlWithoutQuery, routeName: "search" });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Searching books...")).not.toBeInTheDocument();
+      expect(screen.getByText("Search for books")).toBeInTheDocument();
+    });
   });
 });
