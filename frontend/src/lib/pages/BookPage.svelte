@@ -209,7 +209,8 @@
   }
 
   function goBackToPreviousRoute(event: MouseEvent): void {
-    if (window.history.length <= 1) {
+    const spaPreviousPath = previousSpaPath();
+    if (!spaPreviousPath || window.history.length <= 1) {
       return;
     }
     event.preventDefault();
