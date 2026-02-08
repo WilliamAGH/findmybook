@@ -65,17 +65,49 @@ public class TextUtils {
             return title;
         }
 
-        // Trim whitespace
-        String trimmed = title.trim();
+        String cleaned = stripExtraneousTitlePunctuation(title);
+        if (cleaned.isBlank()) {
+            return cleaned;
+        }
         
         // If mixed case, preserve original (likely intentional formatting)
-        if (!isUniformCase(trimmed)) {
-            logger.debug("Title '{}' appears to have intentional mixed case formatting, preserving as-is", trimmed);
-            return trimmed;
+        if (!isUniformCase(cleaned)) {
+            logger.debug("Title '{}' appears to have intentional mixed case formatting, preserving as-is", cleaned);
+            return cleaned;
         }
 
         // Convert to title case
-        return toTitleCase(trimmed);
+        return toTitleCase(cleaned);
+    }
+
+    private static String stripExtraneousTitlePunctuation(String rawTitle) {
+        String result = rawTitle.trim();
+        if (result.isEmpty()) {
+            return result;
+        }
+
+        result = stripWrappingQuotePairs(result);
+        result = stripLeadingTitleNonAlphanumeric(result);
+        result = stripWrappingQuotePairs(result);
+        return result.trim();
+    }
+
+    private static String stripLeadingTitleNonAlphanumeric(String value) {
+        String result = value;
+        while (!result.isEmpty() && !Character.isLetterOrDigit(result.charAt(0))) {
+            result = result.substring(1).trim();
+        }
+        return result;
+    }
+
+    private static String stripWrappingQuotePairs(String value) {
+        String result = value;
+        while (result.length() > 1
+            && isQuoteCharacter(result.charAt(0))
+            && isQuoteCharacter(result.charAt(result.length() - 1))) {
+            result = result.substring(1, result.length() - 1).trim();
+        }
+        return result;
     }
 
     /**
@@ -251,11 +283,11 @@ public class TextUtils {
         }
 
         // Remove wrapping quotes and other leading quote characters
-        while (!result.isEmpty() && isAuthorQuote(result.charAt(0))) {
+        while (!result.isEmpty() && isQuoteCharacter(result.charAt(0))) {
             result = result.substring(1).trim();
         }
         result = stripLeadingAuthorNonAlphanumeric(result);
-        while (!result.isEmpty() && isAuthorQuote(result.charAt(result.length() - 1))) {
+        while (!result.isEmpty() && isQuoteCharacter(result.charAt(result.length() - 1))) {
             result = result.substring(0, result.length() - 1).trim();
         }
 
@@ -290,7 +322,7 @@ public class TextUtils {
         return allUpper || allLower;
     }
 
-    private static boolean isAuthorQuote(char c) {
+    private static boolean isQuoteCharacter(char c) {
         return c == '"' || c == '\'' || c == '\u201C' || c == '\u201D' || c == '\u2018' || c == '\u2019'
             || c == '\u201A' || c == '\u201B' || c == '\u00AB' || c == '\u00BB' || c == '\u2039' || c == '\u203A';
     }

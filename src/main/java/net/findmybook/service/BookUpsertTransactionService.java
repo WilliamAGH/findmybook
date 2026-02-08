@@ -110,6 +110,11 @@ public class BookUpsertTransactionService {
             ? Date.valueOf(aggregate.getPublishedDate())
             : null;
 
+        String canonicalTitle = TextUtils.normalizeBookTitle(aggregate.getTitle());
+        if (canonicalTitle == null || canonicalTitle.isBlank()) {
+            throw new IllegalArgumentException("Book title is blank after normalization for bookId=" + bookId);
+        }
+
         String isbn10 = nullIfBlank(IsbnUtils.sanitize(aggregate.getIsbn10()));
         String isbn13 = nullIfBlank(IsbnUtils.sanitize(aggregate.getIsbn13()));
 
@@ -135,7 +140,7 @@ public class BookUpsertTransactionService {
                 updated_at = NOW()
             """,
             bookId,
-            aggregate.getTitle(),
+            canonicalTitle,
             aggregate.getSubtitle(),
             aggregate.getDescription(),
             isbn10,
