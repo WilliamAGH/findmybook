@@ -34,6 +34,7 @@ RUN cd frontend && npm ci
 # 4. Frontend config and source files (surgical copies avoid node_modules)
 COPY frontend/index.html frontend/input.css ./frontend/
 COPY frontend/vite.config.ts frontend/tsconfig.json frontend/svelte.config.js frontend/tailwind.config.js ./frontend/
+COPY frontend/public ./frontend/public
 COPY frontend/src ./frontend/src
 
 # 5. Java sources
