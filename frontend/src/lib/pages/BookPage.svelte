@@ -349,8 +349,10 @@
       return;
     }
 
-    book?.title;
-    measureTitleOverflow();
+    const currentTitle = book?.title;
+    if (currentTitle) {
+      measureTitleOverflow();
+    }
 
     if (titleResizeObserver) {
       titleResizeObserver.disconnect();
@@ -377,9 +379,11 @@
       return;
     }
 
-    sanitizedDescriptionHtml;
-    book?.description;
-    measureDescriptionOverflow();
+    const currentHtml = sanitizedDescriptionHtml;
+    const currentRawDescription = book?.description;
+    if (currentHtml || currentRawDescription) {
+      measureDescriptionOverflow();
+    }
 
     if (descriptionResizeObserver) {
       descriptionResizeObserver.disconnect();
