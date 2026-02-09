@@ -488,7 +488,7 @@ class BookControllerTest {
         errorMvc.perform(get("/error").accept(MediaType.TEXT_HTML))
             .andExpect(status().isNotFound())
             .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
-            .andExpect(content().string(containsString("Page Not Found - Book Finder")));
+            .andExpect(content().string(containsString("Page Not Found | findmybook")));
     }
 
     private Book buildBook(String id, String slug) {

@@ -23,6 +23,9 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import reactor.core.publisher.Mono;
 
+import java.time.Instant;
+import java.util.Date;
+
 @WebFluxTest(value = {HomeController.class, BookDetailPageController.class},
     excludeAutoConfiguration = org.springframework.boot.security.autoconfigure.web.reactive.ReactiveWebSecurityAutoConfiguration.class)
 @TestPropertySource(properties = "app.feature.year-filtering.enabled=true")
@@ -74,7 +77,7 @@ class HomeControllerTest {
             .expectBody(String.class)
             .value(body -> {
                 assertTrue(body.contains("<div id=\"app\"></div>"));
-                assertTrue(body.contains("<title>Home - Book Finder</title>"));
+                assertTrue(body.contains("<title>Discover Books | findmybook</title>"));
             });
     }
 
@@ -85,7 +88,10 @@ class HomeControllerTest {
             .expectStatus().isOk()
             .expectHeader().contentTypeCompatibleWith(MediaType.TEXT_HTML)
             .expectBody(String.class)
-            .value(body -> assertTrue(body.contains("<title>Search Books - Book Finder</title>")));
+            .value(body -> {
+                assertTrue(body.contains("<title>Search Books | findmybook</title>"));
+                assertTrue(body.contains("<meta name=\"robots\" content=\"noindex, follow, max-image-preview:large\">"));
+            });
     }
 
     @Test
@@ -110,7 +116,7 @@ class HomeControllerTest {
             .expectStatus().isOk()
             .expectHeader().contentTypeCompatibleWith(MediaType.TEXT_HTML)
             .expectBody(String.class)
-            .value(body -> assertTrue(body.contains("<title>Explore Books - Book Finder</title>")));
+            .value(body -> assertTrue(body.contains("<title>Explore Books | findmybook</title>")));
     }
 
     @Test
@@ -120,7 +126,7 @@ class HomeControllerTest {
             .expectStatus().isOk()
             .expectHeader().contentTypeCompatibleWith(MediaType.TEXT_HTML)
             .expectBody(String.class)
-            .value(body -> assertTrue(body.contains("<title>Browse Categories - Book Finder</title>")));
+            .value(body -> assertTrue(body.contains("<title>Browse Genres | findmybook</title>")));
     }
 
     @Test
@@ -145,7 +151,10 @@ class HomeControllerTest {
             .expectStatus().isNotFound()
             .expectHeader().contentTypeCompatibleWith(MediaType.TEXT_HTML)
             .expectBody(String.class)
-            .value(body -> assertTrue(body.contains("<title>Page Not Found - Book Finder</title>")));
+            .value(body -> {
+                assertTrue(body.contains("<title>Page Not Found | findmybook</title>"));
+                assertTrue(body.contains("<meta name=\"robots\" content=\"noindex, nofollow, noarchive\">"));
+            });
     }
 
     @Test
@@ -156,6 +165,52 @@ class HomeControllerTest {
 
         assertTrue(!html.contains("window.__FMB_INITIAL_CONTEXT__"));
         assertTrue(!html.contains("<svg>"));
+    }
+
+    @Test
+    void should_RenderBookStructuredDataAndBookOpenGraph_When_BookMetadataProvided() {
+        Book book = new Book();
+        book.setId("book-id");
+        book.setSlug("the-catcher-in-the-rye");
+        book.setTitle("The Catcher in the Rye");
+        book.setDescription("A classic novel about teenage rebellion and alienation in 1950s New York City.");
+        book.setAuthors(java.util.List.of("J.D. Salinger"));
+        book.setPublisher("Little, Brown and Company");
+        book.setCategories(java.util.List.of("Fiction", "Literary Fiction"));
+        book.setLanguage("en");
+        book.setIsbn13("9780316769488");
+        book.setPageCount(214);
+        book.setPublishedDate(Date.from(Instant.parse("1951-07-16T00:00:00Z")));
+
+        BookSeoMetadataService.SeoMetadata metadata = bookSeoMetadataService.bookMetadata(book, 170);
+        String html = bookSeoMetadataService.renderSpaShell(metadata);
+
+        assertTrue(html.contains("<meta property=\"og:type\" content=\"book\">"));
+        assertTrue(html.contains("<meta property=\"book:isbn\" content=\"9780316769488\">"));
+        assertTrue(html.contains("<meta property=\"book:release_date\" content=\"1951-07-16\">"));
+        assertTrue(html.contains("<meta property=\"book:tag\" content=\"Literary Fiction\">"));
+        assertTrue(html.contains("\"@type\":\"Book\""));
+        assertTrue(html.contains("\"isbn\":\"9780316769488\""));
+        assertTrue(html.contains("\"numberOfPages\":214"));
+        assertTrue(html.contains("\"name\":\"J.D. Salinger\""));
+        assertTrue(!html.contains("\"isbn13\":"));
+    }
+
+    @Test
+    void should_GenerateRouteSpecificSitemapMetadata_When_CanonicalPathIncludesViewBucketAndPage() {
+        BookSeoMetadataService.SeoMetadata metadata = bookSeoMetadataService.sitemapMetadata("/sitemap/books/B/3");
+
+        assertTrue(metadata.title().equals("Books Sitemap: B Page 3"));
+        assertTrue(metadata.description().contains("books indexed under B on page 3"));
+        assertTrue(metadata.canonicalUrl().equals("https://findmybook.net/sitemap/books/B/3"));
+    }
+
+    @Test
+    void should_CanonicalizeNotFoundMetadataTo404Route_When_RequestPathIsUnknown() {
+        BookSeoMetadataService.SeoMetadata metadata = bookSeoMetadataService.notFoundMetadata("/book/missing-book");
+
+        assertTrue(metadata.canonicalUrl().equals("https://findmybook.net/404"));
+        assertTrue(metadata.robots().equals("noindex, nofollow, noarchive"));
     }
 
     @Test

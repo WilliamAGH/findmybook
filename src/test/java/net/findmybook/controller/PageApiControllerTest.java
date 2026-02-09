@@ -20,6 +20,7 @@ import net.findmybook.service.BookSeoMetadataService;
 import net.findmybook.service.BookSearchService;
 import net.findmybook.service.HomePageSectionsService;
 import net.findmybook.service.SitemapService;
+import net.findmybook.domain.seo.OpenGraphProperty;
 import net.findmybook.util.ApplicationConstants;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -210,7 +211,8 @@ class PageApiControllerTest {
             "Home description",
             "https://findmybook.net/",
             "home keywords",
-            "https://findmybook.net/images/og-logo.png"
+            "https://findmybook.net/images/og-logo.png",
+            "index, follow, max-image-preview:large"
         ));
 
         var asyncResult = mockMvc.perform(get("/api/pages/meta").param("path", "/"))
@@ -221,6 +223,42 @@ class PageApiControllerTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.title").value("Home"))
             .andExpect(jsonPath("$.canonicalUrl").value("https://findmybook.net/"))
+            .andExpect(jsonPath("$.robots").value("index, follow, max-image-preview:large"))
+            .andExpect(jsonPath("$.openGraphType").value("website"))
+            .andExpect(jsonPath("$.openGraphProperties.length()").value(0))
+            .andExpect(jsonPath("$.structuredDataJson").value(""))
+            .andExpect(jsonPath("$.statusCode").value(200));
+    }
+
+    @Test
+    void should_ReturnMetadataWithOpenGraphExtensions_When_MetadataIncludesExtensions() throws Exception {
+        when(bookSeoMetadataService.homeMetadata()).thenReturn(
+            new BookSeoMetadataService.SeoMetadata(
+                "Book Title",
+                "Book description",
+                "https://findmybook.net/",
+                "book keywords",
+                "https://findmybook.net/images/book-cover.png",
+                "index, follow, max-image-preview:large",
+                "book",
+                List.of(
+                    new OpenGraphProperty("book:isbn", "9780316769488"),
+                    new OpenGraphProperty("book:release_date", "1951-07-16")
+                ),
+                "{\"@context\":\"https://schema.org\"}"
+            )
+        );
+
+        var asyncResult = mockMvc.perform(get("/api/pages/meta").param("path", "/"))
+            .andExpect(status().isOk())
+            .andReturn();
+
+        mockMvc.perform(asyncDispatch(asyncResult))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.openGraphType").value("book"))
+            .andExpect(jsonPath("$.openGraphProperties[0].property").value("book:isbn"))
+            .andExpect(jsonPath("$.openGraphProperties[0].content").value("9780316769488"))
+            .andExpect(jsonPath("$.structuredDataJson").value("{\"@context\":\"https://schema.org\"}"))
             .andExpect(jsonPath("$.statusCode").value(200));
     }
 
@@ -233,7 +271,8 @@ class PageApiControllerTest {
                 "Missing page.",
                 "https://findmybook.net/book/missing-book",
                 "404",
-                "https://findmybook.net/images/og-logo.png"
+                "https://findmybook.net/images/og-logo.png",
+                "noindex, nofollow, noarchive"
             )
         );
 
@@ -260,7 +299,8 @@ class PageApiControllerTest {
                 "Sitemap description",
                 "https://findmybook.net" + expectedPath,
                 "sitemap",
-                "https://findmybook.net/images/og-logo.png"
+                "https://findmybook.net/images/og-logo.png",
+                "index, follow, max-image-preview:large"
             )
         );
 
@@ -287,7 +327,8 @@ class PageApiControllerTest {
                 "Sitemap description",
                 "https://findmybook.net" + expectedPath,
                 "sitemap",
-                "https://findmybook.net/images/og-logo.png"
+                "https://findmybook.net/images/og-logo.png",
+                "index, follow, max-image-preview:large"
             )
         );
 

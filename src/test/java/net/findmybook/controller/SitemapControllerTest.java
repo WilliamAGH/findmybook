@@ -81,12 +81,13 @@ class SitemapControllerTest {
             "Sitemap",
             "Browse all indexed author and book pages.",
             "https://findmybook.net/sitemap/books/A/1",
-            "book sitemap, author sitemap, find my book",
-            "https://findmybook.net/images/og-logo.png"
+            "findmybook sitemap, author sitemap, book sitemap",
+            "https://findmybook.net/images/og-logo.png",
+            "index, follow, max-image-preview:large"
         );
         when(bookSeoMetadataService.sitemapMetadata(any())).thenReturn(sitemapMetadata);
         when(bookSeoMetadataService.renderSpaShell(any()))
-            .thenReturn("<!doctype html><html><head><title>Sitemap - Book Finder</title></head><body><div id=\"app\"></div></body></html>");
+            .thenReturn("<!doctype html><html><head><title>Sitemap | findmybook</title></head><body><div id=\"app\"></div></body></html>");
     }
 
     @Test
@@ -104,7 +105,7 @@ class SitemapControllerTest {
         mockMvc.perform(get("/sitemap/authors/A/2"))
             .andExpect(status().isOk())
             .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
-            .andExpect(content().string(containsString("Sitemap - Book Finder")));
+            .andExpect(content().string(containsString("Sitemap | findmybook")));
     }
 
     @Test
