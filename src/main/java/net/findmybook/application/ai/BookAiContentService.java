@@ -157,7 +157,8 @@ public class BookAiContentService {
             });
         } catch (OpenAIException ex) {
             log.error("Book AI streaming failed for bookId={} model={}", bookId, configuredModel, ex);
-            throw new BookAiGenerationException("AI streaming failed for book: " + bookId, ex);
+            throw new BookAiGenerationException(BookAiGenerationException.ErrorCode.GENERATION_FAILED,
+                "AI streaming failed for book: " + bookId, ex);
         }
 
         String rawMessage = fullResponseBuilder.toString();
@@ -195,6 +196,7 @@ public class BookAiContentService {
         int descriptionLength = description == null ? 0 : description.trim().length();
         if (!StringUtils.hasText(description) || descriptionLength < MIN_DESCRIPTION_LENGTH) {
             throw new BookAiGenerationException(
+                BookAiGenerationException.ErrorCode.DESCRIPTION_TOO_SHORT,
                 "Book description is missing or too short for faithful AI generation (bookId=" + bookId
                     + ", length=" + descriptionLength + ", minimum=" + MIN_DESCRIPTION_LENGTH + ")"
             );

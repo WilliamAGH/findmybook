@@ -14,12 +14,14 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import net.findmybook.application.ai.BookAiGenerationException;
 import net.findmybook.application.ai.BookAiContentService;
 import net.findmybook.controller.dto.BookAiContentSnapshotDto;
 import net.findmybook.domain.ai.BookAiContentSnapshot;
 import net.findmybook.support.ai.BookAiContentRequestQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -44,18 +46,24 @@ public class BookAiContentController {
     private static final int DEFAULT_GENERATION_PRIORITY = 0;
     private static final int MIN_QUEUE_TICKER_THREADS = 4;
     private static final int MAX_QUEUE_TICKER_THREADS = 16;
+    private static final String PRODUCTION_ENVIRONMENT_MODE = "production";
 
     private final BookAiContentService aiContentService;
     private final BookAiContentRequestQueue requestQueue;
     private final ObjectMapper objectMapper;
     private final ScheduledExecutorService queueTickerExecutor;
+    private final String environmentMode;
+    private final boolean exposeDetailedErrors;
     /** Creates a controller with queue/state dependencies. */
     public BookAiContentController(BookAiContentService aiContentService,
                                    BookAiContentRequestQueue requestQueue,
-                                   ObjectMapper objectMapper) {
+                                   ObjectMapper objectMapper,
+                                   @Value("${app.environment.mode:production}") String environmentMode) {
         this.aiContentService = aiContentService;
         this.requestQueue = requestQueue;
         this.objectMapper = objectMapper;
+        this.environmentMode = normalizeEnvironmentMode(environmentMode);
+        this.exposeDetailedErrors = !PRODUCTION_ENVIRONMENT_MODE.equals(this.environmentMode);
         int queueTickerThreads = determineQueueTickerThreadCount();
         ThreadFactory threadFactory = Thread.ofPlatform()
             .name("book-ai-queue-ticker-", 0)
@@ -68,7 +76,7 @@ public class BookAiContentController {
     public ResponseEntity<QueueStatsPayload> queueStats() {
         BookAiContentRequestQueue.QueueSnapshot snapshot = requestQueue.snapshot();
         return ResponseEntity.ok(new QueueStatsPayload(
-            snapshot.running(), snapshot.pending(), snapshot.maxParallel(), aiContentService.isAvailable()));
+            snapshot.running(), snapshot.pending(), snapshot.maxParallel(), aiContentService.isAvailable(), environmentMode));
     }
     /** Streams AI generation events for a single book. */
     @PostMapping(path = "/{identifier}/ai/content/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -82,7 +90,7 @@ public class BookAiContentController {
         SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MILLIS);
         OptionalResolution resolution = resolveBookIdentifier(identifier);
         if (resolution.bookId() == null) {
-            emitTerminalError(emitter, resolution.error());
+            emitTerminalError(emitter, resolution.errorCode(), resolution.error());
             return emitter;
         }
 
@@ -95,11 +103,11 @@ public class BookAiContentController {
             }
         }
         if (!aiContentService.isAvailable()) {
-            emitTerminalError(emitter, "AI content service is not configured");
+            emitTerminalError(emitter, AiErrorCode.SERVICE_UNAVAILABLE, "AI content service is not configured");
             return emitter;
         }
         if (requestQueue.snapshot().pending() > AUTO_TRIGGER_QUEUE_THRESHOLD) {
-            emitTerminalError(emitter, "AI queue is currently busy; please try again in a moment");
+            emitTerminalError(emitter, AiErrorCode.QUEUE_BUSY, "AI queue is currently busy; please try again in a moment");
             return emitter;
         }
         beginQueuedStream(emitter, bookId);
@@ -119,11 +127,11 @@ public class BookAiContentController {
 
     private OptionalResolution resolveBookIdentifier(String identifier) {
         if (identifier == null || identifier.isBlank()) {
-            return new OptionalResolution(null, "Book identifier is required");
+            return new OptionalResolution(null, AiErrorCode.IDENTIFIER_REQUIRED, "Book identifier is required");
         }
         return aiContentService.resolveBookId(identifier)
-            .map(bookId -> new OptionalResolution(bookId, null))
-            .orElseGet(() -> new OptionalResolution(null, "Book not found"));
+            .map(bookId -> new OptionalResolution(bookId, null, null))
+            .orElseGet(() -> new OptionalResolution(null, AiErrorCode.BOOK_NOT_FOUND, "Book not found"));
     }
 
     private void beginQueuedStream(SseEmitter emitter, UUID bookId) {
@@ -176,7 +184,7 @@ public class BookAiContentController {
         emitter.onCompletion(cancelPendingIfOpen);
         emitter.onTimeout(() -> {
             cancelPendingIfOpen.run();
-            emitTerminalError(emitter, "AI stream timed out");
+            emitTerminalError(emitter, AiErrorCode.STREAM_TIMEOUT, "AI stream timed out");
         });
         emitter.onError(error -> {
             log.warn("AI stream failed for bookId={}", bookId, error);
@@ -196,7 +204,7 @@ public class BookAiContentController {
             ));
         }).exceptionally(throwable -> {
             if (!streamClosed.get()) {
-                emitTerminalError(emitter, resolveThrowableMessage(throwable));
+                emitTerminalError(emitter, resolveThrowableError(throwable));
             }
             return null;
         });
@@ -207,11 +215,11 @@ public class BookAiContentController {
                 return;
             }
             if (throwable != null) {
-                emitTerminalError(emitter, resolveThrowableMessage(throwable));
+                emitTerminalError(emitter, resolveThrowableError(throwable));
                 return;
             }
             if (result == null) {
-                emitTerminalError(emitter, "AI generation returned no data");
+                emitTerminalError(emitter, AiErrorCode.EMPTY_GENERATION, "AI generation returned no data");
                 return;
             }
             BookAiContentSnapshotDto snapshotDto = BookAiContentSnapshotDto.fromSnapshot(result.snapshot());
@@ -238,7 +246,7 @@ public class BookAiContentController {
             safelyComplete(emitter);
         } catch (JacksonException exception) {
             log.error("Failed to serialize cached AI content for bookId={}", snapshot.bookId(), exception);
-            emitTerminalError(emitter, "Cached AI content could not be serialized");
+            emitTerminalError(emitter, AiErrorCode.CACHE_SERIALIZATION_FAILED, "Cached AI content could not be serialized");
         }
     }
 
@@ -251,9 +259,14 @@ public class BookAiContentController {
         );
     }
 
-    private void emitTerminalError(SseEmitter emitter, String message) {
+    private void emitTerminalError(SseEmitter emitter, AiErrorDescriptor descriptor) {
+        emitTerminalError(emitter, descriptor.code(), descriptor.message());
+    }
+
+    private void emitTerminalError(SseEmitter emitter, AiErrorCode code, String message) {
+        String safeMessage = resolveClientMessage(code, message);
         try {
-            sendEvent(emitter, "error", new ErrorPayload(message));
+            sendEvent(emitter, "error", new ErrorPayload(safeMessage, code.wireValue(), code.retryable()));
         } catch (IllegalStateException errorEventException) {
             log.warn("AI error event delivery failed", errorEventException);
         } finally {
@@ -289,15 +302,45 @@ public class BookAiContentController {
         }
     }
 
-    private String resolveThrowableMessage(Throwable throwable) {
+    private String resolveClientMessage(AiErrorCode code, String message) {
+        if (exposeDetailedErrors && message != null && !message.isBlank()) {
+            return message;
+        }
+        return code.defaultMessage();
+    }
+
+    private AiErrorDescriptor resolveThrowableError(Throwable throwable) {
+        Throwable current = unwrapCompletionException(throwable);
+        if (current instanceof BookAiGenerationException generationException) {
+            if (generationException.errorCode() == BookAiGenerationException.ErrorCode.DESCRIPTION_TOO_SHORT) {
+                return new AiErrorDescriptor(AiErrorCode.DESCRIPTION_TOO_SHORT, safeThrowableMessage(current));
+            }
+            return new AiErrorDescriptor(AiErrorCode.GENERATION_FAILED, safeThrowableMessage(current));
+        }
+        return new AiErrorDescriptor(AiErrorCode.GENERATION_FAILED, safeThrowableMessage(current));
+    }
+
+    private Throwable unwrapCompletionException(Throwable throwable) {
         Throwable current = throwable;
         while (current instanceof CompletionException completionException && completionException.getCause() != null) {
             current = completionException.getCause();
         }
+        return current;
+    }
+
+    private String safeThrowableMessage(Throwable throwable) {
+        Throwable current = throwable == null ? null : throwable;
         if (current == null || current.getMessage() == null || current.getMessage().isBlank()) {
-            return "AI generation failed";
+            return AiErrorCode.GENERATION_FAILED.defaultMessage();
         }
         return current.getMessage();
+    }
+
+    private String normalizeEnvironmentMode(String rawMode) {
+        if (rawMode == null || rawMode.isBlank()) {
+            return PRODUCTION_ENVIRONMENT_MODE;
+        }
+        return rawMode.trim().toLowerCase();
     }
 
     private sealed interface BookAiContentSsePayload
@@ -305,8 +348,44 @@ public class BookAiContentController {
                 MessageDeltaPayload, MessageDonePayload, DonePayload, ErrorPayload {
     }
 
-    private record OptionalResolution(UUID bookId, String error) {}
-    private record QueueStatsPayload(int running, int pending, int maxParallel, boolean available) {}
+    private record AiErrorDescriptor(AiErrorCode code, String message) {}
+
+    private enum AiErrorCode {
+        IDENTIFIER_REQUIRED("identifier_required", "Book identifier is required", false),
+        BOOK_NOT_FOUND("book_not_found", "Book not found", false),
+        SERVICE_UNAVAILABLE("service_unavailable", "AI content service is unavailable", false),
+        QUEUE_BUSY("queue_busy", "AI queue is currently busy; please try again in a moment", true),
+        STREAM_TIMEOUT("stream_timeout", "AI generation timed out", true),
+        EMPTY_GENERATION("empty_generation", "AI generation returned no data", true),
+        CACHE_SERIALIZATION_FAILED("cache_serialization_failed", "Cached AI content is unavailable", true),
+        DESCRIPTION_TOO_SHORT("description_too_short", "AI content is unavailable for this book", false),
+        GENERATION_FAILED("generation_failed", "AI generation failed", true);
+
+        private final String wireValue;
+        private final String defaultMessage;
+        private final boolean retryable;
+
+        AiErrorCode(String wireValue, String defaultMessage, boolean retryable) {
+            this.wireValue = wireValue;
+            this.defaultMessage = defaultMessage;
+            this.retryable = retryable;
+        }
+
+        private String wireValue() {
+            return wireValue;
+        }
+
+        private String defaultMessage() {
+            return defaultMessage;
+        }
+
+        private boolean retryable() {
+            return retryable;
+        }
+    }
+
+    private record OptionalResolution(UUID bookId, AiErrorCode errorCode, String error) {}
+    private record QueueStatsPayload(int running, int pending, int maxParallel, boolean available, String environmentMode) {}
     private record QueuePositionPayload(Integer position, int running, int pending, int maxParallel)
         implements BookAiContentSsePayload {}
     private record QueueStartedPayload(int running, int pending, int maxParallel, long queueWaitMs)
@@ -316,5 +395,5 @@ public class BookAiContentController {
     private record MessageDeltaPayload(String delta) implements BookAiContentSsePayload {}
     private record MessageDonePayload(String message) implements BookAiContentSsePayload {}
     private record DonePayload(String message, BookAiContentSnapshotDto aiContent) implements BookAiContentSsePayload {}
-    private record ErrorPayload(String error) implements BookAiContentSsePayload {}
+    private record ErrorPayload(String error, String code, boolean retryable) implements BookAiContentSsePayload {}
 }

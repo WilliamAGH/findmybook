@@ -9,11 +9,37 @@ package net.findmybook.application.ai;
  */
 public class BookAiGenerationException extends RuntimeException {
 
+    /**
+     * Canonical failure categories emitted by AI generation.
+     */
+    public enum ErrorCode {
+        GENERATION_FAILED,
+        DESCRIPTION_TOO_SHORT
+    }
+
+    private final ErrorCode errorCode;
+
     public BookAiGenerationException(String message) {
-        super(message);
+        this(ErrorCode.GENERATION_FAILED, message, null);
     }
 
     public BookAiGenerationException(String message, Throwable cause) {
+        this(ErrorCode.GENERATION_FAILED, message, cause);
+    }
+
+    public BookAiGenerationException(ErrorCode errorCode, String message) {
+        this(errorCode, message, null);
+    }
+
+    public BookAiGenerationException(ErrorCode errorCode, String message, Throwable cause) {
         super(message, cause);
+        this.errorCode = errorCode == null ? ErrorCode.GENERATION_FAILED : errorCode;
+    }
+
+    /**
+     * Returns the canonical classification for this failure.
+     */
+    public ErrorCode errorCode() {
+        return errorCode;
     }
 }
