@@ -157,22 +157,13 @@ public class BookAiContentController {
             if (!position.inQueue()) {
                 return;
             }
-            try {
-                sendEvent(emitter, "queue", toQueuePositionPayload(position));
-            } catch (IllegalStateException queueUpdateException) {
-                log.warn("Queue update delivery failed for bookId={} taskId={}", bookId, queuedTask.id(), queueUpdateException);
-                requestQueue.cancelPending(queuedTask.id());
-            }
+            sendEvent(emitter, "queue", toQueuePositionPayload(position));
         }, QUEUE_POSITION_TICK_MILLIS, QUEUE_POSITION_TICK_MILLIS, TimeUnit.MILLISECONDS);
         ScheduledFuture<?> keepaliveTicker = queueTickerExecutor.scheduleAtFixedRate(() -> {
             if (streamClosed.get()) {
                 return;
             }
-            try {
-                sendSseComment(emitter, "keepalive");
-            } catch (IllegalStateException keepaliveException) {
-                log.debug("Keepalive delivery failed: {}", keepaliveException.getMessage());
-            }
+            sendSseComment(emitter, "keepalive");
         }, KEEPALIVE_INTERVAL_MILLIS, KEEPALIVE_INTERVAL_MILLIS, TimeUnit.MILLISECONDS);
         Runnable cancelPendingIfOpen = () -> {
             if (streamClosed.compareAndSet(false, true)) {
@@ -223,11 +214,7 @@ public class BookAiContentController {
                 return;
             }
             BookAiContentSnapshotDto snapshotDto = BookAiContentSnapshotDto.fromSnapshot(result.snapshot());
-            try {
-                sendEvent(emitter, "done", new DonePayload(result.rawMessage(), snapshotDto));
-            } catch (IllegalStateException doneEventException) {
-                log.warn("AI done event delivery failed for bookId={}", bookId, doneEventException);
-            }
+            sendEvent(emitter, "done", new DonePayload(result.rawMessage(), snapshotDto));
             safelyComplete(emitter);
         });
     }
@@ -278,7 +265,10 @@ public class BookAiContentController {
         try {
             emitter.complete();
         } catch (IllegalStateException completionException) {
-            log.debug("SSE emitter was already complete: {}", completionException.getMessage());
+            // SseEmitter.complete() throws when the servlet response is already
+            // committed (client disconnect detected by the container). This is a
+            // framework-level race condition, not a domain error we can prevent.
+            log.warn("SSE emitter completion failed (response likely already committed): {}", completionException.getMessage());
         }
     }
 
