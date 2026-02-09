@@ -108,6 +108,10 @@
       : "Generating AI content...";
 
     if (!(await hasQueueCapacity(refresh))) {
+      if (activeRequestToken === requestToken) {
+        activeRequestToken = null;
+        aiLoading = false;
+      }
       return;
     }
 
