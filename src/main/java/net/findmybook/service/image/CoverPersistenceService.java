@@ -302,7 +302,7 @@ public class CoverPersistenceService {
                 id, book_id, image_type, url, source,
                 width, height, is_high_resolution, s3_image_path, created_at, updated_at, s3_uploaded_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), CASE WHEN ? IS NOT NULL THEN NOW() ELSE NULL END)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), CASE WHEN ? THEN NOW() ELSE NULL END)
             ON CONFLICT (book_id, image_type) DO UPDATE SET
                 url = EXCLUDED.url,
                 source = EXCLUDED.source,
@@ -325,7 +325,7 @@ public class CoverPersistenceService {
             params.height(),
             params.highRes(),
             normalizedS3Path,
-            normalizedS3Path
+            normalizedS3Path != null
         );
     }
 

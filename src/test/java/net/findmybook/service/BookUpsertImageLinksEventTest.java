@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.time.OffsetDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -116,6 +117,46 @@ class BookUpsertImageLinksEventTest {
         assertThat(events).hasSize(1);
         assertThat(events.getFirst().getImageLinks()).isEmpty();
         assertThat(events.getFirst().getCanonicalImageUrl()).isNull();
+    }
+
+    @Test
+    void should_PersistImageLinksWithoutS3UploadTimestamp_When_S3PathIsAbsent() {
+        UUID imageLinksBookId = UUID.randomUUID();
+        String imageLinksIsbn13 = "9780132350662";
+        insertBook(imageLinksBookId, imageLinksIsbn13, "Google Image Link Fixture");
+
+        CoverPersistenceService.PersistenceResult result = coverPersistenceService.persistFromGoogleImageLinks(
+            imageLinksBookId,
+            Map.of("thumbnail", "https://example.com/thumbnail.jpg"),
+            "GOOGLE_BOOKS"
+        );
+
+        assertThat(result.success()).isTrue();
+
+        List<ImageLinkAuditRow> persistedRows = jdbcTemplate.query(
+            """
+            SELECT image_type, s3_image_path, s3_uploaded_at
+            FROM book_image_links
+            WHERE book_id = ?
+            ORDER BY image_type
+            """,
+            (rs, rowNum) -> new ImageLinkAuditRow(
+                rs.getString("image_type"),
+                rs.getString("s3_image_path"),
+                rs.getObject("s3_uploaded_at", OffsetDateTime.class)
+            ),
+            imageLinksBookId
+        );
+
+        assertThat(persistedRows)
+            .extracting(ImageLinkAuditRow::imageType)
+            .containsExactlyInAnyOrder("canonical", "thumbnail");
+        assertThat(persistedRows)
+            .extracting(ImageLinkAuditRow::s3ImagePath)
+            .containsOnlyNulls();
+        assertThat(persistedRows)
+            .extracting(ImageLinkAuditRow::s3UploadedAt)
+            .containsOnlyNulls();
     }
 
     @Test
@@ -253,6 +294,8 @@ class BookUpsertImageLinksEventTest {
             true
         );
     }
+
+    private record ImageLinkAuditRow(String imageType, String s3ImagePath, OffsetDateTime s3UploadedAt) {}
 
     @Configuration
     static class EventConfig {
