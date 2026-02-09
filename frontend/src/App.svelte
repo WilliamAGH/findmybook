@@ -9,6 +9,7 @@
   import NotFoundPage from "$lib/pages/NotFoundPage.svelte";
   import { currentUrl, initializeSpaRouting, matchRoute } from "$lib/router/router";
   import { getPageMetadata } from "$lib/services/pages";
+  import { upsertStructuredDataJsonLd } from "$lib/services/structuredDataHead";
   import { initializeTheme } from "$lib/stores/theme";
   import type { PageMetadata } from "$lib/validation/schemas";
 
@@ -127,6 +128,11 @@
     });
   });
 
+  $effect(() => {
+    const structuredDataJson = pageMetadata.structuredDataJson;
+    upsertStructuredDataJsonLd(structuredDataJson);
+  });
+
   onMount(() => {
     const unsubscribe = currentUrl.subscribe((nextUrl) => {
       if (nextUrl.href === url.href) {
@@ -177,9 +183,6 @@
   <meta name="twitter:description" content={pageMetadata.description} />
   <meta name="twitter:image" content={pageMetadata.ogImage} />
   <meta name="twitter:image:alt" content="findmybook social preview image" />
-  {#if pageMetadata.structuredDataJson}
-    <script type="application/ld+json">{pageMetadata.structuredDataJson}</script>
-  {/if}
 </svelte:head>
 
 <div class="flex min-h-screen flex-col bg-linen-50 text-anthracite-900 dark:bg-slate-900 dark:text-slate-100">
