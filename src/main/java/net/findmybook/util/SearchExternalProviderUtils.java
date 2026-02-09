@@ -20,7 +20,7 @@ public final class SearchExternalProviderUtils {
     }
 
     /**
-     * Returns whether the provided orderBy value is supported by FindMyBook search APIs.
+     * Returns whether the provided orderBy value is supported by findmybook search APIs.
      *
      * @param orderBy raw orderBy parameter
      * @return true when orderBy is one of relevance/newest/title/author
@@ -71,7 +71,7 @@ public final class SearchExternalProviderUtils {
     }
 
     /**
-     * Maps FindMyBook orderBy values to Open Library search sort facets.
+     * Maps findmybook orderBy values to Open Library search sort facets.
      *
      * <p>Open Library supports provider-specific sort facet names (for example {@code new}),
      * so this method exposes only known-safe mappings and leaves unsupported values empty.</p>

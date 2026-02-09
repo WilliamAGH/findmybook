@@ -51,6 +51,8 @@
     - `running: number`
     - `pending: number`
     - `maxParallel: number`
+    - `available: boolean`
+    - `environmentMode: string` (`development`, `production`, or `test`)
 - `POST /api/books/{identifier}/ai/content/stream`
   - Query params:
     - `refresh` (`false` by default; when `false`, cached Postgres AI snapshot is returned when present)
@@ -64,7 +66,17 @@
     - `message_delta`: `{ delta }`
     - `message_done`: `{ message }`
     - `done`: `{ message, aiContent }` where `aiContent` matches the `book.aiContent` contract
-    - `error`: `{ error }`
+    - `error`: `{ error, code, retryable }`
+      - `code` values include:
+        - `identifier_required`
+        - `book_not_found`
+        - `service_unavailable`
+        - `queue_busy`
+        - `stream_timeout`
+        - `empty_generation`
+        - `cache_serialization_failed`
+        - `description_too_short`
+        - `generation_failed`
 
 ## Search Pagination
 - The `/api/books/search` endpoint defaults to 12 results per page.
@@ -88,7 +100,7 @@
   - Query params:
     - `path` (required route path, for example `/`, `/search`, `/book/the-hobbit`)
   - Response fields:
-    - `title`, `description`, `canonicalUrl`, `keywords`, `ogImage`
+    - `title`, `description`, `canonicalUrl`, `keywords`, `ogImage`, `robots`
     - `statusCode` (semantic route status for head/error handling in SPA)
 - `GET /api/pages/routes`
   - Response fields:

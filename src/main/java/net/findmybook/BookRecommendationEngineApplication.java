@@ -1,5 +1,5 @@
 /**
- * Main application class for Book Finder
+ * Main application class for findmybook
  *
  * @author William Callahan
  *

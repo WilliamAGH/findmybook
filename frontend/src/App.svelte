@@ -12,11 +12,13 @@
   import { initializeTheme } from "$lib/stores/theme";
   import type { PageMetadata } from "$lib/validation/schemas";
 
-  const PAGE_TITLE_SUFFIX = " - Book Finder";
-  const DEFAULT_TITLE = "Book Finder";
-  const DEFAULT_DESCRIPTION = "Discover books and recommendations on FindMyBook.";
-  const DEFAULT_KEYWORDS = "book recommendations, find books, book search";
+  const PAGE_TITLE_SUFFIX = " | findmybook";
+  const DEFAULT_TITLE = "findmybook";
+  const DEFAULT_DESCRIPTION =
+    "Discover your next favorite read with findmybook recommendations, search, and curated collections.";
+  const DEFAULT_KEYWORDS = "findmybook, book recommendations, book discovery, book search";
   const DEFAULT_OG_IMAGE = "/images/og-logo.png";
+  const DEFAULT_ROBOTS = "index, follow, max-image-preview:large";
 
   const metadataCache = new Map<string, PageMetadata>();
 
@@ -58,6 +60,7 @@
     canonicalUrl: readCanonicalUrl(),
     keywords: readMetaByName("keywords", DEFAULT_KEYWORDS),
     ogImage: readMetaByProperty("og:image", DEFAULT_OG_IMAGE),
+    robots: readMetaByName("robots", DEFAULT_ROBOTS),
     statusCode: 200,
   });
   let metadataLoadSequence = 0;
@@ -90,6 +93,7 @@
         canonicalUrl: readCanonicalUrl(),
         keywords: readMetaByName("keywords", DEFAULT_KEYWORDS),
         ogImage: readMetaByProperty("og:image", DEFAULT_OG_IMAGE),
+        robots: readMetaByName("robots", DEFAULT_ROBOTS),
       };
     }
   }
@@ -123,19 +127,31 @@
   <title>{titleWithSuffix(pageMetadata.title)}</title>
   <meta name="description" content={pageMetadata.description} />
   <meta name="keywords" content={pageMetadata.keywords} />
+  <meta name="robots" content={pageMetadata.robots} />
+  <meta name="googlebot" content={pageMetadata.robots} />
+  <meta name="application-name" content="findmybook" />
+  <meta name="apple-mobile-web-app-title" content="findmybook" />
+  <meta name="theme-color" content="#fdfcfa" />
   <link rel="canonical" href={pageMetadata.canonicalUrl} />
+  <link rel="alternate" hreflang="en-US" href={pageMetadata.canonicalUrl} />
+  <link rel="alternate" hreflang="x-default" href={pageMetadata.canonicalUrl} />
 
   <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="findmybook" />
+  <meta property="og:locale" content="en_US" />
   <meta property="og:url" content={pageMetadata.canonicalUrl} />
   <meta property="og:title" content={titleWithSuffix(pageMetadata.title)} />
   <meta property="og:description" content={pageMetadata.description} />
   <meta property="og:image" content={pageMetadata.ogImage} />
+  <meta property="og:image:alt" content="findmybook social preview image" />
 
   <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:domain" content="findmybook.net" />
   <meta name="twitter:url" content={pageMetadata.canonicalUrl} />
   <meta name="twitter:title" content={titleWithSuffix(pageMetadata.title)} />
   <meta name="twitter:description" content={pageMetadata.description} />
   <meta name="twitter:image" content={pageMetadata.ogImage} />
+  <meta name="twitter:image:alt" content="findmybook social preview image" />
 </svelte:head>
 
 <div class="flex min-h-screen flex-col bg-linen-50 text-anthracite-900 dark:bg-slate-900 dark:text-slate-100">

@@ -55,12 +55,12 @@
       <a href="/" class="group flex items-center">
         <img
           src="/images/findmybook-logo-white-bg.png"
-          alt="FindMyBook Logo"
+          alt="findmybook logo"
           class="h-[140px] w-auto -ml-4 transition-transform duration-200 group-hover:scale-105 block dark:hidden"
         />
         <img
           src="/images/findmybook-logo.png"
-          alt="FindMyBook Logo"
+          alt="findmybook logo"
           class="h-12 w-auto transition-transform duration-200 group-hover:scale-105 hidden dark:block"
         />
       </a>

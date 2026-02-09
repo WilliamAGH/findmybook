@@ -102,7 +102,7 @@ public class OpenLibraryBookDataService {
      * Searches OpenLibrary using mode=everything with provider-specific sort mapping.
      *
      * @param query the free-text query to search
-     * @param orderBy requested FindMyBook orderBy value
+     * @param orderBy requested findmybook orderBy value
      * @return a Flux of matching books, or empty if disabled or no results found
      */
     @RateLimiter(name = "openLibraryDataService")
@@ -114,12 +114,12 @@ public class OpenLibraryBookDataService {
     /**
      * Searches OpenLibrary using mode=everything for a deterministic offset window.
      *
-     * <p>FindMyBook search endpoints use a zero-based {@code startIndex} absolute offset.
+     * <p>findmybook search endpoints use a zero-based {@code startIndex} absolute offset.
      * Open Library exposes offset-based paging through {@code offset} + {@code limit};
      * this method maps the same zero-based contract directly to provider calls.</p>
      *
      * @param query the free-text query to search
-     * @param orderBy requested FindMyBook orderBy value
+     * @param orderBy requested findmybook orderBy value
      * @param startIndex zero-based absolute offset into provider results
      * @param maxResults number of provider rows to retrieve from startIndex
      * @return a Flux of matching books, or empty if disabled or no results found

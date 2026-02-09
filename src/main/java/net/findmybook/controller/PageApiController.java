@@ -341,6 +341,7 @@ public class PageApiController {
             metadata.canonicalUrl(),
             metadata.keywords(),
             metadata.ogImage(),
+            metadata.robots(),
             statusCode
         );
     }
@@ -446,6 +447,7 @@ public class PageApiController {
      * @param canonicalUrl canonical absolute URL for the current route
      * @param keywords SEO keywords list
      * @param ogImage OpenGraph/Twitter preview image URL
+     * @param robots robots directive used for crawler indexing behavior
      * @param statusCode semantic HTTP status for route presentation
      */
     public record PageMetadataPayload(String title,
@@ -453,6 +455,7 @@ public class PageApiController {
                                       String canonicalUrl,
                                       String keywords,
                                       String ogImage,
+                                      String robots,
                                       int statusCode) {
     }
 }

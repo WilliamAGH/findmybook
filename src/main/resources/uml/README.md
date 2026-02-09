@@ -1,6 +1,6 @@
-# UML Diagram for Book Finder
+# UML Diagram for findmybook
 
-This directory contains PlantUML files that define the UML diagrams for the Book Finder project.
+This directory contains PlantUML files that define the UML diagrams for the findmybook project.
 
 ## What is PlantUML?
 
@@ -42,11 +42,11 @@ There are several ways to generate UML diagrams from the PlantUML files:
 
 ## Available UML Diagrams
 
-- `findmybook.puml`: Class diagram showing the main classes, their properties, methods, and relationships in the Book Finder project.
+- `findmybook.puml`: Class diagram showing the main classes, their properties, methods, and relationships in the findmybook project.
 
 ## Understanding the UML Diagram
 
-The UML class diagram for the Book Finder shows the following components:
+The UML class diagram for findmybook shows the following components:
 
 ### Model Classes
 

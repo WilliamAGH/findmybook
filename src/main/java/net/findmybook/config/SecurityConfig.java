@@ -1,5 +1,5 @@
 /**
- * Configuration class for Spring Security settings in the Book Recommendation Engine
+ * Configuration class for Spring Security settings in findmybook
  *
  * @author William Callahan
  *

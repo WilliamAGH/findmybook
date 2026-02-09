@@ -2,6 +2,8 @@ package net.findmybook.service;
 
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 import net.findmybook.model.Book;
 import net.findmybook.service.image.LocalDiskCoverCacheService;
 import net.findmybook.util.ApplicationConstants;
@@ -9,6 +11,9 @@ import net.findmybook.util.SeoUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.stereotype.Service;
 
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -23,9 +28,20 @@ public class BookSeoMetadataService {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final String PLACEHOLDER_COVER_MARKER = "placeholder-book-cover";
     private static final String HTTP_SCHEME_PREFIX = "http";
-    private static final String PAGE_TITLE_SUFFIX = " - Book Finder";
-    private static final String DEFAULT_DESCRIPTION = "Discover books and recommendations on FindMyBook.";
-    private static final String DEFAULT_KEYWORDS = "book recommendations, find books, book search";
+    private static final String BRAND_NAME = "findmybook";
+    private static final String PAGE_TITLE_SUFFIX = " | " + BRAND_NAME;
+    private static final String DEFAULT_DESCRIPTION =
+        "Discover your next favorite read with findmybook recommendations, search, and curated collections.";
+    private static final String DEFAULT_KEYWORDS = "findmybook, book recommendations, book discovery, book search";
+    private static final String ROBOTS_INDEX_FOLLOW = "index, follow, max-image-preview:large";
+    private static final String ROBOTS_SEARCH_NOINDEX_FOLLOW = "noindex, follow, max-image-preview:large";
+    private static final String ROBOTS_NOINDEX_NOFOLLOW = "noindex, nofollow, noarchive";
+    private static final String OG_IMAGE_ALT = "findmybook social preview image";
+    private static final String OG_TYPE_WEBSITE = "website";
+    private static final String OG_TYPE_BOOK = "book";
+    private static final int MAX_BOOK_SCHEMA_DESCRIPTION_LENGTH = 600;
+    private static final int MAX_BOOK_TAGS = 8;
+    private static final String THEME_COLOR = "#fdfcfa";
     private static final String DEFAULT_SITEMAP_PATH = "/sitemap/authors/A/1";
     private static final Pattern BOOK_ROUTE_PATTERN = Pattern.compile("^/book/([^/]+)$");
     private static final Pattern SITEMAP_ROUTE_PATTERN = Pattern.compile("^/sitemap/(authors|books)/([^/]+)/(\\d+)$");
@@ -117,51 +133,56 @@ public class BookSeoMetadataService {
 
     public SeoMetadata homeMetadata() {
         return new SeoMetadata(
-            "Home",
-            "Discover your next favorite book with our recommendation engine. Explore recently viewed books and new arrivals.",
+            "Discover Books",
+            "Discover your next favorite read with findmybook recommendations, trending titles, and curated lists.",
             ApplicationConstants.Urls.BASE_URL + "/",
-            "book recommendations, find books, book suggestions, reading, literature, home",
-            ApplicationConstants.Urls.DEFAULT_SOCIAL_IMAGE
+            "findmybook, discover books, book recommendations, reading lists, best books",
+            ApplicationConstants.Urls.DEFAULT_SOCIAL_IMAGE,
+            ROBOTS_INDEX_FOLLOW
         );
     }
 
     public SeoMetadata searchMetadata() {
         return new SeoMetadata(
             "Search Books",
-            "Search our extensive catalog of books by title, author, or ISBN. Find detailed information and recommendations.",
+            "Search books by title, author, or ISBN on findmybook to find details, editions, and related recommendations.",
             ApplicationConstants.Urls.BASE_URL + "/search",
-            "book search, find books by title, find books by author, isbn lookup, book catalog",
-            ApplicationConstants.Urls.DEFAULT_SOCIAL_IMAGE
+            "findmybook search, search books, isbn lookup, find books by author, find books by title",
+            ApplicationConstants.Urls.DEFAULT_SOCIAL_IMAGE,
+            ROBOTS_SEARCH_NOINDEX_FOLLOW
         );
     }
 
     public SeoMetadata exploreMetadata() {
         return new SeoMetadata(
             "Explore Books",
-            "Explore curated topics and discover your next favorite read.",
+            "Explore curated topics and discover your next favorite read on findmybook.",
             ApplicationConstants.Urls.BASE_URL + "/explore",
-            "book discovery, explore books, reading recommendations",
-            ApplicationConstants.Urls.DEFAULT_SOCIAL_IMAGE
+            "findmybook, explore books, book discovery, reading recommendations",
+            ApplicationConstants.Urls.DEFAULT_SOCIAL_IMAGE,
+            ROBOTS_INDEX_FOLLOW
         );
     }
 
     public SeoMetadata categoriesMetadata() {
         return new SeoMetadata(
-            "Browse Categories",
-            "Browse books by category and genre.",
+            "Browse Genres",
+            "Browse books by category and genre on findmybook.",
             ApplicationConstants.Urls.BASE_URL + "/categories",
-            "book categories, book genres, browse books",
-            ApplicationConstants.Urls.DEFAULT_SOCIAL_IMAGE
+            "findmybook categories, book genres, browse books, genre recommendations",
+            ApplicationConstants.Urls.DEFAULT_SOCIAL_IMAGE,
+            ROBOTS_INDEX_FOLLOW
         );
     }
 
     public SeoMetadata bookFallbackMetadata(String identifier) {
         return new SeoMetadata(
             "Book Details",
-            "Detailed information about the selected book.",
+            "Detailed metadata, editions, and recommendations for this book on findmybook.",
             ApplicationConstants.Urls.BASE_URL + "/book/" + identifier,
-            "book, literature, reading, book details",
-            ApplicationConstants.Urls.OG_LOGO
+            "findmybook book details, book metadata, book recommendations",
+            ApplicationConstants.Urls.OG_LOGO,
+            ROBOTS_INDEX_FOLLOW
         );
     }
 
@@ -174,9 +195,28 @@ public class BookSeoMetadataService {
         String canonicalIdentifier = StringUtils.hasText(book.getSlug()) ? book.getSlug() : book.getId();
         String canonicalUrl = ApplicationConstants.Urls.BASE_URL + "/book/" + canonicalIdentifier;
         String keywords = SeoUtils.generateKeywords(book);
-        String ogImage = resolveOgImage(book);
+        String ogImage = normalizeCanonicalUrl(resolveOgImage(book));
+        String structuredDescription = buildBookSchemaDescription(book.getDescription(), description);
+        String structuredDataJson = buildBookStructuredDataJson(
+            book,
+            canonicalUrl,
+            title,
+            structuredDescription,
+            ogImage
+        );
+        List<OpenGraphProperty> openGraphProperties = buildBookOpenGraphProperties(book);
 
-        return new SeoMetadata(title, description, canonicalUrl, keywords, ogImage);
+        return new SeoMetadata(
+            title,
+            description,
+            canonicalUrl,
+            keywords,
+            ogImage,
+            ROBOTS_INDEX_FOLLOW,
+            OG_TYPE_BOOK,
+            openGraphProperties,
+            structuredDataJson
+        );
     }
 
     public SeoMetadata sitemapMetadata(String canonicalPath) {
@@ -185,8 +225,9 @@ public class BookSeoMetadataService {
             "Sitemap",
             "Browse all indexed author and book pages.",
             normalizeCanonicalUrl(normalizedPath),
-            "book sitemap, author sitemap, find my book",
-            ApplicationConstants.Urls.OG_LOGO
+            "findmybook sitemap, author sitemap, book sitemap",
+            ApplicationConstants.Urls.OG_LOGO,
+            ROBOTS_INDEX_FOLLOW
         );
     }
 
@@ -197,7 +238,8 @@ public class BookSeoMetadataService {
             "The page you requested could not be found.",
             normalizeCanonicalUrl(normalizedPath),
             "404, page not found",
-            ApplicationConstants.Urls.OG_LOGO
+            ApplicationConstants.Urls.OG_LOGO,
+            ROBOTS_NOINDEX_NOFOLLOW
         );
     }
 
@@ -208,7 +250,8 @@ public class BookSeoMetadataService {
             "An unexpected error occurred while loading this page.",
             normalizeCanonicalUrl(normalizedPath),
             "error, server error",
-            ApplicationConstants.Urls.OG_LOGO
+            ApplicationConstants.Urls.OG_LOGO,
+            ROBOTS_NOINDEX_NOFOLLOW
         );
     }
 
@@ -260,12 +303,19 @@ public class BookSeoMetadataService {
         String normalizedCanonical = normalizeCanonicalUrl(effectiveMetadata.canonicalUrl());
         String absoluteOgImage = normalizeCanonicalUrl(effectiveMetadata.ogImage());
         String fullTitle = formatPageTitle(effectiveMetadata.title());
+        String normalizedDescription = defaultIfBlank(effectiveMetadata.description(), DEFAULT_DESCRIPTION);
         String escapedTitle = escapeHtml(fullTitle);
-        String escapedDescription = escapeHtml(defaultIfBlank(effectiveMetadata.description(), DEFAULT_DESCRIPTION));
+        String escapedDescription = escapeHtml(normalizedDescription);
         String escapedKeywords = escapeHtml(defaultIfBlank(effectiveMetadata.keywords(), DEFAULT_KEYWORDS));
+        String escapedRobots = escapeHtml(defaultIfBlank(effectiveMetadata.robots(), ROBOTS_INDEX_FOLLOW));
         String escapedCanonicalUrl = escapeHtml(normalizedCanonical);
         String escapedOgImage = escapeHtml(absoluteOgImage);
+        String escapedOgImageAlt = escapeHtml(OG_IMAGE_ALT);
+        String escapedBrandName = escapeHtml(BRAND_NAME);
         String escapedRouteManifestJson = escapeInlineScriptJson(routeManifestJson());
+        String escapedStructuredData = escapeInlineScriptJson(
+            buildRouteStructuredDataJson(normalizedCanonical, fullTitle, normalizedDescription, absoluteOgImage)
+        );
 
         return """
             <!doctype html>
@@ -274,21 +324,33 @@ public class BookSeoMetadataService {
               <meta charset="UTF-8">
               <meta name="viewport" content="width=device-width, initial-scale=1.0">
               <meta name="color-scheme" content="light dark">
+              <meta name="theme-color" content="%s">
+              <meta name="application-name" content="%s">
+              <meta name="apple-mobile-web-app-title" content="%s">
               <title>%s</title>
               <meta name="description" content="%s">
               <meta name="keywords" content="%s">
-              <meta name="robots" content="index, follow">
+              <meta name="robots" content="%s">
+              <meta name="googlebot" content="%s">
               <link rel="canonical" href="%s">
+              <link rel="alternate" hreflang="en-US" href="%s">
+              <link rel="alternate" hreflang="x-default" href="%s">
               <meta property="og:type" content="website">
+              <meta property="og:site_name" content="%s">
+              <meta property="og:locale" content="en_US">
               <meta property="og:url" content="%s">
               <meta property="og:title" content="%s">
               <meta property="og:description" content="%s">
               <meta property="og:image" content="%s">
-              <meta property="twitter:card" content="summary_large_image">
-              <meta property="twitter:url" content="%s">
-              <meta property="twitter:title" content="%s">
-              <meta property="twitter:description" content="%s">
-              <meta property="twitter:image" content="%s">
+              <meta property="og:image:alt" content="%s">
+              <meta name="twitter:card" content="summary_large_image">
+              <meta name="twitter:domain" content="findmybook.net">
+              <meta name="twitter:url" content="%s">
+              <meta name="twitter:title" content="%s">
+              <meta name="twitter:description" content="%s">
+              <meta name="twitter:image" content="%s">
+              <meta name="twitter:image:alt" content="%s">
+              <script type="application/ld+json">%s</script>
               <link rel="preconnect" href="https://fonts.googleapis.com">
               <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
               <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@500;600;700&display=swap" rel="stylesheet">
@@ -320,18 +382,29 @@ public class BookSeoMetadataService {
             </body>
             </html>
             """.formatted(
+            THEME_COLOR,
+            escapedBrandName,
+            escapedBrandName,
             escapedTitle,
             escapedDescription,
             escapedKeywords,
+            escapedRobots,
+            escapedRobots,
             escapedCanonicalUrl,
+            escapedCanonicalUrl,
+            escapedCanonicalUrl,
+            escapedBrandName,
             escapedCanonicalUrl,
             escapedTitle,
             escapedDescription,
             escapedOgImage,
+            escapedOgImageAlt,
             escapedCanonicalUrl,
             escapedTitle,
             escapedDescription,
             escapedOgImage,
+            escapedOgImageAlt,
+            escapedStructuredData,
             escapedRouteManifestJson
         );
     }
@@ -369,8 +442,28 @@ public class BookSeoMetadataService {
         return StringUtils.hasText(candidate) ? candidate : fallback;
     }
 
+    private String buildRouteStructuredDataJson(String canonicalUrl,
+                                                String fullTitle,
+                                                String description,
+                                                String ogImage) {
+        return """
+            {"@context":"https://schema.org","@graph":[{"@type":"WebSite","@id":"%s/#website","url":"%s/","name":"%s","potentialAction":{"@type":"SearchAction","target":"%s/search?query={search_term_string}","query-input":"required name=search_term_string"}},{"@type":"WebPage","@id":"%s#webpage","url":"%s","name":"%s","description":"%s","isPartOf":{"@id":"%s/#website"},"primaryImageOfPage":{"@type":"ImageObject","url":"%s"},"inLanguage":"en-US"}]}
+            """.formatted(
+            escapeJson(ApplicationConstants.Urls.BASE_URL),
+            escapeJson(ApplicationConstants.Urls.BASE_URL),
+            escapeJson(BRAND_NAME),
+            escapeJson(ApplicationConstants.Urls.BASE_URL),
+            escapeJson(canonicalUrl),
+            escapeJson(canonicalUrl),
+            escapeJson(fullTitle),
+            escapeJson(description),
+            escapeJson(ApplicationConstants.Urls.BASE_URL),
+            escapeJson(ogImage)
+        );
+    }
+
     private String formatPageTitle(String title) {
-        String baseTitle = defaultIfBlank(title, "Book Finder");
+        String baseTitle = defaultIfBlank(title, BRAND_NAME);
         if (baseTitle.endsWith(PAGE_TITLE_SUFFIX)) {
             return baseTitle;
         }
@@ -417,7 +510,8 @@ public class BookSeoMetadataService {
         String description,
         String canonicalUrl,
         String keywords,
-        String ogImage
+        String ogImage,
+        String robots
     ) {}
 
     /**

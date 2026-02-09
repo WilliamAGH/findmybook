@@ -2,7 +2,7 @@
 
 Spring Boot + Svelte application for book lookup and recommendations using OpenAI and Google Books API.
 
-![Find My Book Screenshot](src/main/resources/static/images/book-finder-findmybook-net.png)
+![findmybook screenshot](src/main/resources/static/images/book-finder-findmybook-net.png)
 
 **Live Demo:** [findmybook.net](https://findmybook.net)
 

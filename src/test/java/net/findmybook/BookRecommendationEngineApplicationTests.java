@@ -25,7 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Basic application context load test for the Book Finder
+ * Basic application context load test for findmybook
  *
  * @author William Callahan
  *
