@@ -335,6 +335,10 @@ public class PageApiController {
     }
 
     private PageMetadataPayload toPageMetadataPayload(BookSeoMetadataService.SeoMetadata metadata, int statusCode) {
+        List<OpenGraphMetaPayload> openGraphProperties = metadata.openGraphProperties().stream()
+            .map(property -> new OpenGraphMetaPayload(property.property(), property.content()))
+            .toList();
+
         return new PageMetadataPayload(
             metadata.title(),
             metadata.description(),
@@ -342,6 +346,9 @@ public class PageApiController {
             metadata.keywords(),
             metadata.ogImage(),
             metadata.robots(),
+            metadata.openGraphType(),
+            openGraphProperties,
+            metadata.structuredDataJson(),
             statusCode
         );
     }
@@ -448,6 +455,9 @@ public class PageApiController {
      * @param keywords SEO keywords list
      * @param ogImage OpenGraph/Twitter preview image URL
      * @param robots robots directive used for crawler indexing behavior
+     * @param openGraphType OpenGraph object type (for example: website, book)
+     * @param openGraphProperties additional route-specific OpenGraph properties
+     * @param structuredDataJson route JSON-LD payload used for rich-result crawling
      * @param statusCode semantic HTTP status for route presentation
      */
     public record PageMetadataPayload(String title,
@@ -456,6 +466,18 @@ public class PageApiController {
                                       String keywords,
                                       String ogImage,
                                       String robots,
+                                      String openGraphType,
+                                      List<OpenGraphMetaPayload> openGraphProperties,
+                                      String structuredDataJson,
                                       int statusCode) {
+    }
+
+    /**
+     * Typed OpenGraph key-value entry for SPA head updates.
+     *
+     * @param property OpenGraph property key
+     * @param content property value
+     */
+    public record OpenGraphMetaPayload(String property, String content) {
     }
 }

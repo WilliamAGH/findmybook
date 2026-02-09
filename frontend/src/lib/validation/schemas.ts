@@ -136,6 +136,11 @@ export const CategoriesFacetsPayloadSchema = z.object({
   minBooks: z.number().int().nonnegative(),
 });
 
+export const OpenGraphPropertySchema = z.object({
+  property: z.string(),
+  content: z.string(),
+});
+
 export const PageMetadataSchema = z.object({
   title: z.string(),
   description: z.string(),
@@ -143,6 +148,9 @@ export const PageMetadataSchema = z.object({
   keywords: z.string(),
   ogImage: z.string(),
   robots: z.string(),
+  openGraphType: z.string().optional().default("website"),
+  openGraphProperties: z.array(OpenGraphPropertySchema).optional().default([]),
+  structuredDataJson: z.string().optional().default(""),
   statusCode: z.number().int(),
 });
 

@@ -101,6 +101,9 @@
     - `path` (required route path, for example `/`, `/search`, `/book/the-hobbit`)
   - Response fields:
     - `title`, `description`, `canonicalUrl`, `keywords`, `ogImage`, `robots`
+    - `openGraphType` (for example `website` or `book`)
+    - `openGraphProperties: Array<{ property, content }>` (route-specific OG extensions such as `book:*`)
+    - `structuredDataJson` (JSON-LD payload for route rich-result metadata)
     - `statusCode` (semantic route status for head/error handling in SPA)
 - `GET /api/pages/routes`
   - Response fields:
