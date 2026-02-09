@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/svelte";
 import BookAiContentPanel from "$lib/components/BookAiContentPanel.svelte";
+import type { BookAiErrorCode } from "$lib/validation/schemas";
 
 const {
   getBookAiContentQueueStatsMock,
@@ -22,6 +23,17 @@ vi.mock("$lib/services/bookAiContentStream", () => ({
 }));
 
 describe("BookAiContentPanel production behavior", () => {
+  function createStreamError(
+    message: string,
+    code: BookAiErrorCode,
+    retryable: boolean,
+  ): Error & { code: BookAiErrorCode; retryable: boolean } {
+    const streamError = new Error(message) as Error & { code: BookAiErrorCode; retryable: boolean };
+    streamError.code = code;
+    streamError.retryable = retryable;
+    return streamError;
+  }
+
   beforeEach(() => {
     getBookAiContentQueueStatsMock.mockReset();
     getBookAiContentQueueStatsMock.mockResolvedValue({
@@ -32,15 +44,18 @@ describe("BookAiContentPanel production behavior", () => {
       environmentMode: "production",
     });
     isBookAiContentStreamErrorMock.mockReset();
-    isBookAiContentStreamErrorMock.mockReturnValue(false);
+    isBookAiContentStreamErrorMock.mockReturnValue(true);
     streamBookAiContentMock.mockReset();
   });
 
   /**
-   * Production must keep the Reader's Guide hidden when source material is
-   * insufficient for faithful generation and no cached AI content exists.
+   * Production keeps the Reader's Guide hidden, but still attempts a stream call so
+   * backend enrichment can run before the `description_too_short` terminal decision.
    */
-  it("shouldHideReadersGuideAndSkipGenerationWhenDescriptionTooShortInProduction", async () => {
+  it("shouldAttemptGenerationAndKeepPanelHiddenWhenDescriptionRemainsTooShortInProduction", async () => {
+    streamBookAiContentMock.mockRejectedValue(
+      createStreamError("AI content is unavailable for this book", "description_too_short", false),
+    );
     const onAiContentUpdate = vi.fn();
 
     render(BookAiContentPanel, {
@@ -61,7 +76,49 @@ describe("BookAiContentPanel production behavior", () => {
     await waitFor(() => {
       expect(screen.queryByText("Reader's Guide")).not.toBeInTheDocument();
     });
-    expect(streamBookAiContentMock).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(streamBookAiContentMock).toHaveBeenCalledTimes(1);
+    });
+    expect(onAiContentUpdate).not.toHaveBeenCalled();
+  });
+
+  it("shouldShowBackendShortDescriptionErrorWhenDescriptionTooShortInDiagnosticsMode", async () => {
+    getBookAiContentQueueStatsMock.mockResolvedValue({
+      running: 0,
+      pending: 0,
+      maxParallel: 1,
+      available: true,
+      environmentMode: "development",
+    });
+    streamBookAiContentMock.mockRejectedValue(
+      createStreamError(
+        "Book description is missing or too short for faithful AI generation",
+        "description_too_short",
+        false,
+      ),
+    );
+    const onAiContentUpdate = vi.fn();
+
+    render(BookAiContentPanel, {
+      props: {
+        identifier: "short-description-book",
+        book: {
+          id: "book-short",
+          slug: "book-short",
+          title: "Short Description Fixture",
+          description: "tiny",
+          descriptionContent: { text: "tiny" },
+          aiContent: null,
+        } as any,
+        onAiContentUpdate,
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Reader's Guide")).toBeInTheDocument();
+      expect(screen.getByText(/missing or too short/i)).toBeInTheDocument();
+    });
+    expect(streamBookAiContentMock).toHaveBeenCalledTimes(1);
     expect(onAiContentUpdate).not.toHaveBeenCalled();
   });
 });

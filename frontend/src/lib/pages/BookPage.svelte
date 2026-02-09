@@ -60,6 +60,37 @@
   let unsubscribeRealtime: (() => void) | null = null;
   let loadSequence = 0;
 
+  function fallbackIdentifierFromUrl(): string | null {
+    const fallbackIdentifier = currentUrl.searchParams.get("bookId") ?? currentUrl.searchParams.get("id");
+    if (!fallbackIdentifier) {
+      return null;
+    }
+    const trimmedIdentifier = fallbackIdentifier.trim();
+    return trimmedIdentifier.length > 0 ? trimmedIdentifier : null;
+  }
+
+  function isHttpNotFoundError(error: unknown): boolean {
+    if (!(error instanceof Error)) {
+      return false;
+    }
+    return error.message.startsWith("HTTP 404");
+  }
+
+  async function loadBookWithFallback(identifierFromRoute: string): Promise<Book> {
+    try {
+      return await getBook(identifierFromRoute);
+    } catch (primaryError) {
+      const fallbackIdentifier = fallbackIdentifierFromUrl();
+      if (!isHttpNotFoundError(primaryError) || !fallbackIdentifier || fallbackIdentifier === identifierFromRoute) {
+        throw primaryError;
+      }
+      console.warn(
+        `[BookPage] Book lookup by route identifier '${identifierFromRoute}' returned 404; retrying with fallback '${fallbackIdentifier}'`,
+      );
+      return getBook(fallbackIdentifier);
+    }
+  }
+
   async function loadPage(): Promise<void> {
     const sequence = ++loadSequence;
     loading = true;
@@ -71,12 +102,16 @@
     }
 
     try {
-      const loadedBook = await getBook(identifier);
+      const loadedBook = await loadBookWithFallback(identifier);
       if (sequence !== loadSequence) return;
 
+      const relatedIdentifier = loadedBook.id.trim().length > 0
+        ? loadedBook.id
+        : fallbackIdentifierFromUrl() ?? identifier;
+
       const [similarResult, linksResult] = await Promise.allSettled([
-        getSimilarBooks(identifier, 6),
-        getAffiliateLinks(identifier),
+        getSimilarBooks(relatedIdentifier, 6),
+        getAffiliateLinks(relatedIdentifier),
       ]);
       if (sequence !== loadSequence) return;
 
@@ -501,7 +536,7 @@
           {/if}
 
           <BookAiContentPanel
-            {identifier}
+            identifier={book.id}
             {book}
             onAiContentUpdate={handleAiContentUpdate}
           />

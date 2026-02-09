@@ -24,6 +24,7 @@ export default defineConfig(({ mode }) => ({
     sourcemap: true,
     cssCodeSplit: false,
     rollupOptions: {
+      input: resolve(ROOT_DIR, "src/main.ts"),
       output: {
         entryFileNames: "app.js",
         chunkFileNames: "chunks/[name]-[hash].js",

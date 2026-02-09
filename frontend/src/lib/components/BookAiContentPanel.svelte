@@ -81,6 +81,7 @@
   function shouldDisplayPanel(): boolean {
     return shouldRenderPanel(aiFailureDiagnosticsEnabled(), aiServiceAvailable, book);
   }
+
   interface AiStreamFailure {
     code: BookAiErrorCode;
     message: string;
@@ -155,13 +156,6 @@
     try {
       const queueStats = await getBookAiContentQueueStats();
       aiEnvironmentMode = normalizeEnvironmentMode(queueStats.environmentMode);
-      if (shouldSuppressPanelForCurrentBookInProduction()) {
-        aiServiceAvailable = false;
-        aiErrorMessage = null;
-        aiQueueMessage = null;
-        aiAutoTriggerDeferred = false;
-        return false;
-      }
       if (!queueStats.available) {
         aiServiceAvailable = false;
         if (!aiFailureDiagnosticsEnabled()) {
@@ -209,13 +203,6 @@
 
   async function triggerAiGeneration(refresh: boolean): Promise<void> {
     if (!identifier || aiLoading) {
-      return;
-    }
-    if (shouldSuppressPanelForCurrentBookInProduction()) {
-      aiServiceAvailable = false;
-      aiErrorMessage = null;
-      aiQueueMessage = null;
-      aiAutoTriggerDeferred = false;
       return;
     }
 

@@ -1,9 +1,17 @@
 import { writable } from "svelte/store";
 import { getRouteManifest } from "$lib/services/pages";
 import { RouteManifestSchema, type RouteDefinition, type RouteManifest } from "$lib/validation/schemas";
+import {
+  browserOrigin,
+  buildSpaHistoryState,
+  currentPathWithQueryAndHash,
+  normalizeInternalPath,
+  pathWithQueryAndHash,
+  readSpaHistoryState,
+  seedSpaHistoryStateIfMissing,
+} from "$lib/router/routerHistoryState";
 
-export type RouteName = "home" | "search" | "book" | "sitemap" | "explore" | "categories" | "notFound";
-
+export type RouteName = "home" | "search" | "book" | "sitemap" | "explore" | "categories" | "notFound" | "error";
 export interface RouteMatch {
   name: RouteName;
   params: {
@@ -13,32 +21,10 @@ export interface RouteMatch {
     page?: number;
   };
 }
-
 export type SearchRouteName = "search" | "explore" | "categories";
 
-export const DEFAULT_PASSTHROUGH_PREFIXES: readonly string[] = [
-  "/api",
-  "/admin",
-  "/actuator",
-  "/ws",
-  "/topic",
-  "/sitemap.xml",
-  "/sitemap-xml",
-  "/r",
-];
-
-const EMPTY_ROUTE_MANIFEST: RouteManifest = {
-  version: 1,
-  publicRoutes: [],
-  passthroughPrefixes: [...DEFAULT_PASSTHROUGH_PREFIXES],
-};
-
-const SPA_HISTORY_MARKER = "findmybook-spa-v1";
-
-interface SpaHistoryState {
-  __fmbSpa: typeof SPA_HISTORY_MARKER;
-  previousPath: string | null;
-}
+const ROUTE_MANIFEST_UNAVAILABLE_MESSAGE =
+  "[router] Route manifest unavailable. Backend must embed window.__FMB_ROUTE_MANIFEST__ or expose /api/pages/routes.";
 
 declare global {
   interface Window {
@@ -48,80 +34,10 @@ declare global {
 
 const INITIAL_URL =
   typeof window !== "undefined" ? new URL(window.location.href) : new URL("http://localhost/");
-let activeRouteManifest = resolveInitialRouteManifest();
+let activeRouteManifest: RouteManifest | null = embeddedRouteManifestFromWindow();
 let routeManifestRefreshPromise: Promise<void> | null = null;
 
 export const currentUrl = writable<URL>(INITIAL_URL);
-
-function browserOrigin(): string {
-  return typeof window !== "undefined" ? window.location.origin : "http://localhost";
-}
-
-function pathWithQueryAndHash(url: URL): string {
-  return `${url.pathname}${url.search}${url.hash}`;
-}
-
-function currentPathWithQueryAndHash(): string {
-  if (typeof window === "undefined") {
-    return "/";
-  }
-  return pathWithQueryAndHash(new URL(window.location.href));
-}
-
-function normalizeInternalPath(candidate: string | null): string | null {
-  if (!candidate) {
-    return null;
-  }
-  try {
-    const parsed = new URL(candidate, browserOrigin());
-    if (parsed.origin !== browserOrigin()) {
-      return null;
-    }
-    if (!parsed.pathname.startsWith("/")) {
-      return null;
-    }
-    return pathWithQueryAndHash(parsed);
-  } catch (error) {
-    console.warn("[router] Failed to normalize internal path:", candidate, error);
-    return null;
-  }
-}
-
-function createSpaHistoryState(previousPath: string | null): SpaHistoryState {
-  return {
-    __fmbSpa: SPA_HISTORY_MARKER,
-    previousPath,
-  };
-}
-
-function readSpaHistoryState(): SpaHistoryState | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-  const state = window.history.state;
-  if (!state || typeof state !== "object") {
-    return null;
-  }
-  const candidate = state as { __fmbSpa?: string; previousPath?: unknown };
-  if (candidate.__fmbSpa !== SPA_HISTORY_MARKER) {
-    return null;
-  }
-  const previousPath = typeof candidate.previousPath === "string"
-    ? normalizeInternalPath(candidate.previousPath)
-    : null;
-  return createSpaHistoryState(previousPath);
-}
-
-function seedSpaHistoryStateIfMissing(): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-  if (readSpaHistoryState()) {
-    return;
-  }
-  const currentPath = currentPathWithQueryAndHash();
-  window.history.replaceState(createSpaHistoryState(null), "", currentPath);
-}
 
 export function previousSpaPath(): string | null {
   return readSpaHistoryState()?.previousPath ?? null;
@@ -129,10 +45,7 @@ export function previousSpaPath(): string | null {
 
 function parsePage(value: string): number {
   const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed < 1) {
-    return 1;
-  }
-  return parsed;
+  return Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
 }
 
 function safeDecodeURIComponent(value: string): string {
@@ -152,8 +65,11 @@ function embeddedRouteManifestFromWindow(): RouteManifest | null {
   return manifestCandidate.success ? manifestCandidate.data : null;
 }
 
-function resolveInitialRouteManifest(): RouteManifest {
-  return embeddedRouteManifestFromWindow() ?? EMPTY_ROUTE_MANIFEST;
+function requireRouteManifest(): RouteManifest {
+  if (!activeRouteManifest) {
+    throw new Error(ROUTE_MANIFEST_UNAVAILABLE_MESSAGE);
+  }
+  return activeRouteManifest;
 }
 
 export function setRouteManifest(manifest: RouteManifest): void {
@@ -222,21 +138,22 @@ export async function initializeRouteManifest(): Promise<void> {
         setRouteManifest(manifest);
       })
       .catch((error) => {
-        console.warn("[router] Failed to load route manifest from /api/pages/routes", error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        throw new Error(`${ROUTE_MANIFEST_UNAVAILABLE_MESSAGE} (${errorMessage})`);
       })
       .finally(() => {
         routeManifestRefreshPromise = null;
       });
   }
   await routeManifestRefreshPromise;
-}
-
-async function refreshRouteManifestFromApi(): Promise<void> {
-  await initializeRouteManifest();
+  if (!activeRouteManifest) {
+    throw new Error(ROUTE_MANIFEST_UNAVAILABLE_MESSAGE);
+  }
 }
 
 export function matchRoute(pathname: string): RouteMatch {
-  for (const routeDefinition of activeRouteManifest.publicRoutes) {
+  const routeManifest = requireRouteManifest();
+  for (const routeDefinition of routeManifest.publicRoutes) {
     if (routeDefinition.matchType === "exact") {
       if (pathname !== routeDefinition.pattern) {
         continue;
@@ -264,7 +181,8 @@ export function matchRoute(pathname: string): RouteMatch {
 }
 
 export function searchBasePathForRoute(routeName: SearchRouteName): "/search" | "/explore" | "/categories" {
-  const exactMatch = activeRouteManifest.publicRoutes.find((routeDefinition) => (
+  const routeManifest = requireRouteManifest();
+  const exactMatch = routeManifest.publicRoutes.find((routeDefinition) => (
     routeDefinition.name === routeName && routeDefinition.matchType === "exact"
   ));
   if (exactMatch?.pattern === "/explore" || exactMatch?.pattern === "/categories" || exactMatch?.pattern === "/search") {
@@ -275,6 +193,11 @@ export function searchBasePathForRoute(routeName: SearchRouteName): "/search" | 
 }
 
 function shouldHandleAsSpaLink(anchor: HTMLAnchorElement): boolean {
+  if (!activeRouteManifest) {
+    return false;
+  }
+  const routeManifest = activeRouteManifest;
+
   if (anchor.target && anchor.target !== "_self") {
     return false;
   }
@@ -288,7 +211,7 @@ function shouldHandleAsSpaLink(anchor: HTMLAnchorElement): boolean {
     return false;
   }
 
-  for (const prefix of activeRouteManifest.passthroughPrefixes) {
+  for (const prefix of routeManifest.passthroughPrefixes) {
     if (url.pathname === prefix || url.pathname.startsWith(`${prefix}/`)) {
       return false;
     }
@@ -311,7 +234,7 @@ export function navigate(pathWithQuery: string, replace = false): void {
   const previousPath = replace
     ? readSpaHistoryState()?.previousPath ?? null
     : normalizeInternalPath(currentPathWithQueryAndHash());
-  const nextState = createSpaHistoryState(previousPath);
+  const nextState = buildSpaHistoryState(previousPath);
   if (replace) {
     window.history.replaceState(nextState, "", targetPath);
   } else {
@@ -321,7 +244,9 @@ export function navigate(pathWithQuery: string, replace = false): void {
 }
 
 export function initializeSpaRouting(): () => void {
-  void refreshRouteManifestFromApi();
+  initializeRouteManifest().catch((error) => {
+    console.error("[router] Failed to initialize route manifest:", error);
+  });
   seedSpaHistoryStateIfMissing();
 
   const onPopState = (): void => {

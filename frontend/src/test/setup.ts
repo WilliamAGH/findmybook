@@ -75,6 +75,15 @@ import "@testing-library/jest-dom/vitest";
       allowedQueryParams: [],
       canonicalPathTemplate: "/404",
     },
+    {
+      name: "error",
+      matchType: "exact",
+      pattern: "/error",
+      paramNames: [],
+      defaults: {},
+      allowedQueryParams: [],
+      canonicalPathTemplate: "/error",
+    },
   ],
   passthroughPrefixes: ["/api", "/admin", "/actuator", "/ws", "/topic", "/sitemap.xml", "/sitemap-xml", "/r"],
 };

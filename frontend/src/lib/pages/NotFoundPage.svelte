@@ -1,6 +1,16 @@
 <script lang="ts">
   import { navigate } from "$lib/router/router";
 
+  let { variant = "notFound" }: { variant?: "notFound" | "error" } = $props();
+
+  const statusCode = $derived(variant === "error" ? "500" : "404");
+  const heading = $derived(variant === "error" ? "Something went wrong" : "Page not found");
+  const description = $derived(
+    variant === "error"
+      ? "We hit an unexpected problem while loading this page. Try searching for a book or head back home."
+      : "The page you requested does not exist. Try searching for a book instead.",
+  );
+
   let query = $state("");
 
   function submitSearch(event: SubmitEvent): void {
@@ -14,9 +24,9 @@
 </script>
 
 <section class="mx-auto flex max-w-3xl flex-col items-center gap-6 px-4 py-16 text-center md:px-6">
-  <p class="text-6xl font-semibold text-canvas-500">404</p>
-  <h1 class="text-3xl font-semibold text-anthracite-900 dark:text-slate-100">Page not found</h1>
-  <p class="text-sm text-anthracite-600 dark:text-slate-300">The page you requested does not exist. Try searching for a book instead.</p>
+  <p class="text-6xl font-semibold text-canvas-500">{statusCode}</p>
+  <h1 class="text-3xl font-semibold text-anthracite-900 dark:text-slate-100">{heading}</h1>
+  <p class="text-sm text-anthracite-600 dark:text-slate-300">{description}</p>
 
   <form onsubmit={submitSearch} class="flex w-full max-w-xl flex-col gap-3 sm:flex-row">
     <input bind:value={query} type="search" class="w-full rounded-xl border border-linen-300 px-4 py-3 outline-none ring-canvas-300 focus:ring-2 dark:border-slate-600 dark:bg-slate-800" placeholder="Search books" />

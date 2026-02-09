@@ -255,6 +255,17 @@
     };
   }
 
+  function bookDetailHref(hit: SearchHit): string {
+    const routeIdentifier = hit.slug ?? hit.id;
+    const params = new URLSearchParams();
+    params.set("bookId", hit.id);
+    params.set("query", query);
+    params.set("page", String(page));
+    params.set("orderBy", orderBy);
+    params.set("view", viewMode);
+    return `/book/${encodeURIComponent(routeIdentifier)}?${params.toString()}`;
+  }
+
   let pageTitle = $derived(routeName === "explore" ? "Explore Books" : routeName === "categories" ? "Browse Categories" : "Search Books");
 
   $effect(() => {
@@ -362,7 +373,7 @@
   {#if searchResult && searchResult.results.length > 0}
     <div class={viewMode === "grid" ? "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4" : "grid grid-cols-1 gap-4"}>
       {#each searchResult.results as hit (hit.id)}
-        <BookCard layout={viewMode} book={mapHitToCard(hit)} href={`/book/${encodeURIComponent(hit.slug ?? hit.id)}?query=${encodeURIComponent(query)}&page=${page}&orderBy=${encodeURIComponent(orderBy)}&view=${viewMode}`} />
+        <BookCard layout={viewMode} book={mapHitToCard(hit)} href={bookDetailHref(hit)} />
       {/each}
     </div>
 

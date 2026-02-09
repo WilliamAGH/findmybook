@@ -154,7 +154,7 @@ export const PageMetadataSchema = z.object({
   statusCode: z.number().int(),
 });
 
-export const RouteNameSchema = z.enum(["home", "search", "book", "sitemap", "explore", "categories", "notFound"]);
+export const RouteNameSchema = z.enum(["home", "search", "book", "sitemap", "explore", "categories", "notFound", "error"]);
 
 export const RouteDefinitionSchema = z.object({
   name: RouteNameSchema,
