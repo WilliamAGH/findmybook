@@ -272,7 +272,7 @@ public class BookAiContentService {
         if (node == null || node.isNull()) {
             return Optional.empty();
         }
-        String text = node.asText(null);
+        String text = node.asString(null);
         return StringUtils.hasText(text) ? Optional.of(text.trim()) : Optional.empty();
     }
 
@@ -283,7 +283,7 @@ public class BookAiContentService {
         }
         List<String> values = new ArrayList<>();
         for (JsonNode elementNode : node) {
-            String text = elementNode == null || elementNode.isNull() ? null : elementNode.asText(null);
+            String text = elementNode == null || elementNode.isNull() ? null : elementNode.asString(null);
             if (!StringUtils.hasText(text)) {
                 continue;
             }

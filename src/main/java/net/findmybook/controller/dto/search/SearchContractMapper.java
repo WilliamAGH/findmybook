@@ -152,7 +152,7 @@ public final class SearchContractMapper {
         if (valueNode == null || valueNode.isNull()) {
             return null;
         }
-        String text = valueNode.isTextual() ? valueNode.textValue() : valueNode.asText(null);
+        String text = valueNode.asString(null);
         return StringUtils.hasText(text) ? text : null;
     }
 
@@ -165,7 +165,7 @@ public final class SearchContractMapper {
             return valueNode.doubleValue();
         }
         try {
-            return Double.parseDouble(valueNode.asText());
+            return Double.parseDouble(valueNode.asString(""));
         } catch (IllegalArgumentException _) {
             return null;
         }

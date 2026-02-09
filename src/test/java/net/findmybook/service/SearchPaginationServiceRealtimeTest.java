@@ -36,7 +36,7 @@ class SearchPaginationServiceRealtimeTest extends AbstractSearchPaginationServic
         when(googleApiFetcher.streamSearchItems("distributed systems", 12, "relevance", null, true))
             .thenReturn(Flux.just(googleVolumeNode("google-vol-realtime", "Realtime Systems")));
         when(googleApiFetcher.isFallbackAllowed()).thenReturn(false);
-        when(googleBooksMapper.map(argThat(node -> "google-vol-realtime".equals(node.path("id").asText()))))
+        when(googleBooksMapper.map(argThat(node -> "google-vol-realtime".equals(node.path("id").asString("")))))
             .thenReturn(googleAggregate("google-vol-realtime", "Realtime Systems", "https://example.test/realtime.jpg"));
         when(openLibraryBookDataService.queryBooksByEverything(eq("distributed systems"), anyString(), eq(0), eq(24)))
             .thenReturn(Flux.empty());
