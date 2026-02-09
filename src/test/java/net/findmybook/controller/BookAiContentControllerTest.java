@@ -61,16 +61,18 @@ class BookAiContentControllerTest {
     }
 
     @Test
-    @DisplayName("GET /api/books/ai/content/queue returns queue snapshot")
+    @DisplayName("GET /api/books/ai/content/queue returns queue snapshot with availability")
     void queueStats_returnsQueueSnapshot() throws Exception {
         when(requestQueue.snapshot()).thenReturn(new BookAiContentRequestQueue.QueueSnapshot(1, 3, 2));
+        when(aiContentService.isAvailable()).thenReturn(true);
 
         mockMvc.perform(get("/api/books/ai/content/queue"))
             .andExpect(status().isOk())
             .andExpect(content().contentType(MediaType.APPLICATION_JSON))
             .andExpect(jsonPath("$.running").value(1))
             .andExpect(jsonPath("$.pending").value(3))
-            .andExpect(jsonPath("$.maxParallel").value(2));
+            .andExpect(jsonPath("$.maxParallel").value(2))
+            .andExpect(jsonPath("$.available").value(true));
     }
 
     @Test

@@ -81,7 +81,8 @@ public class BookAiContentController {
     @GetMapping("/ai/content/queue")
     public ResponseEntity<QueueStatsPayload> queueStats() {
         BookAiContentRequestQueue.QueueSnapshot snapshot = requestQueue.snapshot();
-        return ResponseEntity.ok(new QueueStatsPayload(snapshot.running(), snapshot.pending(), snapshot.maxParallel()));
+        return ResponseEntity.ok(new QueueStatsPayload(
+            snapshot.running(), snapshot.pending(), snapshot.maxParallel(), aiContentService.isAvailable()));
     }
 
     /**
@@ -353,7 +354,7 @@ public class BookAiContentController {
     }
 
     private record OptionalResolution(UUID bookId, String error) {}
-    private record QueueStatsPayload(int running, int pending, int maxParallel) {}
+    private record QueueStatsPayload(int running, int pending, int maxParallel, boolean available) {}
     private record QueuePositionPayload(Integer position, int running, int pending, int maxParallel)
         implements BookAiContentSsePayload {}
     private record QueueStartedPayload(int running, int pending, int maxParallel, long queueWaitMs)

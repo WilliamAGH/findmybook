@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { ChevronDown, RefreshCw } from "@lucide/svelte";
   import { streamBookAiContent } from "$lib/services/bookAiContentStream";
   import { getBookAiContentQueueStats } from "$lib/services/books";
@@ -21,10 +21,19 @@
   let aiQueueMessage = $state<string | null>(null);
   let aiLoadingMessage = $state("Generating AI content...");
   let aiAutoTriggerDeferred = $state(false);
+  let aiServiceAvailable = $state(true);
   let collapsed = $state(false);
   let aiAbortController: AbortController | null = null;
   let activeRequestToken: symbol | null = null;
   let lastAutoTriggerIdentifier = $state<string | null>(null);
+
+  /** True when the auto-trigger $effect is about to fire but hasn't yet set aiLoading. */
+  let willAutoTrigger = $derived(
+    !!identifier
+      && !book?.aiContent
+      && !aiAutoTriggerDeferred
+      && lastAutoTriggerIdentifier !== identifier
+  );
 
   function readCollapseState(): boolean {
     try {
@@ -51,11 +60,13 @@
   function handleAiQueueUpdate(update: BookAiContentQueueUpdate): void {
     if (update.event === "queued" || update.event === "queue") {
       aiQueueMessage = update.position != null
-        ? `Queued (position ${update.position})`
+        ? `Queued (position ${update.position}, ${update.running}/${update.maxParallel} running)`
         : "Queued for generation";
+      aiLoadingMessage = "Waiting in queue...";
       return;
     }
     aiQueueMessage = null;
+    aiLoadingMessage = "Generating AI content...";
   }
 
   function handleAiStreamEvent(event: BookAiContentModelStreamUpdate): void {
@@ -74,6 +85,15 @@
   async function hasQueueCapacity(refresh: boolean): Promise<boolean> {
     try {
       const queueStats = await getBookAiContentQueueStats();
+      if (!queueStats.available) {
+        aiServiceAvailable = false;
+        if (!book?.aiContent) {
+          return false;
+        }
+        aiErrorMessage = refresh ? "AI content service is not available right now." : null;
+        return false;
+      }
+      aiServiceAvailable = true;
       if (queueStats.pending > AI_AUTO_TRIGGER_QUEUE_THRESHOLD) {
         aiQueueMessage = `Queue busy (${queueStats.pending} waiting)`;
         aiAutoTriggerDeferred = !refresh;
@@ -144,7 +164,11 @@
       if (activeRequestToken !== requestToken) {
         return;
       }
-      aiErrorMessage = error instanceof Error ? error.message : "Unable to generate AI content";
+      const message = error instanceof Error ? error.message : "Unable to generate AI content";
+      if (message.toLowerCase().includes("not configured") || message.toLowerCase().includes("not available")) {
+        aiServiceAvailable = false;
+      }
+      aiErrorMessage = message;
       console.error("Book AI content generation failed:", error);
     } finally {
       if (activeRequestToken === requestToken) {
@@ -163,10 +187,12 @@
   });
 
   $effect(() => {
-    if (!identifier || lastAutoTriggerIdentifier === identifier) {
+    // untrack lastAutoTriggerIdentifier so writing it doesn't create a
+    // tracked dependency that would trigger a re-run whose cleanup
+    // clearTimeout kills the pending auto-trigger before it can fire.
+    if (!identifier || untrack(() => lastAutoTriggerIdentifier) === identifier) {
       return;
     }
-    lastAutoTriggerIdentifier = identifier;
 
     aiAbortController?.abort();
     aiAbortController = null;
@@ -175,10 +201,15 @@
     aiErrorMessage = null;
     aiQueueMessage = null;
     aiAutoTriggerDeferred = false;
+    aiServiceAvailable = true;
     aiLoadingMessage = "Generating AI content...";
 
     const scheduledIdentifier = identifier;
     const autoTriggerDelay = setTimeout(() => {
+      // Mark this identifier as processed inside the callback so
+      // willAutoTrigger stays true (showing the spinner) until the
+      // trigger actually fires — avoiding a flash of empty content.
+      lastAutoTriggerIdentifier = scheduledIdentifier;
       if (identifier !== scheduledIdentifier) {
         return;
       }
@@ -193,6 +224,7 @@
   });
 </script>
 
+{#if aiServiceAvailable || book.aiContent}
 <section class="rounded-xl border border-linen-200 bg-linen-50/60 dark:border-slate-700 dark:bg-slate-900/60">
   <!-- Header toggle row -->
   <div class="flex items-center justify-between gap-3 px-4 py-3">
@@ -208,16 +240,18 @@
       />
       Reader's Guide
     </button>
-    <button
-      type="button"
-      class="inline-flex items-center justify-center rounded-md p-1 text-anthracite-500 transition hover:bg-linen-100 hover:text-anthracite-700 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-      disabled={aiLoading}
-      onclick={() => triggerAiGeneration(true)}
-      title="Refresh"
-      aria-label="Refresh"
-    >
-      <RefreshCw size={14} class={aiLoading ? "animate-spin" : ""} />
-    </button>
+    {#if aiServiceAvailable}
+      <button
+        type="button"
+        class="inline-flex items-center justify-center rounded-md p-1 text-anthracite-500 transition hover:bg-linen-100 hover:text-anthracite-700 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+        disabled={aiLoading}
+        onclick={() => triggerAiGeneration(true)}
+        title="Refresh"
+        aria-label="Refresh"
+      >
+        <RefreshCw size={14} class={aiLoading ? "animate-spin" : ""} />
+      </button>
+    {/if}
   </div>
 
   <!-- Collapsible body -->
@@ -288,11 +322,16 @@
         </p>
       {:else if aiErrorMessage}
         <p class="text-xs text-red-700 dark:text-red-300">{aiErrorMessage}</p>
-      {:else}
-        <p class="text-xs text-anthracite-500 dark:text-slate-400">
-          No AI content available yet.
-        </p>
+      {:else if willAutoTrigger}
+        <div class="flex items-center gap-2">
+          <span
+            aria-hidden="true"
+            class="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-r-transparent opacity-50"
+          ></span>
+          <p class="text-sm text-anthracite-600 dark:text-slate-400">Loading AI content...</p>
+        </div>
       {/if}
     </div>
   {/if}
 </section>
+{/if}

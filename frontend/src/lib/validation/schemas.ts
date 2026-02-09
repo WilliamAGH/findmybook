@@ -212,6 +212,7 @@ export const BookAiContentQueueStatsSchema = z.object({
   running: z.number().int().nonnegative(),
   pending: z.number().int().nonnegative(),
   maxParallel: z.number().int().positive(),
+  available: z.boolean(),
 });
 
 export const BookAiContentQueueUpdateSchema = z.union([
