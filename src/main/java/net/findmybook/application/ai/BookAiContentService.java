@@ -37,86 +37,37 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
-/**
- * Coordinates cache-first AI content generation for book detail pages.
- *
- * <p>This application service keeps controller logic thin by owning:
- * prompt construction, OpenAI streaming, strict response parsing, and
- * persistence into versioned Postgres snapshots.</p>
- */
+/** Coordinates cache-first AI content generation for book detail pages. */
 @Service
 public class BookAiContentService {
 
     private static final Logger log = LoggerFactory.getLogger(BookAiContentService.class);
-
     private static final String DEFAULT_PROVIDER = "openai";
     private static final String DEFAULT_API_MODE = "chat";
     private static final String DEFAULT_MODEL = "gpt-5-mini";
     private static final int MAX_KEY_THEME_COUNT = 6;
-
     private static final int MAX_TAKEAWAY_COUNT = 5;
     private static final long MAX_COMPLETION_TOKENS = 1000L;
-
-    /**
-     * Minimum character count for a book description to be considered sufficient
-     * for AI content generation. Descriptions shorter than this produce unreliable
-     * output because the model lacks enough source material and resorts to fabrication.
-     */
     private static final int MIN_DESCRIPTION_LENGTH = 50;
-    /**
-     * Low temperature for grounded, natural-sounding output.
-     * 0.2 provides enough variation for readable prose while keeping
-     * output faithful to the source material. Values above 0.5 risk
-     * creative divergence; the original 0.7 was a hallucination vector.
-     */
     private static final double SAMPLING_TEMPERATURE = 0.2;
-
-    /**
-     * Sentinel value set by {@code normalizeOpenAiSdkConfig} when no real API key is available.
-     * Must match {@code BookRecommendationEngineApplication.AI_KEY_NOT_CONFIGURED}.
-     */
     private static final String API_KEY_SENTINEL = "not-configured";
 
     private static final String SYSTEM_PROMPT = """
-        You are a knowledgeable book content writer. You receive a book's title, \
-        authors, publisher, and description. Use ALL of this context — plus your \
-        general knowledge of the author, genre, and subject matter — to produce \
-        useful, accurate content.
-
-        ACCURACY RULES (highest priority):
-        - You MAY use your training knowledge to infer genre, audience, themes, \
-          and context from the title, author, categories, and description.
-        - You MUST NOT fabricate specific facts: no invented quotes, page counts, \
-          chapter titles, plot points, sales figures, publication details, awards, \
-          or biographical claims unless they appear in the provided description.
+        You are a knowledgeable book content writer. You receive a book's title, authors, publisher, and description. Use all context plus your genre/subject knowledge.
+        ACCURACY RULES:
+        - You MAY infer genre, audience, themes, and context from provided metadata.
+        - You MUST NOT fabricate quotes, page counts, chapter titles, plot points, sales, awards, publication details, or biography claims absent from the description.
         - You MUST NOT invent statistics, studies, or research findings.
-        - If a field cannot be reasonably inferred, set it to null (for strings) \
-          or an empty array [] (for arrays). Never pad content with guesses.
-
-        Return ONLY strict JSON using this exact shape:
-        {
-          "summary": string | null,
-          "readerFit": string | null,
-          "keyThemes": string[],
-          "takeaways": string[],
-          "context": string | null
-        }
-
-        Field rules (subject to accuracy rules above):
-        - summary: 2 concise sentences describing the book's content based on \
-          the description and your knowledge of the subject matter. Null only if \
-          the description is truly empty.
-        - readerFit: 1-2 sentences on the intended audience, inferred from the \
-          description, genre, and author. Null if genuinely indeterminate.
-        - keyThemes: 3 to 6 short topic phrases. Draw from the description and \
-          reasonable inference about the subject. Empty array [] only when the \
-          description is too vague to identify any themes.
-        - takeaways: 2 to 5 specific points a reader will gain, based on what \
-          the description states or clearly implies. Empty array [] if the \
-          description does not support any.
-        - context: 1-2 sentences placing the book in its genre or field. Use \
-          your knowledge of the author and subject to provide useful framing.
-        - No markdown, no prose outside JSON, no extra keys.
+        - If a field cannot be reasonably inferred, return null (string) or [] (array).
+        Return ONLY strict JSON with this exact shape:
+        {"summary": string|null, "readerFit": string|null, "keyThemes": string[], "takeaways": string[], "context": string|null}
+        Field rules:
+        - summary: 2 concise sentences. Null only if description is truly empty.
+        - readerFit: 1-2 sentences on audience. Null if indeterminate.
+        - keyThemes: 3-6 short phrases. [] only when source is too vague.
+        - takeaways: 2-5 specific points. [] if unsupported.
+        - context: 1-2 sentences situating the book in its field.
+        - No markdown, prose, or extra keys.
         """;
 
     private final BookAiContentRepository repository;
@@ -129,9 +80,7 @@ public class BookAiContentService {
     private final long requestTimeoutSeconds;
     private final long readTimeoutSeconds;
 
-    /**
-     * Creates the service with persistence, lookup, and SDK dependencies.
-     */
+    /** Creates the service with persistence, lookup, and SDK dependencies. */
     public BookAiContentService(
         BookAiContentRepository repository,
         BookIdentifierResolver identifierResolver,
@@ -151,75 +100,50 @@ public class BookAiContentService {
         this.requestTimeoutSeconds = Math.max(1L, requestTimeoutSeconds);
         this.readTimeoutSeconds = Math.max(1L, readTimeoutSeconds);
 
-        if (StringUtils.hasText(apiKey)
-                && !API_KEY_SENTINEL.equals(apiKey.trim())) {
+        if (StringUtils.hasText(apiKey) && !API_KEY_SENTINEL.equals(apiKey.trim())) {
             String resolvedBaseUrl = normalizeSdkBaseUrl(baseUrl);
-            this.openAiClient = OpenAIOkHttpClient.builder()
-                .apiKey(apiKey.trim())
-                .baseUrl(resolvedBaseUrl)
-                .maxRetries(0)
-                .build();
+            this.openAiClient = OpenAIOkHttpClient.builder().apiKey(apiKey.trim()).baseUrl(resolvedBaseUrl).maxRetries(0).build();
             this.available = true;
             log.info("Book AI content service configured (model={}, baseUrl={})", this.configuredModel, resolvedBaseUrl);
-        } else {
-            this.openAiClient = null;
-            this.available = false;
-            log.warn("Book AI content service is disabled: no API key configured");
+            return;
         }
+
+        this.openAiClient = null;
+        this.available = false;
+        log.warn("Book AI content service is disabled: no API key configured");
     }
 
-    /**
-     * Resolves any user-facing book identifier to canonical UUID.
-     */
+    /** Resolves any user-facing book identifier to canonical UUID. */
     public Optional<UUID> resolveBookId(String identifier) {
         return identifierResolver.resolveToUuid(identifier);
     }
 
-    /**
-     * Loads the current persisted AI snapshot for a canonical book UUID.
-     */
+    /** Loads the current persisted AI snapshot for a canonical book UUID. */
     public Optional<BookAiContentSnapshot> findCurrent(UUID bookId) {
         return repository.fetchCurrent(bookId);
     }
 
-    /**
-     * Generates fresh AI content, streams text deltas, and persists a new current version.
-     *
-     * @param bookId canonical book UUID
-     * @param onDelta callback invoked for each model text delta
-     * @return generated raw message plus persisted snapshot metadata
-     */
+    /** Generates fresh AI content, streams text deltas, and persists a new current version. */
     public GeneratedContent generateAndPersist(UUID bookId, Consumer<String> onDelta) {
         ensureAvailable();
-
-        BookPromptContext promptContext = loadPromptContext(bookId);
-        String prompt = buildPrompt(promptContext);
+        String prompt = buildPrompt(loadPromptContext(bookId));
         String promptHash = sha256(prompt);
 
         ChatCompletionCreateParams params = ChatCompletionCreateParams.builder()
             .model(ChatModel.of(configuredModel))
             .messages(List.of(
-                ChatCompletionMessageParam.ofSystem(
-                    ChatCompletionSystemMessageParam.builder().content(SYSTEM_PROMPT).build()
-                ),
-                ChatCompletionMessageParam.ofUser(
-                    ChatCompletionUserMessageParam.builder().content(prompt).build()
-                )
+                ChatCompletionMessageParam.ofSystem(ChatCompletionSystemMessageParam.builder().content(SYSTEM_PROMPT).build()),
+                ChatCompletionMessageParam.ofUser(ChatCompletionUserMessageParam.builder().content(prompt).build())
             ))
-            // openai-java 4.16.1 deprecates maxTokens() in favor of maxCompletionTokens().
             .maxCompletionTokens(MAX_COMPLETION_TOKENS)
             .temperature(SAMPLING_TEMPERATURE)
             .build();
 
         RequestOptions options = RequestOptions.builder()
-            .timeout(Timeout.builder()
-                .request(Duration.ofSeconds(requestTimeoutSeconds))
-                .read(Duration.ofSeconds(readTimeoutSeconds))
-                .build())
+            .timeout(Timeout.builder().request(Duration.ofSeconds(requestTimeoutSeconds)).read(Duration.ofSeconds(readTimeoutSeconds)).build())
             .build();
 
         StringBuilder fullResponseBuilder = new StringBuilder();
-
         try (StreamResponse<ChatCompletionChunk> stream = openAiClient.chat().completions().createStreaming(params, options)) {
             stream.stream().forEach(chunk -> {
                 if (chunk.choices().isEmpty()) {
@@ -238,36 +162,21 @@ public class BookAiContentService {
 
         String rawMessage = fullResponseBuilder.toString();
         BookAiContent aiContent = parseAiContent(rawMessage);
-
-        // Persist the new version
-        BookAiContentSnapshot snapshot = repository.insertNewCurrentVersion(
-            bookId,
-            aiContent,
-            configuredModel,
-            DEFAULT_PROVIDER,
-            promptHash
-        );
-
+        BookAiContentSnapshot snapshot = repository.insertNewCurrentVersion(bookId, aiContent, configuredModel, DEFAULT_PROVIDER, promptHash);
         return new GeneratedContent(rawMessage, snapshot);
     }
 
-    /**
-     * Indicates whether AI generation is currently configured and available.
-     */
+    /** Indicates whether AI generation is currently configured and available. */
     public boolean isAvailable() {
         return available;
     }
 
-    /**
-     * Returns the configured model identifier for stream metadata.
-     */
+    /** Returns the configured model identifier for stream metadata. */
     public String configuredModel() {
         return configuredModel;
     }
 
-    /**
-     * Returns the configured API mode label for stream metadata.
-     */
+    /** Returns the configured API mode label for stream metadata. */
     public String apiMode() {
         return DEFAULT_API_MODE;
     }
@@ -283,22 +192,19 @@ public class BookAiContentService {
             .orElseThrow(() -> new IllegalStateException("Book details unavailable for AI content: " + bookId));
 
         String description = detail.description();
-        if (!StringUtils.hasText(description) || description.trim().length() < MIN_DESCRIPTION_LENGTH) {
+        int descriptionLength = description == null ? 0 : description.trim().length();
+        if (!StringUtils.hasText(description) || descriptionLength < MIN_DESCRIPTION_LENGTH) {
             throw new BookAiGenerationException(
                 "Book description is missing or too short for faithful AI generation (bookId=" + bookId
-                    + ", length=" + (description == null ? 0 : description.trim().length())
-                    + ", minimum=" + MIN_DESCRIPTION_LENGTH + ")"
+                    + ", length=" + descriptionLength + ", minimum=" + MIN_DESCRIPTION_LENGTH + ")"
             );
         }
 
-        String title = firstText(detail.title(), "Unknown title");
-        String authorList = detail.authors() == null || detail.authors().isEmpty()
-            ? "Unknown author"
-            : String.join(", ", detail.authors());
+        String title = textOrFallback(detail.title(), "Unknown title");
+        String authors = detail.authors() == null || detail.authors().isEmpty() ? "Unknown author" : String.join(", ", detail.authors());
         String publishedDate = detail.publishedDate() != null ? detail.publishedDate().toString() : "Unknown";
-        String publisher = firstText(detail.publisher(), "Unknown");
-
-        return new BookPromptContext(bookId, title, authorList, description.trim(), publishedDate, publisher);
+        String publisher = textOrFallback(detail.publisher(), "Unknown");
+        return new BookPromptContext(bookId, title, authors, description.trim(), publishedDate, publisher);
     }
 
     private String buildPrompt(BookPromptContext context) {
@@ -311,13 +217,7 @@ public class BookAiContentService {
 
             Description:
             %s
-            """.formatted(
-                context.bookId(),
-                context.title(),
-                context.authors(),
-                context.publishedDate(),
-                context.publisher(),
-                context.description());
+            """.formatted(context.bookId(), context.title(), context.authors(), context.publishedDate(), context.publisher(), context.description());
     }
 
     private BookAiContent parseAiContent(String responseText) {
@@ -326,27 +226,22 @@ public class BookAiContentService {
         }
 
         JsonNode payload = parseJsonPayload(responseText);
-        String summary = requireText(payload, "summary");
-        Optional<String> readerFit = parseOptionalText(payload, "readerFit", "reader_fit", "idealReader");
-        List<String> themes = parseThemeList(payload, "keyThemes", "key_themes", "themes");
-        Optional<List<String>> takeaways = parseOptionalStringList(payload, "takeaways");
-        Optional<String> context = parseOptionalText(payload, "context");
+        String summary = requiredText(payload, "summary");
+        Optional<String> readerFit = optionalText(payload, "readerFit", "reader_fit", "idealReader");
+        List<String> themes = stringList(payload, MAX_KEY_THEME_COUNT, "keyThemes", "key_themes", "themes");
+        List<String> takeawaysList = stringList(payload, MAX_TAKEAWAY_COUNT, "takeaways");
+        Optional<List<String>> takeaways = takeawaysList.isEmpty() ? Optional.empty() : Optional.of(takeawaysList);
+        Optional<String> context = optionalText(payload, "context");
 
         if (themes.isEmpty() && takeaways.isEmpty()) {
-            log.warn("AI generated content with no themes and no takeaways — " +
-                "likely insufficient source material");
+            log.warn("AI generated content with no themes and no takeaways - likely insufficient source material");
         }
 
-        return new BookAiContent(
-            summary, readerFit.orElse(null), themes, takeaways.orElse(null), context.orElse(null));
+        return new BookAiContent(summary, readerFit.orElse(null), themes, takeaways.orElse(null), context.orElse(null));
     }
 
     private JsonNode parseJsonPayload(String responseText) {
-        String cleaned = responseText
-            .replace("```json", "")
-            .replace("```", "")
-            .trim();
-
+        String cleaned = responseText.replace("```json", "").replace("```", "").trim();
         try {
             return objectMapper.readTree(cleaned);
         } catch (JacksonException initialParseException) {
@@ -355,8 +250,7 @@ public class BookAiContentService {
             if (openBrace < 0 || closeBrace <= openBrace) {
                 throw new IllegalStateException("AI response did not include a valid JSON object");
             }
-            log.warn("AI response required brace extraction fallback (initial parse failed: {})",
-                initialParseException.getMessage());
+            log.warn("AI response required brace extraction fallback (initial parse failed: {})", initialParseException.getMessage());
             String extracted = cleaned.substring(openBrace, closeBrace + 1);
             try {
                 return objectMapper.readTree(extracted);
@@ -366,123 +260,67 @@ public class BookAiContentService {
         }
     }
 
-    private String requireText(JsonNode payload, String field, String... aliases) {
-        JsonNode node = resolveJsonNode(payload, field, aliases);
-        String text = textOrNull(node);
-        if (StringUtils.hasText(text)) {
-            return text;
-        }
-        throw new IllegalStateException("AI response missing required field: " + field);
+    private String requiredText(JsonNode payload, String field, String... aliases) {
+        return optionalText(payload, field, aliases)
+            .orElseThrow(() -> new IllegalStateException("AI response missing required field: " + field));
     }
 
-    /**
-     * Parses a theme list that may legitimately be empty when the model
-     * cannot extract themes from the provided description.
-     * Themes are capped at {@link #MAX_KEY_THEME_COUNT}.
-     */
-    private List<String> parseThemeList(JsonNode payload, String field, String... aliases) {
+    private Optional<String> optionalText(JsonNode payload, String field, String... aliases) {
         JsonNode node = resolveJsonNode(payload, field, aliases);
+        if (node == null || node.isNull()) {
+            return Optional.empty();
+        }
+        String text = node.asText(null);
+        return StringUtils.hasText(text) ? Optional.of(text.trim()) : Optional.empty();
+    }
 
+    private List<String> stringList(JsonNode payload, int maxSize, String field, String... aliases) {
+        JsonNode node = resolveJsonNode(payload, field, aliases);
         if (node == null || node.isNull() || !node.isArray()) {
             return List.of();
         }
-
-        List<String> values = collectTextValues(node);
-        if (values.size() > MAX_KEY_THEME_COUNT) {
-            values = values.subList(0, MAX_KEY_THEME_COUNT);
-        }
-
-        return List.copyOf(values);
-    }
-
-    private Optional<List<String>> parseOptionalStringList(JsonNode payload, String field) {
-        JsonNode node = payload.get(field);
-        if (!isValidNode(node) || !node.isArray() || node.size() == 0) {
-            return Optional.empty();
-        }
-        List<String> values = collectTextValues(node);
-        if (values.isEmpty()) {
-            return Optional.empty();
-        }
-        if (values.size() > MAX_TAKEAWAY_COUNT) {
-            values = values.subList(0, MAX_TAKEAWAY_COUNT);
-        }
-        return Optional.of(List.copyOf(values));
-    }
-
-    /** Extracts non-blank text values from a JSON array node. */
-    private List<String> collectTextValues(JsonNode arrayNode) {
         List<String> values = new ArrayList<>();
-        for (JsonNode elementNode : arrayNode) {
-            String elementText = textOrNull(elementNode);
-            if (StringUtils.hasText(elementText)) {
-                values.add(elementText);
+        for (JsonNode elementNode : node) {
+            String text = elementNode == null || elementNode.isNull() ? null : elementNode.asText(null);
+            if (!StringUtils.hasText(text)) {
+                continue;
+            }
+            values.add(text.trim());
+            if (values.size() == maxSize) {
+                break;
             }
         }
-        return values;
+        return values.isEmpty() ? List.of() : List.copyOf(values);
     }
 
-    private Optional<String> parseOptionalText(JsonNode payload, String field, String... aliases) {
-        JsonNode node = resolveJsonNode(payload, field, aliases);
-        String text = textOrNull(node);
-        return StringUtils.hasText(text) ? Optional.of(text) : Optional.empty();
-    }
-
-    /**
-     * Resolves a JSON node from a primary field name or any of its aliases.
-     * Returns the first non-null, non-missing node found, or null if none match.
-     */
     private JsonNode resolveJsonNode(JsonNode payload, String field, String... aliases) {
         JsonNode node = payload.get(field);
-        if (isValidNode(node)) {
+        if (node != null && !node.isNull()) {
             return node;
         }
         for (String alias : aliases) {
             JsonNode aliasNode = payload.get(alias);
-            if (isValidNode(aliasNode)) {
+            if (aliasNode != null && !aliasNode.isNull()) {
                 return aliasNode;
             }
         }
         return null;
     }
 
-    /** Returns true if the node exists and is not explicitly null. */
-    private boolean isValidNode(JsonNode node) {
-        return node != null && !node.isNull();
-    }
-
-    private String textOrNull(JsonNode node) {
-        if (node == null || node.isNull()) {
-            return null;
-        }
-        String text = node.asString();
-        return StringUtils.hasText(text) ? text.trim() : null;
-    }
-
-    private String firstText(String text, String fallback) {
-        return StringUtils.hasText(text) ? text.trim() : fallback;
+    private String textOrFallback(String value, String fallback) {
+        return StringUtils.hasText(value) ? value.trim() : fallback;
     }
 
     private String sha256(String input) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hashed = digest.digest(input.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(hashed);
+            return HexFormat.of().formatHex(digest.digest(input.getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 unavailable", exception);
         }
     }
 
-    /**
-     * Normalizes an OpenAI-compatible base URL for the SDK.
-     *
-     * <p>Mirrors the normalization logic from the java-chat project's
-     * {@code OpenAiSdkUrlNormalizer}: strips trailing slashes, strips
-     * trailing {@code /embeddings}, and ensures a {@code /v1} suffix.</p>
-     *
-     * @param rawUrl raw base URL from environment configuration
-     * @return SDK-ready base URL ending in {@code /v1}
-     */
+    /** Normalizes an OpenAI-compatible base URL for the SDK. */
     public static String normalizeSdkBaseUrl(String rawUrl) {
         if (!StringUtils.hasText(rawUrl)) {
             return "https://api.openai.com/v1";
@@ -494,23 +332,10 @@ public class BookAiContentService {
         if (normalized.endsWith("/embeddings")) {
             normalized = normalized.substring(0, normalized.length() - "/embeddings".length());
         }
-        if (!normalized.endsWith("/v1")) {
-            normalized = normalized + "/v1";
-        }
-        return normalized;
+        return normalized.endsWith("/v1") ? normalized : normalized + "/v1";
     }
 
-    /**
-     * Immutable generation result used by SSE controllers.
-     */
-    public record GeneratedContent(String rawMessage, BookAiContentSnapshot snapshot) {
-    }
-
-    private record BookPromptContext(UUID bookId,
-                                     String title,
-                                     String authors,
-                                     String description,
-                                     String publishedDate,
-                                     String publisher) {
-    }
+    /** Immutable generation result used by SSE controllers. */
+    public record GeneratedContent(String rawMessage, BookAiContentSnapshot snapshot) {}
+    private record BookPromptContext(UUID bookId, String title, String authors, String description, String publishedDate, String publisher) {}
 }
