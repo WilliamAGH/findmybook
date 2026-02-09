@@ -201,7 +201,7 @@ public class GoogleApiFetcher {
      * Searches volumes with authenticated API call
      *
      * @param query Search terms
-     * @param startIndex Pagination start index
+     * @param startIndex Zero-based absolute offset into Google volumes search results
      * @param orderBy Sort order ("relevance", "newest")
      * @param langCode Language restriction code
      * @return JsonNode containing search results
@@ -228,7 +228,7 @@ public class GoogleApiFetcher {
      * Searches volumes with unauthenticated API call
      *
      * @param query Search terms
-     * @param startIndex Pagination start index
+     * @param startIndex Zero-based absolute offset into Google volumes search results
      * @param orderBy Sort order ("relevance", "newest")
      * @param langCode Language restriction code
      * @return JsonNode containing search results
@@ -324,7 +324,7 @@ public class GoogleApiFetcher {
      * Internal implementation for searching volumes
      * 
      * @param query Search terms
-     * @param startIndex Pagination start index
+     * @param startIndex Zero-based absolute offset into Google volumes search results
      * @param orderBy Sort order
      * @param langCode Language filter
      * @param authenticated Use API key for authentication

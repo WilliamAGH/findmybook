@@ -20,7 +20,7 @@
 ## Search API Contract
 - `GET /api/books/search` supports:
   - `query` (required)
-  - `startIndex` (default `0`)
+  - `startIndex` (default `0`; **zero-based absolute offset**, not a one-based page number)
   - `maxResults` (default `12`)
   - `orderBy` (`relevance`, `newest`, `title`, `author`)
   - `publishedYear` (optional integer year filter)
@@ -68,6 +68,10 @@
 
 ## Search Pagination
 - The `/api/books/search` endpoint defaults to 12 results per page.
+- Route-level UI query params may use `page=1,2,3...`; clients must convert with:
+  - `startIndex = (page - 1) * maxResults`
+  - `page = floor(startIndex / maxResults) + 1`
+- The backend search API itself is offset-based and does not use Spring Data `Pageable`/`PageRequest`.
 - Returns cursor metadata: `hasMore`, `nextStartIndex`, `prefetchedCount`.
 - Prefetches an additional page window to keep pagination deterministic.
 - Web UI caches up to six prefetched pages in-memory.
@@ -129,10 +133,12 @@
 - **Google Books Volumes Search API**
   - Endpoint: `GET https://www.googleapis.com/books/v1/volumes`
   - Required/important params: `q`, `startIndex`, `maxResults` (`<=40`), `orderBy` (`relevance|newest`), `projection`, `langRestrict`
+  - Pagination basis: `startIndex` is a zero-based absolute offset.
   - Notes: `orderBy` accepts only `relevance` or `newest`; unsupported values must be normalized server-side.
 - **Open Library Search API**
   - Endpoint: `GET https://openlibrary.org/search.json`
-  - Required/important params: `q`, `mode=everything`, `limit`, `fields`; optional `sort` facet when provider sorting is requested
+  - Required/important params: `q`, `mode=everything`, `offset` or `page`, `limit`, `fields`; optional `sort` facet when provider sorting is requested
+  - Pagination basis: `offset` is zero-based; `page` is one-based.
   - Notes: backend search uses OpenLibrary web-style query semantics (`q` + `mode=everything`) with explicit fields (`key,title,author_name,isbn,cover_i,first_publish_year,number_of_pages_median,subject,publisher,language,first_sentence`); `orderBy=newest` maps to Open Library `sort=new`, while unsupported provider sort facets are handled by backend re-sorting.
 - **Open Library Books API**
   - Endpoint: `GET https://openlibrary.org/api/books`
@@ -144,11 +150,9 @@
   - Notes: treat this as a cover-only endpoint and pair with search/details APIs for bibliographic fields.
 
 ## External Fallback Ordering (Synchronous Search)
-- On page 1, Open Library can augment Postgres results when the page has cover gaps (for example, many no-cover placeholders).
-  - Result ordering remains: Postgres results with covers first, then Open Library cover-bearing results, then lower-quality/no-cover results.
-- When Postgres returns zero matches:
-  - Open Library fallback runs first.
-  - Google Books fallback runs immediately after only for remaining slots not filled by Open Library.
+- Open Library is the primary fallback provider for synchronous search windows.
+- Google Books is the secondary fallback provider when the requested search window still underfills after Open Library.
+- Fallback evaluation is offset-window aware: page-2+ requests use the same offset-based search contract (`startIndex`/`maxResults`) and can still receive external supplementation when needed.
 - Combined external candidates are deduplicated before persistence and response assembly.
 
 ## Admin API

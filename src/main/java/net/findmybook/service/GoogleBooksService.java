@@ -44,7 +44,7 @@ public class GoogleBooksService {
      * It is protected by rate limiting and circuit breaking.
      *
      * @param query Search query string
-     * @param startIndex Starting index for pagination (0-based)
+     * @param startIndex Zero-based absolute offset for Google Books pagination
      * @param orderBy Result ordering preference (e.g., "newest", "relevance")
      * @param langCode Optional language code filter (e.g., "en", "fr") to restrict search results
      * @return Mono containing the raw JsonNode response from the API for a single page
