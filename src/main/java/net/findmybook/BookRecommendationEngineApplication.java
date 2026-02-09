@@ -67,8 +67,8 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
         String key = firstText(
             System.getProperty("AI_DEFAULT_OPENAI_API_KEY"),
             System.getenv("AI_DEFAULT_OPENAI_API_KEY"),
-            System.getProperty("OPENAI_API_KEY"),
-            System.getenv("OPENAI_API_KEY")
+            System.getenv("OPENAI_API_KEY"),
+            System.getProperty("OPENAI_API_KEY")
         );
         return StringUtils.hasText(key) && !AI_KEY_NOT_CONFIGURED.equals(key);
     }
