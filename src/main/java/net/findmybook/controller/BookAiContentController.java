@@ -228,10 +228,12 @@ public class BookAiContentController {
             BookAiContentSnapshotDto snapshotDto = BookAiContentSnapshotDto.fromSnapshot(result.snapshot());
             try {
                 sendEvent(emitter, "done", new DonePayload(result.rawMessage(), snapshotDto));
+                safelyComplete(emitter);
             } catch (IllegalStateException doneDeliveryException) {
                 log.warn("AI done event delivery failed for bookId={}", bookId, doneDeliveryException);
+                emitTerminalError(emitter, AiErrorCode.GENERATION_FAILED,
+                    "AI content was generated but could not be delivered");
             }
-            safelyComplete(emitter);
         });
     }
 
