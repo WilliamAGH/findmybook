@@ -122,12 +122,8 @@ async function readBookAiContentSseStream(
           streamError.data.retryable,
         );
       }
-      if (typeof parsed === "object" && parsed !== null && "error" in parsed) {
-        const errorMessage = (parsed as { error?: unknown }).error;
-        if (typeof errorMessage === "string" && errorMessage.trim().length > 0) {
-          throw createBookAiContentStreamError(errorMessage);
-        }
-      }
+      // Enforce the explicit backend stream error contract (`error`, `code`, `retryable`).
+      // Untyped/legacy payloads are treated as invalid instead of being loosely interpreted.
       throw createBookAiContentStreamError("Book AI stream failed");
     }
 

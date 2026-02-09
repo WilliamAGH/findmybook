@@ -1,8 +1,15 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { ChevronDown, RefreshCw } from "@lucide/svelte";
+  import BookAiContentPanelView from "$lib/components/BookAiContentPanelView.svelte";
   import { isBookAiContentStreamError, streamBookAiContent } from "$lib/services/bookAiContentStream";
   import { getBookAiContentQueueStats } from "$lib/services/books";
+  import {
+    AI_AUTO_TRIGGER_QUEUE_THRESHOLD,
+    PRODUCTION_ENVIRONMENT_MODE,
+    normalizeEnvironmentMode,
+    shouldRenderPanel,
+    shouldSuppressPanelForShortDescriptionInProduction,
+  } from "$lib/services/bookAiContentPanelState";
   import type {
     Book,
     BookAiContentModelStreamUpdate,
@@ -19,10 +26,7 @@
 
   let { identifier, book, onAiContentUpdate }: Props = $props();
 
-  const AI_AUTO_TRIGGER_QUEUE_THRESHOLD = 5;
-  const AI_MINIMUM_DESCRIPTION_LENGTH = 50;
   const COLLAPSE_STORAGE_KEY = "findmybook:ai-collapsed";
-  const PRODUCTION_ENVIRONMENT_MODE = "production";
 
   let aiLoading = $state(false);
   let aiErrorMessage = $state<string | null>(null);
@@ -41,7 +45,7 @@
     !!identifier
       && !book?.aiContent
       && !aiAutoTriggerDeferred
-      && lastAutoTriggerIdentifier !== identifier
+      && lastAutoTriggerIdentifier !== identifier,
   );
 
   function readCollapseState(): boolean {
@@ -66,55 +70,22 @@
     writeCollapseState(collapsed);
   }
 
-  function normalizeEnvironmentMode(mode: string | null | undefined): string {
-    if (!mode) {
-      return PRODUCTION_ENVIRONMENT_MODE;
-    }
-    const normalized = mode.trim().toLowerCase();
-    return normalized.length > 0 ? normalized : PRODUCTION_ENVIRONMENT_MODE;
-  }
-
   function aiFailureDiagnosticsEnabled(): boolean {
     return aiEnvironmentMode !== PRODUCTION_ENVIRONMENT_MODE;
   }
 
-  function resolvedDescriptionLength(): number {
-    const plainTextDescription = book?.descriptionContent?.text;
-    if (plainTextDescription && plainTextDescription.trim().length > 0) {
-      return plainTextDescription.trim().length;
-    }
-    if (book?.description && book.description.trim().length > 0) {
-      return book.description.trim().length;
-    }
-    return 0;
+  function shouldSuppressPanelForCurrentBookInProduction(): boolean {
+    return shouldSuppressPanelForShortDescriptionInProduction(aiFailureDiagnosticsEnabled(), book);
   }
 
-  function shouldSuppressPanelForShortDescriptionInProduction(): boolean {
-    return !aiFailureDiagnosticsEnabled()
-      && !book?.aiContent
-      && resolvedDescriptionLength() < AI_MINIMUM_DESCRIPTION_LENGTH;
+  function shouldDisplayPanel(): boolean {
+    return shouldRenderPanel(aiFailureDiagnosticsEnabled(), aiServiceAvailable, book);
   }
-
   interface AiStreamFailure {
     code: BookAiErrorCode;
     message: string;
     retryable: boolean;
   }
-
-  function resolveLegacyErrorCode(message: string): BookAiErrorCode {
-    const lowered = message.toLowerCase();
-    if (lowered.includes("missing or too short")) {
-      return "description_too_short";
-    }
-    if (lowered.includes("not configured") || lowered.includes("not available")) {
-      return "service_unavailable";
-    }
-    if (lowered.includes("queue")) {
-      return "queue_busy";
-    }
-    return "generation_failed";
-  }
-
   function resolveAiStreamFailure(error: unknown): AiStreamFailure {
     if (isBookAiContentStreamError(error)) {
       return {
@@ -124,10 +95,10 @@
       };
     }
 
-    const fallbackMessage = error instanceof Error ? error.message : "Unable to generate AI content";
+    const defaultErrorMessage = error instanceof Error ? error.message : "Unable to generate AI content";
     return {
-      code: resolveLegacyErrorCode(fallbackMessage),
-      message: fallbackMessage,
+      code: "generation_failed",
+      message: defaultErrorMessage,
       retryable: true,
     };
   }
@@ -184,7 +155,7 @@
     try {
       const queueStats = await getBookAiContentQueueStats();
       aiEnvironmentMode = normalizeEnvironmentMode(queueStats.environmentMode);
-      if (shouldSuppressPanelForShortDescriptionInProduction()) {
+      if (shouldSuppressPanelForCurrentBookInProduction()) {
         aiServiceAvailable = false;
         aiErrorMessage = null;
         aiQueueMessage = null;
@@ -238,6 +209,13 @@
 
   async function triggerAiGeneration(refresh: boolean): Promise<void> {
     if (!identifier || aiLoading) {
+      return;
+    }
+    if (shouldSuppressPanelForCurrentBookInProduction()) {
+      aiServiceAvailable = false;
+      aiErrorMessage = null;
+      aiQueueMessage = null;
+      aiAutoTriggerDeferred = false;
       return;
     }
 
@@ -300,6 +278,10 @@
     }
   }
 
+  function refreshAiContent(): void {
+    void triggerAiGeneration(true);
+  }
+
   onMount(() => {
     collapsed = readCollapseState();
 
@@ -347,119 +329,18 @@
   });
 </script>
 
-{#if aiServiceAvailable || book.aiContent}
-<section class="rounded-xl border border-linen-200 bg-linen-50/60 dark:border-slate-700 dark:bg-slate-900/60">
-  <!-- Header toggle row -->
-  <div class="flex items-center justify-between gap-3 px-4 py-3">
-    <button
-      type="button"
-      class="inline-flex items-center gap-1.5 text-sm font-medium text-anthracite-700 transition hover:text-anthracite-900 dark:text-slate-300 dark:hover:text-slate-100"
-      onclick={toggleCollapsed}
-      aria-expanded={!collapsed}
-    >
-      <ChevronDown
-        size={14}
-        class="shrink-0 transition-transform duration-200 {collapsed ? '-rotate-90' : ''}"
-      />
-      Reader's Guide
-    </button>
-    {#if aiServiceAvailable}
-      <button
-        type="button"
-        class="inline-flex items-center justify-center rounded-md p-1 text-anthracite-500 transition hover:bg-linen-100 hover:text-anthracite-700 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-        disabled={aiLoading}
-        onclick={() => triggerAiGeneration(true)}
-        title="Refresh"
-        aria-label="Refresh"
-      >
-        <RefreshCw size={14} class={aiLoading ? "animate-spin" : ""} />
-      </button>
-    {/if}
-  </div>
-
-  <!-- Collapsible body -->
-  {#if !collapsed}
-    <div class="border-t border-linen-200 px-4 pb-4 pt-3 dark:border-slate-700">
-      {#if book.aiContent}
-        {#if aiErrorMessage}
-          <p class="mb-2 text-xs text-red-700 dark:text-red-300">{aiErrorMessage}</p>
-        {/if}
-        <!-- Summary -->
-        <p class="text-sm leading-relaxed text-anthracite-800 dark:text-slate-200">
-          {book.aiContent.summary}
-        </p>
-
-        <!-- Key Points -->
-        {#if book.aiContent.takeaways && book.aiContent.takeaways.length > 0}
-          <div class="mt-3">
-            <h3 class="mb-1.5 text-xs font-semibold uppercase tracking-wide text-anthracite-500 dark:text-slate-400">
-              Key Points
-            </h3>
-            <ul class="space-y-1 pl-4">
-              {#each book.aiContent.takeaways as point}
-                <li class="list-disc text-sm text-anthracite-700 dark:text-slate-300">{point}</li>
-              {/each}
-            </ul>
-          </div>
-        {/if}
-
-        <!-- Audience -->
-        {#if book.aiContent.readerFit}
-        <div class="mt-3">
-          <h3 class="mb-1 text-xs font-semibold uppercase tracking-wide text-anthracite-500 dark:text-slate-400">
-            Audience
-          </h3>
-          <p class="text-sm text-anthracite-700 dark:text-slate-300">{book.aiContent.readerFit}</p>
-        </div>
-        {/if}
-
-        <!-- Context -->
-        {#if book.aiContent.context}
-          <div class="mt-3">
-            <h3 class="mb-1 text-xs font-semibold uppercase tracking-wide text-anthracite-500 dark:text-slate-400">
-              Context
-            </h3>
-            <p class="text-sm text-anthracite-700 dark:text-slate-300">{book.aiContent.context}</p>
-          </div>
-        {/if}
-
-        <!-- Topic pills -->
-        {#if book.aiContent.keyThemes.length > 0}
-          <div class="mt-3 flex flex-wrap gap-1.5">
-            {#each book.aiContent.keyThemes as theme}
-              <span class="rounded-full border border-linen-300 px-2 py-0.5 text-[11px] text-anthracite-700 dark:border-slate-600 dark:text-slate-300">
-                {theme}
-              </span>
-            {/each}
-          </div>
-        {/if}
-      {:else if aiLoading}
-        <div class="flex items-center gap-2">
-          <span
-            aria-hidden="true"
-            class="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-r-transparent opacity-50"
-          ></span>
-          <p class="text-sm text-anthracite-600 dark:text-slate-400">{aiLoadingMessage}</p>
-        </div>
-        {#if aiQueueMessage}
-          <p class="mt-1.5 text-xs text-anthracite-500 dark:text-slate-400">{aiQueueMessage}</p>
-        {/if}
-      {:else if aiAutoTriggerDeferred}
-        <p class="text-xs text-anthracite-500 dark:text-slate-400">
-          Generation paused while the queue is busy.
-        </p>
-      {:else if aiErrorMessage}
-        <p class="text-xs text-red-700 dark:text-red-300">{aiErrorMessage}</p>
-      {:else if willAutoTrigger}
-        <div class="flex items-center gap-2">
-          <span
-            aria-hidden="true"
-            class="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-r-transparent opacity-50"
-          ></span>
-          <p class="text-sm text-anthracite-600 dark:text-slate-400">Loading AI content...</p>
-        </div>
-      {/if}
-    </div>
-  {/if}
-</section>
+{#if shouldDisplayPanel()}
+  <BookAiContentPanelView
+    {book}
+    {collapsed}
+    {aiServiceAvailable}
+    {aiLoading}
+    {aiErrorMessage}
+    {aiQueueMessage}
+    {aiLoadingMessage}
+    {aiAutoTriggerDeferred}
+    {willAutoTrigger}
+    onToggleCollapsed={toggleCollapsed}
+    onRefresh={refreshAiContent}
+  />
 {/if}
