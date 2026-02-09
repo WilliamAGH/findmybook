@@ -43,9 +43,9 @@ import org.slf4j.LoggerFactory;
 @EnableAsync
 @EnableScheduling
 @EnableRetry
-public class BookRecommendationEngineApplication implements ApplicationRunner {
+public class FindmybookApplication implements ApplicationRunner {
 
-    private static final Logger log = LoggerFactory.getLogger(BookRecommendationEngineApplication.class);
+    private static final Logger log = LoggerFactory.getLogger(FindmybookApplication.class);
     private static final int APPLICATION_SCHEDULER_POOL_SIZE = 4;
     private static final int APPLICATION_SCHEDULER_SHUTDOWN_TIMEOUT_SECONDS = 30;
     private static final String APPLICATION_SCHEDULER_THREAD_PREFIX = "AppScheduler-";
@@ -85,7 +85,7 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
         normalizeDatasourceUrlFromEnv();
         validateDatasourceConfiguration(args);
         normalizeOpenAiSdkConfig();
-        SpringApplication.run(BookRecommendationEngineApplication.class, args);
+        SpringApplication.run(FindmybookApplication.class, args);
     }
 
     /**

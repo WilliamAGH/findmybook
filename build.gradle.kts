@@ -18,7 +18,7 @@ val toolchainJavaVersion = 25
 val targetRelease = 25
 
 springBoot {
-    mainClass.set("net.findmybook.BookRecommendationEngineApplication")
+    mainClass.set("net.findmybook.FindmybookApplication")
 }
 
 java {
