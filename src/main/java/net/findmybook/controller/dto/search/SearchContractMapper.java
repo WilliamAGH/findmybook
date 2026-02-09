@@ -10,12 +10,12 @@ import net.findmybook.service.SearchPaginationService;
 import net.findmybook.util.SearchQueryUtils;
 import net.findmybook.util.SlugGenerator;
 import org.springframework.util.StringUtils;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 
 /**
  * Maps search-domain responses to explicit controller API contracts.
@@ -24,6 +24,8 @@ import java.util.Optional;
  * HTTP orchestration while DTO construction remains deterministic and reusable.</p>
  */
 public final class SearchContractMapper {
+
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private SearchContractMapper() {
     }
@@ -130,25 +132,40 @@ public final class SearchContractMapper {
         if (book == null) {
             return null;
         }
-        Map<String, Object> qualifiers = Optional.ofNullable(book.getQualifiers()).orElseGet(Map::of);
-        String matchType = Optional.ofNullable(qualifiers.get("search.matchType"))
-            .map(Object::toString)
-            .orElse(null);
-        Double relevance = parseRelevanceScore(qualifiers.get("search.relevanceScore"));
+        JsonNode qualifiers = readQualifiersNode(book);
+        String matchType = readQualifierText(qualifiers, "search.matchType");
+        Double relevance = readQualifierScore(qualifiers, "search.relevanceScore");
 
         BookDto dto = BookDtoMapper.toDto(book);
         return new SearchHitDto(dto, matchType, relevance);
     }
 
-    private static Double parseRelevanceScore(Object rawValue) {
-        if (rawValue == null) {
+    private static JsonNode readQualifiersNode(Book book) {
+        if (book.getQualifiers() == null || book.getQualifiers().isEmpty()) {
+            return OBJECT_MAPPER.createObjectNode();
+        }
+        return OBJECT_MAPPER.valueToTree(book.getQualifiers());
+    }
+
+    private static String readQualifierText(JsonNode qualifiers, String key) {
+        JsonNode valueNode = qualifiers.get(key);
+        if (valueNode == null || valueNode.isNull()) {
             return null;
         }
-        if (rawValue instanceof Number number) {
-            return number.doubleValue();
+        String text = valueNode.isTextual() ? valueNode.textValue() : valueNode.asText(null);
+        return StringUtils.hasText(text) ? text : null;
+    }
+
+    private static Double readQualifierScore(JsonNode qualifiers, String key) {
+        JsonNode valueNode = qualifiers.get(key);
+        if (valueNode == null || valueNode.isNull()) {
+            return null;
+        }
+        if (valueNode.isNumber()) {
+            return valueNode.doubleValue();
         }
         try {
-            return Double.parseDouble(rawValue.toString());
+            return Double.parseDouble(valueNode.asText());
         } catch (IllegalArgumentException _) {
             return null;
         }
