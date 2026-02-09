@@ -174,6 +174,13 @@ async function readBookAiContentSseStream(
       }
     }
 
+    // Chrome may resolve reader.read() with {done: true} on abort instead
+    // of rejecting with AbortError. Detect this before processing trailing
+    // buffer so the caller receives the expected DOMException.
+    if (options.signal?.aborted) {
+      throw new DOMException("Request aborted", "AbortError");
+    }
+
     let trailingText = decoder.decode();
     if (pendingCarriageReturn) {
       trailingText = `\r${trailingText}`;
