@@ -1,8 +1,8 @@
 package net.findmybook.application.ai;
 
+import jakarta.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import net.findmybook.domain.ai.BookAiContent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,17 +43,16 @@ class AiContentJsonParser {
 
         JsonNode payload = parseJsonPayload(responseText);
         String summary = requiredText(payload, "summary");
-        Optional<String> readerFit = optionalText(payload, "readerFit", "reader_fit", "idealReader");
+        String readerFit = nullableText(payload, "readerFit", "reader_fit", "idealReader");
         List<String> themes = stringList(payload, MAX_KEY_THEME_COUNT, "keyThemes", "key_themes", "themes");
-        List<String> takeawaysList = stringList(payload, MAX_TAKEAWAY_COUNT, "takeaways");
-        Optional<List<String>> takeaways = takeawaysList.isEmpty() ? Optional.empty() : Optional.of(takeawaysList);
-        Optional<String> context = optionalText(payload, "context");
+        List<String> takeaways = stringList(payload, MAX_TAKEAWAY_COUNT, "takeaways");
+        String context = nullableText(payload, "context");
 
         if (themes.isEmpty() && takeaways.isEmpty()) {
             log.warn("AI generated content with no themes and no takeaways - likely insufficient source material");
         }
 
-        return new BookAiContent(summary, readerFit.orElse(null), themes, takeaways.orElse(null), context.orElse(null));
+        return new BookAiContent(summary, readerFit, themes, takeaways.isEmpty() ? null : takeaways, context);
     }
 
     private JsonNode parseJsonPayload(String responseText) {
@@ -77,17 +76,21 @@ class AiContentJsonParser {
     }
 
     private String requiredText(JsonNode payload, String field, String... aliases) {
-        return optionalText(payload, field, aliases)
-            .orElseThrow(() -> new IllegalStateException("AI response missing required field: " + field));
+        String text = nullableText(payload, field, aliases);
+        if (text == null) {
+            throw new IllegalStateException("AI response missing required field: " + field);
+        }
+        return text;
     }
 
-    private Optional<String> optionalText(JsonNode payload, String field, String... aliases) {
+    @Nullable
+    private String nullableText(JsonNode payload, String field, String... aliases) {
         JsonNode node = resolveJsonNode(payload, field, aliases);
         if (node == null || node.isNull()) {
-            return Optional.empty();
+            return null;
         }
         String text = node.asString(null);
-        return StringUtils.hasText(text) ? Optional.of(text.trim()) : Optional.empty();
+        return StringUtils.hasText(text) ? text.trim() : null;
     }
 
     private List<String> stringList(JsonNode payload, int maxSize, String field, String... aliases) {

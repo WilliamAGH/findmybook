@@ -145,24 +145,29 @@ public class BookDataOrchestrator {
 
     private List<Book> fetchDescriptionEnrichmentCandidates(UUID bookId, String query) {
         List<Book> candidates = new ArrayList<>();
-        String openLibraryQuery = SearchExternalProviderUtils.normalizeExternalQuery(query);
-
-        if (openLibraryBookDataService.isPresent()
-            && StringUtils.hasText(openLibraryQuery)
-            && !SearchQueryUtils.isWildcard(openLibraryQuery)) {
-            candidates.addAll(openLibraryBookDataService.get()
-                .queryBooksByEverything(openLibraryQuery, "relevance", 0, DESCRIPTION_ENRICHMENT_LIMIT)
-                .timeout(DESCRIPTION_ENRICHMENT_TIMEOUT)
-                .collectList()
-                .block());
-        }
-
-        candidates.addAll(googleExternalSearchFlow.streamCandidates(query, "relevance", null, DESCRIPTION_ENRICHMENT_LIMIT)
-            .timeout(DESCRIPTION_ENRICHMENT_TIMEOUT)
-            .collectList()
-            .block());
-
+        candidates.addAll(fetchOpenLibraryCandidates(query));
+        candidates.addAll(fetchGoogleCandidates(query));
         return candidates;
+    }
+
+    private List<Book> fetchOpenLibraryCandidates(String query) {
+        String openLibraryQuery = SearchExternalProviderUtils.normalizeExternalQuery(query);
+        if (openLibraryBookDataService.isEmpty()
+            || !StringUtils.hasText(openLibraryQuery)
+            || SearchQueryUtils.isWildcard(openLibraryQuery)) {
+            return List.of();
+        }
+        return collectWithTimeout(openLibraryBookDataService.get()
+            .queryBooksByEverything(openLibraryQuery, "relevance", 0, DESCRIPTION_ENRICHMENT_LIMIT));
+    }
+
+    private List<Book> fetchGoogleCandidates(String query) {
+        return collectWithTimeout(googleExternalSearchFlow
+            .streamCandidates(query, "relevance", null, DESCRIPTION_ENRICHMENT_LIMIT));
+    }
+
+    private List<Book> collectWithTimeout(Flux<Book> source) {
+        return source.timeout(DESCRIPTION_ENRICHMENT_TIMEOUT).collectList().block();
     }
 
     private String persistEnrichedDescription(UUID bookId,
