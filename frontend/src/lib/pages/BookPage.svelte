@@ -56,6 +56,7 @@
   let descriptionMaxHeightPx = $state(DESCRIPTION_FALLBACK_HEIGHT_PX);
   let descriptionNaturalHeightPx = $state(DESCRIPTION_FALLBACK_HEIGHT_PX);
   let descriptionResizeObserver: ResizeObserver | null = null;
+  let titleResizeObserver: ResizeObserver | null = null;
 
   let unsubscribeRealtime: (() => void) | null = null;
   let loadSequence = 0;
@@ -116,8 +117,9 @@
       if (sequence !== loadSequence) return;
 
       book = loadedBook;
+      // Supplemental data uses visible degradation: child components render
+      // error states via the loadFailed prop, so failures are never hidden.
       if (similarResult.status === "rejected") {
-        console.error("Failed to load similar books for", identifier, similarResult.reason);
         similarBooks = [];
         similarBooksFailed = true;
       } else {
@@ -125,7 +127,6 @@
         similarBooksFailed = false;
       }
       if (linksResult.status === "rejected") {
-        console.error("Failed to load affiliate links for", identifier, linksResult.reason);
         affiliateLinks = {};
         affiliateLinksFailed = true;
       } else {
@@ -318,11 +319,9 @@
   });
 
   function measureTitleOverflow(): void {
-    requestAnimationFrame(() => {
-      if (titleElement) {
-        titleOverflows = titleElement.scrollHeight > titleElement.clientHeight;
-      }
-    });
+    if (titleElement && !titleExpanded) {
+      titleOverflows = titleElement.scrollHeight > titleElement.clientHeight;
+    }
   }
 
   let previousBookId = $state<string | null>(null);
@@ -333,13 +332,40 @@
       previousBookId = currentId;
       titleExpanded = false;
       titleOverflows = false;
-      measureTitleOverflow();
 
       descriptionExpanded = false;
       descriptionMeasured = false;
       descriptionOverflows = false;
       measureDescriptionOverflow();
     }
+  });
+
+  $effect(() => {
+    if (!titleElement) {
+      if (titleResizeObserver) {
+        titleResizeObserver.disconnect();
+        titleResizeObserver = null;
+      }
+      return;
+    }
+
+    book?.title;
+    measureTitleOverflow();
+
+    if (titleResizeObserver) {
+      titleResizeObserver.disconnect();
+    }
+    titleResizeObserver = new ResizeObserver(() => {
+      measureTitleOverflow();
+    });
+    titleResizeObserver.observe(titleElement);
+
+    return () => {
+      if (titleResizeObserver) {
+        titleResizeObserver.disconnect();
+        titleResizeObserver = null;
+      }
+    };
   });
 
   $effect(() => {
