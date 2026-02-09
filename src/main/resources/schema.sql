@@ -33,3 +33,4 @@
 \ir ../../../migrations/38_work_clustering_data_hygiene.sql
 \ir ../../../migrations/39_title_author_clustering_functions.sql
 \ir ../../../migrations/40_book_ai_content.sql
+\ir ../../../migrations/41_book_ai_content_nullable_reader_fit.sql
