@@ -1,9 +1,15 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
   import { ChevronDown, RefreshCw } from "@lucide/svelte";
-  import { streamBookAiContent } from "$lib/services/bookAiContentStream";
+  import { isBookAiContentStreamError, streamBookAiContent } from "$lib/services/bookAiContentStream";
   import { getBookAiContentQueueStats } from "$lib/services/books";
-  import type { Book, BookAiContentModelStreamUpdate, BookAiContentQueueUpdate, BookAiContentSnapshot } from "$lib/validation/schemas";
+  import type {
+    Book,
+    BookAiContentModelStreamUpdate,
+    BookAiContentQueueUpdate,
+    BookAiContentSnapshot,
+    BookAiErrorCode,
+  } from "$lib/validation/schemas";
 
   interface Props {
     identifier: string;
@@ -14,7 +20,9 @@
   let { identifier, book, onAiContentUpdate }: Props = $props();
 
   const AI_AUTO_TRIGGER_QUEUE_THRESHOLD = 5;
+  const AI_MINIMUM_DESCRIPTION_LENGTH = 50;
   const COLLAPSE_STORAGE_KEY = "findmybook:ai-collapsed";
+  const PRODUCTION_ENVIRONMENT_MODE = "production";
 
   let aiLoading = $state(false);
   let aiErrorMessage = $state<string | null>(null);
@@ -22,6 +30,7 @@
   let aiLoadingMessage = $state("Generating AI content...");
   let aiAutoTriggerDeferred = $state(false);
   let aiServiceAvailable = $state(true);
+  let aiEnvironmentMode = $state(import.meta.env.DEV ? "development" : PRODUCTION_ENVIRONMENT_MODE);
   let collapsed = $state(false);
   let aiAbortController: AbortController | null = null;
   let activeRequestToken: symbol | null = null;
@@ -57,6 +66,95 @@
     writeCollapseState(collapsed);
   }
 
+  function normalizeEnvironmentMode(mode: string | null | undefined): string {
+    if (!mode) {
+      return PRODUCTION_ENVIRONMENT_MODE;
+    }
+    const normalized = mode.trim().toLowerCase();
+    return normalized.length > 0 ? normalized : PRODUCTION_ENVIRONMENT_MODE;
+  }
+
+  function aiFailureDiagnosticsEnabled(): boolean {
+    return aiEnvironmentMode !== PRODUCTION_ENVIRONMENT_MODE;
+  }
+
+  function resolvedDescriptionLength(): number {
+    const plainTextDescription = book?.descriptionContent?.text;
+    if (plainTextDescription && plainTextDescription.trim().length > 0) {
+      return plainTextDescription.trim().length;
+    }
+    if (book?.description && book.description.trim().length > 0) {
+      return book.description.trim().length;
+    }
+    return 0;
+  }
+
+  function shouldSuppressPanelForShortDescriptionInProduction(): boolean {
+    return !aiFailureDiagnosticsEnabled()
+      && !book?.aiContent
+      && resolvedDescriptionLength() < AI_MINIMUM_DESCRIPTION_LENGTH;
+  }
+
+  interface AiStreamFailure {
+    code: BookAiErrorCode;
+    message: string;
+    retryable: boolean;
+  }
+
+  function resolveLegacyErrorCode(message: string): BookAiErrorCode {
+    const lowered = message.toLowerCase();
+    if (lowered.includes("missing or too short")) {
+      return "description_too_short";
+    }
+    if (lowered.includes("not configured") || lowered.includes("not available")) {
+      return "service_unavailable";
+    }
+    if (lowered.includes("queue")) {
+      return "queue_busy";
+    }
+    return "generation_failed";
+  }
+
+  function resolveAiStreamFailure(error: unknown): AiStreamFailure {
+    if (isBookAiContentStreamError(error)) {
+      return {
+        code: error.code,
+        message: error.message,
+        retryable: error.retryable,
+      };
+    }
+
+    const fallbackMessage = error instanceof Error ? error.message : "Unable to generate AI content";
+    return {
+      code: resolveLegacyErrorCode(fallbackMessage),
+      message: fallbackMessage,
+      retryable: true,
+    };
+  }
+
+  function applyAiFailureState(failure: AiStreamFailure, refresh: boolean): void {
+    if (aiFailureDiagnosticsEnabled()) {
+      if (failure.code === "service_unavailable") {
+        aiServiceAvailable = false;
+      }
+      aiErrorMessage = failure.message;
+      return;
+    }
+
+    aiErrorMessage = null;
+    if (failure.code === "queue_busy") {
+      aiQueueMessage = "Queue is busy right now. Try again shortly.";
+      aiAutoTriggerDeferred = !refresh;
+      return;
+    }
+
+    aiQueueMessage = null;
+    aiAutoTriggerDeferred = false;
+    if (!book?.aiContent || failure.code === "service_unavailable" || failure.retryable === false) {
+      aiServiceAvailable = false;
+    }
+  }
+
   function handleAiQueueUpdate(update: BookAiContentQueueUpdate): void {
     if (update.event === "queued" || update.event === "queue") {
       aiQueueMessage = update.position != null
@@ -85,8 +183,22 @@
   async function hasQueueCapacity(refresh: boolean): Promise<boolean> {
     try {
       const queueStats = await getBookAiContentQueueStats();
+      aiEnvironmentMode = normalizeEnvironmentMode(queueStats.environmentMode);
+      if (shouldSuppressPanelForShortDescriptionInProduction()) {
+        aiServiceAvailable = false;
+        aiErrorMessage = null;
+        aiQueueMessage = null;
+        aiAutoTriggerDeferred = false;
+        return false;
+      }
       if (!queueStats.available) {
         aiServiceAvailable = false;
+        if (!aiFailureDiagnosticsEnabled()) {
+          aiErrorMessage = null;
+          aiQueueMessage = null;
+          aiAutoTriggerDeferred = false;
+          return false;
+        }
         if (!book?.aiContent) {
           return false;
         }
@@ -97,8 +209,10 @@
       if (queueStats.pending > AI_AUTO_TRIGGER_QUEUE_THRESHOLD) {
         aiQueueMessage = `Queue busy (${queueStats.pending} waiting)`;
         aiAutoTriggerDeferred = !refresh;
-        if (refresh) {
+        if (aiFailureDiagnosticsEnabled() && refresh) {
           aiErrorMessage = "Queue is busy right now. Try again shortly.";
+        } else {
+          aiErrorMessage = null;
         }
         return false;
       }
@@ -108,8 +222,16 @@
       const message = queueError instanceof Error
         ? queueError.message
         : "Unable to check queue status";
-      aiErrorMessage = message;
-      aiAutoTriggerDeferred = false;
+      if (aiFailureDiagnosticsEnabled()) {
+        aiErrorMessage = message;
+      } else {
+        aiErrorMessage = null;
+        aiQueueMessage = null;
+        aiAutoTriggerDeferred = false;
+        if (!book?.aiContent) {
+          aiServiceAvailable = false;
+        }
+      }
       return false;
     }
   }
@@ -167,11 +289,8 @@
       if (activeRequestToken !== requestToken) {
         return;
       }
-      const message = error instanceof Error ? error.message : "Unable to generate AI content";
-      if (message.toLowerCase().includes("not configured") || message.toLowerCase().includes("not available")) {
-        aiServiceAvailable = false;
-      }
-      aiErrorMessage = message;
+      const failure = resolveAiStreamFailure(error);
+      applyAiFailureState(failure, refresh);
       console.error("Book AI content generation failed:", error);
     } finally {
       if (activeRequestToken === requestToken) {
