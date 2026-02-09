@@ -12,9 +12,15 @@
  */
 package net.findmybook.config;
 
+import jakarta.servlet.DispatcherType;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.security.autoconfigure.web.servlet.SecurityFilterProperties;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.CacheControl;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.filter.UrlHandlerFilter;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
@@ -23,6 +29,20 @@ import java.nio.file.Paths;
 
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
+
+    private static final String[] CANONICAL_PAGE_ROUTE_PATTERNS = {
+        "/search",
+        "/explore",
+        "/categories",
+        "/book/**",
+        "/sitemap",
+        "/sitemap/**",
+        "/404",
+        "/error"
+    };
+
+    private static final int PAGE_ROUTE_CANONICALIZATION_FILTER_ORDER =
+        SecurityFilterProperties.DEFAULT_FILTER_ORDER - 1;
 
     private final String coverCacheDirName;
 
@@ -73,5 +93,43 @@ public class WebConfig implements WebMvcConfigurer {
                                         "classpath:/static/",
                                         "classpath:/public/");
         }
+    }
+
+    /**
+     * Canonicalizes trailing slashes for page routes only with permanent redirects.
+     *
+     * <p>Examples:
+     * <ul>
+     *   <li>{@code /search/ -> /search}</li>
+     *   <li>{@code /book/the-hobbit/ -> /book/the-hobbit}</li>
+     * </ul>
+     *
+     * <p>Query strings are preserved by {@link UrlHandlerFilter}.
+     *
+     * @return configured trailing-slash canonicalization filter
+     */
+    @Bean
+    public UrlHandlerFilter pageRouteTrailingSlashCanonicalizationFilter() {
+        return UrlHandlerFilter
+            .trailingSlashHandler(CANONICAL_PAGE_ROUTE_PATTERNS)
+            .redirect(HttpStatus.PERMANENT_REDIRECT)
+            .build();
+    }
+
+    /**
+     * Registers trailing-slash canonicalization after forwarded headers and before security.
+     *
+     * @param pageRouteTrailingSlashCanonicalizationFilter canonicalization filter bean
+     * @return ordered filter registration
+     */
+    @Bean
+    public FilterRegistrationBean<UrlHandlerFilter> pageRouteTrailingSlashCanonicalizationFilterRegistration(
+        UrlHandlerFilter pageRouteTrailingSlashCanonicalizationFilter
+    ) {
+        FilterRegistrationBean<UrlHandlerFilter> registration =
+            new FilterRegistrationBean<>(pageRouteTrailingSlashCanonicalizationFilter);
+        registration.setDispatcherTypes(DispatcherType.REQUEST, DispatcherType.ASYNC);
+        registration.setOrder(PAGE_ROUTE_CANONICALIZATION_FILTER_ORDER);
+        return registration;
     }
 }

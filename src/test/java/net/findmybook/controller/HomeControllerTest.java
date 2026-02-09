@@ -1,9 +1,11 @@
 package net.findmybook.controller;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
+import net.findmybook.config.WebConfig;
 import net.findmybook.model.Book;
 import net.findmybook.service.BookSeoMetadataService;
 import net.findmybook.service.HomePageSectionsService;
@@ -19,8 +21,12 @@ import org.springframework.cache.support.NoOpCacheManager;
 import org.springframework.context.annotation.Bean;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockFilterChain;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import org.springframework.web.filter.UrlHandlerFilter;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
@@ -66,6 +72,40 @@ class HomeControllerTest {
     @BeforeEach
     void setUp() {
         when(homePageSectionsService.locateBook(anyString())).thenReturn(Mono.empty());
+    }
+
+    @Test
+    void should_RedirectToSearchCanonicalPathPreservingEncodedQuery_When_TrailingSlashRequested() throws Exception {
+        UrlHandlerFilter canonicalizationFilter = new WebConfig("book-covers")
+            .pageRouteTrailingSlashCanonicalizationFilter();
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/search/");
+        request.setQueryString("query=na%C3%AFve%20art&page=2&orderBy=title&coverSource=ANY");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        canonicalizationFilter.doFilter(request, response, new MockFilterChain());
+
+        assertEquals(HttpStatus.PERMANENT_REDIRECT.value(), response.getStatus());
+        assertEquals(
+            "/search?query=na%C3%AFve%20art&page=2&orderBy=title&coverSource=ANY",
+            response.getHeader("Location")
+        );
+    }
+
+    @Test
+    void should_RedirectToBookCanonicalPathPreservingPaginationQuery_When_TrailingSlashRequested() throws Exception {
+        UrlHandlerFilter canonicalizationFilter = new WebConfig("book-covers")
+            .pageRouteTrailingSlashCanonicalizationFilter();
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/book/the-hobbit/");
+        request.setQueryString("query=middle+earth&page=4&orderBy=newest&view=list");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        canonicalizationFilter.doFilter(request, response, new MockFilterChain());
+
+        assertEquals(HttpStatus.PERMANENT_REDIRECT.value(), response.getStatus());
+        assertEquals(
+            "/book/the-hobbit?query=middle+earth&page=4&orderBy=newest&view=list",
+            response.getHeader("Location")
+        );
     }
 
     @Test
@@ -127,6 +167,16 @@ class HomeControllerTest {
             .expectHeader().contentTypeCompatibleWith(MediaType.TEXT_HTML)
             .expectBody(String.class)
             .value(body -> assertTrue(body.contains("<title>Browse Genres | findmybook</title>")));
+    }
+
+    @Test
+    void should_ReturnNotFoundSpaShell_When_404RouteRequested() {
+        webTestClient.get().uri("/404")
+            .exchange()
+            .expectStatus().isNotFound()
+            .expectHeader().contentTypeCompatibleWith(MediaType.TEXT_HTML)
+            .expectBody(String.class)
+            .value(body -> assertTrue(body.contains("<title>Page Not Found | findmybook</title>")));
     }
 
     @Test

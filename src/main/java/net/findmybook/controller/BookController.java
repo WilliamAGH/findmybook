@@ -47,7 +47,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.function.Supplier;
 
 import net.findmybook.util.UuidUtils;
 
@@ -128,10 +127,15 @@ public class BookController {
             .map(SearchContractMapper::fromSearchPage)
             .map(ResponseEntity::ok)
             .onErrorResume(ex -> {
-                log.error("Failed to search books for query '{}': {}. Returning explicit error status.",
-                    normalizedQuery, ex.getMessage(), ex);
-                return Mono.fromSupplier(() -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(SearchContractMapper.emptySearchResponse(normalizedQuery, request)));
+                if (ex instanceof ResponseStatusException responseStatusException) {
+                    return Mono.error(responseStatusException);
+                }
+                log.error("Failed to search books for query '{}': {}", normalizedQuery, ex.getMessage(), ex);
+                return Mono.error(new ResponseStatusException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    String.format("Failed to search books for query '%s'", normalizedQuery),
+                    ex
+                ));
             });
     }
 
@@ -150,17 +154,23 @@ public class BookController {
             .subscribeOn(Schedulers.boundedElastic())
             .map(results -> SearchContractMapper.fromAuthorResults(normalizedQuery, safeLimit, results));
 
-        return withEmptyFallback(
-            responseMono,
-            () -> SearchContractMapper.emptyAuthorSearchResponse(normalizedQuery, safeLimit),
-            () -> String.format("Failed to search authors for query '%s'", normalizedQuery)
-        );
+        return responseMono
+            .map(ResponseEntity::ok)
+            .onErrorResume(ex -> {
+                if (ex instanceof ResponseStatusException responseStatusException) {
+                    return Mono.error(responseStatusException);
+                }
+                String errorDetail = String.format("Failed to search authors for query '%s'", normalizedQuery);
+                log.error("{}: {}", errorDetail, ex.getMessage(), ex);
+                return Mono.error(new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, errorDetail, ex));
+            });
     }
 
     @GetMapping("/{identifier}")
     public Mono<ResponseEntity<BookDto>> getBookByIdentifier(@PathVariable String identifier) {
-        return ReactiveControllerUtils.withErrorHandling(
-            findBookDto(identifier),
+        return resolveBookRequest(
+            identifier,
+            String.format("No book found for identifier: %s", identifier),
             String.format("Failed to fetch book '%s'", identifier)
         );
     }
@@ -171,8 +181,9 @@ public class BookController {
      */
     @GetMapping("/slug/{slug}")
     public Mono<ResponseEntity<BookDto>> getBookBySlug(@PathVariable String slug) {
-        return ReactiveControllerUtils.withErrorHandling(
-            findBookDto(slug),
+        return resolveBookRequest(
+            slug,
+            String.format("No book found for slug: %s", slug),
             String.format("Failed to fetch book by slug '%s'", slug)
         );
     }
@@ -202,14 +213,18 @@ public class BookController {
         );
     }
 
-    private <T> Mono<ResponseEntity<T>> withEmptyFallback(Mono<T> pipeline,
-                                                          Supplier<T> emptySupplier,
-                                                          Supplier<String> contextSupplier) {
-        return pipeline
+    private Mono<ResponseEntity<BookDto>> resolveBookRequest(String identifier,
+                                                             String notFoundDetail,
+                                                             String failureDetail) {
+        return findBookDto(identifier)
             .map(ResponseEntity::ok)
+            .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, notFoundDetail)))
             .onErrorResume(ex -> {
-                log.error("{}: {}. Returning explicit error status.", contextSupplier.get(), ex.getMessage(), ex);
-                return Mono.fromSupplier(() -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(emptySupplier.get()));
+                if (ex instanceof ResponseStatusException responseStatusException) {
+                    return Mono.error(responseStatusException);
+                }
+                log.error("{}: {}", failureDetail, ex.getMessage(), ex);
+                return Mono.error(new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, failureDetail, ex));
             });
     }
 

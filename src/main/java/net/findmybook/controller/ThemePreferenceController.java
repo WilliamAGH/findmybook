@@ -3,6 +3,7 @@ package net.findmybook.controller;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
@@ -11,6 +12,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import org.springframework.http.HttpStatus;
 
 /**
  * Controller for managing user theme preferences (light/dark mode)
@@ -85,7 +87,10 @@ public class ThemePreferenceController {
             responseData.put("theme", themeValue);
             responseData.put("source", "user");
         } else {
-            return ResponseEntity.badRequest().build();
+            throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "Theme must be 'light' or 'dark' when useSystem is false."
+            );
         }
         
         return ResponseEntity.ok(responseData);

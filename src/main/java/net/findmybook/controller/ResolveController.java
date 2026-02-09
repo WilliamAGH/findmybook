@@ -25,6 +25,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.net.URI;
 import java.util.Optional;
@@ -81,7 +82,10 @@ public class ResolveController {
         String normalizedSource = normalizeSource(source);
         if (normalizedSource == null) {
             log.warn("Unsupported source: {}", source);
-            return ResponseEntity.notFound().build();
+            throw new ResponseStatusException(
+                HttpStatus.NOT_FOUND,
+                "Unsupported source: " + source
+            );
         }
         
         // Step 1: Try to resolve to internal book_id

@@ -97,4 +97,9 @@ public class HomeController extends SpaShellController {
         return spaResponse(bookSeoMetadataService.categoriesMetadata(), HttpStatus.OK);
     }
 
+    @GetMapping("/404")
+    public ResponseEntity<String> notFound() {
+        return spaResponse(bookSeoMetadataService.notFoundMetadata("/404"), HttpStatus.NOT_FOUND);
+    }
+
 }

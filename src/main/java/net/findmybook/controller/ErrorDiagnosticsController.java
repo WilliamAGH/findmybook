@@ -1,137 +1,189 @@
 package net.findmybook.controller;
 
-import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.RequestDispatcher;
+import jakarta.servlet.http.HttpServletRequest;
 import net.findmybook.service.BookSeoMetadataService;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
-import org.springframework.boot.web.error.ErrorAttributeOptions;
-import org.springframework.boot.webmvc.error.ErrorAttributes;
-import org.springframework.boot.webmvc.error.ErrorController;
+import org.springframework.boot.webmvc.autoconfigure.error.ErrorViewResolver;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.stereotype.Controller;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.context.request.WebRequest;
+import org.springframework.stereotype.Component;
+import org.springframework.web.bind.annotation.ControllerAdvice;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.servlet.ModelAndView;
+import org.springframework.web.servlet.View;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
+
 import java.util.Map;
+import java.util.Set;
 
 /**
- * Handles the shared error endpoint for both HTML pages and JSON API clients.
+ * Resolves HTML error views for Boot's global error controller by rendering the
+ * existing SEO-aware SPA shell.
+ *
+ * <p>JSON and ProblemDetail responses remain the default for API/static paths,
+ * while page-like browser navigations are rendered with the shared SPA shell.
  */
-@Controller
+@Component
+@ControllerAdvice
+@Order(Ordered.HIGHEST_PRECEDENCE)
 @ConditionalOnWebApplication
-public class ErrorDiagnosticsController implements ErrorController {
+public class ErrorDiagnosticsController implements ErrorViewResolver {
 
-    private static final Logger log = LoggerFactory.getLogger(ErrorDiagnosticsController.class);
+    private static final Set<String> STATIC_FILE_EXTENSIONS = Set.of(
+        "js", "css", "png", "jpg", "jpeg", "gif", "svg", "ico",
+        "woff", "woff2", "ttf", "eot", "map", "json", "xml", "webmanifest"
+    );
 
-    private final ErrorAttributes errorAttributes;
-    private final BookSeoMetadataService bookSeoMetadataService;
-    private final boolean includeStackTrace;
+    private final ObjectProvider<BookSeoMetadataService> bookSeoMetadataServiceProvider;
 
-    public ErrorDiagnosticsController(ErrorAttributes errorAttributes,
-                                      BookSeoMetadataService bookSeoMetadataService,
-                                      @Value("${app.error-diagnostics.include-stacktrace:false}") boolean includeStackTrace) {
-        this.errorAttributes = errorAttributes;
-        this.bookSeoMetadataService = bookSeoMetadataService;
-        this.includeStackTrace = includeStackTrace;
+    /**
+     * Creates the HTML error view resolver that renders the shared SPA shell.
+     *
+     * @param bookSeoMetadataServiceProvider provider for route-specific SEO metadata
+     */
+    public ErrorDiagnosticsController(ObjectProvider<BookSeoMetadataService> bookSeoMetadataServiceProvider) {
+        this.bookSeoMetadataServiceProvider = bookSeoMetadataServiceProvider;
     }
 
-    @RequestMapping(value = "/error", produces = {MediaType.APPLICATION_JSON_VALUE, "application/*+json"})
-    public ResponseEntity<ErrorJsonResponse> handleJsonError(HttpServletResponse response, WebRequest webRequest) {
-        ErrorContext context = readErrorContext(webRequest);
-        response.setStatus(context.statusCode());
-        ErrorJsonResponse payload = new ErrorJsonResponse(
-            context.timestamp(),
-            context.statusCode(),
-            context.error(),
-            context.message(),
-            context.path()
-        );
-        return ResponseEntity.status(context.statusCode())
-            .contentType(MediaType.APPLICATION_JSON)
-            .body(payload);
-    }
-
-    @RequestMapping("/error")
-    public ResponseEntity<String> handleHtmlError(HttpServletResponse response, WebRequest webRequest) {
-        ErrorContext context = readErrorContext(webRequest);
-        response.setStatus(context.statusCode());
-        String requestPath = !context.path().isBlank() ? context.path() : "/";
-        BookSeoMetadataService.SeoMetadata metadata = context.statusCode() == HttpStatus.NOT_FOUND.value()
+    /**
+     * Resolves the HTML error response view while preserving the HTTP status chosen
+     * by Boot's global error controller.
+     *
+     * @param request servlet request that triggered fallback error dispatch
+     * @param status resolved HTTP status for the failing request
+     * @param model Boot-provided error attribute model
+     * @return model-and-view that writes the SEO-aware SPA shell HTML
+     */
+    @Override
+    public ModelAndView resolveErrorView(HttpServletRequest request, HttpStatus status, Map<String, Object> model) {
+        BookSeoMetadataService bookSeoMetadataService = bookSeoMetadataServiceProvider.getIfAvailable();
+        if (bookSeoMetadataService == null) {
+            return null;
+        }
+        String requestPath = resolveRequestPath(request, model);
+        BookSeoMetadataService.SeoMetadata metadata = status == HttpStatus.NOT_FOUND
             ? bookSeoMetadataService.notFoundMetadata(requestPath)
-            : bookSeoMetadataService.errorMetadata(context.statusCode(), requestPath);
+            : bookSeoMetadataService.errorMetadata(status.value(), requestPath);
 
         String html = bookSeoMetadataService.renderSpaShell(metadata);
-        return ResponseEntity.status(context.statusCode())
+        return new ModelAndView(new SpaShellErrorHtmlView(html));
+    }
+
+    /**
+     * Handles unresolved resources with content-aware behavior.
+     *
+     * <p>Browser page navigations receive the SPA 404 shell while API/static
+     * lookups keep RFC 9457 ProblemDetail responses.
+     *
+     * @param exception missing-resource exception raised by MVC
+     * @param request current servlet request
+     * @return HTML 404 response for page-like requests, or ProblemDetail for non-page requests
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<Object> handleNoResourceFoundHtml(NoResourceFoundException exception, HttpServletRequest request) {
+        BookSeoMetadataService bookSeoMetadataService = bookSeoMetadataServiceProvider.getIfAvailable();
+        if (bookSeoMetadataService == null) {
+            return ResponseEntity.status(exception.getStatusCode())
+                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(exception.getBody());
+        }
+
+        String requestPath = resolveRequestPath(request, Map.of());
+        if (!shouldRenderSpaNotFound(request, requestPath, bookSeoMetadataService)) {
+            return ResponseEntity.status(exception.getStatusCode())
+                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(exception.getBody());
+        }
+
+        String html = bookSeoMetadataService.renderSpaShell(bookSeoMetadataService.notFoundMetadata(requestPath));
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
             .contentType(MediaType.TEXT_HTML)
             .body(html);
     }
 
-    private ErrorContext readErrorContext(WebRequest webRequest) {
-        ErrorAttributeOptions options = ErrorAttributeOptions.of(
-            ErrorAttributeOptions.Include.MESSAGE,
-            ErrorAttributeOptions.Include.EXCEPTION,
-            ErrorAttributeOptions.Include.BINDING_ERRORS
-        );
-        if (includeStackTrace) {
-            options = options.including(ErrorAttributeOptions.Include.STACK_TRACE);
-        }
-        Map<String, ?> errors = errorAttributes.getErrorAttributes(webRequest, options);
-        int statusCode = resolveStatusCode(errors);
-        return new ErrorContext(
-            statusCode,
-            textOrEmpty(errors, "timestamp"),
-            textOrEmpty(errors, "error"),
-            textOrEmpty(errors, "message"),
-            textOrEmpty(errors, "path"),
-            includeStackTrace ? textOrEmpty(errors, "trace") : "",
-            textOrEmpty(errors, "exception")
-        );
-    }
-
-    private int resolveStatusCode(Map<String, ?> errors) {
-        if (errors.get("status") instanceof Number numericStatus) {
-            return numericStatus.intValue();
-        }
-        String stringStatus = textOrEmpty(errors, "status");
-        if (!stringStatus.isBlank()) {
-            try {
-                return Integer.parseInt(stringStatus);
-            } catch (NumberFormatException ex) {
-                log.warn("Unparseable error status '{}', defaulting to 500", stringStatus);
-                return HttpStatus.INTERNAL_SERVER_ERROR.value();
+    private String resolveRequestPath(HttpServletRequest request, Map<String, Object> model) {
+        Object modelPath = model.get("path");
+        if (modelPath != null) {
+            String pathValue = String.valueOf(modelPath).trim();
+            if (!pathValue.isEmpty()) {
+                return pathValue;
             }
         }
-        return HttpStatus.INTERNAL_SERVER_ERROR.value();
+
+        Object dispatchPath = request.getAttribute(RequestDispatcher.ERROR_REQUEST_URI);
+        if (dispatchPath != null) {
+            String pathValue = String.valueOf(dispatchPath).trim();
+            if (!pathValue.isEmpty()) {
+                return pathValue;
+            }
+        }
+
+        String requestUri = request.getRequestURI();
+        return requestUri != null && !requestUri.trim().isEmpty() ? requestUri : "/";
     }
 
-    private String textOrEmpty(Map<String, ?> source, String key) {
-        return source.get(key) != null ? String.valueOf(source.get(key)) : "";
+    private boolean isPassthroughPath(String requestPath, BookSeoMetadataService bookSeoMetadataService) {
+        String normalizedPath = requestPath.startsWith("/") ? requestPath : "/" + requestPath;
+        for (String prefix : bookSeoMetadataService.routeManifest().passthroughPrefixes()) {
+            if (normalizedPath.equals(prefix) || normalizedPath.startsWith(prefix + "/")) {
+                return true;
+            }
+        }
+        return false;
     }
 
-    private boolean missingDiagnosticMessage(String message) {
-        return message.isBlank() || "No message available".equals(message);
+    private boolean shouldRenderSpaNotFound(HttpServletRequest request,
+                                            String requestPath,
+                                            BookSeoMetadataService bookSeoMetadataService) {
+        String method = request.getMethod();
+        if (!"GET".equalsIgnoreCase(method) && !"HEAD".equalsIgnoreCase(method)) {
+            return false;
+        }
+        String acceptHeader = request.getHeader("Accept");
+        if (acceptHeader != null) {
+            String normalizedAccept = acceptHeader.toLowerCase();
+            if (!normalizedAccept.contains(MediaType.TEXT_HTML_VALUE) && !normalizedAccept.contains("*/*")) {
+                return false;
+            }
+        }
+        if (isPassthroughPath(requestPath, bookSeoMetadataService)) {
+            return false;
+        }
+        if (requestPath == null || requestPath.isBlank()) {
+            return true;
+        }
+        if (requestPath.startsWith("/frontend/") || requestPath.startsWith("/webjars/")) {
+            return false;
+        }
+        return !hasStaticFileExtension(requestPath);
     }
 
-    private record ErrorContext(
-        int statusCode,
-        String timestamp,
-        String error,
-        String message,
-        String path,
-        String trace,
-        String exceptionClassName
-    ) {
+    private boolean hasStaticFileExtension(String requestPath) {
+        int lastSlash = requestPath.lastIndexOf('/');
+        String lastSegment = lastSlash >= 0 ? requestPath.substring(lastSlash + 1) : requestPath;
+        int dotIndex = lastSegment.lastIndexOf('.');
+        if (dotIndex < 0 || dotIndex == lastSegment.length() - 1) {
+            return false;
+        }
+        String extension = lastSegment.substring(dotIndex + 1).toLowerCase(java.util.Locale.ROOT);
+        return STATIC_FILE_EXTENSIONS.contains(extension);
     }
 
-    private record ErrorJsonResponse(
-        String timestamp,
-        int status,
-        String error,
-        String message,
-        String path
-    ) {
+    private record SpaShellErrorHtmlView(String html) implements View {
+        @Override
+        public String getContentType() {
+            return MediaType.TEXT_HTML_VALUE;
+        }
+
+        @Override
+        public void render(Map<String, ?> model, HttpServletRequest request, jakarta.servlet.http.HttpServletResponse response) throws Exception {
+            response.setContentType(MediaType.TEXT_HTML_VALUE);
+            response.getWriter().write(html);
+        }
     }
 }

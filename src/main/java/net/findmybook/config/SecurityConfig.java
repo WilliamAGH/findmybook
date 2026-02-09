@@ -21,7 +21,6 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplicat
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
-import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -35,10 +34,7 @@ import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 import org.springframework.security.web.header.writers.StaticHeadersWriter;
-import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.util.StringUtils;
-
-import static org.springframework.security.config.Customizer.withDefaults;
 
 @Configuration
 @EnableWebSecurity
@@ -77,13 +73,15 @@ public class SecurityConfig {
                     .requestMatchers("/robots.txt").permitAll() // Explicitly permit robots.txt
                     .anyRequest().permitAll() // Default to permit all for non-admin routes
             )
-            .formLogin(withDefaults()) // Enable form-based login
             .httpBasic(httpBasic -> httpBasic
                 .authenticationEntryPoint(customBasicAuthenticationEntryPoint) // Use custom entry point for admin paths
             )
-            .csrf(csrf -> csrf
-                .ignoringRequestMatchers(buildCsrfIgnoreMatchers())
-            );
+            // CSRF disabled: no session cookies are issued, so browsers never auto-attach
+            // credentials to cross-origin requests.  All state-changing endpoints live under
+            // /admin/** and require HTTP Basic Auth, which is not cookie-based.  Public routes
+            // are read-only (GET/HEAD).  Re-evaluate if cookie-based sessions or form-login
+            // are introduced.
+            .csrf(csrf -> csrf.disable());
 
         // Configure headers if CSP is enabled
         if (cspEnabled) {
@@ -91,16 +89,6 @@ public class SecurityConfig {
         }
             
         return http.build();
-    }
-
-    private PathPatternRequestMatcher[] buildCsrfIgnoreMatchers() {
-        PathPatternRequestMatcher.Builder matcherBuilder = PathPatternRequestMatcher.withDefaults();
-        return new PathPatternRequestMatcher[] {
-            matcherBuilder.matcher(HttpMethod.GET, "/admin/s3-cleanup/dry-run"),
-            matcherBuilder.matcher(HttpMethod.GET, "/admin/api-metrics/**"),
-            matcherBuilder.matcher(HttpMethod.POST, "/api/theme"),
-            matcherBuilder.matcher(HttpMethod.POST, "/api/books/{identifier}/ai/content/stream")
-        };
     }
 
     private void configureSecurity(HttpSecurity http) throws Exception {

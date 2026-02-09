@@ -185,4 +185,27 @@ public final class UrlUtils {
         
         return cleaned.isEmpty() ? null : cleaned;
     }
+
+    /**
+     * Normalizes OpenAI-compatible API base URLs for SDK configuration.
+     *
+     * <p>Accepts plain host URLs, trims trailing slashes, strips legacy endpoint
+     * suffixes, and guarantees a trailing {@code /v1} segment.</p>
+     *
+     * @param rawUrl configured OpenAI base URL (nullable)
+     * @return normalized base URL ending in {@code /v1}
+     */
+    public static String normalizeOpenAiBaseUrl(@Nullable String rawUrl) {
+        if (rawUrl == null || rawUrl.isBlank()) {
+            return "https://api.openai.com/v1";
+        }
+        String normalized = rawUrl.trim();
+        while (normalized.endsWith("/")) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+        }
+        if (normalized.endsWith("/embeddings")) {
+            normalized = normalized.substring(0, normalized.length() - "/embeddings".length());
+        }
+        return normalized.endsWith("/v1") ? normalized : normalized + "/v1";
+    }
 }

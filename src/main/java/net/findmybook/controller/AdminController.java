@@ -13,7 +13,6 @@
  */
 package net.findmybook.controller;
 
-import net.findmybook.controller.support.ErrorResponseUtils;
 import net.findmybook.scheduler.BookCacheWarmingScheduler;
 import net.findmybook.scheduler.NewYorkTimesBestsellerScheduler;
 import net.findmybook.service.ApiCircuitBreakerService;
@@ -25,6 +24,7 @@ import org.springframework.util.StringUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -32,6 +32,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/admin")
@@ -98,12 +99,12 @@ public class AdminController {
         if (backfillCoordinator == null) {
             String message = "Async backfill is disabled. Set APP_FEATURE_ASYNC_BACKFILL_ENABLED=true to enable.";
             log.warn(message);
-            return ResponseEntity.badRequest().body(message);
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
         }
 
         if (!StringUtils.hasText(volumeId)) {
             String message = "volumeId must not be blank";
-            return ResponseEntity.badRequest().body(message);
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
         }
 
         int clampedPriority = Math.clamp(priority, 1, 10);
@@ -136,7 +137,7 @@ public class AdminController {
         if (s3CoverCleanupService == null) {
             String errorMessage = "S3 Cover Cleanup Service is not available. S3 integration may be disabled.";
             log.warn(errorMessage);
-            return ResponseEntity.badRequest().body(errorMessage);
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, errorMessage);
         }
         
         String prefixToUse = prefixOptional != null ? prefixOptional : s3CleanupConfig.prefix();
@@ -187,8 +188,11 @@ public class AdminController {
                 batchLimitToUse
             );
             log.error("{} Cause: {}", errorMessage, ex.getMessage(), ex);
-            return ResponseEntity.internalServerError()
-                .body("Error during S3 Cover Cleanup Dry Run. Check server logs for details.");
+            throw new ResponseStatusException(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "Error during S3 Cover Cleanup Dry Run. Check server logs for details.",
+                ex
+            );
         }
     }
 
@@ -209,7 +213,7 @@ public class AdminController {
         if (s3CoverCleanupService == null) {
             String errorMessage = "S3 Cover Cleanup Service is not available. S3 integration may be disabled.";
             log.warn(errorMessage);
-            return ErrorResponseUtils.badRequest(errorMessage, null);
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, errorMessage);
         }
 
         String sourcePrefixToUse = prefixOptional != null ? prefixOptional : s3CleanupConfig.prefix();
@@ -222,7 +226,7 @@ public class AdminController {
         if (quarantinePrefixToUse.isEmpty() || quarantinePrefixToUse.equals(sourcePrefixToUse)) {
             String errorMsg = "Invalid quarantine prefix: cannot be empty or same as source prefix.";
             log.error(errorMsg + " Source: '{}', Quarantine: '{}'", sourcePrefixToUse, quarantinePrefixToUse);
-            return ErrorResponseUtils.badRequest(errorMsg, null);
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, errorMsg);
         }
         
         log.info("Admin endpoint /admin/s3-cleanup/move-flagged invoked. " +
@@ -241,10 +245,7 @@ public class AdminController {
                 sourcePrefixToUse, batchLimitToUse, quarantinePrefixToUse
             );
             log.error(errorMessage, ex);
-            return ErrorResponseUtils.internalServerError(
-                "Move action failed",
-                errorMessage
-            );
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, errorMessage, ex);
         }
     }
 
@@ -260,7 +261,7 @@ public class AdminController {
         if (newYorkTimesBestsellerScheduler == null) {
             String errorMessage = "New York Times Bestseller Scheduler is not available. S3 integration may be disabled.";
             log.warn(errorMessage);
-            return ResponseEntity.badRequest().body(errorMessage);
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, errorMessage);
         }
         
         try {
@@ -273,12 +274,18 @@ public class AdminController {
             return ResponseEntity.ok(successMessage);
         } catch (IllegalStateException ex) {
             log.warn("New York Times Bestseller processing trigger rejected: {}", ex.getMessage(), ex);
-            return ResponseEntity.badRequest()
-                .body(ex.getMessage() != null ? ex.getMessage() : "Failed to trigger New York Times Bestseller processing job.");
+            throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                ex.getMessage() != null ? ex.getMessage() : "Failed to trigger New York Times Bestseller processing job.",
+                ex
+            );
         } catch (RuntimeException ex) {
             log.error("Failed to trigger New York Times Bestseller processing job.", ex);
-            return ResponseEntity.internalServerError()
-                .body("Failed to trigger New York Times Bestseller processing job.");
+            throw new ResponseStatusException(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "Failed to trigger New York Times Bestseller processing job.",
+                ex
+            );
         }
     }
 
@@ -297,7 +304,11 @@ public class AdminController {
             return ResponseEntity.ok(successMessage);
         } catch (IllegalStateException ex) {
             log.error("Failed to trigger book cache warming job.", ex);
-            return ResponseEntity.internalServerError().body("Failed to trigger book cache warming job.");
+            throw new ResponseStatusException(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "Failed to trigger book cache warming job.",
+                ex
+            );
         }
     }
 
@@ -315,7 +326,11 @@ public class AdminController {
             return ResponseEntity.ok(status);
         } catch (IllegalStateException ex) {
             log.error("Failed to get circuit breaker status.", ex);
-            return ResponseEntity.internalServerError().body("Failed to get circuit breaker status.");
+            throw new ResponseStatusException(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "Failed to get circuit breaker status.",
+                ex
+            );
         }
     }
 
@@ -334,7 +349,11 @@ public class AdminController {
             return ResponseEntity.ok(successMessage);
         } catch (IllegalStateException ex) {
             log.error("Failed to reset circuit breaker.", ex);
-            return ResponseEntity.internalServerError().body("Failed to reset circuit breaker.");
+            throw new ResponseStatusException(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "Failed to reset circuit breaker.",
+                ex
+            );
         }
     }
 }

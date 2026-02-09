@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -26,6 +27,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.CacheManager;
+import org.springframework.http.MediaType;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -149,6 +151,22 @@ class PageApiControllerTest {
     }
 
     @Test
+    void shouldReturnProblemDetailWhenHomePayloadFails() throws Exception {
+        when(homePageSectionsService.loadCurrentBestsellers(anyInt()))
+            .thenReturn(Mono.error(new IllegalStateException("downstream unavailable")));
+        when(homePageSectionsService.loadRecentBooks(anyInt())).thenReturn(Mono.just(List.of()));
+
+        var asyncResult = mockMvc.perform(get("/api/pages/home").accept(MediaType.APPLICATION_PROBLEM_JSON))
+            .andReturn();
+
+        mockMvc.perform(asyncDispatch(asyncResult))
+            .andExpect(status().isInternalServerError())
+            .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+            .andExpect(jsonPath("$.status").value(500))
+            .andExpect(jsonPath("$.detail").value("Homepage payload load failed"));
+    }
+
+    @Test
     void shouldReturnSitemapPayloadWhenBooksViewRequested() throws Exception {
         when(sitemapProperties.getBaseUrl()).thenReturn("https://findmybook.net");
         when(sitemapService.normalizeBucket(eq("A"))).thenReturn("A");
@@ -185,6 +203,21 @@ class PageApiControllerTest {
     }
 
     @Test
+    void shouldReturnProblemDetailWhenAffiliateLinksBookMissing() throws Exception {
+        when(homePageSectionsService.locateBook(eq("missing-book"))).thenReturn(Mono.empty());
+
+        var asyncResult = mockMvc.perform(get("/api/pages/book/missing-book/affiliate-links")
+                .accept(MediaType.APPLICATION_PROBLEM_JSON))
+            .andReturn();
+
+        mockMvc.perform(asyncDispatch(asyncResult))
+            .andExpect(status().isNotFound())
+            .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+            .andExpect(jsonPath("$.status").value(404))
+            .andExpect(jsonPath("$.detail").value("No book found for identifier: missing-book"));
+    }
+
+    @Test
     void should_ReturnCategoryFacets_When_CategoriesEndpointRequested() throws Exception {
         when(homePageSectionsService.loadCategoryFacets(eq(10), eq(3))).thenReturn(
             List.of(
@@ -212,7 +245,10 @@ class PageApiControllerTest {
             "https://findmybook.net/",
             "home keywords",
             "https://findmybook.net/images/og-logo.png",
-            "index, follow, max-image-preview:large"
+            "index, follow, max-image-preview:large",
+            "website",
+            List.of(),
+            "{\"@context\":\"https://schema.org\",\"@graph\":[{\"@type\":\"WebSite\"}]}"
         ));
 
         var asyncResult = mockMvc.perform(get("/api/pages/meta").param("path", "/"))
@@ -226,8 +262,48 @@ class PageApiControllerTest {
             .andExpect(jsonPath("$.robots").value("index, follow, max-image-preview:large"))
             .andExpect(jsonPath("$.openGraphType").value("website"))
             .andExpect(jsonPath("$.openGraphProperties.length()").value(0))
-            .andExpect(jsonPath("$.structuredDataJson").value(""))
+            .andExpect(jsonPath("$.structuredDataJson").value("{\"@context\":\"https://schema.org\",\"@graph\":[{\"@type\":\"WebSite\"}]}"))
             .andExpect(jsonPath("$.statusCode").value(200));
+    }
+
+    @Test
+    void should_ReturnProblemDetail_When_MetadataPathMissing() throws Exception {
+        var asyncResult = mockMvc.perform(get("/api/pages/meta").accept(MediaType.APPLICATION_PROBLEM_JSON))
+            .andReturn();
+
+        mockMvc.perform(asyncDispatch(asyncResult))
+            .andExpect(status().isBadRequest())
+            .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+            .andExpect(jsonPath("$.status").value(400))
+            .andExpect(jsonPath("$.detail").value("Route path is required"));
+    }
+
+    @Test
+    void should_ReturnErrorMetadata_When_ErrorPathRequested() throws Exception {
+        when(bookSeoMetadataService.errorMetadata(eq(500), eq("/error"))).thenReturn(
+            new BookSeoMetadataService.SeoMetadata(
+                "Error 500",
+                "Unexpected error",
+                "https://findmybook.net/error",
+                "error",
+                "https://findmybook.net/images/og-logo.png",
+                "noindex, nofollow, noarchive",
+                "website",
+                List.of(),
+                "{\"@context\":\"https://schema.org\",\"@graph\":[{\"@type\":\"WebPage\"}]}"
+            )
+        );
+
+        var asyncResult = mockMvc.perform(get("/api/pages/meta").param("path", "/error"))
+            .andExpect(status().isOk())
+            .andReturn();
+
+        mockMvc.perform(asyncDispatch(asyncResult))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.title").value("Error 500"))
+            .andExpect(jsonPath("$.canonicalUrl").value("https://findmybook.net/error"))
+            .andExpect(jsonPath("$.structuredDataJson").value("{\"@context\":\"https://schema.org\",\"@graph\":[{\"@type\":\"WebPage\"}]}"))
+            .andExpect(jsonPath("$.statusCode").value(500));
     }
 
     @Test
