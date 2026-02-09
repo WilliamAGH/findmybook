@@ -84,7 +84,9 @@
 
   async function hasQueueCapacity(refresh: boolean): Promise<boolean> {
     try {
+      console.log("[BookAiContentPanel] Checking queue stats...");
       const queueStats = await getBookAiContentQueueStats();
+      console.log("[BookAiContentPanel] Queue stats:", queueStats);
       if (!queueStats.available) {
         aiServiceAvailable = false;
         if (!book?.aiContent) {
@@ -104,6 +106,7 @@
       }
       return true;
     } catch (queueError) {
+      console.error("[BookAiContentPanel] Queue stats failed:", queueError);
       const message = queueError instanceof Error
         ? queueError.message
         : "Unable to check queue status";
@@ -115,10 +118,12 @@
 
   async function triggerAiGeneration(refresh: boolean): Promise<void> {
     if (!identifier || aiLoading) {
+      console.log(`[BookAiContentPanel] Generation start skipped: id=${identifier} loading=${aiLoading}`);
       return;
     }
 
     const requestIdentifier = identifier;
+    console.log(`[BookAiContentPanel] Starting generation for ${requestIdentifier} (refresh=${refresh})`);
     const requestToken = Symbol("book-ai-content-request");
     activeRequestToken = requestToken;
     aiLoading = true;
@@ -130,6 +135,7 @@
       : "Generating AI content...";
 
     if (!(await hasQueueCapacity(refresh))) {
+      console.log("[BookAiContentPanel] Queue capacity check failed/deferred");
       if (activeRequestToken === requestToken) {
         activeRequestToken = null;
         aiLoading = false;
@@ -143,6 +149,7 @@
     aiQueueMessage = null;
 
     try {
+      console.log(`[BookAiContentPanel] Streaming content for ${identifier}...`);
       const result = await streamBookAiContent(identifier, {
         refresh,
         signal: aiAbortController.signal,
@@ -151,6 +158,7 @@
       });
 
       if (activeRequestToken !== requestToken || identifier !== requestIdentifier) {
+        console.log("[BookAiContentPanel] Stream completed but stale request ignored");
         return;
       }
       onAiContentUpdate(result.aiContent);
@@ -159,6 +167,7 @@
       aiErrorMessage = null;
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
+        console.log("[BookAiContentPanel] Stream aborted");
         return;
       }
       if (activeRequestToken !== requestToken) {
@@ -205,20 +214,27 @@
     aiLoadingMessage = "Generating AI content...";
 
     const scheduledIdentifier = identifier;
+    console.log(`[BookAiContentPanel] Effect run for ${identifier}. Scheduling trigger...`);
+
     const autoTriggerDelay = setTimeout(() => {
       // Mark this identifier as processed inside the callback so
       // willAutoTrigger stays true (showing the spinner) until the
       // trigger actually fires — avoiding a flash of empty content.
       lastAutoTriggerIdentifier = scheduledIdentifier;
       if (identifier !== scheduledIdentifier) {
+        console.log(`[BookAiContentPanel] Trigger skipped: identifier changed (${scheduledIdentifier} -> ${identifier})`);
         return;
       }
       if (!book?.aiContent && !aiLoading && !aiAutoTriggerDeferred) {
+        console.log(`[BookAiContentPanel] Triggering generation for ${identifier}`);
         void triggerAiGeneration(false);
+      } else {
+        console.log(`[BookAiContentPanel] Trigger skipped: content=${!!book?.aiContent} loading=${aiLoading} deferred=${aiAutoTriggerDeferred}`);
       }
     }, 0);
 
     return () => {
+      console.log(`[BookAiContentPanel] Cleaning up pending trigger for ${scheduledIdentifier}`);
       clearTimeout(autoTriggerDelay);
     };
   });
