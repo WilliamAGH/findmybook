@@ -44,6 +44,8 @@ import java.util.concurrent.ConcurrentHashMap;
 @Slf4j
 public class SearchPaginationService {
 
+    private static final int EXTERNAL_PROVIDER_WINDOW_CAP = ApplicationConstants.Paging.MAX_TIERED_LIMIT;
+
     private final BookSearchService bookSearchService;
     private final PostgresSearchResultHydrator postgresSearchResultHydrator;
     private final SearchPageAssembler searchPageAssembler;
@@ -94,7 +96,8 @@ public class SearchPaginationService {
     }
 
     /**
-     * Executes a postgres-first paginated search and optionally backfills empty pages from Google Books.
+     * Executes a postgres-first paginated search and optionally supplements the requested
+     * result window with external providers.
      *
      * @param request normalized search request
      * @return page payload containing ordered items and pagination metadata
@@ -142,39 +145,41 @@ public class SearchPaginationService {
                                            SearchPage currentPage) {
         boolean openLibraryAvailable = openLibraryBookDataService.isPresent();
         boolean googleAvailable = googleExternalSearchFlow.isAvailable();
-        boolean canUseExternalProviders = window.startIndex() == 0
-            && (openLibraryAvailable || googleAvailable)
+        int requestedWindow = requestedExternalWindow(window);
+        boolean canUseExternalProviders = (openLibraryAvailable || googleAvailable)
             && !SearchQueryUtils.isWildcard(request.query())
-            && window.totalRequested() > 0;
+            && requestedWindow > 0;
 
         if (!canUseExternalProviders) {
             return Mono.just(currentPage);
         }
 
-        boolean postgresEmpty = currentPage.totalUnique() == 0;
-        boolean shouldAugmentWithOpenLibrary = !postgresEmpty
+        boolean shouldSupplementCurrentPage = currentPage.totalUnique() == 0
+            || (window.startIndex() > 0 && currentPage.pageItems().size() < window.limit());
+        boolean shouldAugmentWithOpenLibrary = window.startIndex() == 0
             && openLibraryAvailable
             && (hasCoverGap(currentPage, window.limit()) || hasMetadataGap(currentPage, window.limit()));
 
-        if (!postgresEmpty && !shouldAugmentWithOpenLibrary) {
+        if (!shouldSupplementCurrentPage && !shouldAugmentWithOpenLibrary) {
             return Mono.just(currentPage);
         }
 
-        int requested = window.totalRequested();
-        return streamOpenLibraryCandidates(request, requested)
+        // Always hydrate from offset 0 to keep merged sorting/slicing deterministic for later pages.
+        return streamOpenLibraryCandidates(request, 0, requestedWindow)
             .collectList()
             .flatMap(primaryCandidates -> {
-                if (!postgresEmpty) {
-                    return Mono.just(mergeFallbackResults(primaryCandidates, currentPage, window, request));
-                }
-
-                int remaining = Math.max(requested - primaryCandidates.size(), 0);
-                if (remaining == 0 || !googleExternalSearchFlow.isAvailable()) {
+                if (!shouldFetchGoogleSecondary(
+                    requestedWindow,
+                    currentPage.uniqueResults(),
+                    primaryCandidates,
+                    googleAvailable,
+                    shouldSupplementCurrentPage
+                )) {
                     return Mono.just(mergeFallbackResults(primaryCandidates, currentPage, window, request));
                 }
 
                 return googleExternalSearchFlow
-                    .streamCandidates(request.query(), request.orderBy(), request.publishedYear(), remaining)
+                    .streamCandidates(request.query(), request.orderBy(), request.publishedYear(), requestedWindow)
                     .onErrorResume(ex -> {
                         log.warn("Google fallback failed for '{}': {}", request.query(), ex.getMessage());
                         return Flux.empty();
@@ -189,7 +194,43 @@ public class SearchPaginationService {
             });
     }
 
-    private Flux<Book> streamOpenLibraryCandidates(SearchRequest request, int maxResults) {
+    private int requestedExternalWindow(PagingUtils.Window window) {
+        int minimumWindow = Math.max(1, window.limit());
+        int desiredWindow = Math.max(minimumWindow, window.totalRequested());
+        return Math.min(desiredWindow, EXTERNAL_PROVIDER_WINDOW_CAP);
+    }
+
+    private boolean shouldFetchGoogleSecondary(int requestedWindow,
+                                               List<Book> existingResults,
+                                               List<Book> openLibraryCandidates,
+                                               boolean googleAvailable,
+                                               boolean shouldSupplementResultWindow) {
+        if (!googleAvailable || !shouldSupplementResultWindow) {
+            return false;
+        }
+        if (openLibraryBookDataService.isEmpty()) {
+            return true;
+        }
+        int projectedUnique = projectedUniqueCount(existingResults, openLibraryCandidates);
+        return projectedUnique < requestedWindow;
+    }
+
+    private int projectedUniqueCount(List<Book> existingResults, List<Book> fallbackCandidates) {
+        Set<String> projectedKeys = ConcurrentHashMap.newKeySet();
+        if (existingResults != null) {
+            for (Book existing : existingResults) {
+                CandidateKeyResolver.resolve(existing).ifPresent(projectedKeys::add);
+            }
+        }
+        if (fallbackCandidates != null) {
+            for (Book candidate : fallbackCandidates) {
+                CandidateKeyResolver.resolve(candidate).ifPresent(projectedKeys::add);
+            }
+        }
+        return projectedKeys.size();
+    }
+
+    private Flux<Book> streamOpenLibraryCandidates(SearchRequest request, int startIndex, int maxResults) {
         if (openLibraryBookDataService.isEmpty()) {
             return Flux.empty();
         }
@@ -200,7 +241,7 @@ public class SearchPaginationService {
 
         OpenLibraryBookDataService service = openLibraryBookDataService.get();
         Set<String> seenKeys = ConcurrentHashMap.newKeySet();
-        return service.queryBooksByEverything(query, request.orderBy())
+        return service.queryBooksByEverything(query, request.orderBy(), startIndex, maxResults)
             .onErrorResume(ex -> {
                 log.warn("Open Library fallback failed for '{}': {}", request.query(), ex.getMessage());
                 return Flux.empty();
@@ -433,6 +474,14 @@ public class SearchPaginationService {
 
     /**
      * Immutable request contract for paginated search.
+     *
+     * @param query normalized search text (non-null)
+     * @param startIndex zero-based absolute offset into the result window (not a one-based page number)
+     * @param maxResults requested page size for this response window
+     * @param orderBy normalized sort key used by internal/external providers
+     * @param coverSource preferred cover source filter
+     * @param resolutionPreference preferred cover resolution filter
+     * @param publishedYear optional publication-year filter
      */
     public record SearchRequest(String query,
                                 int startIndex,
@@ -461,6 +510,20 @@ public class SearchPaginationService {
 
     /**
      * Immutable paginated response payload for search endpoints.
+     *
+     * @param query normalized search text
+     * @param startIndex zero-based absolute offset echoed from the request
+     * @param maxResults effective page size used for this response
+     * @param totalRequested internal fetch window size (includes prefetch room)
+     * @param totalUnique total unique candidates after filtering/deduplication
+     * @param pageItems current page slice (derived from startIndex/maxResults)
+     * @param uniqueResults full unique candidate window used to produce pageItems
+     * @param hasMore whether another page exists after this slice
+     * @param nextStartIndex next zero-based absolute offset when hasMore is true
+     * @param prefetchedCount number of extra candidates already fetched beyond pageItems
+     * @param orderBy normalized ordering key applied by the assembler
+     * @param coverSource effective cover source filter applied by the assembler
+     * @param resolutionPreference effective resolution preference applied by the assembler
      */
     public record SearchPage(String query,
                              int startIndex,

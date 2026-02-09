@@ -14,6 +14,7 @@ import net.findmybook.util.IsbnUtils;
 import net.findmybook.util.LoggingUtils;
 import net.findmybook.util.SearchExternalProviderUtils;
 import net.findmybook.util.TextUtils;
+import net.findmybook.util.ApplicationConstants;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import lombok.extern.slf4j.Slf4j;
@@ -41,6 +42,7 @@ import java.util.Set;
 public class OpenLibraryBookDataService {
 
     private static final int DEFAULT_SEARCH_LIMIT = 40;
+    private static final int OPEN_LIBRARY_PAGE_SIZE = 100;
     private static final int WORK_DETAILS_CONCURRENCY = 6;
     private static final int WORK_DETAILS_MAX_ENRICHMENTS = 12;
     private static final Duration WORK_DETAILS_TIMEOUT = Duration.ofSeconds(3);
@@ -66,7 +68,7 @@ public class OpenLibraryBookDataService {
     @RateLimiter(name = "openLibraryDataService")
     @CircuitBreaker(name = "openLibraryDataService", fallbackMethod = "searchBooksFallback")
     public Flux<Book> queryBooksByTitle(String title) {
-        return queryBooks("title", title, "SEARCH_TITLE", false, null);
+        return queryBooks("title", title, "SEARCH_TITLE", false, null, 0, DEFAULT_SEARCH_LIMIT);
     }
 
     /**
@@ -78,7 +80,7 @@ public class OpenLibraryBookDataService {
     @RateLimiter(name = "openLibraryDataService")
     @CircuitBreaker(name = "openLibraryDataService", fallbackMethod = "searchBooksFallback")
     public Flux<Book> queryBooksByAuthor(String author) {
-        return queryBooks("author", author, "SEARCH_AUTHOR", false, null);
+        return queryBooks("author", author, "SEARCH_AUTHOR", false, null, 0, DEFAULT_SEARCH_LIMIT);
     }
 
     /**
@@ -106,12 +108,33 @@ public class OpenLibraryBookDataService {
     @RateLimiter(name = "openLibraryDataService")
     @CircuitBreaker(name = "openLibraryDataService", fallbackMethod = "searchBooksFallback")
     public Flux<Book> queryBooksByEverything(String query, String orderBy) {
+        return queryBooksByEverything(query, orderBy, 0, DEFAULT_SEARCH_LIMIT);
+    }
+
+    /**
+     * Searches OpenLibrary using mode=everything for a deterministic offset window.
+     *
+     * <p>FindMyBook search endpoints use a zero-based {@code startIndex} absolute offset.
+     * Open Library exposes offset-based paging through {@code offset} + {@code limit};
+     * this method maps the same zero-based contract directly to provider calls.</p>
+     *
+     * @param query the free-text query to search
+     * @param orderBy requested FindMyBook orderBy value
+     * @param startIndex zero-based absolute offset into provider results
+     * @param maxResults number of provider rows to retrieve from startIndex
+     * @return a Flux of matching books, or empty if disabled or no results found
+     */
+    @RateLimiter(name = "openLibraryDataService")
+    @CircuitBreaker(name = "openLibraryDataService", fallbackMethod = "searchBooksFallback")
+    public Flux<Book> queryBooksByEverything(String query, String orderBy, int startIndex, int maxResults) {
         return queryBooks(
             "q",
             query,
             "SEARCH_EVERYTHING",
             true,
-            SearchExternalProviderUtils.normalizeOpenLibrarySortFacet(orderBy).orElse(null)
+            SearchExternalProviderUtils.normalizeOpenLibrarySortFacet(orderBy).orElse(null),
+            startIndex,
+            maxResults
         );
     }
 
@@ -126,13 +149,17 @@ public class OpenLibraryBookDataService {
      * @param queryValue     the search value to send
      * @param apiOperation   logging label for external API metrics (e.g. "SEARCH_TITLE")
      * @param openLibrarySortFacet provider-specific sort facet to pass when supported
+     * @param startIndex zero-based offset into provider rows
+     * @param maxResults maximum number of rows to emit from startIndex
      * @return a Flux of matching books, or empty when disabled or no results found
      */
     private Flux<Book> queryBooks(String queryParamName,
                                   String queryValue,
                                   String apiOperation,
                                   boolean includeEverythingMode,
-                                  String openLibrarySortFacet) {
+                                  String openLibrarySortFacet,
+                                  int startIndex,
+                                  int maxResults) {
         if (queryValue == null || queryValue.trim().isEmpty()) {
             log.warn("{} is null or empty. Cannot search books on OpenLibrary.", queryParamName);
             return Flux.empty();
@@ -141,52 +168,93 @@ public class OpenLibraryBookDataService {
             log.debug("External fallback disabled; skipping OpenLibrary {} search for: {}", queryParamName, queryValue);
             return Flux.empty();
         }
+        int safeStartIndex = Math.max(0, startIndex);
+        int safeMaxResults = Math.max(1, Math.min(
+            maxResults > 0 ? maxResults : DEFAULT_SEARCH_LIMIT,
+            ApplicationConstants.Paging.MAX_TIERED_LIMIT
+        ));
+        int pageSize = includeEverythingMode
+            ? Math.min(OPEN_LIBRARY_PAGE_SIZE, safeMaxResults)
+            : Math.min(DEFAULT_SEARCH_LIMIT, safeMaxResults);
+        int pageCount = Math.max(1, (safeMaxResults + pageSize - 1) / pageSize);
+
         log.info("Attempting to search OpenLibrary by {}: {}", queryParamName, queryValue);
         ExternalApiLogger.logApiCallAttempt(log, "OpenLibrary", apiOperation, queryValue, false);
-        return webClient.get()
-                .uri(uriBuilder -> {
-                    var requestBuilder = uriBuilder
-                        .path("/search.json")
-                        .queryParam(queryParamName, queryValue)
-                        .queryParam("limit", DEFAULT_SEARCH_LIMIT);
-                    if (includeEverythingMode) {
-                        requestBuilder = requestBuilder
-                            .queryParam("mode", "everything")
-                            .queryParam("fields", SEARCH_FIELDS);
-                        if (StringUtils.hasText(openLibrarySortFacet)) {
-                            requestBuilder = requestBuilder.queryParam("sort", openLibrarySortFacet);
-                        }
-                    }
-                    return requestBuilder.build();
+        Flux<Book> parsedBooks = Flux.range(0, pageCount)
+                .concatMap(pageOffset -> {
+                    int offset = safeStartIndex + pageOffset * pageSize;
+                    int requestedLimit = Math.min(pageSize, safeMaxResults - pageOffset * pageSize);
+                    return fetchSearchPage(
+                        queryParamName,
+                        queryValue,
+                        apiOperation,
+                        includeEverythingMode,
+                        openLibrarySortFacet,
+                        offset,
+                        requestedLimit
+                    );
                 })
-                .retrieve()
-                .bodyToMono(JsonNode.class)
-                .timeout(Duration.ofSeconds(5))
-                .onErrorMap(PrematureCloseException.class, e -> {
-                    log.debug("OpenLibrary {} search connection closed early for '{}': {}", queryParamName, queryValue, e.toString());
-                    return new IllegalStateException("OpenLibrary " + queryParamName + " search connection closed early for '" + queryValue + "'", e);
-                })
-                .flatMapMany(responseNode -> {
-                    if (!responseNode.has("docs") || !responseNode.get("docs").isArray()) {
-                        ExternalApiLogger.logApiCallSuccess(log, "OpenLibrary", apiOperation, queryValue, 0);
-                        return Flux.empty();
-                    }
-                    int count = responseNode.get("docs").size();
-                    ExternalApiLogger.logApiCallSuccess(log, "OpenLibrary", apiOperation, queryValue, count);
-                    Flux<Book> parsedBooks = Flux.fromIterable(responseNode.get("docs"))
-                               .map(this::parseOpenLibrarySearchDoc)
-                               .filter(Objects::nonNull);
-                    if (!includeEverythingMode) {
-                        return parsedBooks;
-                    }
-                    return enrichWithWorkDetails(parsedBooks, queryValue);
-                })
+                .take(safeMaxResults);
+
+        Flux<Book> response = includeEverythingMode
+            ? enrichWithWorkDetails(parsedBooks, queryValue)
+            : parsedBooks;
+
+        return response
                 .doOnError(e -> LoggingUtils.error(log, e, "Error searching books by {} '{}' from OpenLibrary", queryParamName, queryValue))
                 .onErrorMap(e -> {
                      LoggingUtils.warn(log, e, "Error during OpenLibrary search for {} '{}', returning empty Flux", queryParamName, queryValue);
                      ExternalApiLogger.logApiCallFailure(log, "OpenLibrary", apiOperation, queryValue, e.getMessage());
                      return new IllegalStateException("OpenLibrary " + queryParamName + " search failed for '" + queryValue + "'", e);
                 });
+    }
+
+    private Flux<Book> fetchSearchPage(String queryParamName,
+                                       String queryValue,
+                                       String apiOperation,
+                                       boolean includeEverythingMode,
+                                       String openLibrarySortFacet,
+                                       int offset,
+                                       int limit) {
+        if (limit <= 0) {
+            return Flux.empty();
+        }
+        String requestContext = queryValue + " start=" + offset + " limit=" + limit;
+        return webClient.get()
+            .uri(uriBuilder -> {
+                var requestBuilder = uriBuilder
+                    .path("/search.json")
+                    .queryParam(queryParamName, queryValue)
+                    .queryParam("offset", offset)
+                    .queryParam("limit", limit);
+                if (includeEverythingMode) {
+                    requestBuilder = requestBuilder
+                        .queryParam("mode", "everything")
+                        .queryParam("fields", SEARCH_FIELDS);
+                    if (StringUtils.hasText(openLibrarySortFacet)) {
+                        requestBuilder = requestBuilder.queryParam("sort", openLibrarySortFacet);
+                    }
+                }
+                return requestBuilder.build();
+            })
+            .retrieve()
+            .bodyToMono(JsonNode.class)
+            .timeout(Duration.ofSeconds(5))
+            .onErrorMap(PrematureCloseException.class, e -> {
+                log.debug("OpenLibrary {} search connection closed early for '{}': {}", queryParamName, queryValue, e.toString());
+                return new IllegalStateException("OpenLibrary " + queryParamName + " search connection closed early for '" + queryValue + "'", e);
+            })
+            .flatMapMany(responseNode -> {
+                if (!responseNode.has("docs") || !responseNode.get("docs").isArray()) {
+                    ExternalApiLogger.logApiCallSuccess(log, "OpenLibrary", apiOperation, requestContext, 0);
+                    return Flux.empty();
+                }
+                int count = responseNode.get("docs").size();
+                ExternalApiLogger.logApiCallSuccess(log, "OpenLibrary", apiOperation, requestContext, count);
+                return Flux.fromIterable(responseNode.get("docs"))
+                    .map(this::parseOpenLibrarySearchDoc)
+                    .filter(Objects::nonNull);
+            });
     }
 
     /**
@@ -202,6 +270,28 @@ public class OpenLibraryBookDataService {
     public Flux<Book> searchBooksFallback(String query, Throwable cause) {
         LoggingUtils.warn(log, cause, "OpenLibrary search fallback triggered for query: '{}'", query);
         return Flux.error(new IllegalStateException("OpenLibrary fallback triggered for search '" + query + "'", cause));
+    }
+
+    public Flux<Book> searchBooksFallback(String query, String orderBy, Throwable cause) {
+        LoggingUtils.warn(log, cause, "OpenLibrary search fallback triggered for query: '{}' and orderBy '{}'", query, orderBy);
+        return searchBooksFallback(query, cause);
+    }
+
+    public Flux<Book> searchBooksFallback(String query,
+                                          String orderBy,
+                                          int startIndex,
+                                          int maxResults,
+                                          Throwable cause) {
+        LoggingUtils.warn(
+            log,
+            cause,
+            "OpenLibrary search fallback triggered for query: '{}' orderBy '{}' startIndex {} maxResults {}",
+            query,
+            orderBy,
+            startIndex,
+            maxResults
+        );
+        return searchBooksFallback(query, cause);
     }
 
     private Book parseOpenLibrarySearchDoc(JsonNode docNode) {
