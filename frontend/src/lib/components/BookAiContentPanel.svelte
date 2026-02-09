@@ -260,6 +260,9 @@
   {#if !collapsed}
     <div class="border-t border-linen-200 px-4 pb-4 pt-3 dark:border-slate-700">
       {#if book.aiContent}
+        {#if aiErrorMessage}
+          <p class="mb-2 text-xs text-red-700 dark:text-red-300">{aiErrorMessage}</p>
+        {/if}
         <!-- Summary -->
         <p class="text-sm leading-relaxed text-anthracite-800 dark:text-slate-200">
           {book.aiContent.summary}
