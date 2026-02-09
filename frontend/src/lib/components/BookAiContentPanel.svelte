@@ -217,7 +217,6 @@
       }
       if (!book?.aiContent && !aiLoading && !aiAutoTriggerDeferred) {
         void triggerAiGeneration(false);
-      } else {
       }
     }, 0);
 
