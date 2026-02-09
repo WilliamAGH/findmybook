@@ -157,13 +157,25 @@ public class BookAiContentController {
             if (!position.inQueue()) {
                 return;
             }
-            sendEvent(emitter, "queue", toQueuePositionPayload(position));
+            try {
+                sendEvent(emitter, "queue", toQueuePositionPayload(position));
+            } catch (IllegalStateException queueDeliveryException) {
+                log.warn("Queue position delivery failed for bookId={} taskId={}", bookId, queuedTask.id(), queueDeliveryException);
+                streamClosed.set(true);
+                requestQueue.cancelPending(queuedTask.id());
+            }
         }, QUEUE_POSITION_TICK_MILLIS, QUEUE_POSITION_TICK_MILLIS, TimeUnit.MILLISECONDS);
         ScheduledFuture<?> keepaliveTicker = queueTickerExecutor.scheduleAtFixedRate(() -> {
             if (streamClosed.get()) {
                 return;
             }
-            sendSseComment(emitter, "keepalive");
+            try {
+                sendSseComment(emitter, "keepalive");
+            } catch (IllegalStateException keepaliveException) {
+                log.warn("Keepalive delivery failed for bookId={}", bookId, keepaliveException);
+                streamClosed.set(true);
+                requestQueue.cancelPending(queuedTask.id());
+            }
         }, KEEPALIVE_INTERVAL_MILLIS, KEEPALIVE_INTERVAL_MILLIS, TimeUnit.MILLISECONDS);
         Runnable cancelPendingIfOpen = () -> {
             if (streamClosed.compareAndSet(false, true)) {
@@ -214,7 +226,11 @@ public class BookAiContentController {
                 return;
             }
             BookAiContentSnapshotDto snapshotDto = BookAiContentSnapshotDto.fromSnapshot(result.snapshot());
-            sendEvent(emitter, "done", new DonePayload(result.rawMessage(), snapshotDto));
+            try {
+                sendEvent(emitter, "done", new DonePayload(result.rawMessage(), snapshotDto));
+            } catch (IllegalStateException doneDeliveryException) {
+                log.warn("AI done event delivery failed for bookId={}", bookId, doneDeliveryException);
+            }
             safelyComplete(emitter);
         });
     }
@@ -321,11 +337,10 @@ public class BookAiContentController {
     }
 
     private String safeThrowableMessage(Throwable throwable) {
-        Throwable current = throwable == null ? null : throwable;
-        if (current == null || current.getMessage() == null || current.getMessage().isBlank()) {
+        if (throwable == null || throwable.getMessage() == null || throwable.getMessage().isBlank()) {
             return AiErrorCode.GENERATION_FAILED.defaultMessage();
         }
-        return current.getMessage();
+        return throwable.getMessage();
     }
 
     private String normalizeEnvironmentMode(String rawMode) {

@@ -8,7 +8,6 @@
     PRODUCTION_ENVIRONMENT_MODE,
     normalizeEnvironmentMode,
     shouldRenderPanel,
-    shouldSuppressPanelForShortDescriptionInProduction,
   } from "$lib/services/bookAiContentPanelState";
   import type {
     Book,
@@ -74,10 +73,6 @@
     return aiEnvironmentMode !== PRODUCTION_ENVIRONMENT_MODE;
   }
 
-  function shouldSuppressPanelForCurrentBookInProduction(): boolean {
-    return shouldSuppressPanelForShortDescriptionInProduction(aiFailureDiagnosticsEnabled(), book);
-  }
-
   function shouldDisplayPanel(): boolean {
     return shouldRenderPanel(aiFailureDiagnosticsEnabled(), aiServiceAvailable, book);
   }
@@ -110,6 +105,8 @@
         aiServiceAvailable = false;
       }
       aiErrorMessage = failure.message;
+      aiQueueMessage = null;
+      aiAutoTriggerDeferred = false;
       return;
     }
 

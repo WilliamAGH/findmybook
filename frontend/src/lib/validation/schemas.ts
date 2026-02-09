@@ -265,6 +265,7 @@ export const BookAiErrorCodeSchema = z.enum([
   "empty_generation",
   "cache_serialization_failed",
   "description_too_short",
+  "enrichment_failed",
   "generation_failed",
 ]);
 
