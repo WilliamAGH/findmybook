@@ -164,8 +164,22 @@ val frontendBuild by tasks.registering(Exec::class) {
     enabled = !skipFrontend
 }
 
-tasks.named("processResources") {
+val verifyNoFrontendFallbackHtml by tasks.registering {
     dependsOn(frontendBuild)
+    enabled = !skipFrontend
+    val forbiddenFallbackHtml = layout.projectDirectory.file("src/main/resources/static/frontend/index.html")
+    doLast {
+        if (forbiddenFallbackHtml.asFile.exists()) {
+            throw GradleException(
+                "Forbidden fallback entrypoint detected at src/main/resources/static/frontend/index.html. " +
+                    "Public HTML must be served by backend controllers only."
+            )
+        }
+    }
+}
+
+tasks.named("processResources") {
+    dependsOn(verifyNoFrontendFallbackHtml)
 }
 
 tasks.named("check") {
