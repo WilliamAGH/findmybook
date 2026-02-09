@@ -3,11 +3,14 @@
  */
 package net.findmybook.controller;
 
-import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import net.findmybook.application.ai.BookAiContentService;
 import net.findmybook.controller.dto.BookAiContentSnapshotDto;
 import net.findmybook.controller.dto.BookDto;
 import net.findmybook.controller.dto.BookDtoMapper;
+import net.findmybook.controller.dto.search.AuthorSearchResponse;
+import net.findmybook.controller.dto.search.SearchContractMapper;
+import net.findmybook.controller.dto.search.SearchFilters;
+import net.findmybook.controller.dto.search.SearchResponse;
 import org.springframework.web.server.ResponseStatusException;
 import net.findmybook.dto.BookCard;
 import net.findmybook.dto.BookDetail;
@@ -19,14 +22,12 @@ import net.findmybook.service.BookDataOrchestrator;
 import net.findmybook.service.BookIdentifierResolver;
 import net.findmybook.service.BookSearchService;
 import net.findmybook.service.SearchPaginationService;
-import net.findmybook.service.BookSearchService.AuthorResult;
 import net.findmybook.util.ApplicationConstants;
 import net.findmybook.util.PagingUtils;
 import net.findmybook.util.ReactiveControllerUtils;
 import net.findmybook.util.SearchExternalProviderUtils;
 import net.findmybook.util.SearchQueryUtils;
 import org.springframework.util.StringUtils;
-import net.findmybook.util.SlugGenerator;
 import net.findmybook.util.EnumParsingUtils;
 import net.findmybook.util.cover.CoverPrioritizer;
 import lombok.extern.slf4j.Slf4j;
@@ -40,12 +41,10 @@ import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
-import java.util.Comparator;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -87,18 +86,12 @@ public class BookController {
     }
 
     /**
-     * Pagination and filter parameters for the book search endpoint.
-     * Spring MVC binds query parameters to record fields by name.
+     * Searches books using offset-based pagination and deterministic provider ordering.
+     *
+     * <p>{@code startIndex} is a zero-based absolute offset and {@code maxResults}
+     * controls page size. UI routes may use a one-based {@code page} query parameter,
+     * but clients must convert that value to {@code startIndex} before calling this API.</p>
      */
-    record SearchFilters(Integer startIndex, Integer maxResults, String orderBy,
-                         Integer publishedYear, String coverSource, String resolution) {
-        int effectiveStartIndex() { return startIndex != null ? startIndex : 0; }
-        int effectiveMaxResults() { return maxResults != null ? maxResults : 12; }
-        String effectiveOrderBy() { return SearchExternalProviderUtils.normalizeOrderBy(orderBy); }
-        String effectiveCoverSource() { return coverSource != null && !coverSource.isBlank() ? coverSource : "ANY"; }
-        String effectiveResolution() { return resolution != null && !resolution.isBlank() ? resolution : "ANY"; }
-    }
-
     @GetMapping("/search")
     public Mono<ResponseEntity<SearchResponse>> searchBooks(@RequestParam String query,
                                                             SearchFilters filters) {
@@ -132,13 +125,13 @@ public class BookController {
         );
 
         return searchPaginationService.search(request)
-            .map(this::toSearchResponse)
+            .map(SearchContractMapper::fromSearchPage)
             .map(ResponseEntity::ok)
             .onErrorResume(ex -> {
                 log.error("Failed to search books for query '{}': {}. Returning explicit error status.",
                     normalizedQuery, ex.getMessage(), ex);
                 return Mono.fromSupplier(() -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(emptySearchResponse(normalizedQuery, request)));
+                    .body(SearchContractMapper.emptySearchResponse(normalizedQuery, request)));
             });
     }
 
@@ -155,12 +148,11 @@ public class BookController {
 
         Mono<AuthorSearchResponse> responseMono = Mono.fromCallable(() -> bookSearchService.searchAuthors(normalizedQuery, safeLimit))
             .subscribeOn(Schedulers.boundedElastic())
-            .map(results -> results == null ? List.<AuthorResult>of() : results)
-            .map(results -> buildAuthorResponse(normalizedQuery, safeLimit, results));
+            .map(results -> SearchContractMapper.fromAuthorResults(normalizedQuery, safeLimit, results));
 
         return withEmptyFallback(
             responseMono,
-            () -> emptyAuthorResponse(normalizedQuery, safeLimit),
+            () -> SearchContractMapper.emptyAuthorSearchResponse(normalizedQuery, safeLimit),
             () -> String.format("Failed to search authors for query '%s'", normalizedQuery)
         );
     }
@@ -210,80 +202,6 @@ public class BookController {
         );
     }
 
-    private AuthorSearchResponse buildAuthorResponse(String query,
-                                                     int limit,
-                                                     List<AuthorResult> results) {
-        List<AuthorResult> safeResults = results == null ? List.of() : results;
-        List<AuthorHitDto> hits = safeResults.stream()
-                .sorted(Comparator.comparingDouble(AuthorResult::relevanceScore).reversed())
-                .limit(Math.max(0, limit))
-                .map(this::toAuthorHit)
-                .toList();
-        return new AuthorSearchResponse(query, limit, hits);
-    }
-
-    private AuthorHitDto toAuthorHit(AuthorResult authorResult) {
-        String effectiveId = authorResult.authorId();
-        if (!StringUtils.hasText(effectiveId)) {
-            String slug = SlugGenerator.slugify(authorResult.authorName());
-            if (slug == null || slug.isBlank()) {
-                slug = "unknown";
-            }
-            effectiveId = "external-author-" + slug;
-        }
-        return new AuthorHitDto(
-                effectiveId,
-                authorResult.authorName(),
-                authorResult.bookCount(),
-                authorResult.relevanceScore()
-        );
-    }
-
-    private SearchResponse toSearchResponse(SearchPaginationService.SearchPage page) {
-        List<SearchHitDto> hits = page.pageItems().stream()
-            .map(this::toSearchHit)
-            .filter(Objects::nonNull)
-            .toList();
-        String queryHash = SearchQueryUtils.topicKey(page.query());
-
-        return new SearchResponse(
-            page.query(),
-            queryHash,
-            page.startIndex(),
-            page.maxResults(),
-            page.totalUnique(),
-            page.hasMore(),
-            page.nextStartIndex(),
-            page.prefetchedCount(),
-            page.orderBy(),
-            page.coverSource() != null ? page.coverSource().name() : CoverImageSource.ANY.name(),
-            page.resolutionPreference() != null ? page.resolutionPreference().name() : ImageResolutionPreference.ANY.name(),
-            hits
-        );
-    }
-
-    private SearchResponse emptySearchResponse(String query, SearchPaginationService.SearchRequest request) {
-        String queryHash = SearchQueryUtils.topicKey(query);
-        return new SearchResponse(
-            query,
-            queryHash,
-            request.startIndex(),
-            request.maxResults(),
-            0,
-            false,
-            request.startIndex(),
-            0,
-            request.orderBy(),
-            request.coverSource().name(),
-            request.resolutionPreference().name(),
-            List.<SearchHitDto>of()
-        );
-    }
-
-    private AuthorSearchResponse emptyAuthorResponse(String query, int limit) {
-        return new AuthorSearchResponse(query, limit, List.of());
-    }
-
     private <T> Mono<ResponseEntity<T>> withEmptyFallback(Mono<T> pipeline,
                                                           Supplier<T> emptySupplier,
                                                           Supplier<String> contextSupplier) {
@@ -308,31 +226,6 @@ public class BookController {
             return detail;
         }
         return detail.withEditions(editions);
-    }
-
-    private SearchHitDto toSearchHit(Book book) {
-        if (book == null) {
-            return null;
-        }
-        Map<String, Object> extras = Optional.ofNullable(book.getQualifiers()).orElse(Map.of());
-        String matchType = Optional.ofNullable(extras.get("search.matchType"))
-            .map(Object::toString)
-            .orElse(null);
-        Double relevance = Optional.ofNullable(extras.get("search.relevanceScore"))
-            .map(value -> {
-                if (value instanceof Number number) {
-                    return number.doubleValue();
-                }
-                try {
-                    return Double.parseDouble(value.toString());
-                } catch (IllegalArgumentException _) {
-                    return null;
-                }
-            })
-            .orElse(null);
-
-        BookDto dto = BookDtoMapper.toDto(book);
-        return new SearchHitDto(dto, matchType, relevance);
     }
 
     private Mono<BookDto> findBookDto(String identifier) {
@@ -468,31 +361,4 @@ public class BookController {
         return dtos;
     }
 
-    record SearchResponse(String query,
-                                  String queryHash,
-                                  int startIndex,
-                                  int maxResults,
-                                  int totalResults,
-                                  boolean hasMore,
-                                  int nextStartIndex,
-                                  int prefetchedCount,
-                                  String orderBy,
-                                  String coverSource,
-                                  String resolution,
-                                  List<SearchHitDto> results) {
-    }
-
-    private record SearchHitDto(@JsonUnwrapped BookDto book, String matchType, Double relevanceScore) {
-    }
-
-    private record AuthorSearchResponse(String query,
-                                        int limit,
-                                        List<AuthorHitDto> results) {
-    }
-
-    private record AuthorHitDto(String id,
-                                String name,
-                                long bookCount,
-                                double relevanceScore) {
-    }
 }
