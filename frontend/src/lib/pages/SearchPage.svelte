@@ -16,6 +16,7 @@
     COVER_OPTIONS, RESOLUTION_OPTIONS, SORT_OPTIONS, SORT_LABELS,
     type CoverOption, type ResolutionOption, type SortOption,
     parsePositiveNumber, parseEnumParam, dedupeGenres, categoryQueryFromGenres,
+    startIndexFromPage, pageFromStartIndex,
     pickRandomExploreQuery,
   } from "$lib/services/searchConfig";
   import type { SearchHit, SearchResponse, CategoryFacet } from "$lib/validation/schemas";
@@ -27,6 +28,7 @@
   let unsubscribeRealtime: (() => void) | null = null;
 
   let query = $state("");
+  // UI route page is one-based; API calls convert this to zero-based startIndex.
   let page = $state(1);
   let orderBy = $state<SortOption>("newest");
   let coverSource = $state<CoverOption>("ANY");
@@ -46,7 +48,7 @@
   function toSearchParams(): SearchParams {
     return {
       query,
-      startIndex: (page - 1) * PAGE_SIZE,
+      startIndex: startIndexFromPage(page, PAGE_SIZE),
       maxResults: PAGE_SIZE,
       orderBy,
       coverSource,
@@ -151,6 +153,16 @@
       const response = searchCache.get(key) ?? (await searchBooks(params));
       if (sequence !== searchLoadSequence) return;
 
+      const requestedPage = pageFromStartIndex(params.startIndex, params.maxResults);
+      if (response.totalResults > 0 && response.results.length === 0) {
+        const lastPage = Math.max(1, Math.ceil(response.totalResults / Math.max(response.maxResults, 1)));
+        if (requestedPage > lastPage) {
+          applyFilters(lastPage, null, true);
+          return;
+        }
+      }
+
+      page = pageFromStartIndex(response.startIndex, response.maxResults);
       searchCache.set(key, response);
       searchResult = response;
 

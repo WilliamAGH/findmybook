@@ -36,6 +36,24 @@ export function parsePositiveNumber(value: string | null, fallback: number): num
   return Number.isFinite(parsed) && parsed >= 1 ? parsed : fallback;
 }
 
+/**
+ * Convert a one-based UI page value into the API's zero-based absolute start index.
+ */
+export function startIndexFromPage(page: number, pageSize: number): number {
+  const safePage = Number.isFinite(page) && page >= 1 ? Math.trunc(page) : 1;
+  const safePageSize = Number.isFinite(pageSize) && pageSize >= 1 ? Math.trunc(pageSize) : PAGE_SIZE;
+  return (safePage - 1) * safePageSize;
+}
+
+/**
+ * Convert the API's zero-based start index into a one-based UI page value.
+ */
+export function pageFromStartIndex(startIndex: number, pageSize: number): number {
+  const safeStartIndex = Number.isFinite(startIndex) && startIndex >= 0 ? Math.trunc(startIndex) : 0;
+  const safePageSize = Number.isFinite(pageSize) && pageSize >= 1 ? Math.trunc(pageSize) : PAGE_SIZE;
+  return Math.floor(safeStartIndex / safePageSize) + 1;
+}
+
 export function parseEnumParam<T extends string>(
   params: URLSearchParams, key: string, options: readonly T[], fallback: T,
 ): T {

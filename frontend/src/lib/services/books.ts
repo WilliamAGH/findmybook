@@ -25,7 +25,14 @@ const inFlightSearchRequests = new Map<string, Promise<SearchResponse>>();
 
 export interface SearchParams {
   query: string;
+  /**
+   * Zero-based absolute offset expected by `/api/books/search`.
+   * UI routes use one-based `page`, which must be converted before calling this API.
+   */
   startIndex: number;
+  /**
+   * Page size requested for the current offset window.
+   */
   maxResults: number;
   orderBy: SortOption;
   coverSource: string;
