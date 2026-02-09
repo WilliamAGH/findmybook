@@ -19,7 +19,8 @@ public record BookDto(String id,
                       List<EditionDto> editions,
                       List<String> recommendationIds,
                       Map<String, Object> extras,
-                      DescriptionContent descriptionContent) {
+                      DescriptionContent descriptionContent,
+                      BookAiContentSnapshotDto aiContent) {
     /**
      * Canonical description payload formatted on the backend for deterministic client rendering.
      *
@@ -47,5 +48,28 @@ public record BookDto(String id,
         MARKDOWN,
         PLAIN_TEXT,
         UNKNOWN
+    }
+
+    /**
+     * Returns a copy with an updated AI snapshot while preserving all existing fields.
+     */
+    public BookDto withAiContent(BookAiContentSnapshotDto aiContentSnapshot) {
+        return new BookDto(
+            id,
+            slug,
+            title,
+            description,
+            publication,
+            authors,
+            categories,
+            collections,
+            tags,
+            cover,
+            editions,
+            recommendationIds,
+            extras,
+            descriptionContent,
+            aiContentSnapshot
+        );
     }
 }

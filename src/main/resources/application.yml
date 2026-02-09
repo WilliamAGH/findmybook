@@ -8,9 +8,9 @@
 
 spring:
   datasource:
-    url: ${SPRING_DATASOURCE_URL:}
-    username: ${SPRING_DATASOURCE_USERNAME:}
-    password: ${SPRING_DATASOURCE_PASSWORD:}
+    url: ${SPRING_DATASOURCE_URL:${DATABASE_URL:${POSTGRES_URL:${JDBC_DATABASE_URL:}}}}
+    username: ${SPRING_DATASOURCE_USERNAME:${DATABASE_USERNAME:${PGUSER:}}}
+    password: ${SPRING_DATASOURCE_PASSWORD:${DATABASE_PASSWORD:${PGPASSWORD:}}}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 20
@@ -173,6 +173,10 @@ resilience4j:
         limitForPeriod: 100         # 100 requests per minute
         limitRefreshPeriod: 1m
         timeoutDuration: 0ms
+      bookAiContentRateLimiter:
+        limitForPeriod: 10          # 10 AI requests per minute
+        limitRefreshPeriod: 1m
+        timeoutDuration: 0ms        # Fail fast when limit exceeded
   bulkhead:
     instances:
       googleBooksServiceBulkhead:

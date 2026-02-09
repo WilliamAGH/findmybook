@@ -53,6 +53,18 @@ export const DescriptionContentSchema = z.object({
   text: z.string().optional().default(""),
 });
 
+export const BookAiContentSnapshotSchema = z.object({
+  summary: z.string(),
+  readerFit: z.string().nullable().optional(),
+  keyThemes: z.array(z.string()).optional().default([]),
+  takeaways: z.array(z.string()).nullable().optional(),
+  context: z.string().nullable().optional(),
+  version: z.number().int().nullable().optional(),
+  generatedAt: z.string().datetime().nullable().optional(),
+  model: z.string().nullable().optional(),
+  provider: z.string().nullable().optional(),
+});
+
 export const BookSchema = z.object({
   id: z.string(),
   slug: z.string().nullable().optional(),
@@ -69,6 +81,7 @@ export const BookSchema = z.object({
   editions: z.array(EditionSchema).optional().default([]),
   recommendationIds: z.array(z.string()).optional().default([]),
   extras: z.record(z.string(), z.unknown()).optional().default({}),
+  aiContent: BookAiContentSnapshotSchema.nullable().optional(),
 });
 
 export const SearchHitSchema = BookSchema.extend({
@@ -195,6 +208,64 @@ export const BookCoverUpdateEventSchema = z.object({
   newCoverUrl: z.string().optional(),
 });
 
+export const BookAiContentQueueStatsSchema = z.object({
+  running: z.number().int().nonnegative(),
+  pending: z.number().int().nonnegative(),
+  maxParallel: z.number().int().positive(),
+  available: z.boolean(),
+});
+
+export const BookAiContentQueueUpdateSchema = z.union([
+  z.object({
+    event: z.enum(["queued", "queue"]),
+    position: z.number().int().nullable().optional(),
+    running: z.number().int().nonnegative(),
+    pending: z.number().int().nonnegative(),
+    maxParallel: z.number().int().positive(),
+  }),
+  z.object({
+    event: z.literal("started"),
+    running: z.number().int().nonnegative(),
+    pending: z.number().int().nonnegative(),
+    maxParallel: z.number().int().positive(),
+    queueWaitMs: z.number().int().nonnegative(),
+  }),
+]);
+
+export const BookAiContentMessageStartSchema = z.object({
+  id: z.string(),
+  model: z.string(),
+  apiMode: z.string(),
+});
+
+export const BookAiContentMessageDeltaSchema = z.object({
+  delta: z.string(),
+});
+
+export const BookAiContentMessageDoneSchema = z.object({
+  message: z.string(),
+});
+
+export const BookAiContentModelStreamUpdateSchema = z.union([
+  z.object({
+    event: z.literal("message_start"),
+    data: BookAiContentMessageStartSchema,
+  }),
+  z.object({
+    event: z.literal("message_delta"),
+    data: BookAiContentMessageDeltaSchema,
+  }),
+  z.object({
+    event: z.literal("message_done"),
+    data: BookAiContentMessageDoneSchema,
+  }),
+]);
+
+export const BookAiContentStreamDoneSchema = z.object({
+  message: z.string(),
+  aiContent: BookAiContentSnapshotSchema,
+});
+
 export const RealtimeSearchHitCandidateSchema = z.object({
   id: z.string(),
   slug: z.string().optional(),
@@ -221,6 +292,10 @@ export const RealtimeSearchHitCandidateSchema = z.object({
 });
 
 export type Book = z.infer<typeof BookSchema>;
+export type BookAiContentSnapshot = z.infer<typeof BookAiContentSnapshotSchema>;
+export type BookAiContentQueueStats = z.infer<typeof BookAiContentQueueStatsSchema>;
+export type BookAiContentQueueUpdate = z.infer<typeof BookAiContentQueueUpdateSchema>;
+export type BookAiContentModelStreamUpdate = z.infer<typeof BookAiContentModelStreamUpdateSchema>;
 export type SearchHit = z.infer<typeof SearchHitSchema>;
 export type SearchResponse = z.infer<typeof SearchResponseSchema>;
 export type BookCard = z.infer<typeof BookCardSchema>;

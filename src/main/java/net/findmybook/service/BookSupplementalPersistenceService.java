@@ -6,19 +6,23 @@ import net.findmybook.util.ApplicationConstants;
 import net.findmybook.util.CategoryNormalizer;
 import net.findmybook.util.IdGenerator;
 import net.findmybook.util.JdbcUtils;
+import net.findmybook.util.TextUtils;
 import net.findmybook.util.UuidUtils;
 import net.findmybook.util.ValidationUtils;
-import org.springframework.util.StringUtils;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
 @Service
 public class BookSupplementalPersistenceService {
+
+    private static final String AUTHOR_NAME_NORMALIZE_PATTERN = "[^a-z0-9\\s]";
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
@@ -48,8 +52,12 @@ public class BookSupplementalPersistenceService {
             if (!StringUtils.hasText(author)) {
                 continue;
             }
-            String normalized = author.toLowerCase().replaceAll("[^a-z0-9\\s]", "").trim();
-            String authorId = upsertAuthor(author, normalized);
+            String canonicalAuthorName = TextUtils.normalizeAuthorName(author);
+            if (!StringUtils.hasText(canonicalAuthorName)) {
+                continue;
+            }
+            String normalized = nullIfBlank(normalizeAuthorKey(canonicalAuthorName));
+            String authorId = upsertAuthor(canonicalAuthorName, normalized);
             JdbcUtils.executeUpdate(
                 jdbcTemplate,
                 "INSERT INTO book_authors_join (id, book_id, author_id, position, created_at, updated_at) VALUES (?, ?, ?, ?, NOW(), NOW()) " +
@@ -141,7 +149,7 @@ public class BookSupplementalPersistenceService {
         JdbcUtils.executeUpdate(
             jdbcTemplate,
             "INSERT INTO book_tag_assignments (id, book_id, tag_id, source, confidence, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?::jsonb, NOW()) " +
-            "ON CONFLICT (book_id, tag_id, source) DO UPDATE SET metadata = EXCLUDED.metadata, confidence = COALESCE(EXCLUDED.confidence, book_tag_assignments.confidence)",
+            "ON CONFLICT (book_id, tag_id) DO UPDATE SET source = EXCLUDED.source, metadata = EXCLUDED.metadata, confidence = COALESCE(EXCLUDED.confidence, book_tag_assignments.confidence)",
             IdGenerator.generateLong(),
             JdbcUtils.toUuid(bookId),
 
@@ -209,14 +217,42 @@ public class BookSupplementalPersistenceService {
             return;
         }
 
-        String canonicalKey = key.trim().toLowerCase();
+        String canonicalKey = normalizeTagKey(key);
         if (canonicalKey.isEmpty()) {
             return;
         }
 
         String tagId = upsertTag(canonicalKey, displayName != null ? displayName : key, tagType);
-        String resolvedSource = source != null ? source : canonicalKey;
+        String resolvedSource = normalizeTagSource(source, canonicalKey);
+        if (resolvedSource.isEmpty()) {
+            return;
+        }
         assignTagInternal(bookId, tagId, resolvedSource, confidence, metadataJson);
+    }
+
+    private String normalizeAuthorKey(String authorName) {
+        return authorName.toLowerCase(Locale.ROOT)
+            .replaceAll(AUTHOR_NAME_NORMALIZE_PATTERN, "")
+            .trim();
+    }
+
+    private String nullIfBlank(String candidate) {
+        return (candidate != null && !candidate.isBlank()) ? candidate : null;
+    }
+
+    private String normalizeTagKey(String key) {
+        if (!StringUtils.hasText(key)) {
+            return "";
+        }
+        String compactWhitespace = key.trim().replaceAll("\\s+", "_");
+        return compactWhitespace.toLowerCase(Locale.ROOT);
+    }
+
+    private String normalizeTagSource(String source, String fallbackSource) {
+        if (StringUtils.hasText(source)) {
+            return source.trim();
+        }
+        return normalizeTagKey(fallbackSource);
     }
 
 }

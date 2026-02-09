@@ -95,7 +95,7 @@
       <img src={renderedCoverUrl} alt={`${book.title} cover`} class="max-h-full w-auto object-contain" loading="lazy" onerror={handleCoverError} />
     </a>
     <div class="flex min-w-0 flex-1 flex-col gap-2">
-      <a href={href} class="line-clamp-2 text-lg font-semibold text-anthracite-900 transition hover:text-canvas-600 dark:text-slate-100 dark:hover:text-canvas-400">
+      <a href={href} class="line-clamp-2 text-lg font-semibold text-anthracite-900 transition hover:text-canvas-600 dark:text-slate-100 dark:hover:text-canvas-400" title={book.title}>
         {book.title}
       </a>
       <p class="truncate text-sm font-light text-anthracite-600 dark:text-slate-400">
@@ -138,7 +138,7 @@
 
     <!-- Card Content -->
     <div class="flex grow flex-col bg-white p-4 dark:bg-slate-800">
-      <h5 class="mb-1.5 line-clamp-2 text-base font-semibold leading-snug text-anthracite-900 dark:text-slate-50">
+      <h5 class="mb-1.5 line-clamp-2 text-base font-semibold leading-snug text-anthracite-900 dark:text-slate-50" title={book.title}>
         <a href={href} class="transition-colors duration-200 hover:text-canvas-600 dark:hover:text-canvas-400">
           {book.title}
         </a>

@@ -7,7 +7,11 @@ Key variables in `.env`:
 | -------- | ------- |
 | `SERVER_PORT` | App server port |
 | `SPRING_DATASOURCE_*` | Database connection |
-| `SPRING_AI_OPENAI_API_KEY` | OpenAI integration |
+| `DATABASE_URL` / `POSTGRES_URL` / `JDBC_DATABASE_URL` | Fallback database URL inputs normalized into `spring.datasource.url` when `SPRING_DATASOURCE_URL` is not set |
+| `AI_DEFAULT_OPENAI_API_KEY` / `OPENAI_API_KEY` | OpenAI API key for AI generation |
+| `AI_DEFAULT_OPENAI_BASE_URL` / `OPENAI_BASE_URL` | OpenAI-compatible base URL (`https://api.openai.com/v1` by default) |
+| `AI_DEFAULT_LLM_MODEL` / `OPENAI_MODEL` | Default AI model for book content |
+| `AI_DEFAULT_MAX_PARALLEL` | Max concurrent outbound AI requests (queue executor cap) |
 | `GOOGLE_BOOKS_API_KEY` | Book data source |
 | `S3_*` | S3 storage (if used) |
 | `S3_WRITE_ENABLED` | Enables/disables S3 cover uploads at runtime (`false` skips upload attempts) |
@@ -30,6 +34,8 @@ export SPRING_DATASOURCE_URL="jdbc:postgresql://<host>:<port>/<db>?sslmode=prefe
 export SPRING_DATASOURCE_USERNAME="<user>"
 export SPRING_DATASOURCE_PASSWORD="<pass>"
 ```
+
+Startup now fails fast with a clear error when database-required profiles are active and no datasource URL is configured. Set one of `SPRING_DATASOURCE_URL`, `DATABASE_URL`, `POSTGRES_URL`, or `JDBC_DATABASE_URL`. For explicit database-less startup, set `SPRING_PROFILES_ACTIVE=nodb`.
 
 ## Frontend Static Asset Caching
 

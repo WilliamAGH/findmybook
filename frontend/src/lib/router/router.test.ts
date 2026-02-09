@@ -37,6 +37,7 @@ import {
   previousSpaPath,
   searchBasePathForRoute,
 } from "$lib/router/router";
+import { pageFromStartIndex, startIndexFromPage } from "$lib/services/searchConfig";
 import BookCard from "$lib/components/BookCard.svelte";
 import NotFoundPage from "$lib/pages/NotFoundPage.svelte";
 import TopNav from "$lib/components/TopNav.svelte";
@@ -112,6 +113,20 @@ describe("searchBasePathForRoute", () => {
 
   it("shouldReturnCategoriesPathWhenRouteIsCategories", () => {
     expect(searchBasePathForRoute("categories")).toBe("/categories");
+  });
+});
+
+describe("search pagination conversion helpers", () => {
+  it("shouldConvertOneBasedPageToZeroBasedStartIndex", () => {
+    expect(startIndexFromPage(1, 12)).toBe(0);
+    expect(startIndexFromPage(2, 12)).toBe(12);
+    expect(startIndexFromPage(5, 12)).toBe(48);
+  });
+
+  it("shouldConvertZeroBasedStartIndexToOneBasedPage", () => {
+    expect(pageFromStartIndex(0, 12)).toBe(1);
+    expect(pageFromStartIndex(12, 12)).toBe(2);
+    expect(pageFromStartIndex(47, 12)).toBe(4);
   });
 });
 

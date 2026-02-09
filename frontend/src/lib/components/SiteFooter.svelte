@@ -13,7 +13,7 @@
     </p>
     <p class="flex items-center gap-2 text-anthracite-600 dark:text-slate-400">
       <a
-        href="https://github.com/WilliamAGH/book-finder"
+        href="https://github.com/WilliamAGH/findmybook"
         target="_blank"
         rel="noopener"
         class="font-medium text-canvas-600 transition-colors duration-200 hover:text-canvas-700 dark:text-canvas-400 dark:hover:text-canvas-300"

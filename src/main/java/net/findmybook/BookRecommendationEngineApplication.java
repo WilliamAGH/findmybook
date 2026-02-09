@@ -14,6 +14,7 @@ package net.findmybook;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import org.springframework.util.StringUtils;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -48,6 +49,8 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
     private static final int APPLICATION_SCHEDULER_POOL_SIZE = 4;
     private static final int APPLICATION_SCHEDULER_SHUTDOWN_TIMEOUT_SECONDS = 30;
     private static final String APPLICATION_SCHEDULER_THREAD_PREFIX = "AppScheduler-";
+    private static final String NO_DATABASE_PROFILE = "nodb";
+    private static final String TEST_PROFILE = "test";
 
     /**
      * Sentinel value set as the OpenAI API key when no real key is configured.
@@ -61,7 +64,12 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
      * instead of sending a request with the sentinel placeholder key.
      */
     public static boolean isAiConfigured() {
-        String key = System.getProperty("spring.ai.openai.api-key");
+        String key = firstText(
+            System.getProperty("AI_DEFAULT_OPENAI_API_KEY"),
+            System.getenv("AI_DEFAULT_OPENAI_API_KEY"),
+            System.getenv("OPENAI_API_KEY"),
+            System.getProperty("OPENAI_API_KEY")
+        );
         return StringUtils.hasText(key) && !AI_KEY_NOT_CONFIGURED.equals(key);
     }
 
@@ -75,7 +83,8 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
         loadDotEnvFile();
         disableNettyUnsafeAccess();
         normalizeDatasourceUrlFromEnv();
-        normalizeOpenAiConfig();
+        validateDatasourceConfiguration(args);
+        normalizeOpenAiSdkConfig();
         SpringApplication.run(BookRecommendationEngineApplication.class, args);
     }
 
@@ -129,7 +138,13 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
         try {
             String url = firstText(
                 System.getenv("SPRING_DATASOURCE_URL"),
-                System.getProperty("SPRING_DATASOURCE_URL")
+                System.getProperty("SPRING_DATASOURCE_URL"),
+                System.getenv("DATABASE_URL"),
+                System.getProperty("DATABASE_URL"),
+                System.getenv("POSTGRES_URL"),
+                System.getProperty("POSTGRES_URL"),
+                System.getenv("JDBC_DATABASE_URL"),
+                System.getProperty("JDBC_DATABASE_URL")
             );
             if (!StringUtils.hasText(url)) {
                 return;
@@ -151,12 +166,16 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
             String existingUser = firstText(
                 System.getenv("SPRING_DATASOURCE_USERNAME"),
                 System.getProperty("SPRING_DATASOURCE_USERNAME"),
+                System.getenv("DATABASE_USERNAME"),
+                System.getenv("PGUSER"),
                 System.getProperty("spring.datasource.username")
             );
 
             String existingPass = firstText(
                 System.getenv("SPRING_DATASOURCE_PASSWORD"),
                 System.getProperty("SPRING_DATASOURCE_PASSWORD"),
+                System.getenv("DATABASE_PASSWORD"),
+                System.getenv("PGPASSWORD"),
                 System.getProperty("spring.datasource.password")
             );
 
@@ -172,74 +191,135 @@ public class BookRecommendationEngineApplication implements ApplicationRunner {
 
             // Echo minimal confirmation to stdout (password omitted)
             String safeUrl = jdbcUrl.replaceAll("://[^@]+@", "://***:***@");
-            log.info("[DB] Normalized SPRING_DATASOURCE_URL to JDBC: {}", safeUrl);
+            log.info("[DB] Normalized datasource URL to JDBC: {}", safeUrl);
         } catch (RuntimeException e) {
-            log.error("[DB] Failed to normalize SPRING_DATASOURCE_URL", e);
+            log.error("[DB] Failed to normalize datasource URL", e);
             throw e;
         }
     }
 
+    static void validateDatasourceConfiguration(String[] args) {
+        String resolvedProfiles = resolveStartupActiveProfiles(args);
+        if (!isDatasourceRequired(resolvedProfiles)) {
+            return;
+        }
+        if (hasDatasourceConfiguration()) {
+            return;
+        }
+        String message = "Database configuration is required for startup but none was found. "
+            + "Set SPRING_DATASOURCE_URL (preferred) or DATABASE_URL/POSTGRES_URL/JDBC_DATABASE_URL. "
+            + "For explicit no-database startup, set SPRING_PROFILES_ACTIVE=nodb.";
+        log.error("[DB] {}", message);
+        throw new IllegalStateException(message);
+    }
+
+    static String resolveStartupActiveProfiles(String[] args) {
+        String fromCommandLine = extractProfilesFromCommandLine(args);
+        return firstText(
+            fromCommandLine,
+            System.getProperty("spring.profiles.active"),
+            System.getenv("SPRING_PROFILES_ACTIVE")
+        );
+    }
+
+    static boolean isDatasourceRequired(String resolvedProfiles) {
+        if (!StringUtils.hasText(resolvedProfiles)) {
+            return true;
+        }
+        return java.util.Arrays.stream(resolvedProfiles.split(","))
+            .map(String::trim)
+            .filter(StringUtils::hasText)
+            .map(profile -> profile.toLowerCase(Locale.ROOT))
+            .noneMatch(profile -> NO_DATABASE_PROFILE.equals(profile) || TEST_PROFILE.equals(profile));
+    }
+
+    private static boolean hasDatasourceConfiguration() {
+        return StringUtils.hasText(firstText(
+            System.getProperty("spring.datasource.url"),
+            System.getenv("SPRING_DATASOURCE_URL"),
+            System.getProperty("SPRING_DATASOURCE_URL"),
+            System.getenv("DATABASE_URL"),
+            System.getProperty("DATABASE_URL"),
+            System.getenv("POSTGRES_URL"),
+            System.getProperty("POSTGRES_URL"),
+            System.getenv("JDBC_DATABASE_URL"),
+            System.getProperty("JDBC_DATABASE_URL")
+        ));
+    }
+
+    private static String extractProfilesFromCommandLine(String[] args) {
+        if (args == null || args.length == 0) {
+            return null;
+        }
+        for (String arg : args) {
+            if (!StringUtils.hasText(arg)) {
+                continue;
+            }
+            if (arg.startsWith("--spring.profiles.active=")) {
+                String value = arg.substring("--spring.profiles.active=".length()).trim();
+                return StringUtils.hasText(value) ? value : null;
+            }
+        }
+        for (int index = 0; index < args.length - 1; index++) {
+            if ("--spring.profiles.active".equals(args[index])) {
+                String value = args[index + 1];
+                return StringUtils.hasText(value) ? value.trim() : null;
+            }
+        }
+        return null;
+    }
+
     /**
-     * Normalizes Spring AI OpenAI environment variables to Spring properties.
-     * Sets placeholder key when no credentials are provided so the app can boot
-     * without OpenAI configured (the feature simply won't be available).
+     * Normalizes OpenAI SDK environment variables to deterministic system properties.
      *
-     * <p>Per Spring AI docs, only these properties are recognized:
-     * <ul>
-     *   <li>spring.ai.openai.api-key</li>
-     *   <li>spring.ai.openai.base-url</li>
-     *   <li>spring.ai.openai.chat.options.model</li>
-     * </ul>
+     * <p>Supports this precedence chain for each value:</p>
+     * <ol>
+     *   <li>already-set `AI_DEFAULT_*` system property</li>
+     *   <li>environment `AI_DEFAULT_*`</li>
+     *   <li>fallback legacy names (`OPENAI_*`)</li>
+     * </ol>
      */
-    private static void normalizeOpenAiConfig() {
+    private static void normalizeOpenAiSdkConfig() {
         try {
-            // Normalize API key from environment variable to Spring property
-            String openAiEnvKey = firstText(
-                System.getenv("SPRING_AI_OPENAI_API_KEY"),
-                System.getProperty("SPRING_AI_OPENAI_API_KEY")
+            String apiKey = firstText(
+                System.getProperty("AI_DEFAULT_OPENAI_API_KEY"),
+                System.getenv("AI_DEFAULT_OPENAI_API_KEY"),
+                System.getenv("OPENAI_API_KEY"),
+                System.getProperty("OPENAI_API_KEY")
             );
-
-            if (StringUtils.hasText(openAiEnvKey)
-                && !StringUtils.hasText(System.getProperty("spring.ai.openai.api-key"))) {
-                System.setProperty("spring.ai.openai.api-key", openAiEnvKey);
-            }
-
-            // Normalize base URL from environment variable to Spring property
             String baseUrl = firstText(
-                System.getenv("SPRING_AI_OPENAI_BASE_URL"),
-                System.getProperty("SPRING_AI_OPENAI_BASE_URL")
+                System.getProperty("AI_DEFAULT_OPENAI_BASE_URL"),
+                System.getenv("AI_DEFAULT_OPENAI_BASE_URL"),
+                System.getenv("OPENAI_BASE_URL"),
+                System.getProperty("OPENAI_BASE_URL")
             );
-            if (StringUtils.hasText(baseUrl)
-                && !StringUtils.hasText(System.getProperty("spring.ai.openai.base-url"))) {
-                System.setProperty("spring.ai.openai.base-url", baseUrl);
-            }
-
-            // Normalize model from environment variable to Spring property
             String model = firstText(
-                System.getenv("SPRING_AI_OPENAI_MODEL"),
-                System.getProperty("SPRING_AI_OPENAI_MODEL")
+                System.getProperty("AI_DEFAULT_LLM_MODEL"),
+                System.getenv("AI_DEFAULT_LLM_MODEL"),
+                System.getenv("OPENAI_MODEL"),
+                System.getProperty("OPENAI_MODEL")
             );
-            if (StringUtils.hasText(model)
-                && !StringUtils.hasText(System.getProperty("spring.ai.openai.chat.options.model"))) {
-                System.setProperty("spring.ai.openai.chat.options.model", model);
+
+            if (StringUtils.hasText(baseUrl) && !StringUtils.hasText(System.getProperty("AI_DEFAULT_OPENAI_BASE_URL"))) {
+                System.setProperty("AI_DEFAULT_OPENAI_BASE_URL", baseUrl);
+            }
+            if (StringUtils.hasText(model) && !StringUtils.hasText(System.getProperty("AI_DEFAULT_LLM_MODEL"))) {
+                System.setProperty("AI_DEFAULT_LLM_MODEL", model);
             }
 
-            boolean hasApiKey = StringUtils.hasText(firstText(
-                System.getProperty("spring.ai.openai.api-key"),
-                openAiEnvKey
-            ));
-
-            if (!hasApiKey) {
-                // Spring AI auto-configuration requires this property to exist.
-                // The sentinel value lets the app boot; runtime AI calls will check
-                // for this sentinel and throw immediately with a clear message.
-                System.setProperty("spring.ai.openai.api-key", AI_KEY_NOT_CONFIGURED);
-                log.error("[AI] No OpenAI API key configured. "
-                    + "Set SPRING_AI_OPENAI_API_KEY to enable AI features. "
-                    + "All AI operations will fail until a valid key is provided.");
+            if (StringUtils.hasText(apiKey)) {
+                if (!StringUtils.hasText(System.getProperty("AI_DEFAULT_OPENAI_API_KEY"))) {
+                    System.setProperty("AI_DEFAULT_OPENAI_API_KEY", apiKey);
+                }
+                return;
             }
+
+            System.setProperty("AI_DEFAULT_OPENAI_API_KEY", AI_KEY_NOT_CONFIGURED);
+            log.error("[AI] No OpenAI API key configured. "
+                + "Set AI_DEFAULT_OPENAI_API_KEY or OPENAI_API_KEY to enable AI features. "
+                + "AI generation endpoints will return errors until configured.");
         } catch (SecurityException e) {
-            log.warn("[AI] Unable to set OpenAI system properties due to security restrictions", e);
+            log.warn("[AI] Unable to set OpenAI SDK system properties due to security restrictions", e);
             throw e;
         }
     }

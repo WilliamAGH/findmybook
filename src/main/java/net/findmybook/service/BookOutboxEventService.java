@@ -5,7 +5,8 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 import java.util.Map;
 import java.util.UUID;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import net.findmybook.service.event.BookUpsertEvent;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -16,9 +17,9 @@ import org.springframework.stereotype.Service;
  * Persists transactional outbox payloads and emits in-process upsert events for books.
  */
 @Service
-@Slf4j
 public class BookOutboxEventService {
 
+    private static final Logger log = LoggerFactory.getLogger(BookOutboxEventService.class);
     private static final String OUTBOX_TOPIC_PREFIX = "/topic/book.";
 
     private final JdbcTemplate jdbcTemplate;

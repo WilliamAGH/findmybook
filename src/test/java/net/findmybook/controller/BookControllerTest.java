@@ -1,9 +1,12 @@
 package net.findmybook.controller;
 
+import net.findmybook.application.ai.BookAiContentService;
 import net.findmybook.dto.BookCard;
 import net.findmybook.dto.BookDetail;
 import net.findmybook.dto.EditionSummary;
 import net.findmybook.dto.RecommendationCard;
+import net.findmybook.domain.ai.BookAiContent;
+import net.findmybook.domain.ai.BookAiContentSnapshot;
 import net.findmybook.model.Book;
 import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.model.image.CoverImages;
@@ -73,6 +76,9 @@ class BookControllerTest {
     @Mock
     private SearchPaginationService searchPaginationService;
 
+    @Mock
+    private BookAiContentService bookAiContentService;
+
     private MockMvc mockMvc;
 
     private Book fixtureBook;
@@ -83,6 +89,7 @@ class BookControllerTest {
             bookSearchService,
             bookIdentifierResolver,
             searchPaginationService,
+            bookAiContentService,
             bookDataOrchestrator
         );
         BookCoverController bookCoverController = new BookCoverController(
@@ -102,6 +109,8 @@ class BookControllerTest {
             .thenReturn(Optional.empty());
         lenient().when(bookSearchService.fetchBookEditions(any(UUID.class)))
             .thenReturn(List.of());
+        lenient().when(bookAiContentService.findCurrent(any(UUID.class)))
+            .thenReturn(Optional.empty());
     }
 
     @Test
@@ -257,6 +266,41 @@ class BookControllerTest {
             .andExpect(jsonPath("$.editions", hasSize(1)))
             .andExpect(jsonPath("$.editions[0].googleBooksId", equalTo(summary.id())))
             .andExpect(jsonPath("$.editions[0].isbn13", equalTo(summary.isbn13())));
+    }
+
+    @Test
+    @DisplayName("GET /api/books/{identifier} includes cached AI snapshot when present")
+    void getBookByIdentifier_includesCachedAiSnapshot() throws Exception {
+        BookDetail detail = buildDetailFromBook(fixtureBook);
+        when(bookSearchService.fetchBookDetailBySlug(fixtureBook.getSlug()))
+            .thenReturn(Optional.of(detail));
+
+        BookAiContentSnapshot snapshot = new BookAiContentSnapshot(
+            UUID.fromString(fixtureBook.getId()),
+            2,
+            Instant.parse("2026-02-08T12:00:00Z"),
+            "gpt-5-mini",
+            "openai",
+            new BookAiContent(
+                "A compact summary.",
+                "Best for readers who want practical guidance.",
+                List.of("Theme one", "Theme two"),
+                List.of("Key insight one"),
+                "Sits within the productivity genre."
+            )
+        );
+        when(bookAiContentService.findCurrent(UUID.fromString(fixtureBook.getId())))
+            .thenReturn(Optional.of(snapshot));
+
+        performAsync(get("/api/books/" + fixtureBook.getSlug()))
+            .andExpect(status().isOk())
+            .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+            .andExpect(jsonPath("$.aiContent.summary", equalTo("A compact summary.")))
+            .andExpect(jsonPath("$.aiContent.readerFit", equalTo("Best for readers who want practical guidance.")))
+            .andExpect(jsonPath("$.aiContent.keyThemes", hasSize(2)))
+            .andExpect(jsonPath("$.aiContent.version", equalTo(2)))
+            .andExpect(jsonPath("$.aiContent.model", equalTo("gpt-5-mini")))
+            .andExpect(jsonPath("$.aiContent.provider", equalTo("openai")));
     }
 
     @Test

@@ -5,7 +5,8 @@ import java.net.URI;
 import java.net.UnknownHostException;
 import java.util.Set;
 import java.util.regex.Pattern;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
@@ -13,9 +14,9 @@ import org.springframework.stereotype.Component;
  * rejects internal/private network destinations to reduce SSRF risk.
  */
 @Component
-@Slf4j
 public class CoverUrlSafetyValidator {
 
+    private static final Logger log = LoggerFactory.getLogger(CoverUrlSafetyValidator.class);
     private static final Set<String> RESERVED_IP_PREFIXES = Set.of(
         "169.254.", "127.", "10.", "192.168."
     );

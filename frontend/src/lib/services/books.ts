@@ -9,8 +9,10 @@ import type { SortOption } from "$lib/services/searchConfig";
 import { validateWithSchema } from "$lib/validation/validate";
 import {
   type Book,
+  type BookAiContentQueueStats,
   type SearchHit,
   type SearchResponse,
+  BookAiContentQueueStatsSchema,
   BookSchema,
   SearchResponseSchema,
   SimilarBooksSchema,
@@ -23,7 +25,14 @@ const inFlightSearchRequests = new Map<string, Promise<SearchResponse>>();
 
 export interface SearchParams {
   query: string;
+  /**
+   * Zero-based absolute offset expected by `/api/books/search`.
+   * UI routes use one-based `page`, which must be converted before calling this API.
+   */
   startIndex: number;
+  /**
+   * Page size requested for the current offset window.
+   */
   maxResults: number;
   orderBy: SortOption;
   coverSource: string;
@@ -81,6 +90,10 @@ export function getAffiliateLinks(identifier: string): Promise<Record<string, st
     AffiliateLinksSchema,
     `getAffiliateLinks:${identifier}`,
   );
+}
+
+export function getBookAiContentQueueStats(): Promise<BookAiContentQueueStats> {
+  return getJson("/api/books/ai/content/queue", BookAiContentQueueStatsSchema, "getBookAiContentQueueStats");
 }
 
 function normalizeAuthorNames(rawAuthors: string[]): Array<{ id: string | null; name: string }> {

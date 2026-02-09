@@ -141,7 +141,7 @@
                   href={`/book/${encodeURIComponent(item.slug)}`}
                   class="rounded-xl border border-linen-200 p-4 text-sm transition hover:shadow-md dark:border-slate-700"
                 >
-                  <p class="font-medium text-anthracite-900 dark:text-slate-100">{item.title}</p>
+                  <p class="line-clamp-1 font-medium text-anthracite-900 dark:text-slate-100" title={item.title}>{item.title}</p>
                   <p class="text-xs text-anthracite-500 dark:text-slate-400">
                     Last updated: {item.updatedAt ? new Date(item.updatedAt).toLocaleDateString() : "Unknown"}
                   </p>
@@ -186,7 +186,8 @@
                             <li>
                               <a
                                 href={`/book/${encodeURIComponent(item.slug)}`}
-                                class="text-sm text-canvas-600 transition hover:text-canvas-700 dark:text-canvas-400 dark:hover:text-canvas-300"
+                                class="line-clamp-1 text-sm text-canvas-600 transition hover:text-canvas-700 dark:text-canvas-400 dark:hover:text-canvas-300"
+                                title={item.title}
                               >
                                 {item.title}
                               </a>

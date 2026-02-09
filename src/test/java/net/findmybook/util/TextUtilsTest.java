@@ -80,6 +80,24 @@ public class TextUtilsTest {
         assertEquals(title3, TextUtils.normalizeBookTitle(title3));
     }
 
+    @Test
+    void should_RemoveLeadingPunctuation_When_NormalizeBookTitleHasCatalogPrefixNoise() {
+        String input = "... Annual Report of Purdue University";
+        assertEquals("Annual Report of Purdue University", TextUtils.normalizeBookTitle(input));
+    }
+
+    @Test
+    void should_RemoveWrappingQuotes_When_NormalizeBookTitleIsQuoted() {
+        String input = "\"A New Declaration of Independence\"";
+        assertEquals("A New Declaration of Independence", TextUtils.normalizeBookTitle(input));
+    }
+
+    @Test
+    void should_ReturnEmptyString_When_NormalizeBookTitleHasOnlyPrefixSymbols() {
+        String input = " -- ";
+        assertEquals("", TextUtils.normalizeBookTitle(input));
+    }
+
     /**
      * Tests author name normalization with special prefix handling.
      * Covers Mc/Mac/O' prefixes and nobility particles (von, van, de).
@@ -140,6 +158,24 @@ public class TextUtilsTest {
     void testNormalizeAuthorName_StripsSmartQuotes() {
         String input = "\u201CJOHN SMITH\u201D";
         assertEquals("John Smith", TextUtils.normalizeAuthorName(input));
+    }
+
+    @Test
+    void testNormalizeAuthorName_StripsLeadingPunctuation() {
+        String input = "-- Anonymous";
+        assertEquals("Anonymous", TextUtils.normalizeAuthorName(input));
+    }
+
+    @Test
+    void testNormalizeAuthorName_CleansBracketWrappedPlaceholders() {
+        String input = "[Author Unknown].";
+        assertEquals("Author Unknown", TextUtils.normalizeAuthorName(input));
+    }
+
+    @Test
+    void testNormalizeAuthorName_StripsLeadingBacktick() {
+        String input = "`Abd'ul-Bahā";
+        assertEquals("Abd'ul-Bahā", TextUtils.normalizeAuthorName(input));
     }
 
     /** Tests colon-separated subtitle capitalization. */
