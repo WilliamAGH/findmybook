@@ -5,6 +5,7 @@ import com.openai.client.okhttp.OpenAIOkHttpClient;
 import com.openai.core.RequestOptions;
 import com.openai.core.Timeout;
 import com.openai.core.http.StreamResponse;
+import com.openai.errors.OpenAIException;
 import com.openai.models.ChatModel;
 import com.openai.models.chat.completions.ChatCompletionChunk;
 import com.openai.models.chat.completions.ChatCompletionCreateParams;
@@ -230,7 +231,7 @@ public class BookAiContentService {
                     onDelta.accept(delta);
                 }
             });
-        } catch (Exception ex) {
+        } catch (OpenAIException ex) {
             log.error("Book AI streaming failed for bookId={} model={}", bookId, configuredModel, ex);
             throw new BookAiGenerationException("AI streaming failed for book: " + bookId, ex);
         }
