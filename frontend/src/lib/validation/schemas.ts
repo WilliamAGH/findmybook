@@ -55,7 +55,7 @@ export const DescriptionContentSchema = z.object({
 
 export const BookAiContentSnapshotSchema = z.object({
   summary: z.string(),
-  readerFit: z.string(),
+  readerFit: z.string().nullable().optional(),
   keyThemes: z.array(z.string()).optional().default([]),
   takeaways: z.array(z.string()).nullable().optional(),
   context: z.string().nullable().optional(),

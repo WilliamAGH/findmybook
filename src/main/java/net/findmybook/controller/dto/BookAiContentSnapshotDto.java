@@ -13,7 +13,7 @@ import net.findmybook.domain.ai.BookAiContentSnapshot;
  */
 public record BookAiContentSnapshotDto(
     String summary,
-    String readerFit,
+    @Nullable String readerFit,
     List<String> keyThemes,
     @Nullable List<String> takeaways,
     @Nullable String context,

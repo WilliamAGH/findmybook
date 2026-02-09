@@ -52,11 +52,23 @@ public class BookAiContentService {
     private static final String DEFAULT_API_MODE = "chat";
     private static final String DEFAULT_MODEL = "gpt-5-mini";
     private static final int MAX_KEY_THEME_COUNT = 6;
-    private static final int MIN_KEY_THEME_COUNT = 1;
 
     private static final int MAX_TAKEAWAY_COUNT = 5;
     private static final long MAX_COMPLETION_TOKENS = 1000L;
-    private static final double SAMPLING_TEMPERATURE = 0.7;
+
+    /**
+     * Minimum character count for a book description to be considered sufficient
+     * for AI content generation. Descriptions shorter than this produce unreliable
+     * output because the model lacks enough source material and resorts to fabrication.
+     */
+    private static final int MIN_DESCRIPTION_LENGTH = 50;
+    /**
+     * Low temperature for grounded, natural-sounding output.
+     * 0.2 provides enough variation for readable prose while keeping
+     * output faithful to the source material. Values above 0.5 risk
+     * creative divergence; the original 0.7 was a hallucination vector.
+     */
+    private static final double SAMPLING_TEMPERATURE = 0.2;
 
     /**
      * Sentinel value set by {@code normalizeOpenAiSdkConfig} when no real API key is available.
@@ -65,22 +77,44 @@ public class BookAiContentService {
     private static final String API_KEY_SENTINEL = "not-configured";
 
     private static final String SYSTEM_PROMPT = """
-        You write concise, useful book content.
+        You are a knowledgeable book content writer. You receive a book's title, \
+        authors, publisher, and description. Use ALL of this context — plus your \
+        general knowledge of the author, genre, and subject matter — to produce \
+        useful, accurate content.
+
+        ACCURACY RULES (highest priority):
+        - You MAY use your training knowledge to infer genre, audience, themes, \
+          and context from the title, author, categories, and description.
+        - You MUST NOT fabricate specific facts: no invented quotes, page counts, \
+          chapter titles, plot points, sales figures, publication details, awards, \
+          or biographical claims unless they appear in the provided description.
+        - You MUST NOT invent statistics, studies, or research findings.
+        - If a field cannot be reasonably inferred, set it to null (for strings) \
+          or an empty array [] (for arrays). Never pad content with guesses.
+
         Return ONLY strict JSON using this exact shape:
         {
-          \"summary\": string,
-          \"readerFit\": string,
-          \"keyThemes\": string[],
-          \"takeaways\": string[],
-          \"context\": string
+          "summary": string | null,
+          "readerFit": string | null,
+          "keyThemes": string[],
+          "takeaways": string[],
+          "context": string | null
         }
 
-        Rules:
-        - summary: 2 concise sentences describing the book's content.
-        - readerFit: 1-2 sentences on who should read it and why.
-        - keyThemes: 3 to 6 short topic phrases.
-        - takeaways: 2 to 5 specific insights or points a reader will gain.
-        - context: 1-2 sentences placing the book in its genre or field.
+        Field rules (subject to accuracy rules above):
+        - summary: 2 concise sentences describing the book's content based on \
+          the description and your knowledge of the subject matter. Null only if \
+          the description is truly empty.
+        - readerFit: 1-2 sentences on the intended audience, inferred from the \
+          description, genre, and author. Null if genuinely indeterminate.
+        - keyThemes: 3 to 6 short topic phrases. Draw from the description and \
+          reasonable inference about the subject. Empty array [] only when the \
+          description is too vague to identify any themes.
+        - takeaways: 2 to 5 specific points a reader will gain, based on what \
+          the description states or clearly implies. Empty array [] if the \
+          description does not support any.
+        - context: 1-2 sentences placing the book in its genre or field. Use \
+          your knowledge of the author and subject to provide useful framing.
         - No markdown, no prose outside JSON, no extra keys.
         """;
 
@@ -247,15 +281,23 @@ public class BookAiContentService {
         BookDetail detail = bookSearchService.fetchBookDetail(bookId)
             .orElseThrow(() -> new IllegalStateException("Book details unavailable for AI content: " + bookId));
 
+        String description = detail.description();
+        if (!StringUtils.hasText(description) || description.trim().length() < MIN_DESCRIPTION_LENGTH) {
+            throw new BookAiGenerationException(
+                "Book description is missing or too short for faithful AI generation (bookId=" + bookId
+                    + ", length=" + (description == null ? 0 : description.trim().length())
+                    + ", minimum=" + MIN_DESCRIPTION_LENGTH + ")"
+            );
+        }
+
         String title = firstText(detail.title(), "Unknown title");
         String authorList = detail.authors() == null || detail.authors().isEmpty()
             ? "Unknown author"
             : String.join(", ", detail.authors());
-        String description = firstText(detail.description(), "No description provided.");
         String publishedDate = detail.publishedDate() != null ? detail.publishedDate().toString() : "Unknown";
         String publisher = firstText(detail.publisher(), "Unknown");
 
-        return new BookPromptContext(bookId, title, authorList, description, publishedDate, publisher);
+        return new BookPromptContext(bookId, title, authorList, description.trim(), publishedDate, publisher);
     }
 
     private String buildPrompt(BookPromptContext context) {
@@ -284,12 +326,18 @@ public class BookAiContentService {
 
         JsonNode payload = parseJsonPayload(responseText);
         String summary = requireText(payload, "summary");
-        String readerFit = requireText(payload, "readerFit", "reader_fit", "idealReader");
-        List<String> themes = requireThemeList(payload, "keyThemes", "key_themes", "themes");
+        Optional<String> readerFit = parseOptionalText(payload, "readerFit", "reader_fit", "idealReader");
+        List<String> themes = parseThemeList(payload, "keyThemes", "key_themes", "themes");
         Optional<List<String>> takeaways = parseOptionalStringList(payload, "takeaways");
         Optional<String> context = parseOptionalText(payload, "context");
 
-        return new BookAiContent(summary, readerFit, themes, takeaways.orElse(null), context.orElse(null));
+        if (themes.isEmpty() && takeaways.isEmpty()) {
+            log.warn("AI generated content with no themes and no takeaways — " +
+                "likely insufficient source material");
+        }
+
+        return new BookAiContent(
+            summary, readerFit.orElse(null), themes, takeaways.orElse(null), context.orElse(null));
     }
 
     private JsonNode parseJsonPayload(String responseText) {
@@ -318,41 +366,27 @@ public class BookAiContentService {
     }
 
     private String requireText(JsonNode payload, String field, String... aliases) {
-        String direct = textOrNull(payload.get(field));
-        if (StringUtils.hasText(direct)) {
-            return direct;
+        JsonNode node = resolveJsonNode(payload, field, aliases);
+        String text = textOrNull(node);
+        if (StringUtils.hasText(text)) {
+            return text;
         }
-
-        for (String alias : aliases) {
-            String aliasValue = textOrNull(payload.get(alias));
-            if (StringUtils.hasText(aliasValue)) {
-                return aliasValue;
-            }
-        }
-
         throw new IllegalStateException("AI response missing required field: " + field);
     }
 
-    private List<String> requireThemeList(JsonNode payload, String field, String... aliases) {
-        JsonNode node = payload.get(field);
-        if (!isNonEmptyArray(node)) {
-            for (String alias : aliases) {
-                JsonNode aliasNode = payload.get(alias);
-                if (isNonEmptyArray(aliasNode)) {
-                    node = aliasNode;
-                    break;
-                }
-            }
-        }
+    /**
+     * Parses a theme list that may legitimately be empty when the model
+     * cannot extract themes from the provided description.
+     * Themes are capped at {@link #MAX_KEY_THEME_COUNT}.
+     */
+    private List<String> parseThemeList(JsonNode payload, String field, String... aliases) {
+        JsonNode node = resolveJsonNode(payload, field, aliases);
 
-        if (!isNonEmptyArray(node)) {
-            throw new IllegalStateException("AI response missing required key theme array");
+        if (node == null || node.isNull() || !node.isArray()) {
+            return List.of();
         }
 
         List<String> values = collectTextValues(node);
-        if (values.size() < MIN_KEY_THEME_COUNT) {
-            throw new IllegalStateException("AI response key theme list was empty");
-        }
         if (values.size() > MAX_KEY_THEME_COUNT) {
             values = values.subList(0, MAX_KEY_THEME_COUNT);
         }
@@ -362,7 +396,7 @@ public class BookAiContentService {
 
     private Optional<List<String>> parseOptionalStringList(JsonNode payload, String field) {
         JsonNode node = payload.get(field);
-        if (!isNonEmptyArray(node)) {
+        if (!isValidNode(node) || !node.isArray() || node.size() == 0) {
             return Optional.empty();
         }
         List<String> values = collectTextValues(node);
@@ -387,13 +421,33 @@ public class BookAiContentService {
         return values;
     }
 
-    private Optional<String> parseOptionalText(JsonNode payload, String field) {
-        String text = textOrNull(payload.get(field));
+    private Optional<String> parseOptionalText(JsonNode payload, String field, String... aliases) {
+        JsonNode node = resolveJsonNode(payload, field, aliases);
+        String text = textOrNull(node);
         return StringUtils.hasText(text) ? Optional.of(text) : Optional.empty();
     }
 
-    private boolean isNonEmptyArray(JsonNode node) {
-        return node != null && node.isArray() && node.size() > 0;
+    /**
+     * Resolves a JSON node from a primary field name or any of its aliases.
+     * Returns the first non-null, non-missing node found, or null if none match.
+     */
+    private JsonNode resolveJsonNode(JsonNode payload, String field, String... aliases) {
+        JsonNode node = payload.get(field);
+        if (isValidNode(node)) {
+            return node;
+        }
+        for (String alias : aliases) {
+            JsonNode aliasNode = payload.get(alias);
+            if (isValidNode(aliasNode)) {
+                return aliasNode;
+            }
+        }
+        return null;
+    }
+
+    /** Returns true if the node exists and is not explicitly null. */
+    private boolean isValidNode(JsonNode node) {
+        return node != null && !node.isNull();
     }
 
     private String textOrNull(JsonNode node) {
