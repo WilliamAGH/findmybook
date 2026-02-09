@@ -13,6 +13,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -24,6 +25,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * - Enum declaration files themselves
  */
 public class CacheSourceEnumsGuardTest {
+
+    private static final Path SEARCH_FUNCTIONS_MIGRATION_PATH =
+        Paths.get(normalize("migrations/27_search_functions.sql"));
 
     private static final Set<String> ALLOWED_PATHS = Set.of(
         normalize("src/main/java/net/findmybook/model/image/CoverImageSource.java"),
@@ -56,6 +60,27 @@ public class CacheSourceEnumsGuardTest {
             }
         }
         assertTrue(violations.isEmpty(), "Forbidden cache-based source enum usage found:\n" + String.join("\n", violations));
+    }
+
+    @Test
+    void should_UseQualifiedColumns_When_SearchFunctionsOrderFinalResults() throws IOException {
+        String migrationSql = Files.readString(SEARCH_FUNCTIONS_MIGRATION_PATH, StandardCharsets.UTF_8);
+
+        assertTrue(migrationSql.contains("from deduplicated d"),
+            "search_books should alias deduplicated rows in its final select");
+        assertTrue(migrationSql.contains("lower(d.title)"),
+            "search_books should order using qualified title reference");
+        assertTrue(migrationSql.contains("coalesce(d.cluster_id, d.book_id)"),
+            "search_books should order using qualified cluster/book references");
+        assertFalse(migrationSql.contains("lower(title),"),
+            "search_books final ordering must not use ambiguous unqualified title reference");
+
+        assertTrue(migrationSql.contains("from author_matches am"),
+            "search_authors should alias author_matches rows in its final select");
+        assertTrue(migrationSql.contains("lower(am.author_name)"),
+            "search_authors should order using qualified author_name reference");
+        assertFalse(migrationSql.contains("lower(author_name),"),
+            "search_authors final ordering must not use ambiguous unqualified author_name reference");
     }
 
     private static String normalize(String p) {

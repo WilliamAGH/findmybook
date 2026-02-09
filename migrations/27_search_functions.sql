@@ -191,11 +191,24 @@ begin
       am.published_date desc nulls last      -- Prefer newer editions
   )
   -- Final results ordered by relevance
-  select * from deduplicated
+  select
+    d.book_id,
+    d.title,
+    d.subtitle,
+    d.authors,
+    d.isbn13,
+    d.isbn10,
+    d.published_date,
+    d.publisher,
+    d.relevance_score,
+    d.match_type,
+    d.edition_count,
+    d.cluster_id
+  from deduplicated d
   order by
-    relevance_score desc,
-    lower(title),
-    coalesce(cluster_id, book_id)
+    d.relevance_score desc,
+    lower(d.title),
+    coalesce(d.cluster_id, d.book_id)
   limit max_results;
 end;
 $$ language plpgsql;
@@ -274,12 +287,17 @@ begin
       or lower(a.name) % lower(search_query)
     group by a.id, a.name, a.search_vector
   )
-  select * from author_matches
+  select
+    am.author_id,
+    am.author_name,
+    am.book_count,
+    am.relevance_score
+  from author_matches am
   order by
-    relevance_score desc,
-    book_count desc,
-    lower(author_name),
-    author_id
+    am.relevance_score desc,
+    am.book_count desc,
+    lower(am.author_name),
+    am.author_id
   limit max_results;
 end;
 $$ language plpgsql;
