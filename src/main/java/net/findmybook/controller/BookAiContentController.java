@@ -32,19 +32,11 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
-/**
- * Streams and exposes queue state for book AI content generation.
- *
- * <p>This controller implements cache-first behavior:
- * existing Postgres snapshots are returned immediately unless the caller
- * explicitly requests refresh.</p>
- */
+/** Streams and exposes queue state for book AI content generation. */
 @RestController
 @RequestMapping("/api/books")
 public class BookAiContentController {
-
     private static final Logger log = LoggerFactory.getLogger(BookAiContentController.class);
-
     private static final long SSE_TIMEOUT_MILLIS = Duration.ofMinutes(4).toMillis();
     private static final long QUEUE_POSITION_TICK_MILLIS = 350L;
     private static final long KEEPALIVE_INTERVAL_MILLIS = 15_000L;
@@ -57,10 +49,7 @@ public class BookAiContentController {
     private final BookAiContentRequestQueue requestQueue;
     private final ObjectMapper objectMapper;
     private final ScheduledExecutorService queueTickerExecutor;
-
-    /**
-     * Creates a controller with queue/state dependencies.
-     */
+    /** Creates a controller with queue/state dependencies. */
     public BookAiContentController(BookAiContentService aiContentService,
                                    BookAiContentRequestQueue requestQueue,
                                    ObjectMapper objectMapper) {
@@ -74,23 +63,14 @@ public class BookAiContentController {
             .factory();
         this.queueTickerExecutor = Executors.newScheduledThreadPool(queueTickerThreads, threadFactory);
     }
-
-    /**
-     * Returns global queue depth for AI generation tasks.
-     */
+    /** Returns global queue depth for AI generation tasks. */
     @GetMapping("/ai/content/queue")
     public ResponseEntity<QueueStatsPayload> queueStats() {
         BookAiContentRequestQueue.QueueSnapshot snapshot = requestQueue.snapshot();
         return ResponseEntity.ok(new QueueStatsPayload(
             snapshot.running(), snapshot.pending(), snapshot.maxParallel(), aiContentService.isAvailable()));
     }
-
-    /**
-     * Streams AI generation events for a single book.
-     *
-     * <p>When {@code refresh=false}, cached Postgres content is returned without
-     * invoking the upstream model.</p>
-     */
+    /** Streams AI generation events for a single book. */
     @PostMapping(path = "/{identifier}/ai/content/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @RateLimiter(name = "bookAiContentRateLimiter")
     public SseEmitter streamAiContent(@PathVariable String identifier,
@@ -100,7 +80,6 @@ public class BookAiContentController {
         response.setHeader("Cache-Control", "no-cache, no-transform");
 
         SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MILLIS);
-
         OptionalResolution resolution = resolveBookIdentifier(identifier);
         if (resolution.bookId() == null) {
             emitTerminalError(emitter, resolution.error());
@@ -115,17 +94,14 @@ public class BookAiContentController {
                 return emitter;
             }
         }
-
         if (!aiContentService.isAvailable()) {
             emitTerminalError(emitter, "AI content service is not configured");
             return emitter;
         }
-
         if (requestQueue.snapshot().pending() > AUTO_TRIGGER_QUEUE_THRESHOLD) {
             emitTerminalError(emitter, "AI queue is currently busy; please try again in a moment");
             return emitter;
         }
-
         beginQueuedStream(emitter, bookId);
         return emitter;
     }
@@ -154,7 +130,6 @@ public class BookAiContentController {
         long enqueuedAtMs = System.currentTimeMillis();
         AtomicBoolean streamClosed = new AtomicBoolean(false);
         AtomicBoolean messageStarted = new AtomicBoolean(false);
-
         BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent> queuedTask =
             requestQueue.enqueue(DEFAULT_GENERATION_PRIORITY, () -> {
                 sendMessageStartEvent(emitter, messageStarted);
@@ -164,10 +139,8 @@ public class BookAiContentController {
                 sendEvent(emitter, "message_done", new MessageDonePayload(generated.rawMessage()));
                 return generated;
             });
-
         BookAiContentRequestQueue.QueuePosition initialPosition = requestQueue.getPosition(queuedTask.id());
         sendEvent(emitter, "queued", toQueuePositionPayload(initialPosition));
-
         ScheduledFuture<?> queueTicker = queueTickerExecutor.scheduleAtFixedRate(() -> {
             if (streamClosed.get()) {
                 return;
@@ -179,16 +152,10 @@ public class BookAiContentController {
             try {
                 sendEvent(emitter, "queue", toQueuePositionPayload(position));
             } catch (IllegalStateException queueUpdateException) {
-                log.warn(
-                    "Queue update delivery failed for bookId={} taskId={}",
-                    bookId,
-                    queuedTask.id(),
-                    queueUpdateException
-                );
+                log.warn("Queue update delivery failed for bookId={} taskId={}", bookId, queuedTask.id(), queueUpdateException);
                 requestQueue.cancelPending(queuedTask.id());
             }
         }, QUEUE_POSITION_TICK_MILLIS, QUEUE_POSITION_TICK_MILLIS, TimeUnit.MILLISECONDS);
-
         ScheduledFuture<?> keepaliveTicker = queueTickerExecutor.scheduleAtFixedRate(() -> {
             if (streamClosed.get()) {
                 return;
@@ -199,7 +166,6 @@ public class BookAiContentController {
                 log.debug("Keepalive delivery failed: {}", keepaliveException.getMessage());
             }
         }, KEEPALIVE_INTERVAL_MILLIS, KEEPALIVE_INTERVAL_MILLIS, TimeUnit.MILLISECONDS);
-
         Runnable cancelPendingIfOpen = () -> {
             if (streamClosed.compareAndSet(false, true)) {
                 queueTicker.cancel(true);
@@ -207,7 +173,6 @@ public class BookAiContentController {
                 requestQueue.cancelPending(queuedTask.id());
             }
         };
-
         emitter.onCompletion(cancelPendingIfOpen);
         emitter.onTimeout(() -> {
             cancelPendingIfOpen.run();
@@ -217,7 +182,6 @@ public class BookAiContentController {
             log.warn("AI stream failed for bookId={}", bookId, error);
             cancelPendingIfOpen.run();
         });
-
         queuedTask.started().thenRun(() -> {
             if (streamClosed.get()) {
                 return;
@@ -236,24 +200,20 @@ public class BookAiContentController {
             }
             return null;
         });
-
         queuedTask.result().whenComplete((result, throwable) -> {
             queueTicker.cancel(true);
             keepaliveTicker.cancel(true);
             if (!streamClosed.compareAndSet(false, true)) {
                 return;
             }
-
             if (throwable != null) {
                 emitTerminalError(emitter, resolveThrowableMessage(throwable));
                 return;
             }
-
             if (result == null) {
                 emitTerminalError(emitter, "AI generation returned no data");
                 return;
             }
-
             BookAiContentSnapshotDto snapshotDto = BookAiContentSnapshotDto.fromSnapshot(result.snapshot());
             try {
                 sendEvent(emitter, "done", new DonePayload(result.rawMessage(), snapshotDto));
@@ -266,15 +226,8 @@ public class BookAiContentController {
 
     private void sendMessageStartEvent(SseEmitter emitter, AtomicBoolean messageStarted) {
         if (messageStarted.compareAndSet(false, true)) {
-            sendEvent(
-                emitter,
-                "message_start",
-                new MessageStartPayload(
-                    UUID.randomUUID().toString(),
-                    aiContentService.configuredModel(),
-                    aiContentService.apiMode()
-                )
-            );
+            sendEvent(emitter, "message_start", new MessageStartPayload(
+                UUID.randomUUID().toString(), aiContentService.configuredModel(), aiContentService.apiMode()));
         }
     }
 
@@ -341,7 +294,6 @@ public class BookAiContentController {
         while (current instanceof CompletionException completionException && completionException.getCause() != null) {
             current = completionException.getCause();
         }
-
         if (current == null || current.getMessage() == null || current.getMessage().isBlank()) {
             return "AI generation failed";
         }
