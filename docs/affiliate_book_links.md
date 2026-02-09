@@ -2,7 +2,7 @@
 
 ## Overview
 
-The book recommendation engine supports affiliate links for Amazon, Barnes & Noble, Bookshop.org, and Audible. These links are only shown when:
+findmybook supports affiliate links for Amazon, Barnes & Noble, Bookshop.org, and Audible. These links are only shown when:
 
 1. The affiliate program is configured with proper credentials
 2. The book has ISBN data to generate the links
