@@ -32,9 +32,14 @@ class AiContentJsonParser {
     /**
      * Parses AI response text into structured book content.
      *
+     * <p>The returned {@link BookAiContent} always has a non-null {@code summary}
+     * and {@code keyThemes} list. The {@code readerFit}, {@code takeaways}, and
+     * {@code context} fields are {@code @Nullable} — they are null when the LLM
+     * response omits the field or provides an empty/whitespace-only value.</p>
+     *
      * @param responseText raw LLM output (may include markdown fences)
-     * @return parsed content record
-     * @throws IllegalStateException if the response cannot be parsed as valid JSON
+     * @return parsed content with nullable optional fields per {@link BookAiContent}
+     * @throws IllegalStateException if the response is empty, not valid JSON, or missing {@code summary}
      */
     BookAiContent parse(String responseText) {
         if (!StringUtils.hasText(responseText)) {
