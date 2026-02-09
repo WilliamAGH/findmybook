@@ -153,22 +153,15 @@ public class BookDataOrchestrator {
             candidates.addAll(openLibraryBookDataService.get()
                 .queryBooksByEverything(openLibraryQuery, "relevance", 0, DESCRIPTION_ENRICHMENT_LIMIT)
                 .timeout(DESCRIPTION_ENRICHMENT_TIMEOUT)
-                .onErrorResume(ex -> {
-                    logger.warn("Open Library description enrichment failed for bookId={}: {}", bookId, ex.getMessage());
-                    return Flux.empty();
-                })
                 .collectList()
                 .block());
         }
 
         candidates.addAll(googleExternalSearchFlow.streamCandidates(query, "relevance", null, DESCRIPTION_ENRICHMENT_LIMIT)
             .timeout(DESCRIPTION_ENRICHMENT_TIMEOUT)
-            .onErrorResume(ex -> {
-                logger.warn("Google Books description enrichment failed for bookId={}: {}", bookId, ex.getMessage());
-                return Flux.empty();
-            })
             .collectList()
             .block());
+
         return candidates;
     }
 
@@ -202,13 +195,7 @@ public class BookDataOrchestrator {
             .slugBase(SlugGenerator.generateBookSlug(title, detail.authors()))
             .build();
 
-        BookUpsertService.UpsertResult upsertResult;
-        try {
-            upsertResult = bookUpsertService.upsert(aggregate);
-        } catch (RuntimeException ex) {
-            logger.warn("Description enrichment upsert failed for bookId={}: {}", bookId, ex.getMessage());
-            return currentDescription;
-        }
+        BookUpsertService.UpsertResult upsertResult = bookUpsertService.upsert(aggregate);
         if (!bookId.equals(upsertResult.getBookId())) {
             logger.warn("Description enrichment upsert resolved to a different book (requested={}, resolved={})",
                 bookId, upsertResult.getBookId());

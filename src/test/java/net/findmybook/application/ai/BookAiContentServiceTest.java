@@ -54,6 +54,23 @@ class BookAiContentServiceTest {
     }
 
     @Test
+    void should_ThrowEnrichmentFailed_When_AllEnrichmentProvidersFail() {
+        BookAiContentService service = newService();
+        UUID bookId = UUID.randomUUID();
+        BookDetail detail = bookDetailWithDescription("short");
+        when(bookSearchService.fetchBookDetail(bookId)).thenReturn(java.util.Optional.of(detail));
+        when(bookDataOrchestrator.enrichDescriptionForAiIfNeeded(bookId, detail, "short", 50))
+            .thenThrow(new IllegalStateException("All description enrichment providers failed"));
+
+        assertThatThrownBy(() -> service.generateAndPersist(bookId, delta -> {}))
+            .isInstanceOfSatisfying(BookAiGenerationException.class, exception -> {
+                assertThat(exception.errorCode()).isEqualTo(BookAiGenerationException.ErrorCode.ENRICHMENT_FAILED);
+                assertThat(exception.getMessage()).contains("enrichment failed");
+                assertThat(exception.getCause()).isInstanceOf(IllegalStateException.class);
+            });
+    }
+
+    @Test
     void should_UseEnrichedDescription_When_OrchestratorReturnsLongerDescription() {
         BookAiContentService service = newService();
         UUID bookId = UUID.randomUUID();

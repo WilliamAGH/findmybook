@@ -312,10 +312,12 @@ public class BookAiContentController {
     private AiErrorDescriptor resolveThrowableError(Throwable throwable) {
         Throwable current = unwrapCompletionException(throwable);
         if (current instanceof BookAiGenerationException generationException) {
-            if (generationException.errorCode() == BookAiGenerationException.ErrorCode.DESCRIPTION_TOO_SHORT) {
-                return new AiErrorDescriptor(AiErrorCode.DESCRIPTION_TOO_SHORT, safeThrowableMessage(current));
-            }
-            return new AiErrorDescriptor(AiErrorCode.GENERATION_FAILED, safeThrowableMessage(current));
+            AiErrorCode code = switch (generationException.errorCode()) {
+                case DESCRIPTION_TOO_SHORT -> AiErrorCode.DESCRIPTION_TOO_SHORT;
+                case ENRICHMENT_FAILED -> AiErrorCode.ENRICHMENT_FAILED;
+                case GENERATION_FAILED -> AiErrorCode.GENERATION_FAILED;
+            };
+            return new AiErrorDescriptor(code, safeThrowableMessage(current));
         }
         return new AiErrorDescriptor(AiErrorCode.GENERATION_FAILED, safeThrowableMessage(current));
     }

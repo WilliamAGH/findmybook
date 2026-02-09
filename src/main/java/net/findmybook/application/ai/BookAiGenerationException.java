@@ -16,7 +16,8 @@ public class BookAiGenerationException extends RuntimeException {
      */
     public enum ErrorCode {
         GENERATION_FAILED,
-        DESCRIPTION_TOO_SHORT
+        DESCRIPTION_TOO_SHORT,
+        ENRICHMENT_FAILED
     }
 
     private final ErrorCode errorCode;

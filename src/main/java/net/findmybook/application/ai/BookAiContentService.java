@@ -13,7 +13,6 @@ import com.openai.models.chat.completions.ChatCompletionMessageParam;
 import com.openai.models.chat.completions.ChatCompletionSystemMessageParam;
 import com.openai.models.chat.completions.ChatCompletionUserMessageParam;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -32,8 +31,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-import tools.jackson.core.JacksonException;
-import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 /** Coordinates cache-first AI content generation for book detail pages. */
@@ -44,8 +41,6 @@ public class BookAiContentService {
     private static final String DEFAULT_PROVIDER = "openai";
     private static final String DEFAULT_API_MODE = "chat";
     private static final String DEFAULT_MODEL = "gpt-5-mini";
-    private static final int MAX_KEY_THEME_COUNT = 6;
-    private static final int MAX_TAKEAWAY_COUNT = 5;
     private static final long MAX_COMPLETION_TOKENS = 1000L;
     private static final int MIN_DESCRIPTION_LENGTH = 50;
     private static final double SAMPLING_TEMPERATURE = 0.2;
@@ -73,7 +68,7 @@ public class BookAiContentService {
     private final BookIdentifierResolver identifierResolver;
     private final BookSearchService bookSearchService;
     private final BookDataOrchestrator bookDataOrchestrator;
-    private final ObjectMapper objectMapper;
+    private final AiContentJsonParser jsonParser;
     private final OpenAIClient openAiClient;
     private final boolean available;
     private final String configuredModel;
@@ -97,7 +92,7 @@ public class BookAiContentService {
         this.identifierResolver = identifierResolver;
         this.bookSearchService = bookSearchService;
         this.bookDataOrchestrator = bookDataOrchestrator;
-        this.objectMapper = objectMapper;
+        this.jsonParser = new AiContentJsonParser(objectMapper);
         this.configuredModel = StringUtils.hasText(model) ? model.trim() : DEFAULT_MODEL;
         this.requestTimeoutSeconds = Math.max(1L, requestTimeoutSeconds);
         this.readTimeoutSeconds = Math.max(1L, readTimeoutSeconds);
@@ -163,7 +158,7 @@ public class BookAiContentService {
         }
 
         String rawMessage = fullResponseBuilder.toString();
-        BookAiContent aiContent = parseAiContent(rawMessage);
+        BookAiContent aiContent = jsonParser.parse(rawMessage);
         BookAiContentSnapshot snapshot = repository.insertNewCurrentVersion(bookId, aiContent, configuredModel, DEFAULT_PROVIDER, promptHash);
         return new GeneratedContent(rawMessage, snapshot);
     }
@@ -193,7 +188,12 @@ public class BookAiContentService {
         BookDetail detail = bookSearchService.fetchBookDetail(bookId)
             .orElseThrow(() -> new IllegalStateException("Book details unavailable for AI content: " + bookId));
         String description = detail.description() == null ? null : detail.description().trim();
-        description = bookDataOrchestrator.enrichDescriptionForAiIfNeeded(bookId, detail, description, MIN_DESCRIPTION_LENGTH);
+        try {
+            description = bookDataOrchestrator.enrichDescriptionForAiIfNeeded(bookId, detail, description, MIN_DESCRIPTION_LENGTH);
+        } catch (IllegalStateException ex) {
+            throw new BookAiGenerationException(BookAiGenerationException.ErrorCode.ENRICHMENT_FAILED,
+                "Description enrichment failed for book: " + bookId, ex);
+        }
         int descriptionLength = descriptionLength(description);
         if (isDescriptionTooShort(description)) {
             throw new BookAiGenerationException(
@@ -229,95 +229,6 @@ public class BookAiContentService {
             Description:
             %s
             """.formatted(context.bookId(), context.title(), context.authors(), context.publishedDate(), context.publisher(), context.description());
-    }
-
-    private BookAiContent parseAiContent(String responseText) {
-        if (!StringUtils.hasText(responseText)) {
-            throw new IllegalStateException("AI content response was empty");
-        }
-
-        JsonNode payload = parseJsonPayload(responseText);
-        String summary = requiredText(payload, "summary");
-        Optional<String> readerFit = optionalText(payload, "readerFit", "reader_fit", "idealReader");
-        List<String> themes = stringList(payload, MAX_KEY_THEME_COUNT, "keyThemes", "key_themes", "themes");
-        List<String> takeawaysList = stringList(payload, MAX_TAKEAWAY_COUNT, "takeaways");
-        Optional<List<String>> takeaways = takeawaysList.isEmpty() ? Optional.empty() : Optional.of(takeawaysList);
-        Optional<String> context = optionalText(payload, "context");
-
-        if (themes.isEmpty() && takeaways.isEmpty()) {
-            log.warn("AI generated content with no themes and no takeaways - likely insufficient source material");
-        }
-
-        return new BookAiContent(summary, readerFit.orElse(null), themes, takeaways.orElse(null), context.orElse(null));
-    }
-
-    private JsonNode parseJsonPayload(String responseText) {
-        String cleaned = responseText.replace("```json", "").replace("```", "").trim();
-        try {
-            return objectMapper.readTree(cleaned);
-        } catch (JacksonException initialParseException) {
-            int openBrace = cleaned.indexOf('{');
-            int closeBrace = cleaned.lastIndexOf('}');
-            if (openBrace < 0 || closeBrace <= openBrace) {
-                throw new IllegalStateException("AI response did not include a valid JSON object");
-            }
-            log.warn("AI response required brace extraction fallback (initial parse failed: {})", initialParseException.getMessage());
-            String extracted = cleaned.substring(openBrace, closeBrace + 1);
-            try {
-                return objectMapper.readTree(extracted);
-            } catch (JacksonException exception) {
-                throw new IllegalStateException("AI response JSON parsing failed", exception);
-            }
-        }
-    }
-
-    private String requiredText(JsonNode payload, String field, String... aliases) {
-        return optionalText(payload, field, aliases)
-            .orElseThrow(() -> new IllegalStateException("AI response missing required field: " + field));
-    }
-
-    private Optional<String> optionalText(JsonNode payload, String field, String... aliases) {
-        JsonNode node = resolveJsonNode(payload, field, aliases);
-        if (node == null || node.isNull()) {
-            return Optional.empty();
-        }
-        String text = node.asString(null);
-        return StringUtils.hasText(text) ? Optional.of(text.trim()) : Optional.empty();
-    }
-
-    private List<String> stringList(JsonNode payload, int maxSize, String field, String... aliases) {
-        JsonNode node = resolveJsonNode(payload, field, aliases);
-        if (node == null || node.isNull() || !node.isArray()) {
-            return List.of();
-        }
-
-        List<String> values = new ArrayList<>();
-        for (JsonNode elementNode : node) {
-            String text = elementNode == null || elementNode.isNull() ? null : elementNode.asString(null);
-            if (!StringUtils.hasText(text)) {
-                continue;
-            }
-            values.add(text.trim());
-            if (values.size() == maxSize) {
-                break;
-            }
-        }
-        return values.isEmpty() ? List.of() : List.copyOf(values);
-    }
-
-    private JsonNode resolveJsonNode(JsonNode payload, String field, String... aliases) {
-        JsonNode node = payload.get(field);
-        if (node != null && !node.isNull()) {
-            return node;
-        }
-
-        for (String alias : aliases) {
-            JsonNode aliasNode = payload.get(alias);
-            if (aliasNode != null && !aliasNode.isNull()) {
-                return aliasNode;
-            }
-        }
-        return null;
     }
 
     private String textOrFallback(String value, String fallback) {
