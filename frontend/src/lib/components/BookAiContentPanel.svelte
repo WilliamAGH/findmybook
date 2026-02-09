@@ -141,6 +141,9 @@
       if (error instanceof DOMException && error.name === "AbortError") {
         return;
       }
+      if (activeRequestToken !== requestToken) {
+        return;
+      }
       aiErrorMessage = error instanceof Error ? error.message : "Unable to generate AI content";
       console.error("Book AI content generation failed:", error);
     } finally {
