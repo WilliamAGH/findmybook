@@ -23,6 +23,7 @@
   let aiAutoTriggerDeferred = $state(false);
   let collapsed = $state(false);
   let aiAbortController: AbortController | null = null;
+  let activeRequestToken: symbol | null = null;
 
   function readCollapseState(): boolean {
     try {
@@ -96,21 +97,24 @@
       return;
     }
 
+    const requestToken = Symbol("book-ai-content-request");
+    activeRequestToken = requestToken;
+    aiLoading = true;
     aiErrorMessage = null;
     aiQueueMessage = null;
     aiAutoTriggerDeferred = false;
+    aiLoadingMessage = refresh
+      ? "Refreshing AI content..."
+      : "Generating AI content...";
+
     if (!(await hasQueueCapacity(refresh))) {
       return;
     }
 
     aiAbortController?.abort();
     aiAbortController = new AbortController();
-    aiLoading = true;
     aiErrorMessage = null;
     aiQueueMessage = null;
-    aiLoadingMessage = refresh
-      ? "Refreshing AI content..."
-      : "Generating AI content...";
 
     try {
       const result = await streamBookAiContent(identifier, {
@@ -131,7 +135,10 @@
       aiErrorMessage = error instanceof Error ? error.message : "Unable to generate AI content";
       console.error("Book AI content generation failed:", error);
     } finally {
-      aiLoading = false;
+      if (activeRequestToken === requestToken) {
+        activeRequestToken = null;
+        aiLoading = false;
+      }
     }
   }
 

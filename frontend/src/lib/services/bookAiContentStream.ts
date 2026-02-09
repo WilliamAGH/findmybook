@@ -81,7 +81,6 @@ async function readBookAiContentSseStream(
   const decoder = new TextDecoder();
   let buffer = "";
   let pendingCarriageReturn = false;
-  let finalResult: StreamBookAiContentResult | null = null;
 
   const processMessage = (message: { event: string; data: string }): StreamBookAiContentResult | null => {
     if (message.event === "error") {
@@ -170,7 +169,6 @@ async function readBookAiContentSseStream(
 
         const maybeDone = processMessage(parsedMessage);
         if (maybeDone) {
-          finalResult = maybeDone;
           return maybeDone;
         }
       }
@@ -187,7 +185,6 @@ async function readBookAiContentSseStream(
       if (trailing) {
         const maybeDone = processMessage(trailing);
         if (maybeDone) {
-          finalResult = maybeDone;
           return maybeDone;
         }
       }
@@ -196,9 +193,6 @@ async function readBookAiContentSseStream(
     reader.releaseLock();
   }
 
-  if (finalResult) {
-    return finalResult;
-  }
   throw new Error("Book AI stream ended unexpectedly");
 }
 

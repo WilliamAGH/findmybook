@@ -343,38 +343,37 @@ public class BookController {
         String trimmed = identifier.trim();
         Mono<BookDto> resolvedBook = Mono.fromCallable(() -> locateBookDto(trimmed))
             .subscribeOn(Schedulers.boundedElastic())
-            .flatMap(dto -> dto == null ? Mono.<BookDto>empty() : Mono.just(dto))
+            .flatMap(Mono::justOrEmpty)
             .switchIfEmpty(fetchBookViaFallback(trimmed));
 
         return resolvedBook.flatMap(dto -> Mono.fromCallable(() -> attachAiContentSnapshot(dto))
             .subscribeOn(Schedulers.boundedElastic()));
     }
 
-    private BookDto locateBookDto(String identifier) {
+    private Optional<BookDto> locateBookDto(String identifier) {
         Optional<BookDto> canonicalBook = resolveCanonicalBookDto(identifier);
         if (canonicalBook.isPresent()) {
-            return canonicalBook.get();
+            return canonicalBook;
         }
 
         Optional<BookDetail> bySlug = bookSearchService.fetchBookDetailBySlug(identifier);
         if (bySlug.isPresent()) {
-            return BookDtoMapper.fromDetail(enrichWithEditions(bySlug.get()));
+            return Optional.of(BookDtoMapper.fromDetail(enrichWithEditions(bySlug.get())));
         }
 
         Optional<String> canonicalId = bookIdentifierResolver.resolveCanonicalId(identifier);
         if (canonicalId.isEmpty()) {
-            return null;
+            return Optional.empty();
         }
 
         UUID uuid = UuidUtils.parseUuidOrNull(canonicalId.get());
         if (uuid == null) {
-            return null;
+            return Optional.empty();
         }
 
         return bookSearchService.fetchBookDetail(uuid)
             .map(this::enrichWithEditions)
-            .map(BookDtoMapper::fromDetail)
-            .orElse(null);
+            .map(BookDtoMapper::fromDetail);
     }
 
     private Optional<BookDto> resolveCanonicalBookDto(String identifier) {
@@ -409,15 +408,10 @@ public class BookController {
             return bookDto;
         }
 
-        try {
-            return bookAiContentService.findCurrent(bookId)
-                .map(BookAiContentSnapshotDto::fromSnapshot)
-                .map(bookDto::withAiContent)
-                .orElse(bookDto);
-        } catch (RuntimeException ex) {
-            log.warn("Failed to attach AI content snapshot for book {}: {}", bookId, ex.getMessage());
-            return bookDto;
-        }
+        return bookAiContentService.findCurrent(bookId)
+            .map(BookAiContentSnapshotDto::fromSnapshot)
+            .map(bookDto::withAiContent)
+            .orElse(bookDto);
     }
 
     private BookDto toRecommendationDto(RecommendationCard card) {

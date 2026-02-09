@@ -100,8 +100,8 @@ public class TextUtils {
         return result;
     }
 
-    private static String stripWrappingQuotePairs(String value) {
-        String result = value;
+    private static String stripWrappingQuotePairs(String text) {
+        String result = text;
         while (result.length() > 1
             && isQuoteCharacter(result.charAt(0))
             && isQuoteCharacter(result.charAt(result.length() - 1))) {

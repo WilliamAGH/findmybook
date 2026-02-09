@@ -34,6 +34,7 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
     private static final String DS_PASSWORD = "spring.datasource.password";
     private static final String DS_DRIVER = "spring.datasource.driver-class-name";
     private static final String POSTGRES_DRIVER_CLASS = "org.postgresql.Driver";
+    private static final String DATABASE_URL_PROCESSOR_PROPERTY_SOURCE = "databaseUrlProcessor";
     private static final String JDBC_POSTGRESQL_PREFIX = "jdbc:postgresql://";
     private static final String DEFAULT_HOST = "localhost";
     private static final String DEFAULT_DATABASE = "postgres";
@@ -330,7 +331,7 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
             if (isJdbcPostgresUrl(datasourceUrl)) {
                 MutablePropertySources sources = environment.getPropertySources();
                 DatasourceOverrides overrides = createDatasourceOverrides(datasourceUrl);
-                sources.addFirst(new MapPropertySource("databaseUrlProcessor", overrides.toPropertyMap()));
+                sources.addFirst(new MapPropertySource(DATABASE_URL_PROCESSOR_PROPERTY_SOURCE, overrides.toPropertyMap()));
                 return;
             }
 
@@ -351,7 +352,7 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
 
             MutablePropertySources sources = environment.getPropertySources();
             // Highest precedence so these values win over application.yml
-            sources.addFirst(new MapPropertySource("databaseUrlProcessor", overrides.toPropertyMap()));
+            sources.addFirst(new MapPropertySource(DATABASE_URL_PROCESSOR_PROPERTY_SOURCE, overrides.toPropertyMap()));
         } catch (RuntimeException e) {
             throw new IllegalStateException(
                 "Failed to normalize datasource properties: " + e.getMessage(), e);

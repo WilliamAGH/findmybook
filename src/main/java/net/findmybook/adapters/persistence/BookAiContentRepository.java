@@ -97,6 +97,9 @@ public class BookAiContentRepository {
         if (bookId == null) {
             throw new IllegalArgumentException("bookId is required");
         }
+        if (aiContent == null) {
+            throw new IllegalArgumentException("aiContent is required");
+        }
 
         lockBook(bookId);
         int nextVersion = resolveNextVersion(bookId);
