@@ -130,11 +130,13 @@
       ? "Refreshing AI content..."
       : "Generating AI content...";
 
-    if (!(await hasQueueCapacity(refresh))) {
-      if (activeRequestToken === requestToken) {
-        activeRequestToken = null;
-        aiLoading = false;
-      }
+    const queueHasCapacity = await hasQueueCapacity(refresh);
+    if (activeRequestToken !== requestToken || identifier !== requestIdentifier) {
+      return;
+    }
+    if (!queueHasCapacity) {
+      activeRequestToken = null;
+      aiLoading = false;
       return;
     }
 
