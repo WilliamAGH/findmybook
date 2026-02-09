@@ -50,6 +50,8 @@ public class BookAiContentController {
     private static final long KEEPALIVE_INTERVAL_MILLIS = 15_000L;
     private static final int AUTO_TRIGGER_QUEUE_THRESHOLD = 5;
     private static final int DEFAULT_GENERATION_PRIORITY = 0;
+    private static final int MIN_QUEUE_TICKER_THREADS = 4;
+    private static final int MAX_QUEUE_TICKER_THREADS = 16;
 
     private final BookAiContentService aiContentService;
     private final BookAiContentRequestQueue requestQueue;
@@ -65,13 +67,12 @@ public class BookAiContentController {
         this.aiContentService = aiContentService;
         this.requestQueue = requestQueue;
         this.objectMapper = objectMapper;
-        ThreadFactory threadFactory = runnable -> {
-            Thread thread = new Thread(runnable);
-            thread.setName("book-ai-queue-ticker");
-            thread.setDaemon(true);
-            return thread;
-        };
-        this.queueTickerExecutor = Executors.newSingleThreadScheduledExecutor(threadFactory);
+        int queueTickerThreads = determineQueueTickerThreadCount();
+        ThreadFactory threadFactory = Thread.ofPlatform()
+            .name("book-ai-queue-ticker-", 0)
+            .daemon(true)
+            .factory();
+        this.queueTickerExecutor = Executors.newScheduledThreadPool(queueTickerThreads, threadFactory);
     }
 
     /**
@@ -131,6 +132,12 @@ public class BookAiContentController {
     @PreDestroy
     void shutdownTickerExecutor() {
         queueTickerExecutor.shutdownNow();
+    }
+
+    static int determineQueueTickerThreadCount() {
+        int availableProcessors = Runtime.getRuntime().availableProcessors();
+        int boundedByMax = Math.min(MAX_QUEUE_TICKER_THREADS, availableProcessors);
+        return Math.max(MIN_QUEUE_TICKER_THREADS, boundedByMax);
     }
 
     private OptionalResolution resolveBookIdentifier(String identifier) {

@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.function.Supplier;
 import net.findmybook.application.ai.BookAiContentService;
 import net.findmybook.domain.ai.BookAiContent;
@@ -33,6 +34,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.test.util.ReflectionTestUtils;
 import tools.jackson.databind.ObjectMapper;
 
 @ExtendWith(MockitoExtension.class)
@@ -179,5 +181,16 @@ class BookAiContentControllerTest {
 
         assertThat(responseBody).contains("event:error");
         assertThat(responseBody).contains("not configured");
+    }
+
+    @Test
+    @DisplayName("queue ticker executor is multi-threaded to avoid cross-stream starvation")
+    void queueTickerExecutor_usesMultipleThreads() {
+        Object executorField = ReflectionTestUtils.getField(controller, "queueTickerExecutor");
+        assertThat(executorField).isInstanceOf(ScheduledThreadPoolExecutor.class);
+
+        ScheduledThreadPoolExecutor executor = (ScheduledThreadPoolExecutor) executorField;
+        assertThat(executor.getCorePoolSize()).isEqualTo(BookAiContentController.determineQueueTickerThreadCount());
+        assertThat(executor.getCorePoolSize()).isGreaterThan(1);
     }
 }
