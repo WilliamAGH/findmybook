@@ -20,6 +20,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.function.Supplier;
+import net.findmybook.application.ai.BookAiGenerationException;
 import net.findmybook.application.ai.BookAiContentService;
 import net.findmybook.domain.ai.BookAiContent;
 import net.findmybook.domain.ai.BookAiContentSnapshot;
@@ -51,8 +52,7 @@ class BookAiContentControllerTest {
 
     @BeforeEach
     void setUp() {
-        controller = new BookAiContentController(aiContentService, requestQueue, new ObjectMapper());
-        mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+        configureController("development");
     }
 
     @AfterEach
@@ -72,7 +72,8 @@ class BookAiContentControllerTest {
             .andExpect(jsonPath("$.running").value(1))
             .andExpect(jsonPath("$.pending").value(3))
             .andExpect(jsonPath("$.maxParallel").value(2))
-            .andExpect(jsonPath("$.available").value(true));
+            .andExpect(jsonPath("$.available").value(true))
+            .andExpect(jsonPath("$.environmentMode").value("development"));
     }
 
     @Test
@@ -147,6 +148,7 @@ class BookAiContentControllerTest {
 
         assertThat(responseBody).contains("event:error");
         assertThat(responseBody).contains("AI queue is currently busy");
+        assertThat(responseBody).contains("\"code\":\"queue_busy\"");
         verify(requestQueue, never()).enqueue(anyInt(), any());
     }
 
@@ -164,6 +166,7 @@ class BookAiContentControllerTest {
 
         assertThat(responseBody).contains("event:error");
         assertThat(responseBody).contains("Book not found");
+        assertThat(responseBody).contains("\"code\":\"book_not_found\"");
     }
 
     @Test
@@ -183,6 +186,50 @@ class BookAiContentControllerTest {
 
         assertThat(responseBody).contains("event:error");
         assertThat(responseBody).contains("not configured");
+        assertThat(responseBody).contains("\"code\":\"service_unavailable\"");
+    }
+
+    @Test
+    @DisplayName("POST stream redacts detailed AI validation errors in production mode")
+    void streamAiContent_redactsDetailedGenerationError_WhenProductionMode() throws Exception {
+        controller.shutdownTickerExecutor();
+        configureController("production");
+
+        UUID bookId = UUID.randomUUID();
+        when(aiContentService.resolveBookId("slug")).thenReturn(Optional.of(bookId));
+        when(aiContentService.findCurrent(bookId)).thenReturn(Optional.empty());
+        when(aiContentService.isAvailable()).thenReturn(true);
+        when(requestQueue.snapshot()).thenReturn(new BookAiContentRequestQueue.QueueSnapshot(0, 0, 1));
+
+        CompletableFuture<Void> started = CompletableFuture.completedFuture(null);
+        CompletableFuture<BookAiContentService.GeneratedContent> failedResult = new CompletableFuture<>();
+        failedResult.completeExceptionally(new BookAiGenerationException(
+            BookAiGenerationException.ErrorCode.DESCRIPTION_TOO_SHORT,
+            "Book description is missing or too short for faithful AI generation (bookId="
+                + bookId + ", length=0, minimum=50)"
+        ));
+
+        BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent> task =
+            new BookAiContentRequestQueue.EnqueuedTask<>("task-prod-1", started, failedResult);
+        when(requestQueue.<BookAiContentService.GeneratedContent>enqueue(
+            anyInt(),
+            org.mockito.ArgumentMatchers.<Supplier<BookAiContentService.GeneratedContent>>any()
+        )).thenReturn(task);
+        when(requestQueue.getPosition("task-prod-1")).thenReturn(
+            new BookAiContentRequestQueue.QueuePosition(true, 1, 0, 1, 0)
+        );
+
+        String responseBody = mockMvc.perform(post("/api/books/slug/ai/content/stream"))
+            .andExpect(status().isOk())
+            .andExpect(content().contentType("text/event-stream"))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+        assertThat(responseBody).contains("event:error");
+        assertThat(responseBody).contains("\"code\":\"description_too_short\"");
+        assertThat(responseBody).contains("AI content is unavailable for this book");
+        assertThat(responseBody).doesNotContain("length=0");
     }
 
     @Test
@@ -194,5 +241,10 @@ class BookAiContentControllerTest {
         ScheduledThreadPoolExecutor executor = (ScheduledThreadPoolExecutor) executorField;
         assertThat(executor.getCorePoolSize()).isEqualTo(BookAiContentController.determineQueueTickerThreadCount());
         assertThat(executor.getCorePoolSize()).isGreaterThan(1);
+    }
+
+    private void configureController(String environmentMode) {
+        controller = new BookAiContentController(aiContentService, requestQueue, new ObjectMapper(), environmentMode);
+        mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
     }
 }

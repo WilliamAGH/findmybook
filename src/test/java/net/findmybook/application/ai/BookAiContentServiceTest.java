@@ -151,8 +151,10 @@ class BookAiContentServiceTest {
         when(bookSearchService.fetchBookDetail(bookId)).thenReturn(Optional.of(bookDetailWithDescription(description)));
 
         assertThatThrownBy(() -> service.generateAndPersist(bookId, delta -> {}))
-            .isInstanceOf(BookAiGenerationException.class)
-            .hasMessageContaining("missing or too short");
+            .isInstanceOfSatisfying(BookAiGenerationException.class, exception -> {
+                assertThat(exception.errorCode()).isEqualTo(BookAiGenerationException.ErrorCode.DESCRIPTION_TOO_SHORT);
+                assertThat(exception.getMessage()).contains("missing or too short");
+            });
     }
 
     @Test
