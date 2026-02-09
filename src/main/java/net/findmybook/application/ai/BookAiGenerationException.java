@@ -1,5 +1,7 @@
 package net.findmybook.application.ai;
 
+import java.util.Objects;
+
 /**
  * Thrown when AI content generation fails during streaming, parsing,
  * or pre-generation validation (e.g. insufficient input data).
@@ -33,7 +35,7 @@ public class BookAiGenerationException extends RuntimeException {
 
     public BookAiGenerationException(ErrorCode errorCode, String message, Throwable cause) {
         super(message, cause);
-        this.errorCode = errorCode == null ? ErrorCode.GENERATION_FAILED : errorCode;
+        this.errorCode = Objects.requireNonNull(errorCode, "errorCode must not be null");
     }
 
     /**
