@@ -24,6 +24,7 @@
   let collapsed = $state(false);
   let aiAbortController: AbortController | null = null;
   let activeRequestToken: symbol | null = null;
+  let lastAutoTriggerIdentifier = $state<string | null>(null);
 
   function readCollapseState(): boolean {
     try {
@@ -97,6 +98,7 @@
       return;
     }
 
+    const requestIdentifier = identifier;
     const requestToken = Symbol("book-ai-content-request");
     activeRequestToken = requestToken;
     aiLoading = true;
@@ -128,6 +130,9 @@
         onStreamEvent: handleAiStreamEvent,
       });
 
+      if (activeRequestToken !== requestToken || identifier !== requestIdentifier) {
+        return;
+      }
       onAiContentUpdate(result.aiContent);
 
       aiQueueMessage = null;
@@ -149,15 +154,38 @@
   onMount(() => {
     collapsed = readCollapseState();
 
+    return () => {
+      aiAbortController?.abort();
+    };
+  });
+
+  $effect(() => {
+    if (!identifier || lastAutoTriggerIdentifier === identifier) {
+      return;
+    }
+    lastAutoTriggerIdentifier = identifier;
+
+    aiAbortController?.abort();
+    aiAbortController = null;
+    activeRequestToken = null;
+    aiLoading = false;
+    aiErrorMessage = null;
+    aiQueueMessage = null;
+    aiAutoTriggerDeferred = false;
+    aiLoadingMessage = "Generating AI content...";
+
+    const scheduledIdentifier = identifier;
     const autoTriggerDelay = setTimeout(() => {
-      if (!book.aiContent && !aiLoading && !aiAutoTriggerDeferred) {
+      if (identifier !== scheduledIdentifier) {
+        return;
+      }
+      if (!book?.aiContent && !aiLoading && !aiAutoTriggerDeferred) {
         void triggerAiGeneration(false);
       }
     }, 0);
 
     return () => {
       clearTimeout(autoTriggerDelay);
-      aiAbortController?.abort();
     };
   });
 </script>
