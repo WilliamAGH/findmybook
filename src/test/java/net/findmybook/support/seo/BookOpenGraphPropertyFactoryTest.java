@@ -14,7 +14,7 @@ class BookOpenGraphPropertyFactoryTest {
 
     @Test
     void should_CreateBookNamespaceProperties_When_BookHasIsbnDateAndCategories() {
-        BookOpenGraphPropertyFactory factory = new BookOpenGraphPropertyFactory();
+        BookOpenGraphPropertyFactory factory = new BookOpenGraphPropertyFactory(new SeoMarkupFormatter());
         Book book = new Book();
         book.setIsbn13("9780316769488");
         book.setPublishedDate(Date.from(Instant.parse("1951-07-16T00:00:00Z")));
@@ -31,7 +31,7 @@ class BookOpenGraphPropertyFactoryTest {
 
     @Test
     void should_SkipIsbnProperty_When_OnlyIsbn10IsPresent() {
-        BookOpenGraphPropertyFactory factory = new BookOpenGraphPropertyFactory();
+        BookOpenGraphPropertyFactory factory = new BookOpenGraphPropertyFactory(new SeoMarkupFormatter());
         Book book = new Book();
         book.setIsbn10("0316769487");
         book.setCategories(List.of("Fiction"));

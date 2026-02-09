@@ -11,6 +11,12 @@ import org.springframework.util.StringUtils;
 @Component
 public class OpenGraphHeadTagRenderer {
 
+    private final SeoMarkupFormatter seoMarkupFormatter;
+
+    public OpenGraphHeadTagRenderer(SeoMarkupFormatter seoMarkupFormatter) {
+        this.seoMarkupFormatter = seoMarkupFormatter;
+    }
+
     /**
      * Renders escaped Open Graph properties as one-or-more {@code <meta property="...">} tags.
      *
@@ -29,20 +35,11 @@ public class OpenGraphHeadTagRenderer {
                 continue;
             }
             builder.append("\n              <meta property=\"")
-                .append(escapeHtml(property.property().trim()))
+                .append(seoMarkupFormatter.escapeHtml(property.property().trim()))
                 .append("\" content=\"")
-                .append(escapeHtml(property.content().trim()))
+                .append(seoMarkupFormatter.escapeHtml(property.content().trim()))
                 .append("\">");
         }
         return builder.toString();
-    }
-
-    private String escapeHtml(String value) {
-        return value
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace("\"", "&quot;")
-            .replace("'", "&#39;");
     }
 }

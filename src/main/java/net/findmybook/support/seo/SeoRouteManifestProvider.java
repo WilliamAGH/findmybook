@@ -92,6 +92,15 @@ public class SeoRouteManifestProvider {
                 Map.of(),
                 List.of(),
                 "/404"
+            ),
+            new RouteDefinition(
+                "error",
+                "exact",
+                "/error",
+                List.of(),
+                Map.of(),
+                List.of(),
+                "/error"
             )
         ),
         List.of("/api", "/admin", "/actuator", "/ws", "/topic", "/sitemap.xml", "/sitemap-xml", "/r")

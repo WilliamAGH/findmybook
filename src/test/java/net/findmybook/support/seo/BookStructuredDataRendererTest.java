@@ -12,7 +12,7 @@ class BookStructuredDataRendererTest {
 
     @Test
     void should_RenderBookGraphJsonLd_When_BookMetadataProvided() {
-        BookStructuredDataRenderer renderer = new BookStructuredDataRenderer();
+        BookStructuredDataRenderer renderer = new BookStructuredDataRenderer(new SeoMarkupFormatter());
         Book book = new Book();
         book.setId("book-id");
         book.setSlug("the-catcher-in-the-rye");
@@ -34,14 +34,16 @@ class BookStructuredDataRendererTest {
         book.setPublishedDate(Date.from(Instant.parse("1951-07-16T00:00:00Z")));
 
         String json = renderer.renderBookGraph(
-            book,
-            "https://findmybook.net/book/the-catcher-in-the-rye",
-            "The Catcher in the Rye | findmybook",
-            "The Catcher in the Rye",
-            "Fallback description",
-            "https://findmybook.net/images/cover.jpg",
-            "findmybook",
-            "https://findmybook.net"
+            new BookGraphRenderRequest(
+                book,
+                "https://findmybook.net/book/the-catcher-in-the-rye",
+                "The Catcher in the Rye | findmybook",
+                "The Catcher in the Rye",
+                "Fallback description",
+                "https://findmybook.net/images/cover.jpg",
+                "findmybook",
+                "https://findmybook.net"
+            )
         );
 
         assertTrue(json.contains("\"@type\":\"Book\""));
@@ -58,20 +60,22 @@ class BookStructuredDataRendererTest {
 
     @Test
     void should_EmitIsbn10AsIdentifier_When_Isbn13Missing() {
-        BookStructuredDataRenderer renderer = new BookStructuredDataRenderer();
+        BookStructuredDataRenderer renderer = new BookStructuredDataRenderer(new SeoMarkupFormatter());
         Book book = new Book();
         book.setTitle("Legacy ISBN Book");
         book.setIsbn10("0316769487");
 
         String json = renderer.renderBookGraph(
-            book,
-            "https://findmybook.net/book/legacy-isbn",
-            "Legacy ISBN Book | findmybook",
-            "Legacy ISBN Book",
-            "Fallback description",
-            "https://findmybook.net/images/cover.jpg",
-            "findmybook",
-            "https://findmybook.net"
+            new BookGraphRenderRequest(
+                book,
+                "https://findmybook.net/book/legacy-isbn",
+                "Legacy ISBN Book | findmybook",
+                "Legacy ISBN Book",
+                "Fallback description",
+                "https://findmybook.net/images/cover.jpg",
+                "findmybook",
+                "https://findmybook.net"
+            )
         );
 
         assertTrue(json.contains("\"propertyID\":\"ISBN-10\""));
@@ -80,19 +84,21 @@ class BookStructuredDataRendererTest {
 
     @Test
     void should_UseFallbackDescription_When_BookDescriptionIsMissing() {
-        BookStructuredDataRenderer renderer = new BookStructuredDataRenderer();
+        BookStructuredDataRenderer renderer = new BookStructuredDataRenderer(new SeoMarkupFormatter());
         Book book = new Book();
         book.setTitle("Untitled");
 
         String json = renderer.renderBookGraph(
-            book,
-            "https://findmybook.net/book/untitled",
-            "Untitled | findmybook",
-            "Untitled",
-            "Fallback description",
-            "https://findmybook.net/images/cover.jpg",
-            "findmybook",
-            "https://findmybook.net"
+            new BookGraphRenderRequest(
+                book,
+                "https://findmybook.net/book/untitled",
+                "Untitled | findmybook",
+                "Untitled",
+                "Fallback description",
+                "https://findmybook.net/images/cover.jpg",
+                "findmybook",
+                "https://findmybook.net"
+            )
         );
 
         assertTrue(json.contains("\"description\":\"Fallback description\""));

@@ -13,8 +13,7 @@ class SpaShellDocumentRendererTest {
     void should_RenderBookOpenGraphAndStructuredData_When_MetadataContainsExtensions() {
         SpaShellDocumentRenderer renderer = new SpaShellDocumentRenderer(
             new SeoMarkupFormatter(),
-            new OpenGraphHeadTagRenderer(),
-            new RouteStructuredDataRenderer(),
+            new OpenGraphHeadTagRenderer(new SeoMarkupFormatter()),
             new CanonicalUrlResolver()
         );
 
@@ -30,7 +29,7 @@ class SpaShellDocumentRendererTest {
             "{\"@context\":\"https://schema.org\",\"@type\":\"Book\"}"
         );
 
-        String html = renderer.render(
+        var ctx = new SpaShellRenderContext(
             metadata,
             metadata,
             " | findmybook",
@@ -44,6 +43,8 @@ class SpaShellDocumentRendererTest {
             "{\"version\":1}",
             "https://findmybook.net"
         );
+
+        String html = renderer.render(ctx);
 
         assertTrue(html.contains("<meta property=\"og:type\" content=\"book\">"));
         assertTrue(html.contains("<meta property=\"book:isbn\" content=\"9780316769488\">"));

@@ -10,7 +10,7 @@ class OpenGraphHeadTagRendererTest {
 
     @Test
     void should_RenderEscapedOpenGraphMetaTags_When_PropertiesAreValid() {
-        OpenGraphHeadTagRenderer renderer = new OpenGraphHeadTagRenderer();
+        OpenGraphHeadTagRenderer renderer = new OpenGraphHeadTagRenderer(new SeoMarkupFormatter());
 
         String html = renderer.renderMetaTags(List.of(
             new net.findmybook.domain.seo.OpenGraphProperty("book:isbn", "9780316769488"),
@@ -23,7 +23,7 @@ class OpenGraphHeadTagRendererTest {
 
     @Test
     void should_ReturnEmptyString_When_NoRenderablePropertiesProvided() {
-        OpenGraphHeadTagRenderer renderer = new OpenGraphHeadTagRenderer();
+        OpenGraphHeadTagRenderer renderer = new OpenGraphHeadTagRenderer(new SeoMarkupFormatter());
 
         assertEquals("", renderer.renderMetaTags(null));
         assertEquals("", renderer.renderMetaTags(List.of()));

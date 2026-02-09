@@ -1,10 +1,13 @@
 package net.findmybook.application.seo;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import net.findmybook.domain.seo.SeoMetadata;
-import net.findmybook.util.ApplicationConstants;
 import net.findmybook.support.seo.CanonicalUrlResolver;
+import net.findmybook.support.seo.RouteStructuredDataRenderer;
+import net.findmybook.support.seo.SeoMarkupFormatter;
+import net.findmybook.util.ApplicationConstants;
 import org.springframework.stereotype.Service;
 
 /**
@@ -18,75 +21,53 @@ public class RouteSeoMetadataUseCase {
 
     private final CanonicalUrlResolver canonicalUrlResolver;
     private final SeoRouteManifestUseCase seoRouteManifestUseCase;
+    private final RouteStructuredDataRenderer routeStructuredDataRenderer;
+    private final SeoMarkupFormatter seoMarkupFormatter;
 
     public RouteSeoMetadataUseCase(CanonicalUrlResolver canonicalUrlResolver,
-                                   SeoRouteManifestUseCase seoRouteManifestUseCase) {
+                                   SeoRouteManifestUseCase seoRouteManifestUseCase,
+                                   RouteStructuredDataRenderer routeStructuredDataRenderer,
+                                   SeoMarkupFormatter seoMarkupFormatter) {
         this.canonicalUrlResolver = canonicalUrlResolver;
         this.seoRouteManifestUseCase = seoRouteManifestUseCase;
+        this.routeStructuredDataRenderer = routeStructuredDataRenderer;
+        this.seoMarkupFormatter = seoMarkupFormatter;
     }
 
-    /**
-     * Builds SEO metadata for the homepage route.
-     *
-     * @return homepage SEO metadata
-     */
+    /** Builds SEO metadata for the homepage route. */
     public SeoMetadata homeMetadata() {
-        return new SeoMetadata(
-            "Discover Books",
+        return buildRouteMetadata("Discover Books",
             "Discover your next favorite read with findmybook recommendations, trending titles, and curated lists.",
-            canonicalUrlResolver.normalizePublicUrl("/"),
+            "/",
             "findmybook, discover books, book recommendations, reading lists, best books",
-            ApplicationConstants.Urls.DEFAULT_SOCIAL_IMAGE,
-            SeoPresentationDefaults.ROBOTS_INDEX_FOLLOW
-        );
+            SeoPresentationDefaults.ROBOTS_INDEX_FOLLOW, "WebPage");
     }
 
-    /**
-     * Builds SEO metadata for the search route.
-     *
-     * @return search route SEO metadata
-     */
+    /** Builds SEO metadata for the search route. */
     public SeoMetadata searchMetadata() {
-        return new SeoMetadata(
-            "Search Books",
+        return buildRouteMetadata("Search Books",
             "Search books by title, author, or ISBN on findmybook to find details, editions, and related recommendations.",
-            canonicalUrlResolver.normalizePublicUrl("/search"),
+            "/search",
             "findmybook search, search books, isbn lookup, find books by author, find books by title",
-            ApplicationConstants.Urls.DEFAULT_SOCIAL_IMAGE,
-            SeoPresentationDefaults.ROBOTS_SEARCH_NOINDEX_FOLLOW
-        );
+            SeoPresentationDefaults.ROBOTS_SEARCH_NOINDEX_FOLLOW, "SearchResultsPage");
     }
 
-    /**
-     * Builds SEO metadata for the explore route.
-     *
-     * @return explore route SEO metadata
-     */
+    /** Builds SEO metadata for the explore route. */
     public SeoMetadata exploreMetadata() {
-        return new SeoMetadata(
-            "Explore Books",
+        return buildRouteMetadata("Explore Books",
             "Explore curated topics and discover your next favorite read on findmybook.",
-            canonicalUrlResolver.normalizePublicUrl("/explore"),
+            "/explore",
             "findmybook, explore books, book discovery, reading recommendations",
-            ApplicationConstants.Urls.DEFAULT_SOCIAL_IMAGE,
-            SeoPresentationDefaults.ROBOTS_INDEX_FOLLOW
-        );
+            SeoPresentationDefaults.ROBOTS_INDEX_FOLLOW, "CollectionPage");
     }
 
-    /**
-     * Builds SEO metadata for the categories route.
-     *
-     * @return categories route SEO metadata
-     */
+    /** Builds SEO metadata for the categories route. */
     public SeoMetadata categoriesMetadata() {
-        return new SeoMetadata(
-            "Browse Genres",
+        return buildRouteMetadata("Browse Genres",
             "Browse books by category and genre on findmybook.",
-            canonicalUrlResolver.normalizePublicUrl("/categories"),
+            "/categories",
             "findmybook categories, book genres, browse books, genre recommendations",
-            ApplicationConstants.Urls.DEFAULT_SOCIAL_IMAGE,
-            SeoPresentationDefaults.ROBOTS_INDEX_FOLLOW
-        );
+            SeoPresentationDefaults.ROBOTS_INDEX_FOLLOW, "CollectionPage");
     }
 
     /**
@@ -106,24 +87,19 @@ public class RouteSeoMetadataUseCase {
             String bucketLabel = "0-9".equals(bucketToken) ? "0-9" : bucketToken;
             String bucketKeyword = "0-9".equals(bucketToken) ? "numeric" : "letter " + bucketToken;
 
-            return new SeoMetadata(
+            return buildRouteMetadata(
                 viewLabel + " Sitemap: " + bucketLabel + " Page " + pageNumber,
                 "Browse " + viewToken + " indexed under " + bucketLabel + " on page " + pageNumber + " of the findmybook sitemap.",
-                canonicalUrlResolver.normalizePublicUrl(normalizedPath),
+                normalizedPath,
                 "findmybook sitemap, " + viewToken + " sitemap, " + bucketKeyword + ", sitemap page " + pageNumber,
-                ApplicationConstants.Urls.OG_LOGO,
-                SeoPresentationDefaults.ROBOTS_INDEX_FOLLOW
-            );
+                SeoPresentationDefaults.ROBOTS_INDEX_FOLLOW, "WebPage");
         }
 
-        return new SeoMetadata(
-            "Sitemap",
+        return buildRouteMetadata("Sitemap",
             "Browse indexed author and book pages on findmybook.",
-            canonicalUrlResolver.normalizePublicUrl(normalizedPath),
+            normalizedPath,
             "findmybook sitemap, author sitemap, book sitemap",
-            ApplicationConstants.Urls.OG_LOGO,
-            SeoPresentationDefaults.ROBOTS_INDEX_FOLLOW
-        );
+            SeoPresentationDefaults.ROBOTS_INDEX_FOLLOW, "WebPage");
     }
 
     /**
@@ -133,14 +109,11 @@ public class RouteSeoMetadataUseCase {
      * @return not-found SEO metadata
      */
     public SeoMetadata notFoundMetadata(String requestPath) {
-        return new SeoMetadata(
-            "Page Not Found",
+        return buildRouteMetadata("Page Not Found",
             "The page you requested could not be found on findmybook.",
-            canonicalUrlResolver.normalizePublicUrl(SeoPresentationDefaults.DEFAULT_NOT_FOUND_PATH),
+            SeoPresentationDefaults.DEFAULT_NOT_FOUND_PATH,
             "findmybook 404, page not found, broken link",
-            ApplicationConstants.Urls.OG_LOGO,
-            SeoPresentationDefaults.ROBOTS_NOINDEX_NOFOLLOW
-        );
+            SeoPresentationDefaults.ROBOTS_NOINDEX_NOFOLLOW, "WebPage");
     }
 
     /**
@@ -151,14 +124,40 @@ public class RouteSeoMetadataUseCase {
      * @return error route SEO metadata
      */
     public SeoMetadata errorMetadata(int statusCode, String requestPath) {
-        return new SeoMetadata(
-            "Error " + statusCode,
+        return buildRouteMetadata("Error " + statusCode,
             "An unexpected error occurred while loading this findmybook page.",
-            canonicalUrlResolver.normalizePublicUrl(SeoPresentationDefaults.DEFAULT_ERROR_PATH),
+            SeoPresentationDefaults.DEFAULT_ERROR_PATH,
             "findmybook error, server error, application error",
-            ApplicationConstants.Urls.OG_LOGO,
-            SeoPresentationDefaults.ROBOTS_NOINDEX_NOFOLLOW
-        );
+            SeoPresentationDefaults.ROBOTS_NOINDEX_NOFOLLOW, "WebPage");
+    }
+
+    /**
+     * Assembles a complete route-level SEO metadata record from the provided
+     * route-specific parameters and shared presentation defaults.
+     *
+     * @param title          page title (before brand suffix)
+     * @param description    meta description text
+     * @param canonicalPath  canonical route path (will be resolved to a public URL)
+     * @param keywords       meta keywords
+     * @param robots         robots directive
+     * @param schemaOrgType  schema.org page type for the JSON-LD graph (e.g. "WebPage", "SearchResultsPage")
+     * @return fully composed SEO metadata for the route
+     */
+    private SeoMetadata buildRouteMetadata(String title,
+                                           String description,
+                                           String canonicalPath,
+                                           String keywords,
+                                           String robots,
+                                           String schemaOrgType) {
+        String canonicalUrl = canonicalUrlResolver.normalizePublicUrl(canonicalPath);
+        String ogImage = ApplicationConstants.Urls.DEFAULT_SOCIAL_IMAGE;
+        String fullTitle = seoMarkupFormatter.pageTitle(
+            title, SeoPresentationDefaults.PAGE_TITLE_SUFFIX, SeoPresentationDefaults.BRAND_NAME);
+        String structuredDataJson = routeStructuredDataRenderer.renderRouteGraph(
+            canonicalUrl, fullTitle, description, ogImage,
+            SeoPresentationDefaults.BRAND_NAME, ApplicationConstants.Urls.BASE_URL, schemaOrgType);
+        return new SeoMetadata(title, description, canonicalUrl, keywords, ogImage, robots,
+            SeoPresentationDefaults.OPEN_GRAPH_TYPE_WEBSITE, List.of(), structuredDataJson);
     }
 
     private String normalizeRequestPath(String requestPath) {

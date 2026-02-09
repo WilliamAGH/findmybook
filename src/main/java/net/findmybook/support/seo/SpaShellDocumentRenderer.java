@@ -16,68 +16,46 @@ public class SpaShellDocumentRenderer {
 
     private final SeoMarkupFormatter seoMarkupFormatter;
     private final OpenGraphHeadTagRenderer openGraphHeadTagRenderer;
-    private final RouteStructuredDataRenderer routeStructuredDataRenderer;
     private final CanonicalUrlResolver canonicalUrlResolver;
 
     public SpaShellDocumentRenderer(SeoMarkupFormatter seoMarkupFormatter,
                                     OpenGraphHeadTagRenderer openGraphHeadTagRenderer,
-                                    RouteStructuredDataRenderer routeStructuredDataRenderer,
                                     CanonicalUrlResolver canonicalUrlResolver) {
         this.seoMarkupFormatter = seoMarkupFormatter;
         this.openGraphHeadTagRenderer = openGraphHeadTagRenderer;
-        this.routeStructuredDataRenderer = routeStructuredDataRenderer;
         this.canonicalUrlResolver = canonicalUrlResolver;
     }
 
     /**
-     * Renders a complete HTML shell with meta tags and JSON-LD script for the provided route metadata.
+     * Renders a complete HTML shell with meta tags and JSON-LD script for the provided render context.
      */
-    public String render(SeoMetadata metadata,
-                         SeoMetadata fallbackMetadata,
-                         String pageTitleSuffix,
-                         String brandName,
-                         String defaultDescription,
-                         String defaultKeywords,
-                         String defaultRobots,
-                         String defaultOpenGraphType,
-                         String openGraphImageAlt,
-                         String themeColor,
-                         String routeManifestJson,
-                         String baseUrl) {
-        SeoMetadata effectiveMetadata = metadata != null ? metadata : fallbackMetadata;
+    public String render(SpaShellRenderContext ctx) {
+        SeoMetadata effectiveMetadata = ctx.metadata() != null ? ctx.metadata() : ctx.fallbackMetadata();
         String normalizedCanonical = canonicalUrlResolver.normalizePublicUrl(effectiveMetadata.canonicalUrl());
         String absoluteOgImage = canonicalUrlResolver.normalizePublicUrl(effectiveMetadata.ogImage());
-        String fullTitle = seoMarkupFormatter.pageTitle(effectiveMetadata.title(), pageTitleSuffix, brandName);
-        String normalizedDescription = seoMarkupFormatter.fallbackText(effectiveMetadata.description(), defaultDescription);
+        String fullTitle = seoMarkupFormatter.pageTitle(effectiveMetadata.title(), ctx.pageTitleSuffix(), ctx.brandName());
+        String normalizedDescription = seoMarkupFormatter.fallbackText(effectiveMetadata.description(), ctx.defaultDescription());
 
         String escapedTitle = seoMarkupFormatter.escapeHtml(fullTitle);
         String escapedDescription = seoMarkupFormatter.escapeHtml(normalizedDescription);
         String escapedKeywords = seoMarkupFormatter.escapeHtml(
-            seoMarkupFormatter.fallbackText(effectiveMetadata.keywords(), defaultKeywords)
+            seoMarkupFormatter.fallbackText(effectiveMetadata.keywords(), ctx.defaultKeywords())
         );
         String escapedRobots = seoMarkupFormatter.escapeHtml(
-            seoMarkupFormatter.fallbackText(effectiveMetadata.robots(), defaultRobots)
+            seoMarkupFormatter.fallbackText(effectiveMetadata.robots(), ctx.defaultRobots())
         );
         String escapedCanonicalUrl = seoMarkupFormatter.escapeHtml(normalizedCanonical);
         String escapedOgImage = seoMarkupFormatter.escapeHtml(absoluteOgImage);
-        String escapedOgImageAlt = seoMarkupFormatter.escapeHtml(openGraphImageAlt);
+        String escapedOgImageAlt = seoMarkupFormatter.escapeHtml(ctx.openGraphImageAlt());
         String escapedOpenGraphType = seoMarkupFormatter.escapeHtml(
-            seoMarkupFormatter.fallbackText(effectiveMetadata.openGraphType(), defaultOpenGraphType)
+            seoMarkupFormatter.fallbackText(effectiveMetadata.openGraphType(), ctx.defaultOpenGraphType())
         );
         String openGraphExtensionTags = openGraphHeadTagRenderer.renderMetaTags(effectiveMetadata.openGraphProperties());
-        String escapedBrandName = seoMarkupFormatter.escapeHtml(brandName);
-        String escapedRouteManifestJson = seoMarkupFormatter.escapeInlineScriptJson(routeManifestJson);
+        String escapedThemeColor = seoMarkupFormatter.escapeHtml(ctx.themeColor());
+        String escapedBrandName = seoMarkupFormatter.escapeHtml(ctx.brandName());
+        String escapedRouteManifestJson = seoMarkupFormatter.escapeInlineScriptJson(ctx.routeManifestJson());
 
-        String structuredDataJson = StringUtils.hasText(effectiveMetadata.structuredDataJson())
-            ? effectiveMetadata.structuredDataJson()
-            : routeStructuredDataRenderer.renderRouteGraph(
-                normalizedCanonical,
-                fullTitle,
-                normalizedDescription,
-                absoluteOgImage,
-                brandName,
-                baseUrl
-            );
+        String structuredDataJson = effectiveMetadata.structuredDataJson();
         String escapedStructuredData = seoMarkupFormatter.escapeInlineScriptJson(structuredDataJson);
 
         return """
@@ -153,7 +131,7 @@ public class SpaShellDocumentRenderer {
             </body>
             </html>
             """.formatted(
-            themeColor,
+            escapedThemeColor,
             escapedBrandName,
             escapedBrandName,
             escapedTitle,

@@ -18,6 +18,7 @@ import net.findmybook.support.seo.RouteStructuredDataRenderer;
 import net.findmybook.support.seo.SeoMarkupFormatter;
 import net.findmybook.support.seo.SeoRouteManifestProvider;
 import net.findmybook.support.seo.SpaShellDocumentRenderer;
+import net.findmybook.support.seo.SpaShellRenderContext;
 import net.findmybook.util.ApplicationConstants;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -46,20 +47,22 @@ public class BookSeoMetadataService {
         SeoMarkupFormatter seoMarkupFormatter = new SeoMarkupFormatter();
         SeoRouteManifestProvider seoRouteManifestProvider = new SeoRouteManifestProvider();
         SeoRouteManifestUseCase manifestUseCase = new SeoRouteManifestUseCase(seoRouteManifestProvider);
+        RouteStructuredDataRenderer routeStructuredDataRenderer = new RouteStructuredDataRenderer();
 
-        this.routeSeoMetadataUseCase = new RouteSeoMetadataUseCase(canonicalUrlResolver, manifestUseCase);
+        this.routeSeoMetadataUseCase = new RouteSeoMetadataUseCase(
+            canonicalUrlResolver, manifestUseCase, routeStructuredDataRenderer, seoMarkupFormatter);
         this.bookSeoMetadataUseCase = new BookSeoMetadataUseCase(
-            new BookStructuredDataRenderer(),
-            new BookOpenGraphPropertyFactory(),
+            new BookStructuredDataRenderer(seoMarkupFormatter),
+            new BookOpenGraphPropertyFactory(seoMarkupFormatter),
             new BookOpenGraphImageResolver(localDiskCoverCacheService),
             canonicalUrlResolver,
-            seoMarkupFormatter
+            seoMarkupFormatter,
+            routeStructuredDataRenderer
         );
         this.seoRouteManifestUseCase = manifestUseCase;
         this.spaShellDocumentRenderer = new SpaShellDocumentRenderer(
             seoMarkupFormatter,
-            new OpenGraphHeadTagRenderer(),
-            new RouteStructuredDataRenderer(),
+            new OpenGraphHeadTagRenderer(seoMarkupFormatter),
             canonicalUrlResolver
         );
     }
@@ -132,7 +135,7 @@ public class BookSeoMetadataService {
     }
 
     public String renderSpaShell(SeoMetadata seoMetadata) {
-        return spaShellDocumentRenderer.render(
+        var ctx = new SpaShellRenderContext(
             toDomainSeoMetadata(seoMetadata),
             routeSeoMetadataUseCase.homeMetadata(),
             SeoPresentationDefaults.PAGE_TITLE_SUFFIX,
@@ -146,6 +149,7 @@ public class BookSeoMetadataService {
             routeManifestJson(),
             ApplicationConstants.Urls.BASE_URL
         );
+        return spaShellDocumentRenderer.render(ctx);
     }
 
     private static SeoMetadata toServiceSeoMetadata(net.findmybook.domain.seo.SeoMetadata metadata) {

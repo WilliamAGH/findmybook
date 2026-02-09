@@ -15,6 +15,7 @@ class SeoRouteManifestProviderTest {
 
         assertEquals(1, manifest.version());
         assertTrue(manifest.publicRoutes().stream().anyMatch(route -> "book".equals(route.name())));
+        assertTrue(manifest.publicRoutes().stream().anyMatch(route -> "error".equals(route.name())));
         assertTrue(manifest.passthroughPrefixes().contains("/api"));
         assertEquals("/sitemap/authors/A/1", provider.defaultSitemapPath());
         assertTrue(provider.bookRoutePattern().matcher("/book/the-hobbit").matches());

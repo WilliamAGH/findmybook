@@ -9,6 +9,8 @@ import net.findmybook.service.BookSearchService;
 import net.findmybook.service.SearchPaginationService;
 import net.findmybook.util.SearchQueryUtils;
 import net.findmybook.util.SlugGenerator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.util.StringUtils;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -25,6 +27,7 @@ import java.util.Objects;
  */
 public final class SearchContractMapper {
 
+    private static final Logger log = LoggerFactory.getLogger(SearchContractMapper.class);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private SearchContractMapper() {
@@ -166,7 +169,8 @@ public final class SearchContractMapper {
         }
         try {
             return Double.parseDouble(valueNode.asString(""));
-        } catch (IllegalArgumentException _) {
+        } catch (IllegalArgumentException exception) {
+            log.debug("Non-numeric relevance score for qualifier '{}': {}", key, valueNode.asString(""));
             return null;
         }
     }

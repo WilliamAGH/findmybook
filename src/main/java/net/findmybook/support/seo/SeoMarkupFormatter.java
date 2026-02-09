@@ -1,5 +1,8 @@
 package net.findmybook.support.seo;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -30,8 +33,9 @@ public class SeoMarkupFormatter {
     /**
      * Escapes an HTML attribute/content value for safe interpolation into the shell template.
      */
-    public String escapeHtml(String value) {
-        return value
+    public String escapeHtml(String text) {
+        Objects.requireNonNull(text, "HTML escape input must not be null");
+        return text
             .replace("&", "&amp;")
             .replace("<", "&lt;")
             .replace(">", "&gt;")
@@ -42,11 +46,40 @@ public class SeoMarkupFormatter {
     /**
      * Escapes script-breaking characters for inline JSON script tags.
      */
-    public String escapeInlineScriptJson(String value) {
-        return value
+    public String escapeInlineScriptJson(String text) {
+        Objects.requireNonNull(text, "Inline script JSON escape input must not be null");
+        return text
             .replace("<", "\\u003c")
             .replace("\u2028", "\\u2028")
             .replace("\u2029", "\\u2029");
+    }
+
+    /**
+     * Trims, deduplicates, and limits a list of text values for SEO output fields.
+     *
+     * @param values raw input values (may contain blanks, duplicates, or nulls)
+     * @param limit maximum number of values to return
+     * @return deduplicated, trimmed, immutable list capped at {@code limit} entries
+     */
+    public List<String> normalizeTextValues(List<String> values, int limit) {
+        if (values == null || values.isEmpty() || limit <= 0) {
+            return List.of();
+        }
+        List<String> normalized = new ArrayList<>();
+        for (String entry : values) {
+            if (!StringUtils.hasText(entry)) {
+                continue;
+            }
+            String trimmed = entry.trim();
+            if (trimmed.isEmpty() || normalized.contains(trimmed)) {
+                continue;
+            }
+            normalized.add(trimmed);
+            if (normalized.size() >= limit) {
+                break;
+            }
+        }
+        return List.copyOf(normalized);
     }
 }
 

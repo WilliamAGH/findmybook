@@ -16,6 +16,12 @@ public class BookOpenGraphPropertyFactory {
 
     private static final int MAX_BOOK_TAGS = 8;
 
+    private final SeoMarkupFormatter seoMarkupFormatter;
+
+    public BookOpenGraphPropertyFactory(SeoMarkupFormatter seoMarkupFormatter) {
+        this.seoMarkupFormatter = seoMarkupFormatter;
+    }
+
     /**
      * Creates a typed list of Open Graph book namespace properties for a detail route.
      *
@@ -38,7 +44,7 @@ public class BookOpenGraphPropertyFactory {
             properties.add(new OpenGraphProperty("book:release_date", releaseDate));
         }
 
-        for (String tag : normalizeTextValues(book.getCategories(), MAX_BOOK_TAGS)) {
+        for (String tag : seoMarkupFormatter.normalizeTextValues(book.getCategories(), MAX_BOOK_TAGS)) {
             properties.add(new OpenGraphProperty("book:tag", tag));
         }
 
@@ -57,26 +63,5 @@ public class BookOpenGraphPropertyFactory {
             return "";
         }
         return publishedDate.toInstant().atZone(ZoneOffset.UTC).toLocalDate().toString();
-    }
-
-    private List<String> normalizeTextValues(List<String> values, int limit) {
-        if (values == null || values.isEmpty() || limit <= 0) {
-            return List.of();
-        }
-        List<String> normalized = new ArrayList<>();
-        for (String value : values) {
-            if (!StringUtils.hasText(value)) {
-                continue;
-            }
-            String trimmed = value.trim();
-            if (trimmed.isEmpty() || normalized.contains(trimmed)) {
-                continue;
-            }
-            normalized.add(trimmed);
-            if (normalized.size() >= limit) {
-                break;
-            }
-        }
-        return List.copyOf(normalized);
     }
 }

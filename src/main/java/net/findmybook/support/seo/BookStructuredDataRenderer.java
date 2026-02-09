@@ -4,7 +4,6 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
-import java.util.ArrayList;
 import java.util.List;
 import net.findmybook.model.Book;
 import net.findmybook.util.SeoUtils;
@@ -20,28 +19,31 @@ public class BookStructuredDataRenderer {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final int MAX_BOOK_SCHEMA_DESCRIPTION_LENGTH = 600;
     private static final int MAX_BOOK_SCHEMA_LIST_VALUES = 20;
+    private static final int BEST_RATING = 5;
+    private static final int WORST_RATING = 1;
+
+    private final SeoMarkupFormatter seoMarkupFormatter;
+
+    public BookStructuredDataRenderer(SeoMarkupFormatter seoMarkupFormatter) {
+        this.seoMarkupFormatter = seoMarkupFormatter;
+    }
 
     /**
      * Builds a JSON-LD graph with {@code WebSite}, {@code WebPage}, and {@code Book} entities.
      *
-     * @param book canonical book metadata
-     * @param canonicalUrl canonical public URL for the route
-     * @param webPageTitle full rendered page title
-     * @param bookTitle fallback-safe book title for {@code Book.name}
-     * @param fallbackDescription route-level description fallback
-     * @param ogImage absolute Open Graph preview image URL
-     * @param brandName website brand name
-     * @param baseUrl canonical site base URL
+     * @param request typed render parameters encapsulating book, URLs, and site context
      * @return serialized JSON-LD payload
      */
-    public String renderBookGraph(Book book,
-                                  String canonicalUrl,
-                                  String webPageTitle,
-                                  String bookTitle,
-                                  String fallbackDescription,
-                                  String ogImage,
-                                  String brandName,
-                                  String baseUrl) {
+    public String renderBookGraph(BookGraphRenderRequest request) {
+        Book book = request.book();
+        String canonicalUrl = request.canonicalUrl();
+        String webPageTitle = request.webPageTitle();
+        String bookTitle = request.bookTitle();
+        String fallbackDescription = request.fallbackDescription();
+        String ogImage = request.ogImage();
+        String brandName = request.brandName();
+        String baseUrl = request.baseUrl();
+
         ObjectNode rootNode = OBJECT_MAPPER.createObjectNode();
         rootNode.put("@context", "https://schema.org");
         ArrayNode graphNode = rootNode.putArray("@graph");
@@ -111,7 +113,7 @@ public class BookStructuredDataRenderer {
             bookNode.put("numberOfPages", book.getPageCount());
         }
 
-        List<String> authors = normalizeTextValues(book.getAuthors(), MAX_BOOK_SCHEMA_LIST_VALUES);
+        List<String> authors = seoMarkupFormatter.normalizeTextValues(book.getAuthors(), MAX_BOOK_SCHEMA_LIST_VALUES);
         if (!authors.isEmpty()) {
             ArrayNode authorArray = bookNode.putArray("author");
             for (String authorName : authors) {
@@ -142,7 +144,7 @@ public class BookStructuredDataRenderer {
             }
         }
 
-        List<String> genres = normalizeTextValues(book.getCategories(), MAX_BOOK_SCHEMA_LIST_VALUES);
+        List<String> genres = seoMarkupFormatter.normalizeTextValues(book.getCategories(), MAX_BOOK_SCHEMA_LIST_VALUES);
         if (!genres.isEmpty()) {
             ArrayNode genreArray = bookNode.putArray("genre");
             for (String genre : genres) {
@@ -158,8 +160,8 @@ public class BookStructuredDataRenderer {
             aggregateRatingNode.put("@type", "AggregateRating");
             aggregateRatingNode.put("ratingValue", book.getAverageRating());
             aggregateRatingNode.put("ratingCount", book.getRatingsCount());
-            aggregateRatingNode.put("bestRating", 5);
-            aggregateRatingNode.put("worstRating", 1);
+            aggregateRatingNode.put("bestRating", BEST_RATING);
+            aggregateRatingNode.put("worstRating", WORST_RATING);
         }
 
         String actionTarget = readActionTarget(book);
@@ -221,26 +223,5 @@ public class BookStructuredDataRenderer {
             return "";
         }
         return book.getPublishedDate().toInstant().atZone(java.time.ZoneOffset.UTC).toLocalDate().toString();
-    }
-
-    private List<String> normalizeTextValues(List<String> values, int limit) {
-        if (values == null || values.isEmpty() || limit <= 0) {
-            return List.of();
-        }
-        List<String> normalized = new ArrayList<>();
-        for (String value : values) {
-            if (!StringUtils.hasText(value)) {
-                continue;
-            }
-            String trimmed = value.trim();
-            if (trimmed.isEmpty() || normalized.contains(trimmed)) {
-                continue;
-            }
-            normalized.add(trimmed);
-            if (normalized.size() >= limit) {
-                break;
-            }
-        }
-        return List.copyOf(normalized);
     }
 }
