@@ -24,6 +24,7 @@ import org.springframework.core.env.Environment;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -76,10 +77,15 @@ public class SecurityConfig {
             .httpBasic(httpBasic -> httpBasic
                 .authenticationEntryPoint(customBasicAuthenticationEntryPoint) // Use custom entry point for admin paths
             )
-            // CSRF disabled: no session cookies are issued, so browsers never auto-attach
-            // credentials to cross-origin requests.  All state-changing endpoints live under
-            // /admin/** and require HTTP Basic Auth, which is not cookie-based.  Public routes
-            // are read-only (GET/HEAD).  Re-evaluate if cookie-based sessions or form-login
+            // Stateless: HTTP Basic credentials are sent per-request; no JSESSIONID cookie is
+            // issued, so browsers never auto-attach session credentials to cross-origin requests.
+            // Per Spring Security docs (7.0): SessionCreationPolicy.STATELESS prevents HttpSession
+            // creation and SecurityContext caching in session.
+            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            // CSRF disabled: stateless session management above ensures no session cookies exist,
+            // so browsers cannot auto-attach credentials to cross-origin requests.  All
+            // state-changing endpoints live under /admin/** and require HTTP Basic Auth.  Public
+            // routes are read-only (GET/HEAD).  Re-evaluate if cookie-based sessions or form-login
             // are introduced.
             .csrf(csrf -> csrf.disable());
 
