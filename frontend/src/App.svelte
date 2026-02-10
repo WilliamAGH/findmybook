@@ -21,8 +21,6 @@
   const DEFAULT_OG_IMAGE = "/images/og-logo.png";
   const DEFAULT_OG_TYPE = "website";
   const DEFAULT_ROBOTS = "index, follow, max-image-preview:large";
-  const ERROR_ROBOTS = "noindex, nofollow, noarchive";
-
   const metadataCache = new Map<string, PageMetadata>();
 
   function titleWithoutSuffix(value: string): string {
@@ -70,21 +68,6 @@
     return script?.textContent?.trim() || "";
   }
 
-  function metadataErrorState(): PageMetadata {
-    return {
-      title: "Error 500",
-      description: "Page metadata is temporarily unavailable.",
-      canonicalUrl: new URL("/error", window.location.origin).toString(),
-      keywords: DEFAULT_KEYWORDS,
-      ogImage: DEFAULT_OG_IMAGE,
-      robots: ERROR_ROBOTS,
-      openGraphType: DEFAULT_OG_TYPE,
-      openGraphProperties: [],
-      structuredDataJson: "",
-      statusCode: 500,
-    };
-  }
-
   let url = $state(new URL(window.location.href));
   let route = $derived(matchRoute(url.pathname));
   let pageMetadata = $state<PageMetadata>({
@@ -121,8 +104,11 @@
       if (sequence !== metadataLoadSequence) {
         return;
       }
+      // Preserve current metadata on failure: DOM-read tags on initial load or
+      // the last successfully loaded API metadata during SPA navigation.
+      // Replacing with metadataErrorState would set robots to "noindex, nofollow"
+      // and instruct crawlers to deindex a page that rendered correctly.
       console.error("Failed to load page metadata", error);
-      pageMetadata = metadataErrorState();
     }
   }
 
