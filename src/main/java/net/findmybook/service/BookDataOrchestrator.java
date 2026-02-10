@@ -45,6 +45,8 @@ public class BookDataOrchestrator {
     private static final long SEARCH_VIEW_REFRESH_INTERVAL_MS = 60_000L;
     private static final int DESCRIPTION_ENRICHMENT_LIMIT = 6;
     private static final Duration DESCRIPTION_ENRICHMENT_TIMEOUT = Duration.ofSeconds(8);
+    private static final String DESCRIPTION_ENRICHMENT_SORT = "relevance";
+    private static final String ISBN_QUERY_PREFIX = "isbn:";
     private final AtomicLong lastSearchViewRefresh = new AtomicLong(0L);
     private final AtomicBoolean searchViewRefreshInProgress = new AtomicBoolean(false);
 
@@ -158,12 +160,12 @@ public class BookDataOrchestrator {
             return List.of();
         }
         return collectWithTimeout(openLibraryBookDataService.get()
-            .queryBooksByEverything(openLibraryQuery, "relevance", 0, DESCRIPTION_ENRICHMENT_LIMIT));
+            .queryBooksByEverything(openLibraryQuery, DESCRIPTION_ENRICHMENT_SORT, 0, DESCRIPTION_ENRICHMENT_LIMIT));
     }
 
     private List<Book> fetchGoogleCandidates(String query) {
         return collectWithTimeout(googleExternalSearchFlow
-            .streamCandidates(query, "relevance", null, DESCRIPTION_ENRICHMENT_LIMIT));
+            .streamCandidates(query, DESCRIPTION_ENRICHMENT_SORT, null, DESCRIPTION_ENRICHMENT_LIMIT));
     }
 
     private List<Book> collectWithTimeout(Flux<Book> source) {
@@ -216,11 +218,11 @@ public class BookDataOrchestrator {
     private String buildDescriptionEnrichmentQuery(BookDetail detail) {
         String isbn13 = IsbnUtils.sanitize(detail.isbn13());
         if (StringUtils.hasText(isbn13)) {
-            return "isbn:" + isbn13;
+            return ISBN_QUERY_PREFIX + isbn13;
         }
         String isbn10 = IsbnUtils.sanitize(detail.isbn10());
         if (StringUtils.hasText(isbn10)) {
-            return "isbn:" + isbn10;
+            return ISBN_QUERY_PREFIX + isbn10;
         }
         if (!StringUtils.hasText(detail.title())) {
             return null;
@@ -259,11 +261,11 @@ public class BookDataOrchestrator {
         return detailAuthor.isEmpty() || detailAuthor.equals(candidateAuthor);
     }
 
-    private String normalizeToken(String value) {
-        if (!StringUtils.hasText(value)) {
+    private String normalizeToken(String token) {
+        if (!StringUtils.hasText(token)) {
             return "";
         }
-        return value.trim().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "");
+        return token.trim().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "");
     }
 
     private int descriptionLength(String description) {

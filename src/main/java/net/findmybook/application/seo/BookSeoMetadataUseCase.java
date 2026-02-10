@@ -31,6 +31,7 @@ public class BookSeoMetadataUseCase {
     private static final String BOOK_FALLBACK_KEYWORDS =
         "findmybook book details, book metadata, book recommendations";
     private static final String BOOK_ROUTE_PREFIX = "/book/";
+    private static final String WEB_PAGE_SCHEMA_TYPE = "WebPage";
 
     private final BookStructuredDataRenderer bookStructuredDataRenderer;
     private final BookOpenGraphPropertyFactory bookOpenGraphPropertyFactory;
@@ -80,7 +81,7 @@ public class BookSeoMetadataUseCase {
             ogImage,
             SeoPresentationDefaults.BRAND_NAME,
             ApplicationConstants.Urls.BASE_URL,
-            "WebPage"
+            WEB_PAGE_SCHEMA_TYPE
         );
 
         return new SeoMetadata(

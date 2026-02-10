@@ -134,104 +134,129 @@ public class BookAiContentController {
             .orElseGet(() -> new OptionalResolution(null, AiErrorCode.BOOK_NOT_FOUND, "Book not found"));
     }
 
+    /** Immutable context shared across all phases of a single queued SSE stream. */
+    private record QueuedStreamState(SseEmitter emitter, UUID bookId, AtomicBoolean streamClosed) {}
+
     private void beginQueuedStream(SseEmitter emitter, UUID bookId) {
         long enqueuedAtMs = System.currentTimeMillis();
-        AtomicBoolean streamClosed = new AtomicBoolean(false);
-        AtomicBoolean messageStarted = new AtomicBoolean(false);
-        BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent> queuedTask =
-            requestQueue.enqueue(DEFAULT_GENERATION_PRIORITY, () -> {
-                sendMessageStartEvent(emitter, messageStarted);
-                BookAiContentService.GeneratedContent generated = aiContentService.generateAndPersist(bookId, delta -> {
-                    sendEvent(emitter, "message_delta", new MessageDeltaPayload(delta));
-                });
-                sendEvent(emitter, "message_done", new MessageDonePayload(generated.rawMessage()));
-                return generated;
-            });
-        BookAiContentRequestQueue.QueuePosition initialPosition = requestQueue.getPosition(queuedTask.id());
-        sendEvent(emitter, "queued", toQueuePositionPayload(initialPosition));
-        ScheduledFuture<?> queueTicker = queueTickerExecutor.scheduleAtFixedRate(() -> {
-            if (streamClosed.get()) {
-                return;
-            }
-            BookAiContentRequestQueue.QueuePosition position = requestQueue.getPosition(queuedTask.id());
-            if (!position.inQueue()) {
-                return;
-            }
-            try {
-                sendEvent(emitter, "queue", toQueuePositionPayload(position));
-            } catch (IllegalStateException queueDeliveryException) {
-                log.warn("Queue position delivery failed for bookId={} taskId={}", bookId, queuedTask.id(), queueDeliveryException);
-                streamClosed.set(true);
-                requestQueue.cancelPending(queuedTask.id());
-            }
-        }, QUEUE_POSITION_TICK_MILLIS, QUEUE_POSITION_TICK_MILLIS, TimeUnit.MILLISECONDS);
-        ScheduledFuture<?> keepaliveTicker = queueTickerExecutor.scheduleAtFixedRate(() -> {
-            if (streamClosed.get()) {
-                return;
-            }
-            try {
-                sendSseComment(emitter, "keepalive");
-            } catch (IllegalStateException keepaliveException) {
-                log.warn("Keepalive delivery failed for bookId={}", bookId, keepaliveException);
-                streamClosed.set(true);
-                requestQueue.cancelPending(queuedTask.id());
-            }
-        }, KEEPALIVE_INTERVAL_MILLIS, KEEPALIVE_INTERVAL_MILLIS, TimeUnit.MILLISECONDS);
+        QueuedStreamState state = new QueuedStreamState(emitter, bookId, new AtomicBoolean(false));
+        var queuedTask = enqueueGenerationTask(state);
+        sendEvent(emitter, "queued", toQueuePositionPayload(requestQueue.getPosition(queuedTask.id())));
+        ScheduledFuture<?> queueTicker = scheduleQueuePositionTicker(state, queuedTask.id());
+        ScheduledFuture<?> keepaliveTicker = scheduleKeepaliveTicker(state, queuedTask.id());
         Runnable cancelPendingIfOpen = () -> {
-            if (streamClosed.compareAndSet(false, true)) {
+            if (state.streamClosed().compareAndSet(false, true)) {
                 queueTicker.cancel(true);
                 keepaliveTicker.cancel(true);
                 requestQueue.cancelPending(queuedTask.id());
             }
         };
-        emitter.onCompletion(cancelPendingIfOpen);
-        emitter.onTimeout(() -> {
-            cancelPendingIfOpen.run();
-            emitTerminalError(emitter, AiErrorCode.STREAM_TIMEOUT, "AI stream timed out");
+        wireEmitterLifecycle(state, cancelPendingIfOpen);
+        wireStartedHandler(state, queuedTask, enqueuedAtMs);
+        wireResultHandler(state, queuedTask, queueTicker, keepaliveTicker);
+    }
+
+    private BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent> enqueueGenerationTask(
+            QueuedStreamState state) {
+        AtomicBoolean messageStarted = new AtomicBoolean(false);
+        return requestQueue.enqueue(DEFAULT_GENERATION_PRIORITY, () -> {
+            sendMessageStartEvent(state.emitter(), messageStarted);
+            BookAiContentService.GeneratedContent generated = aiContentService.generateAndPersist(state.bookId(), delta -> {
+                sendEvent(state.emitter(), "message_delta", new MessageDeltaPayload(delta));
+            });
+            sendEvent(state.emitter(), "message_done", new MessageDonePayload(generated.rawMessage()));
+            return generated;
         });
-        emitter.onError(error -> {
-            log.warn("AI stream failed for bookId={}", bookId, error);
+    }
+
+    private ScheduledFuture<?> scheduleQueuePositionTicker(QueuedStreamState state, String taskId) {
+        return queueTickerExecutor.scheduleAtFixedRate(() -> {
+            if (state.streamClosed().get()) {
+                return;
+            }
+            BookAiContentRequestQueue.QueuePosition position = requestQueue.getPosition(taskId);
+            if (!position.inQueue()) {
+                return;
+            }
+            try {
+                sendEvent(state.emitter(), "queue", toQueuePositionPayload(position));
+            } catch (IllegalStateException queueDeliveryException) {
+                log.warn("Queue position delivery failed for bookId={} taskId={}", state.bookId(), taskId, queueDeliveryException);
+                state.streamClosed().set(true);
+                requestQueue.cancelPending(taskId);
+            }
+        }, QUEUE_POSITION_TICK_MILLIS, QUEUE_POSITION_TICK_MILLIS, TimeUnit.MILLISECONDS);
+    }
+
+    private ScheduledFuture<?> scheduleKeepaliveTicker(QueuedStreamState state, String taskId) {
+        return queueTickerExecutor.scheduleAtFixedRate(() -> {
+            if (state.streamClosed().get()) {
+                return;
+            }
+            try {
+                sendSseComment(state.emitter(), "keepalive");
+            } catch (IllegalStateException keepaliveException) {
+                log.warn("Keepalive delivery failed for bookId={}", state.bookId(), keepaliveException);
+                state.streamClosed().set(true);
+                requestQueue.cancelPending(taskId);
+            }
+        }, KEEPALIVE_INTERVAL_MILLIS, KEEPALIVE_INTERVAL_MILLIS, TimeUnit.MILLISECONDS);
+    }
+
+    private void wireEmitterLifecycle(QueuedStreamState state, Runnable cancelPendingIfOpen) {
+        state.emitter().onCompletion(cancelPendingIfOpen);
+        state.emitter().onTimeout(() -> {
+            cancelPendingIfOpen.run();
+            emitTerminalError(state.emitter(), AiErrorCode.STREAM_TIMEOUT, "AI stream timed out");
+        });
+        state.emitter().onError(error -> {
+            log.warn("AI stream failed for bookId={}", state.bookId(), error);
             cancelPendingIfOpen.run();
         });
+    }
+
+    private void wireStartedHandler(QueuedStreamState state,
+                                     BookAiContentRequestQueue.EnqueuedTask<?> queuedTask, long enqueuedAtMs) {
         queuedTask.started().thenRun(() -> {
-            if (streamClosed.get()) {
+            if (state.streamClosed().get()) {
                 return;
             }
             long queueWaitMs = Math.max(0L, System.currentTimeMillis() - enqueuedAtMs);
             BookAiContentRequestQueue.QueueSnapshot snapshot = requestQueue.snapshot();
-            sendEvent(emitter, "started", new QueueStartedPayload(
-                snapshot.running(),
-                snapshot.pending(),
-                snapshot.maxParallel(),
-                queueWaitMs
-            ));
+            sendEvent(state.emitter(), "started", new QueueStartedPayload(
+                snapshot.running(), snapshot.pending(), snapshot.maxParallel(), queueWaitMs));
         }).exceptionally(throwable -> {
-            if (!streamClosed.get()) {
-                emitTerminalError(emitter, resolveThrowableError(throwable));
+            if (!state.streamClosed().get()) {
+                emitTerminalError(state.emitter(), resolveThrowableError(throwable));
             }
             return null;
         });
+    }
+
+    private void wireResultHandler(QueuedStreamState state,
+                                    BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent> queuedTask,
+                                    ScheduledFuture<?> queueTicker, ScheduledFuture<?> keepaliveTicker) {
         queuedTask.result().whenComplete((result, throwable) -> {
             queueTicker.cancel(true);
             keepaliveTicker.cancel(true);
-            if (!streamClosed.compareAndSet(false, true)) {
+            if (!state.streamClosed().compareAndSet(false, true)) {
                 return;
             }
             if (throwable != null) {
-                emitTerminalError(emitter, resolveThrowableError(throwable));
+                emitTerminalError(state.emitter(), resolveThrowableError(throwable));
                 return;
             }
             if (result == null) {
-                emitTerminalError(emitter, AiErrorCode.EMPTY_GENERATION, "AI generation returned no data");
+                emitTerminalError(state.emitter(), AiErrorCode.EMPTY_GENERATION, "AI generation returned no data");
                 return;
             }
             BookAiContentSnapshotDto snapshotDto = BookAiContentSnapshotDto.fromSnapshot(result.snapshot());
             try {
-                sendEvent(emitter, "done", new DonePayload(result.rawMessage(), snapshotDto));
-                safelyComplete(emitter);
+                sendEvent(state.emitter(), "done", new DonePayload(result.rawMessage(), snapshotDto));
+                safelyComplete(state.emitter());
             } catch (IllegalStateException doneDeliveryException) {
-                log.warn("AI done event delivery failed for bookId={}", bookId, doneDeliveryException);
-                emitTerminalError(emitter, AiErrorCode.GENERATION_FAILED,
+                log.warn("AI done event delivery failed for bookId={}", state.bookId(), doneDeliveryException);
+                emitTerminalError(state.emitter(), AiErrorCode.GENERATION_FAILED,
                     "AI content was generated but could not be delivered");
             }
         });

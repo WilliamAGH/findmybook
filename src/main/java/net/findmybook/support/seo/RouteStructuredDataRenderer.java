@@ -38,6 +38,8 @@ public class RouteStructuredDataRenderer {
         );
     }
 
+    private static final String DEFAULT_WEB_PAGE_TYPE = "WebPage";
+
     /**
      * Builds a WebSite + WebPage JSON-LD graph using the default "WebPage" type.
      */
@@ -47,7 +49,7 @@ public class RouteStructuredDataRenderer {
                                    String ogImage,
                                    String brandName,
                                    String baseUrl) {
-        return renderRouteGraph(canonicalUrl, fullTitle, description, ogImage, brandName, baseUrl, "WebPage");
+        return renderRouteGraph(canonicalUrl, fullTitle, description, ogImage, brandName, baseUrl, DEFAULT_WEB_PAGE_TYPE);
     }
 
     private String escapeJson(String text) {
