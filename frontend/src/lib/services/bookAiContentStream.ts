@@ -74,8 +74,9 @@ function normalizeSseLineEndings(value: string): string {
 function safeParseJson(data: string, eventType: string): unknown {
   try {
     return JSON.parse(data);
-  } catch {
-    throw new Error(`Malformed JSON in SSE '${eventType}' event`);
+  } catch (parseError) {
+    const detail = parseError instanceof Error ? parseError.message : String(parseError);
+    throw new Error(`Malformed JSON in SSE '${eventType}' event: ${detail}`);
   }
 }
 

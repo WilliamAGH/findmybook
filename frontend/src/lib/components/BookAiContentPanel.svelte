@@ -110,6 +110,7 @@
       return;
     }
 
+    console.error("[BookAiContentPanel] AI failure in production:", failure.code, failure.message);
     aiErrorMessage = null;
     if (failure.code === "queue_busy") {
       aiQueueMessage = "Queue is busy right now. Try again shortly.";

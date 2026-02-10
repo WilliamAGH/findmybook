@@ -18,7 +18,8 @@ export function normalizeStructuredDataJsonLd(rawJson: string): string {
     const parsedPayload: unknown = JSON.parse(rawJson);
     return JSON.stringify(parsedPayload);
   } catch (error) {
-    console.warn("[seo] Skipping invalid structured data payload", error);
+    const errorDetail = error instanceof Error ? error.message : String(error);
+    console.warn(`[seo] Skipping invalid structured data payload (length=${rawJson.length}): ${errorDetail}`);
     return "";
   }
 }
