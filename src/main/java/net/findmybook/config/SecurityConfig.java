@@ -121,33 +121,33 @@ public class SecurityConfig {
             // (Google Books, Open Library, Goodreads, Amazon, etc.)
             // Note: HTTP allowed because some providers (e.g., Google Books API) return HTTP URLs
             StringBuilder imgSrcDirective = new StringBuilder("'self' data: blob: https: http: ");
-                StringBuilder scriptSrcDirective = new StringBuilder("'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://cdn.tailwindcss.com 'unsafe-inline' blob:");
-                StringBuilder connectSrcDirective = new StringBuilder("'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com");
+            StringBuilder scriptSrcDirective = new StringBuilder("'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://cdn.tailwindcss.com 'unsafe-inline' blob:");
+            StringBuilder connectSrcDirective = new StringBuilder("'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com");
 
-                if (simpleAnalyticsEnabled) {
-                    scriptSrcDirective.append(" https://scripts.simpleanalyticscdn.com");
-                    connectSrcDirective.append(" https://queue.simpleanalyticscdn.com");
-                }
+            if (simpleAnalyticsEnabled) {
+                scriptSrcDirective.append(" https://scripts.simpleanalyticscdn.com");
+                connectSrcDirective.append(" https://queue.simpleanalyticscdn.com");
+            }
 
-                if (clickyEnabled) {
-                    // Add Clicky Analytics domains for script-src, connect-src, and img-src
-                    // Include both HTTP and HTTPS as Clicky may use either depending on page protocol
-                    scriptSrcDirective.append(" https://static.getclicky.com http://static.getclicky.com https://in.getclicky.com http://in.getclicky.com https://clicky.com http://clicky.com");
-                    connectSrcDirective.append(" https://static.getclicky.com http://static.getclicky.com https://in.getclicky.com http://in.getclicky.com https://clicky.com http://clicky.com");
-                    imgSrcDirective.append(" https://in.getclicky.com http://in.getclicky.com");
-                }
+            if (clickyEnabled) {
+                // Add Clicky Analytics domains for script-src, connect-src, and img-src
+                // Include both HTTP and HTTPS as Clicky may use either depending on page protocol
+                scriptSrcDirective.append(" https://static.getclicky.com http://static.getclicky.com https://in.getclicky.com http://in.getclicky.com https://clicky.com http://clicky.com");
+                connectSrcDirective.append(" https://static.getclicky.com http://static.getclicky.com https://in.getclicky.com http://in.getclicky.com https://clicky.com http://clicky.com");
+                imgSrcDirective.append(" https://in.getclicky.com http://in.getclicky.com");
+            }
 
-                // Add Content Security Policy header with dynamic directives
-                headers.addHeaderWriter(new StaticHeadersWriter("Content-Security-Policy",
-                    "default-src 'self'; " +
-                    "script-src " + scriptSrcDirective.toString() + "; " +
-                    "style-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.googleapis.com 'unsafe-inline'; " +
-                    "img-src " + imgSrcDirective.toString().trim() + "; " + // trim to remove trailing space if no additional domains
-                    "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; " +
-                    "connect-src " + connectSrcDirective.toString() + "; " +
-                    "frame-src 'self'; " +
-                    "object-src 'none'"
-                ));
+            // Add Content Security Policy header with dynamic directives
+            headers.addHeaderWriter(new StaticHeadersWriter("Content-Security-Policy",
+                "default-src 'self'; " +
+                "script-src " + scriptSrcDirective.toString() + "; " +
+                "style-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.googleapis.com 'unsafe-inline'; " +
+                "img-src " + imgSrcDirective.toString().trim() + "; " + // trim to remove trailing space if no additional domains
+                "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; " +
+                "connect-src " + connectSrcDirective.toString() + "; " +
+                "frame-src 'self'; " +
+                "object-src 'none'"
+            ));
         });
     }
 
