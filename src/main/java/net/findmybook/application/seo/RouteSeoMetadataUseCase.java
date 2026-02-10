@@ -5,6 +5,7 @@ import java.util.Locale;
 import java.util.regex.Matcher;
 import net.findmybook.domain.seo.SeoMetadata;
 import net.findmybook.support.seo.CanonicalUrlResolver;
+import net.findmybook.support.seo.RouteGraphRenderRequest;
 import net.findmybook.support.seo.RouteStructuredDataRenderer;
 import net.findmybook.support.seo.SeoMarkupFormatter;
 import net.findmybook.util.ApplicationConstants;
@@ -158,8 +159,16 @@ public class RouteSeoMetadataUseCase {
         String fullTitle = seoMarkupFormatter.pageTitle(
             title, SeoPresentationDefaults.PAGE_TITLE_SUFFIX, SeoPresentationDefaults.BRAND_NAME);
         String structuredDataJson = routeStructuredDataRenderer.renderRouteGraph(
-            canonicalUrl, fullTitle, description, ogImage,
-            SeoPresentationDefaults.BRAND_NAME, ApplicationConstants.Urls.BASE_URL, schemaOrgType);
+            new RouteGraphRenderRequest(
+                canonicalUrl,
+                fullTitle,
+                description,
+                ogImage,
+                SeoPresentationDefaults.BRAND_NAME,
+                ApplicationConstants.Urls.BASE_URL,
+                schemaOrgType
+            )
+        );
         return new SeoMetadata(title, description, canonicalUrl, keywords, ogImage, robots,
             SeoPresentationDefaults.OPEN_GRAPH_TYPE_WEBSITE, List.of(), structuredDataJson);
     }

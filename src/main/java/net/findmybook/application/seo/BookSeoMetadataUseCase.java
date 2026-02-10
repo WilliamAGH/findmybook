@@ -9,6 +9,7 @@ import net.findmybook.support.seo.BookOpenGraphImageResolver;
 import net.findmybook.support.seo.BookOpenGraphPropertyFactory;
 import net.findmybook.support.seo.BookStructuredDataRenderer;
 import net.findmybook.support.seo.CanonicalUrlResolver;
+import net.findmybook.support.seo.RouteGraphRenderRequest;
 import net.findmybook.support.seo.RouteStructuredDataRenderer;
 import net.findmybook.support.seo.SeoMarkupFormatter;
 import net.findmybook.util.ApplicationConstants;
@@ -78,13 +79,15 @@ public class BookSeoMetadataUseCase {
         );
 
         String structuredDataJson = routeStructuredDataRenderer.renderRouteGraph(
-            canonicalUrl,
-            fullTitle,
-            description,
-            ogImage,
-            SeoPresentationDefaults.BRAND_NAME,
-            ApplicationConstants.Urls.BASE_URL,
-            WEB_PAGE_SCHEMA_TYPE
+            new RouteGraphRenderRequest(
+                canonicalUrl,
+                fullTitle,
+                description,
+                ogImage,
+                SeoPresentationDefaults.BRAND_NAME,
+                ApplicationConstants.Urls.BASE_URL,
+                WEB_PAGE_SCHEMA_TYPE
+            )
         );
 
         return new SeoMetadata(

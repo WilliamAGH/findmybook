@@ -8,6 +8,7 @@ import net.findmybook.support.seo.BookOpenGraphImageResolver;
 import net.findmybook.support.seo.BookOpenGraphPropertyFactory;
 import net.findmybook.support.seo.BookStructuredDataRenderer;
 import net.findmybook.support.seo.CanonicalUrlResolver;
+import net.findmybook.support.seo.RouteGraphRenderRequest;
 import net.findmybook.support.seo.RouteStructuredDataRenderer;
 import net.findmybook.support.seo.SeoMarkupFormatter;
 import org.junit.jupiter.api.BeforeEach;
@@ -62,9 +63,8 @@ class BookSeoMetadataUseCaseTest {
             .thenReturn("https://findmybook.net/book/unknown-slug");
         when(seoMarkupFormatter.pageTitle(anyString(), anyString(), anyString()))
             .thenReturn("Book Details | findmybook");
-        when(routeStructuredDataRenderer.renderRouteGraph(
-            anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), eq("WebPage")
-        )).thenReturn("{\"fallback\":true}");
+        when(routeStructuredDataRenderer.renderRouteGraph(any(RouteGraphRenderRequest.class)))
+            .thenReturn("{\"fallback\":true}");
 
         SeoMetadata metadata = useCase.bookFallbackMetadata("unknown-slug");
 
