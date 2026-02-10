@@ -3,6 +3,7 @@ package net.findmybook.service;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
+import tools.jackson.databind.ObjectMapper;
 import net.findmybook.application.seo.BookSeoMetadataUseCase;
 import net.findmybook.application.seo.RouteSeoMetadataUseCase;
 import net.findmybook.application.seo.SeoPresentationDefaults;
@@ -52,7 +53,7 @@ public class BookSeoMetadataService {
         this.routeSeoMetadataUseCase = new RouteSeoMetadataUseCase(
             canonicalUrlResolver, manifestUseCase, routeStructuredDataRenderer, seoMarkupFormatter);
         this.bookSeoMetadataUseCase = new BookSeoMetadataUseCase(
-            new BookStructuredDataRenderer(seoMarkupFormatter),
+            new BookStructuredDataRenderer(new ObjectMapper(), seoMarkupFormatter),
             new BookOpenGraphPropertyFactory(seoMarkupFormatter),
             new BookOpenGraphImageResolver(localDiskCoverCacheService),
             canonicalUrlResolver,

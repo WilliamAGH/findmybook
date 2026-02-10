@@ -16,15 +16,16 @@ import org.springframework.util.StringUtils;
 @Component
 public class BookStructuredDataRenderer {
 
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final int MAX_BOOK_SCHEMA_DESCRIPTION_LENGTH = 600;
     private static final int MAX_BOOK_SCHEMA_LIST_VALUES = 20;
     private static final int BEST_RATING = 5;
     private static final int WORST_RATING = 1;
 
+    private final ObjectMapper objectMapper;
     private final SeoMarkupFormatter seoMarkupFormatter;
 
-    public BookStructuredDataRenderer(SeoMarkupFormatter seoMarkupFormatter) {
+    public BookStructuredDataRenderer(ObjectMapper objectMapper, SeoMarkupFormatter seoMarkupFormatter) {
+        this.objectMapper = objectMapper;
         this.seoMarkupFormatter = seoMarkupFormatter;
     }
 
@@ -44,7 +45,7 @@ public class BookStructuredDataRenderer {
         String brandName = request.brandName();
         String baseUrl = request.baseUrl();
 
-        ObjectNode rootNode = OBJECT_MAPPER.createObjectNode();
+        ObjectNode rootNode = objectMapper.createObjectNode();
         rootNode.put("@context", "https://schema.org");
         ArrayNode graphNode = rootNode.putArray("@graph");
 
@@ -172,7 +173,7 @@ public class BookStructuredDataRenderer {
         }
 
         try {
-            return OBJECT_MAPPER.writeValueAsString(rootNode);
+            return objectMapper.writeValueAsString(rootNode);
         } catch (JacksonException ex) {
             throw new IllegalStateException("Failed to serialize book route structured data", ex);
         }
