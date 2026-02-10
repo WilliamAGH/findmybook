@@ -95,7 +95,7 @@ public class BookSeoMetadataUseCase {
             ogImage,
             robots,
             SeoPresentationDefaults.OPEN_GRAPH_TYPE_WEBSITE,
-            java.util.List.of(),
+            List.of(),
             structuredDataJson
         );
     }
