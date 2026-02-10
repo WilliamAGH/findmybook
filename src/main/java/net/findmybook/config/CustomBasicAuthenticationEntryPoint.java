@@ -38,7 +38,11 @@ import java.io.IOException;
 @Component
 public class CustomBasicAuthenticationEntryPoint extends BasicAuthenticationEntryPoint {
 
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private final ObjectMapper objectMapper;
+
+    public CustomBasicAuthenticationEntryPoint(ObjectMapper objectMapper) {
+        this.objectMapper = objectMapper;
+    }
 
     @Override
     public void commence(HttpServletRequest request, HttpServletResponse response, AuthenticationException authEx) throws IOException {
@@ -63,7 +67,7 @@ public class CustomBasicAuthenticationEntryPoint extends BasicAuthenticationEntr
             "APP_SECURITY_ADMIN_PASSWORD (or app.security.admin.password property)"
         );
 
-        response.getWriter().write(OBJECT_MAPPER.writeValueAsString(problemDetail));
+        response.getWriter().write(objectMapper.writeValueAsString(problemDetail));
     }
 
     @Override
