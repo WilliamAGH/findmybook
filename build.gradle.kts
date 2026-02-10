@@ -165,8 +165,9 @@ val frontendBuild by tasks.registering(Exec::class) {
 }
 
 val verifyNoFrontendFallbackHtml by tasks.registering {
-    dependsOn(frontendBuild)
-    enabled = !skipFrontend
+    if (!skipFrontend) {
+        dependsOn(frontendBuild)
+    }
     val forbiddenFallbackHtml = layout.projectDirectory.file("src/main/resources/static/frontend/index.html")
     doLast {
         if (forbiddenFallbackHtml.asFile.exists()) {

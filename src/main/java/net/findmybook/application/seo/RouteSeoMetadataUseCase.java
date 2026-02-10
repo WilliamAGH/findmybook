@@ -150,7 +150,7 @@ public class RouteSeoMetadataUseCase {
                                            String robots,
                                            String schemaOrgType) {
         String canonicalUrl = canonicalUrlResolver.normalizePublicUrl(canonicalPath);
-        String ogImage = ApplicationConstants.Urls.DEFAULT_SOCIAL_IMAGE;
+        String ogImage = ApplicationConstants.Urls.OG_LOGO;
         String fullTitle = seoMarkupFormatter.pageTitle(
             title, SeoPresentationDefaults.PAGE_TITLE_SUFFIX, SeoPresentationDefaults.BRAND_NAME);
         String structuredDataJson = routeStructuredDataRenderer.renderRouteGraph(

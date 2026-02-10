@@ -190,7 +190,7 @@ public class BookAiContentService {
         String description = detail.description() == null ? null : detail.description().trim();
         try {
             description = bookDataOrchestrator.enrichDescriptionForAiIfNeeded(bookId, detail, description, MIN_DESCRIPTION_LENGTH);
-        } catch (IllegalStateException ex) {
+        } catch (RuntimeException ex) {
             throw new BookAiGenerationException(BookAiGenerationException.ErrorCode.ENRICHMENT_FAILED,
                 "Description enrichment failed for book: " + bookId, ex);
         }
