@@ -6,7 +6,7 @@
  * Features:
  * - Enables Web Security and Method Security for @PreAuthorize annotations
  * - Configures role-based access control for different URL patterns
- * - Sets up HTTP Basic Authentication and Form Login
+ * - Sets up HTTP Basic Authentication
  * - Uses custom AuthenticationEntryPoint for admin paths
  * - Defines in-memory user details for admin and user roles
  * - Implements Content Security Policy and Referrer-Policy headers
@@ -51,6 +51,15 @@ public class SecurityConfig {
     private final String referrerPolicy;
     private final boolean clickyEnabled;
 
+    /**
+     * Configures the security filter chain and injects environment-specific settings.
+     *
+     * @param customBasicAuthenticationEntryPoint entry point for admin auth failures
+     * @param environment Spring environment for property resolution
+     * @param cspEnabled whether Content Security Policy headers are enabled
+     * @param referrerPolicy the Referrer-Policy header value
+     * @param clickyEnabled whether Clicky analytics are enabled (affects CSP)
+     */
     public SecurityConfig(CustomBasicAuthenticationEntryPoint customBasicAuthenticationEntryPoint,
                           Environment environment,
                           @Value("${app.security.headers.content-security-policy.enabled:true}") boolean cspEnabled,
@@ -103,11 +112,11 @@ public class SecurityConfig {
             ReferrerPolicyHeaderWriter.ReferrerPolicy policy = ReferrerPolicyHeaderWriter.ReferrerPolicy.valueOf(referrerPolicy);
             headers.referrerPolicy(referrer -> referrer.policy(policy));
 
-            if (cspEnabled) { // Check if CSP is enabled first
-                // Allow HTTP and HTTPS images from any source - book covers come from many external sources
-                // (Google Books, Open Library, Goodreads, Amazon, etc.)
-                // Note: HTTP allowed because some providers (e.g., Google Books API) return HTTP URLs
-                StringBuilder imgSrcDirective = new StringBuilder("'self' data: blob: https: http: ");
+            // Check if CSP is enabled first
+            // Allow HTTP and HTTPS images from any source - book covers come from many external sources
+            // (Google Books, Open Library, Goodreads, Amazon, etc.)
+            // Note: HTTP allowed because some providers (e.g., Google Books API) return HTTP URLs
+            StringBuilder imgSrcDirective = new StringBuilder("'self' data: blob: https: http: ");
                 StringBuilder scriptSrcDirective = new StringBuilder("'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://cdn.tailwindcss.com 'unsafe-inline' blob:");
                 StringBuilder connectSrcDirective = new StringBuilder("'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com");
 
@@ -130,7 +139,6 @@ public class SecurityConfig {
                     "frame-src 'self'; " +
                     "object-src 'none'"
                 ));
-            }
         });
     }
 
