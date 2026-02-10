@@ -30,7 +30,7 @@ class BookControllerAuxiliaryEndpointsTest extends AbstractBookControllerMvcTest
 
     @Test
     @DisplayName("GET /api/books/{id}/similar returns cached DTOs")
-    void getBookSimilar_returnsDtos() throws Exception {
+    void should_ReturnCachedDtos_When_SimilarBooksRequested() throws Exception {
         UUID bookUuid = UUID.fromString(fixtureBook.getId());
         when(bookIdentifierResolver.resolveToUuid(fixtureBook.getSlug()))
             .thenReturn(Optional.of(bookUuid));
@@ -70,7 +70,7 @@ class BookControllerAuxiliaryEndpointsTest extends AbstractBookControllerMvcTest
 
     @Test
     @DisplayName("GET /api/covers/{id} uses orchestrator fallback when repository misses")
-    void getBookCover_fallsBackToOrchestrator() throws Exception {
+    void should_FallBackToOrchestrator_When_RepositoryMisses() throws Exception {
         stubRepositoryMiss("orchestrator-id");
         var fallback = buildBook(UUID.randomUUID().toString(), "fallback-book");
         when(bookDataOrchestrator.fetchCanonicalBookReactive("orchestrator-id"))
@@ -94,7 +94,7 @@ class BookControllerAuxiliaryEndpointsTest extends AbstractBookControllerMvcTest
 
     @Test
     @DisplayName("GET /api/covers/{id} returns 500 when orchestrator lookup fails")
-    void getBookCover_returnsServerError_WhenOrchestratorFails() throws Exception {
+    void should_ReturnServerError_When_OrchestratorFails() throws Exception {
         stubRepositoryMiss("orchestrator-error");
         when(bookDataOrchestrator.fetchCanonicalBookReactive("orchestrator-error"))
             .thenReturn(Mono.error(new RuntimeException("downstream-failure")));
@@ -105,7 +105,7 @@ class BookControllerAuxiliaryEndpointsTest extends AbstractBookControllerMvcTest
 
     @Test
     @DisplayName("GET /api/covers/{id} resolves via repository detail first")
-    void getBookCover_usesRepositoryFirst() throws Exception {
+    void should_UseRepositoryFirst_When_CoverRequested() throws Exception {
         var detail = buildDetailFromBook(fixtureBook);
         when(bookSearchService.fetchBookDetailBySlug(fixtureBook.getSlug()))
             .thenReturn(Optional.of(detail));
@@ -127,7 +127,7 @@ class BookControllerAuxiliaryEndpointsTest extends AbstractBookControllerMvcTest
 
     @Test
     @DisplayName("GET /api/books/authors/search returns author results")
-    void searchAuthors_returnsResults() throws Exception {
+    void should_ReturnAuthorResults_When_QueryMatches() throws Exception {
         List<BookSearchService.AuthorResult> results = List.of(
             new BookSearchService.AuthorResult("author-1", "Fixture Author", 12, 0.98)
         );
