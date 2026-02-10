@@ -104,6 +104,7 @@
         - `empty_generation`
         - `cache_serialization_failed`
         - `description_too_short` (emitted only after canonical description enrichment attempts from Open Library and Google Books still fail to satisfy minimum content requirements)
+        - `enrichment_failed` (emitted when book description enrichment providers are unavailable)
         - `generation_failed`
 
 ## Search Pagination

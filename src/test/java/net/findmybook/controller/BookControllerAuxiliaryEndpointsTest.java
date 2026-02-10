@@ -60,7 +60,7 @@ class BookControllerAuxiliaryEndpointsTest extends AbstractBookControllerMvcTest
 
     @Test
     @DisplayName("GET /api/books/{id}/similar returns 404 when canonical lookup fails")
-    void getBookSimilar_returnsEmptyWhenMissing() throws Exception {
+    void should_Return404_When_CanonicalLookupFails() throws Exception {
         when(bookIdentifierResolver.resolveToUuid("unknown"))
             .thenReturn(Optional.empty());
 
