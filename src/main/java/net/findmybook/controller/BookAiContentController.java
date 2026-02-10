@@ -3,7 +3,6 @@ package net.findmybook.controller;
 import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import jakarta.annotation.PreDestroy;
 import jakarta.servlet.http.HttpServletResponse;
-import java.io.IOException;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
@@ -12,7 +11,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import net.findmybook.application.ai.BookAiGenerationException;
 import net.findmybook.application.ai.BookAiContentService;
@@ -40,8 +38,6 @@ import tools.jackson.databind.ObjectMapper;
 public class BookAiContentController {
     private static final Logger log = LoggerFactory.getLogger(BookAiContentController.class);
     private static final long SSE_TIMEOUT_MILLIS = Duration.ofMinutes(4).toMillis();
-    private static final long QUEUE_POSITION_TICK_MILLIS = 350L;
-    private static final long KEEPALIVE_INTERVAL_MILLIS = 15_000L;
     private static final int AUTO_TRIGGER_QUEUE_THRESHOLD = 5;
     private static final int DEFAULT_GENERATION_PRIORITY = 0;
     private static final int MIN_QUEUE_TICKER_THREADS = 4;
@@ -51,9 +47,11 @@ public class BookAiContentController {
     private final BookAiContentService aiContentService;
     private final BookAiContentRequestQueue requestQueue;
     private final ObjectMapper objectMapper;
+    private final BookAiContentSseOrchestrator sseOrchestrator;
     private final ScheduledExecutorService queueTickerExecutor;
     private final String environmentMode;
     private final boolean exposeDetailedErrors;
+
     /** Creates a controller with queue/state dependencies. */
     public BookAiContentController(BookAiContentService aiContentService,
                                    BookAiContentRequestQueue requestQueue,
@@ -70,7 +68,9 @@ public class BookAiContentController {
             .daemon(true)
             .factory();
         this.queueTickerExecutor = Executors.newScheduledThreadPool(queueTickerThreads, threadFactory);
+        this.sseOrchestrator = new BookAiContentSseOrchestrator(requestQueue, queueTickerExecutor);
     }
+
     /** Returns global queue depth for AI generation tasks. */
     @GetMapping("/ai/content/queue")
     public ResponseEntity<QueueStatsPayload> queueStats() {
@@ -78,6 +78,7 @@ public class BookAiContentController {
         return ResponseEntity.ok(new QueueStatsPayload(
             snapshot.running(), snapshot.pending(), snapshot.maxParallel(), aiContentService.isAvailable(), environmentMode));
     }
+
     /** Streams AI generation events for a single book. */
     @PostMapping(path = "/{identifier}/ai/content/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @RateLimiter(name = "bookAiContentRateLimiter")
@@ -90,7 +91,7 @@ public class BookAiContentController {
         SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MILLIS);
         OptionalResolution resolution = resolveBookIdentifier(identifier);
         if (resolution.bookId() == null) {
-            emitTerminalError(emitter, resolution.errorCode(), resolution.error());
+            sseOrchestrator.emitTerminalError(emitter, resolution.errorCode(), resolveClientMessage(resolution.errorCode(), resolution.error()));
             return emitter;
         }
 
@@ -103,11 +104,13 @@ public class BookAiContentController {
             }
         }
         if (!aiContentService.isAvailable()) {
-            emitTerminalError(emitter, AiErrorCode.SERVICE_UNAVAILABLE, "AI content service is not configured");
+            sseOrchestrator.emitTerminalError(emitter, AiErrorCode.SERVICE_UNAVAILABLE,
+                resolveClientMessage(AiErrorCode.SERVICE_UNAVAILABLE, "AI content service is not configured"));
             return emitter;
         }
         if (requestQueue.snapshot().pending() > AUTO_TRIGGER_QUEUE_THRESHOLD) {
-            emitTerminalError(emitter, AiErrorCode.QUEUE_BUSY, "AI queue is currently busy; please try again in a moment");
+            sseOrchestrator.emitTerminalError(emitter, AiErrorCode.QUEUE_BUSY,
+                resolveClientMessage(AiErrorCode.QUEUE_BUSY, "AI queue is currently busy; please try again in a moment"));
             return emitter;
         }
         beginQueuedStream(emitter, bookId);
@@ -141,9 +144,9 @@ public class BookAiContentController {
         long enqueuedAtMs = System.currentTimeMillis();
         QueuedStreamState state = new QueuedStreamState(emitter, bookId, new AtomicBoolean(false));
         var queuedTask = enqueueGenerationTask(state);
-        sendEvent(emitter, "queued", toQueuePositionPayload(requestQueue.getPosition(queuedTask.id())));
-        ScheduledFuture<?> queueTicker = scheduleQueuePositionTicker(state, queuedTask.id());
-        ScheduledFuture<?> keepaliveTicker = scheduleKeepaliveTicker(state, queuedTask.id());
+        sseOrchestrator.sendEvent(emitter, "queued", sseOrchestrator.toQueuePositionPayload(requestQueue.getPosition(queuedTask.id())));
+        ScheduledFuture<?> queueTicker = sseOrchestrator.scheduleQueuePositionTicker(emitter, bookId, queuedTask.id(), state.streamClosed());
+        ScheduledFuture<?> keepaliveTicker = sseOrchestrator.scheduleKeepaliveTicker(emitter, bookId, queuedTask.id(), state.streamClosed());
         Runnable cancelPendingIfOpen = () -> {
             if (state.streamClosed().compareAndSet(false, true)) {
                 queueTicker.cancel(true);
@@ -151,7 +154,7 @@ public class BookAiContentController {
                 requestQueue.cancelPending(queuedTask.id());
             }
         };
-        wireEmitterLifecycle(state, cancelPendingIfOpen);
+        sseOrchestrator.wireEmitterLifecycle(emitter, bookId, cancelPendingIfOpen);
         wireStartedHandler(state, queuedTask, enqueuedAtMs);
         wireResultHandler(state, queuedTask, queueTicker, keepaliveTicker);
     }
@@ -162,56 +165,10 @@ public class BookAiContentController {
         return requestQueue.enqueue(DEFAULT_GENERATION_PRIORITY, () -> {
             sendMessageStartEvent(state.emitter(), messageStarted);
             BookAiContentService.GeneratedContent generated = aiContentService.generateAndPersist(state.bookId(), delta -> {
-                sendEvent(state.emitter(), "message_delta", new MessageDeltaPayload(delta));
+                sseOrchestrator.sendEvent(state.emitter(), "message_delta", new MessageDeltaPayload(delta));
             });
-            sendEvent(state.emitter(), "message_done", new MessageDonePayload(generated.rawMessage()));
+            sseOrchestrator.sendEvent(state.emitter(), "message_done", new MessageDonePayload(generated.rawMessage()));
             return generated;
-        });
-    }
-
-    private ScheduledFuture<?> scheduleQueuePositionTicker(QueuedStreamState state, String taskId) {
-        return queueTickerExecutor.scheduleAtFixedRate(() -> {
-            if (state.streamClosed().get()) {
-                return;
-            }
-            BookAiContentRequestQueue.QueuePosition position = requestQueue.getPosition(taskId);
-            if (!position.inQueue()) {
-                return;
-            }
-            try {
-                sendEvent(state.emitter(), "queue", toQueuePositionPayload(position));
-            } catch (IllegalStateException queueDeliveryException) {
-                log.warn("Queue position delivery failed for bookId={} taskId={}", state.bookId(), taskId, queueDeliveryException);
-                state.streamClosed().set(true);
-                requestQueue.cancelPending(taskId);
-            }
-        }, QUEUE_POSITION_TICK_MILLIS, QUEUE_POSITION_TICK_MILLIS, TimeUnit.MILLISECONDS);
-    }
-
-    private ScheduledFuture<?> scheduleKeepaliveTicker(QueuedStreamState state, String taskId) {
-        return queueTickerExecutor.scheduleAtFixedRate(() -> {
-            if (state.streamClosed().get()) {
-                return;
-            }
-            try {
-                sendSseComment(state.emitter(), "keepalive");
-            } catch (IllegalStateException keepaliveException) {
-                log.warn("Keepalive delivery failed for bookId={}", state.bookId(), keepaliveException);
-                state.streamClosed().set(true);
-                requestQueue.cancelPending(taskId);
-            }
-        }, KEEPALIVE_INTERVAL_MILLIS, KEEPALIVE_INTERVAL_MILLIS, TimeUnit.MILLISECONDS);
-    }
-
-    private void wireEmitterLifecycle(QueuedStreamState state, Runnable cancelPendingIfOpen) {
-        state.emitter().onCompletion(cancelPendingIfOpen);
-        state.emitter().onTimeout(() -> {
-            cancelPendingIfOpen.run();
-            emitTerminalError(state.emitter(), AiErrorCode.STREAM_TIMEOUT, "AI stream timed out");
-        });
-        state.emitter().onError(error -> {
-            log.warn("AI stream failed for bookId={}", state.bookId(), error);
-            cancelPendingIfOpen.run();
         });
     }
 
@@ -223,11 +180,14 @@ public class BookAiContentController {
             }
             long queueWaitMs = Math.max(0L, System.currentTimeMillis() - enqueuedAtMs);
             BookAiContentRequestQueue.QueueSnapshot snapshot = requestQueue.snapshot();
-            sendEvent(state.emitter(), "started", new QueueStartedPayload(
+            sseOrchestrator.sendEvent(state.emitter(), "started", new QueueStartedPayload(
                 snapshot.running(), snapshot.pending(), snapshot.maxParallel(), queueWaitMs));
         }).exceptionally(throwable -> {
             if (!state.streamClosed().get()) {
-                emitTerminalError(state.emitter(), resolveThrowableError(throwable));
+                AiErrorDescriptor descriptor = resolveThrowableError(throwable);
+                sseOrchestrator.emitTerminalError(state.emitter(), descriptor.code(), resolveClientMessage(descriptor.code(), descriptor.message()));
+            } else {
+                log.debug("Stream already closed when started-handler exception occurred: {}", throwable.getMessage());
             }
             return null;
         });
@@ -240,31 +200,36 @@ public class BookAiContentController {
             queueTicker.cancel(true);
             keepaliveTicker.cancel(true);
             if (!state.streamClosed().compareAndSet(false, true)) {
+                if (throwable != null) {
+                    log.debug("Stream already closed when result-handler exception occurred: {}", throwable.getMessage());
+                }
                 return;
             }
             if (throwable != null) {
-                emitTerminalError(state.emitter(), resolveThrowableError(throwable));
+                AiErrorDescriptor descriptor = resolveThrowableError(throwable);
+                sseOrchestrator.emitTerminalError(state.emitter(), descriptor.code(), resolveClientMessage(descriptor.code(), descriptor.message()));
                 return;
             }
             if (result == null) {
-                emitTerminalError(state.emitter(), AiErrorCode.EMPTY_GENERATION, "AI generation returned no data");
+                sseOrchestrator.emitTerminalError(state.emitter(), AiErrorCode.EMPTY_GENERATION,
+                    resolveClientMessage(AiErrorCode.EMPTY_GENERATION, "AI generation returned no data"));
                 return;
             }
             BookAiContentSnapshotDto snapshotDto = BookAiContentSnapshotDto.fromSnapshot(result.snapshot());
             try {
-                sendEvent(state.emitter(), "done", new DonePayload(result.rawMessage(), snapshotDto));
-                safelyComplete(state.emitter());
+                sseOrchestrator.sendEvent(state.emitter(), "done", new DonePayload(result.rawMessage(), snapshotDto));
+                sseOrchestrator.safelyComplete(state.emitter());
             } catch (IllegalStateException doneDeliveryException) {
                 log.warn("AI done event delivery failed for bookId={}", state.bookId(), doneDeliveryException);
-                emitTerminalError(state.emitter(), AiErrorCode.GENERATION_FAILED,
-                    "AI content was generated but could not be delivered");
+                sseOrchestrator.emitTerminalError(state.emitter(), AiErrorCode.GENERATION_FAILED,
+                    resolveClientMessage(AiErrorCode.GENERATION_FAILED, "AI content was generated but could not be delivered"));
             }
         });
     }
 
     private void sendMessageStartEvent(SseEmitter emitter, AtomicBoolean messageStarted) {
         if (messageStarted.compareAndSet(false, true)) {
-            sendEvent(emitter, "message_start", new MessageStartPayload(
+            sseOrchestrator.sendEvent(emitter, "message_start", new MessageStartPayload(
                 UUID.randomUUID().toString(), aiContentService.configuredModel(), aiContentService.apiMode()));
         }
     }
@@ -272,66 +237,12 @@ public class BookAiContentController {
     private void streamDoneFromCache(SseEmitter emitter, BookAiContentSnapshot snapshot) {
         try {
             String cachedMessage = objectMapper.writeValueAsString(snapshot.aiContent());
-            sendEvent(emitter, "done", new DonePayload(cachedMessage, BookAiContentSnapshotDto.fromSnapshot(snapshot)));
-            safelyComplete(emitter);
+            sseOrchestrator.sendEvent(emitter, "done", new DonePayload(cachedMessage, BookAiContentSnapshotDto.fromSnapshot(snapshot)));
+            sseOrchestrator.safelyComplete(emitter);
         } catch (JacksonException exception) {
             log.error("Failed to serialize cached AI content for bookId={}", snapshot.bookId(), exception);
-            emitTerminalError(emitter, AiErrorCode.CACHE_SERIALIZATION_FAILED, "Cached AI content could not be serialized");
-        }
-    }
-
-    private QueuePositionPayload toQueuePositionPayload(BookAiContentRequestQueue.QueuePosition position) {
-        return new QueuePositionPayload(
-            position.position(),
-            position.running(),
-            position.pending(),
-            position.maxParallel()
-        );
-    }
-
-    private void emitTerminalError(SseEmitter emitter, AiErrorDescriptor descriptor) {
-        emitTerminalError(emitter, descriptor.code(), descriptor.message());
-    }
-
-    private void emitTerminalError(SseEmitter emitter, AiErrorCode code, String message) {
-        String safeMessage = resolveClientMessage(code, message);
-        try {
-            sendEvent(emitter, "error", new ErrorPayload(safeMessage, code.wireValue(), code.retryable()));
-        } catch (IllegalStateException errorEventException) {
-            log.warn("AI error event delivery failed", errorEventException);
-        } finally {
-            safelyComplete(emitter);
-        }
-    }
-
-    private void safelyComplete(SseEmitter emitter) {
-        try {
-            emitter.complete();
-        } catch (IllegalStateException completionException) {
-            // SseEmitter.complete() throws when the servlet response is already
-            // committed (client disconnect detected by the container). This is a
-            // framework-level race condition, not a domain error we can prevent.
-            log.warn("SSE emitter completion failed (response likely already committed): {}", completionException.getMessage());
-        }
-    }
-
-    private void sendEvent(SseEmitter emitter, String eventName, BookAiContentSsePayload payload) {
-        synchronized (emitter) {
-            try {
-                emitter.send(SseEmitter.event().name(eventName).data(payload));
-            } catch (IOException ioException) {
-                throw new IllegalStateException("SSE send failed for event: " + eventName, ioException);
-            }
-        }
-    }
-
-    private void sendSseComment(SseEmitter emitter, String comment) {
-        synchronized (emitter) {
-            try {
-                emitter.send(SseEmitter.event().comment(comment));
-            } catch (IOException ioException) {
-                throw new IllegalStateException("SSE comment send failed", ioException);
-            }
+            sseOrchestrator.emitTerminalError(emitter, AiErrorCode.CACHE_SERIALIZATION_FAILED,
+                resolveClientMessage(AiErrorCode.CACHE_SERIALIZATION_FAILED, "Cached AI content could not be serialized"));
         }
     }
 
@@ -376,5 +287,4 @@ public class BookAiContentController {
         }
         return rawMode.trim().toLowerCase();
     }
-
 }
