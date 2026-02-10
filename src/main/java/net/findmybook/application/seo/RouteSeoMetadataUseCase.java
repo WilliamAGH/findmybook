@@ -19,6 +19,10 @@ import org.springframework.stereotype.Service;
 @Service
 public class RouteSeoMetadataUseCase {
 
+    private static final String SCHEMA_WEB_PAGE = "WebPage";
+    private static final String SCHEMA_SEARCH_RESULTS_PAGE = "SearchResultsPage";
+    private static final String SCHEMA_COLLECTION_PAGE = "CollectionPage";
+
     private final CanonicalUrlResolver canonicalUrlResolver;
     private final SeoRouteManifestUseCase seoRouteManifestUseCase;
     private final RouteStructuredDataRenderer routeStructuredDataRenderer;
@@ -40,7 +44,7 @@ public class RouteSeoMetadataUseCase {
             "Discover your next favorite read with findmybook recommendations, trending titles, and curated lists.",
             "/",
             "findmybook, discover books, book recommendations, reading lists, best books",
-            SeoPresentationDefaults.ROBOTS_INDEX_FOLLOW, "WebPage");
+            SeoPresentationDefaults.ROBOTS_INDEX_FOLLOW, SCHEMA_WEB_PAGE);
     }
 
     /** Builds SEO metadata for the search route. */
@@ -49,7 +53,7 @@ public class RouteSeoMetadataUseCase {
             "Search books by title, author, or ISBN on findmybook to find details, editions, and related recommendations.",
             "/search",
             "findmybook search, search books, isbn lookup, find books by author, find books by title",
-            SeoPresentationDefaults.ROBOTS_SEARCH_NOINDEX_FOLLOW, "SearchResultsPage");
+            SeoPresentationDefaults.ROBOTS_SEARCH_NOINDEX_FOLLOW, SCHEMA_SEARCH_RESULTS_PAGE);
     }
 
     /** Builds SEO metadata for the explore route. */
@@ -58,7 +62,7 @@ public class RouteSeoMetadataUseCase {
             "Explore curated topics and discover your next favorite read on findmybook.",
             "/explore",
             "findmybook, explore books, book discovery, reading recommendations",
-            SeoPresentationDefaults.ROBOTS_INDEX_FOLLOW, "CollectionPage");
+            SeoPresentationDefaults.ROBOTS_INDEX_FOLLOW, SCHEMA_COLLECTION_PAGE);
     }
 
     /** Builds SEO metadata for the categories route. */
@@ -67,7 +71,7 @@ public class RouteSeoMetadataUseCase {
             "Browse books by category and genre on findmybook.",
             "/categories",
             "findmybook categories, book genres, browse books, genre recommendations",
-            SeoPresentationDefaults.ROBOTS_INDEX_FOLLOW, "CollectionPage");
+            SeoPresentationDefaults.ROBOTS_INDEX_FOLLOW, SCHEMA_COLLECTION_PAGE);
     }
 
     /**
@@ -92,14 +96,14 @@ public class RouteSeoMetadataUseCase {
                 "Browse " + viewToken + " indexed under " + bucketLabel + " on page " + pageNumber + " of the findmybook sitemap.",
                 normalizedPath,
                 "findmybook sitemap, " + viewToken + " sitemap, " + bucketKeyword + ", sitemap page " + pageNumber,
-                SeoPresentationDefaults.ROBOTS_INDEX_FOLLOW, "WebPage");
+                SeoPresentationDefaults.ROBOTS_INDEX_FOLLOW, SCHEMA_WEB_PAGE);
         }
 
         return buildRouteMetadata("Sitemap",
             "Browse indexed author and book pages on findmybook.",
             normalizedPath,
             "findmybook sitemap, author sitemap, book sitemap",
-            SeoPresentationDefaults.ROBOTS_INDEX_FOLLOW, "WebPage");
+            SeoPresentationDefaults.ROBOTS_INDEX_FOLLOW, SCHEMA_WEB_PAGE);
     }
 
     /**
@@ -113,7 +117,7 @@ public class RouteSeoMetadataUseCase {
             "The page you requested could not be found on findmybook.",
             SeoPresentationDefaults.DEFAULT_NOT_FOUND_PATH,
             "findmybook 404, page not found, broken link",
-            SeoPresentationDefaults.ROBOTS_NOINDEX_NOFOLLOW, "WebPage");
+            SeoPresentationDefaults.ROBOTS_NOINDEX_NOFOLLOW, SCHEMA_WEB_PAGE);
     }
 
     /**
@@ -128,7 +132,7 @@ public class RouteSeoMetadataUseCase {
             "An unexpected error occurred while loading this findmybook page.",
             SeoPresentationDefaults.DEFAULT_ERROR_PATH,
             "findmybook error, server error, application error",
-            SeoPresentationDefaults.ROBOTS_NOINDEX_NOFOLLOW, "WebPage");
+            SeoPresentationDefaults.ROBOTS_NOINDEX_NOFOLLOW, SCHEMA_WEB_PAGE);
     }
 
     /**
