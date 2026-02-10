@@ -61,6 +61,9 @@ public class BookSeoMetadataUseCase {
      * @return fallback book SEO metadata
      */
     public SeoMetadata bookFallbackMetadata(String identifier) {
+        if (!StringUtils.hasText(identifier)) {
+            throw new IllegalArgumentException("identifier must not be blank when generating fallback SEO metadata");
+        }
         String title = BOOK_FALLBACK_TITLE;
         String description = BOOK_FALLBACK_DESCRIPTION;
         String canonicalUrl = canonicalUrlResolver.normalizePublicUrl(BOOK_ROUTE_PREFIX + identifier);
