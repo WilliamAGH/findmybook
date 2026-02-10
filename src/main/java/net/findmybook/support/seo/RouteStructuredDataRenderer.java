@@ -52,16 +52,41 @@ public class RouteStructuredDataRenderer {
         return renderRouteGraph(canonicalUrl, fullTitle, description, ogImage, brandName, baseUrl, DEFAULT_WEB_PAGE_TYPE);
     }
 
+    /**
+     * Escapes a string for safe embedding in a JSON value per RFC 8259.
+     *
+     * <p>Handles all mandatory JSON escape sequences: backslash, double-quote,
+     * named control characters ({@code \b}, {@code \f}, {@code \n}, {@code \r},
+     * {@code \t}), remaining ASCII control characters (U+0000-U+001F), and
+     * HTML-sensitive characters ({@code <}, {@code >}, {@code /}) to prevent
+     * script injection in {@code <script>} contexts.</p>
+     */
     private String escapeJson(String text) {
         Objects.requireNonNull(text, "JSON escape input must not be null");
-        return text
-            .replace("\\", "\\\\")
-            .replace("\"", "\\\"")
-            .replace("\r", "\\r")
-            .replace("\n", "\\n")
-            .replace("<", "\\u003c")
-            .replace(">", "\\u003e")
-            .replace("/", "\\/");
+        var sb = new StringBuilder(text.length() + 16);
+        for (int i = 0; i < text.length(); i++) {
+            char ch = text.charAt(i);
+            switch (ch) {
+                case '\\' -> sb.append("\\\\");
+                case '"'  -> sb.append("\\\"");
+                case '\b' -> sb.append("\\b");
+                case '\f' -> sb.append("\\f");
+                case '\n' -> sb.append("\\n");
+                case '\r' -> sb.append("\\r");
+                case '\t' -> sb.append("\\t");
+                case '<'  -> sb.append("\\u003c");
+                case '>'  -> sb.append("\\u003e");
+                case '/'  -> sb.append("\\/");
+                default -> {
+                    if (ch < 0x20) {
+                        sb.append(String.format("\\u%04x", (int) ch));
+                    } else {
+                        sb.append(ch);
+                    }
+                }
+            }
+        }
+        return sb.toString();
     }
 }
 
