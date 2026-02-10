@@ -4,6 +4,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import net.findmybook.domain.seo.OpenGraphProperty;
 import net.findmybook.model.Book;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;

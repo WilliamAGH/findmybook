@@ -1,6 +1,7 @@
 package net.findmybook.application.seo;
 
 import java.util.List;
+import net.findmybook.domain.seo.OpenGraphProperty;
 import net.findmybook.domain.seo.SeoMetadata;
 import net.findmybook.model.Book;
 import net.findmybook.support.seo.BookGraphRenderRequest;
@@ -98,7 +99,7 @@ class BookSeoMetadataUseCaseTest {
             .thenReturn("{\"@type\":\"Book\"}");
         when(bookOpenGraphPropertyFactory.fromBook(eq(book)))
             .thenReturn(List.of(
-                new net.findmybook.support.seo.OpenGraphProperty("book:isbn", "9780743273565")
+                new OpenGraphProperty("book:isbn", "9780743273565")
             ));
 
         SeoMetadata metadata = useCase.bookMetadata(book, 170);

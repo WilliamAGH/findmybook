@@ -1,5 +1,6 @@
 package net.findmybook.support.seo;
 
+import net.findmybook.domain.seo.RouteManifest;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

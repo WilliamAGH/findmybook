@@ -144,9 +144,7 @@ public class BookSeoMetadataUseCase {
                 ApplicationConstants.Urls.BASE_URL
             )
         );
-        List<OpenGraphProperty> openGraphProperties = bookOpenGraphPropertyFactory.fromBook(book).stream()
-            .map(property -> new OpenGraphProperty(property.property(), property.content()))
-            .toList();
+        List<OpenGraphProperty> openGraphProperties = bookOpenGraphPropertyFactory.fromBook(book);
 
         return new SeoMetadata(
             title,

@@ -5,6 +5,8 @@ import tools.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
+import net.findmybook.domain.seo.RouteDefinition;
+import net.findmybook.domain.seo.RouteManifest;
 import org.springframework.stereotype.Component;
 
 /**
@@ -13,6 +15,8 @@ import org.springframework.stereotype.Component;
 @Component
 public class SeoRouteManifestProvider {
 
+    // Static ObjectMapper is intentional: used in static initializer for ROUTE_MANIFEST_JSON
+    // before Spring context is available. Only serializes simple record types with no custom modules.
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final String DEFAULT_SITEMAP_PATH = "/sitemap/authors/A/1";
     private static final Pattern BOOK_ROUTE_PATTERN = Pattern.compile("^/book/([^/]+)$");
