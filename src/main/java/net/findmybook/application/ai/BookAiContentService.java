@@ -191,6 +191,7 @@ public class BookAiContentService {
         try {
             description = bookDataOrchestrator.enrichDescriptionForAiIfNeeded(bookId, detail, description, MIN_DESCRIPTION_LENGTH);
         } catch (RuntimeException ex) {
+            log.error("Description enrichment failed for bookId={}", bookId, ex);
             throw new BookAiGenerationException(BookAiGenerationException.ErrorCode.ENRICHMENT_FAILED,
                 "Description enrichment failed for book: " + bookId, ex);
         }
