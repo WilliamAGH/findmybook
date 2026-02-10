@@ -1,6 +1,8 @@
 package net.findmybook.support.seo;
 
 import net.findmybook.domain.seo.SeoMetadata;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -13,17 +15,46 @@ public class SpaShellDocumentRenderer {
     private static final String OPEN_GRAPH_IMAGE_TYPE = "image/png";
     private static final String OPEN_GRAPH_IMAGE_WIDTH = "1200";
     private static final String OPEN_GRAPH_IMAGE_HEIGHT = "630";
+    private static final boolean DEFAULT_SIMPLE_ANALYTICS_ENABLED = true;
+    private static final String DEFAULT_SIMPLE_ANALYTICS_SCRIPT_URL =
+        "https://scripts.simpleanalyticscdn.com/latest.js";
 
     private final SeoMarkupFormatter seoMarkupFormatter;
     private final OpenGraphHeadTagRenderer openGraphHeadTagRenderer;
     private final CanonicalUrlResolver canonicalUrlResolver;
+    private final boolean simpleAnalyticsEnabled;
+    private final String simpleAnalyticsScriptUrl;
 
+    /**
+     * Backward-compatible constructor used by manual wiring in tests and utility contexts.
+     *
+     * @param seoMarkupFormatter formatter used for escaping and fallback text normalization
+     * @param openGraphHeadTagRenderer renderer for OpenGraph extension tags
+     * @param canonicalUrlResolver resolver for absolute canonical and image URLs
+     */
     public SpaShellDocumentRenderer(SeoMarkupFormatter seoMarkupFormatter,
                                     OpenGraphHeadTagRenderer openGraphHeadTagRenderer,
                                     CanonicalUrlResolver canonicalUrlResolver) {
+        this(
+            seoMarkupFormatter,
+            openGraphHeadTagRenderer,
+            canonicalUrlResolver,
+            DEFAULT_SIMPLE_ANALYTICS_ENABLED,
+            DEFAULT_SIMPLE_ANALYTICS_SCRIPT_URL
+        );
+    }
+
+    @Autowired
+    public SpaShellDocumentRenderer(SeoMarkupFormatter seoMarkupFormatter,
+                                    OpenGraphHeadTagRenderer openGraphHeadTagRenderer,
+                                    CanonicalUrlResolver canonicalUrlResolver,
+                                    @Value("${app.simple-analytics.enabled:true}") boolean simpleAnalyticsEnabled,
+                                    @Value("${app.simple-analytics.script-url:https://scripts.simpleanalyticscdn.com/latest.js}") String simpleAnalyticsScriptUrl) {
         this.seoMarkupFormatter = seoMarkupFormatter;
         this.openGraphHeadTagRenderer = openGraphHeadTagRenderer;
         this.canonicalUrlResolver = canonicalUrlResolver;
+        this.simpleAnalyticsEnabled = simpleAnalyticsEnabled;
+        this.simpleAnalyticsScriptUrl = simpleAnalyticsScriptUrl;
     }
 
     /**
@@ -57,6 +88,7 @@ public class SpaShellDocumentRenderer {
 
         String structuredDataJson = effectiveMetadata.structuredDataJson();
         String escapedStructuredData = seoMarkupFormatter.escapeInlineScriptJson(structuredDataJson);
+        String simpleAnalyticsTag = simpleAnalyticsEnabled ? "<script async src=\"%s\"></script>".formatted(simpleAnalyticsScriptUrl) : "";
 
         return """
             <!doctype html>
@@ -109,6 +141,7 @@ public class SpaShellDocumentRenderer {
               <link rel="manifest" href="/site.webmanifest">
               <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml">
               <link rel="stylesheet" href="/frontend/app.css">
+              %s
               <script>
                 (function () {
                   try {
@@ -160,6 +193,7 @@ public class SpaShellDocumentRenderer {
             escapedOgImage,
             escapedOgImageAlt,
             escapedStructuredData,
+            simpleAnalyticsTag,
             escapedRouteManifestJson
         );
     }

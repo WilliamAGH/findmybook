@@ -50,6 +50,7 @@ public class SecurityConfig {
     private final boolean cspEnabled;
     private final String referrerPolicy;
     private final boolean clickyEnabled;
+    private final boolean simpleAnalyticsEnabled;
 
     /**
      * Configures the security filter chain and injects environment-specific settings.
@@ -59,17 +60,20 @@ public class SecurityConfig {
      * @param cspEnabled whether Content Security Policy headers are enabled
      * @param referrerPolicy the Referrer-Policy header value
      * @param clickyEnabled whether Clicky analytics are enabled (affects CSP)
+     * @param simpleAnalyticsEnabled whether Simple Analytics are enabled (affects CSP)
      */
     public SecurityConfig(CustomBasicAuthenticationEntryPoint customBasicAuthenticationEntryPoint,
                           Environment environment,
                           @Value("${app.security.headers.content-security-policy.enabled:true}") boolean cspEnabled,
                           @Value("${app.security.headers.referrer-policy:ORIGIN_WHEN_CROSS_ORIGIN}") String referrerPolicy,
-                          @Value("${app.clicky.enabled:true}") boolean clickyEnabled) {
+                          @Value("${app.clicky.enabled:true}") boolean clickyEnabled,
+                          @Value("${app.simple-analytics.enabled:true}") boolean simpleAnalyticsEnabled) {
         this.customBasicAuthenticationEntryPoint = customBasicAuthenticationEntryPoint;
         this.environment = environment;
         this.cspEnabled = cspEnabled;
         this.referrerPolicy = referrerPolicy;
         this.clickyEnabled = clickyEnabled;
+        this.simpleAnalyticsEnabled = simpleAnalyticsEnabled;
     }
 
     @Bean
@@ -119,6 +123,11 @@ public class SecurityConfig {
             StringBuilder imgSrcDirective = new StringBuilder("'self' data: blob: https: http: ");
                 StringBuilder scriptSrcDirective = new StringBuilder("'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://cdn.tailwindcss.com 'unsafe-inline' blob:");
                 StringBuilder connectSrcDirective = new StringBuilder("'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com");
+
+                if (simpleAnalyticsEnabled) {
+                    scriptSrcDirective.append(" https://scripts.simpleanalyticscdn.com");
+                    connectSrcDirective.append(" https://queue.simpleanalyticscdn.com");
+                }
 
                 if (clickyEnabled) {
                     // Add Clicky Analytics domains for script-src, connect-src, and img-src
