@@ -186,6 +186,8 @@
         : "Unable to check queue status";
       if (aiFailureDiagnosticsEnabled()) {
         aiErrorMessage = message;
+        aiQueueMessage = null;
+        aiAutoTriggerDeferred = false;
       } else {
         aiErrorMessage = null;
         aiQueueMessage = null;
