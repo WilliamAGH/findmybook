@@ -29,6 +29,9 @@ public class RouteSeoMetadataUseCase {
     private final RouteStructuredDataRenderer routeStructuredDataRenderer;
     private final SeoMarkupFormatter seoMarkupFormatter;
 
+    /**
+     * Creates the use case with required rendering collaborators.
+     */
     public RouteSeoMetadataUseCase(CanonicalUrlResolver canonicalUrlResolver,
                                    SeoRouteManifestUseCase seoRouteManifestUseCase,
                                    RouteStructuredDataRenderer routeStructuredDataRenderer,

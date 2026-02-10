@@ -41,6 +41,9 @@ public class BookSeoMetadataUseCase {
     private final SeoMarkupFormatter seoMarkupFormatter;
     private final RouteStructuredDataRenderer routeStructuredDataRenderer;
 
+    /**
+     * Creates the use case with required rendering collaborators.
+     */
     public BookSeoMetadataUseCase(BookStructuredDataRenderer bookStructuredDataRenderer,
                                   BookOpenGraphPropertyFactory bookOpenGraphPropertyFactory,
                                   BookOpenGraphImageResolver bookOpenGraphImageResolver,
