@@ -133,7 +133,7 @@ public class SpaShellDocumentRenderer {
               <script type="application/ld+json">%s</script>
               <link rel="preconnect" href="https://fonts.googleapis.com">
               <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-              <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@500;600;700&display=swap" rel="stylesheet">
+              <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400&family=Inter:wght@400;500;600;700&family=Poppins:wght@500;600;700&display=swap" rel="stylesheet">
               <link rel="icon" href="/favicon.svg" type="image/svg+xml">
               <link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32">
               <link rel="icon" href="/favicon-192x192.png" type="image/png" sizes="192x192">
