@@ -89,6 +89,40 @@ class RouteStructuredDataRendererTest {
     }
 
     @Test
+    void should_EscapeControlCharacters_When_InputContainsTabBackspaceFormFeed() {
+        String json = renderer.renderRouteGraph(
+            "https://findmybook.net/",
+            "Title\twith\ttabs",
+            "Desc with\bbackspace and\fform feed",
+            "https://findmybook.net/og.png",
+            "findmybook",
+            "https://findmybook.net"
+        );
+
+        assertTrue(json.contains("Title\\twith\\ttabs"));
+        assertTrue(json.contains("\\b"));
+        assertTrue(json.contains("\\f"));
+        assertFalse(json.contains("\t"));
+        assertFalse(json.contains("\b"));
+        assertFalse(json.contains("\f"));
+    }
+
+    @Test
+    void should_EscapeNullByteAsUnicode_When_InputContainsAsciiControl() {
+        String json = renderer.renderRouteGraph(
+            "https://findmybook.net/",
+            "Title with \u0001 control",
+            "Description",
+            "https://findmybook.net/og.png",
+            "findmybook",
+            "https://findmybook.net"
+        );
+
+        assertTrue(json.contains("\\u0001"));
+        assertFalse(json.contains("\u0001"));
+    }
+
+    @Test
     void should_IncludeSearchAction_When_Rendered() {
         String json = renderer.renderRouteGraph(
             "https://findmybook.net/",
