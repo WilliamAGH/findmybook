@@ -34,3 +34,8 @@
 \ir ../../../migrations/39_title_author_clustering_functions.sql
 \ir ../../../migrations/40_book_ai_content.sql
 \ir ../../../migrations/41_book_ai_content_nullable_reader_fit.sql
+\ir ../../../migrations/42_book_image_links_grayscale.sql
+\ir ../../../migrations/43_cover_image_priority_function.sql
+\ir ../../../migrations/44_recent_book_views.sql
+\ir ../../../migrations/45_page_view_events.sql
+\ir ../../../migrations/46_propagate_grayscale_to_siblings.sql

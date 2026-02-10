@@ -32,6 +32,7 @@ RETURNS TABLE (
     cover_url TEXT,
     cover_s3_key TEXT,
     cover_fallback_url TEXT,
+    cover_is_grayscale BOOLEAN,
     average_rating NUMERIC,
     ratings_count INTEGER,
     tags JSONB
@@ -64,6 +65,7 @@ BEGIN
             cover_meta.cover_url,
             cover_meta.cover_s3_key,
             cover_meta.cover_fallback_url,
+            cover_meta.cover_is_grayscale,
             bei.average_rating,
             bei.ratings_count,
             COALESCE(
@@ -82,6 +84,7 @@ BEGIN
             SELECT chosen.cover_url,
                    chosen.cover_s3_key,
                    chosen.cover_fallback_url,
+                   chosen.cover_is_grayscale,
                    chosen.width,
                    chosen.height,
                    chosen.is_high_resolution
@@ -89,6 +92,7 @@ BEGIN
                 SELECT strict.cover_url,
                        strict.cover_s3_key,
                        strict.cover_fallback_url,
+                       strict.cover_is_grayscale,
                        strict.width,
                        strict.height,
                        strict.is_high_resolution,
@@ -116,14 +120,7 @@ BEGIN
                                   AND bil_fallback.width >= 180
                                   AND bil_fallback.height >= 280
                                 ORDER BY
-                                    CASE
-                                        WHEN bil_fallback.is_high_resolution THEN 0
-                                        WHEN bil_fallback.width >= 320 AND bil_fallback.height >= 320 THEN 1
-                                        WHEN bil_fallback.image_type = 'extraLarge' THEN 2
-                                        WHEN bil_fallback.image_type = 'large' THEN 3
-                                        WHEN bil_fallback.image_type = 'medium' THEN 4
-                                        ELSE 5
-                                    END,
+                                    cover_fallback_priority(bil_fallback.is_high_resolution, bil_fallback.width, bil_fallback.height, bil_fallback.image_type, bil_fallback.is_grayscale),
                                     bil_fallback.height DESC NULLS LAST,
                                     bil_fallback.width DESC NULLS LAST,
                                     bil_fallback.created_at DESC
@@ -131,22 +128,11 @@ BEGIN
                             ),
                             bil.url
                         ) AS cover_fallback_url,
+                        bil.is_grayscale AS cover_is_grayscale,
                         bil.width,
                         bil.height,
                         COALESCE(bil.is_high_resolution, false) AS is_high_resolution,
-                        CASE
-                            WHEN bil.s3_image_path IS NOT NULL AND COALESCE(bil.is_high_resolution, false) THEN 0
-                            WHEN bil.s3_image_path IS NOT NULL THEN 1
-                            WHEN bil.url LIKE '%edge=curl%' THEN 5
-                            WHEN COALESCE(bil.is_high_resolution, false) THEN 10
-                            WHEN bil.width >= 320 AND bil.height >= 320 THEN 11
-                            WHEN bil.image_type = 'extraLarge' THEN 12
-                            WHEN bil.image_type = 'large' THEN 13
-                            WHEN bil.image_type = 'medium' THEN 14
-                            WHEN bil.image_type = 'small' THEN 15
-                            WHEN bil.image_type = 'thumbnail' THEN 16
-                            ELSE 20
-                        END AS cover_priority,
+                        cover_image_priority(bil.s3_image_path, bil.is_high_resolution, bil.url, bil.width, bil.height, bil.image_type, bil.is_grayscale) AS cover_priority,
                         COALESCE(bil.height, 0) AS height_value,
                         COALESCE(bil.width, 0) AS width_value,
                         bil.created_at AS created_value
@@ -160,19 +146,7 @@ BEGIN
                       AND bil.url NOT LIKE '%printsec=copyright%'
                       AND bil.url NOT LIKE '%printsec=toc%'
                     ORDER BY
-                        CASE
-                            WHEN bil.s3_image_path IS NOT NULL AND COALESCE(bil.is_high_resolution, false) THEN 0
-                            WHEN bil.s3_image_path IS NOT NULL THEN 1
-                            WHEN bil.url LIKE '%edge=curl%' THEN 5
-                            WHEN COALESCE(bil.is_high_resolution, false) THEN 10
-                            WHEN bil.width >= 320 AND bil.height >= 320 THEN 11
-                            WHEN bil.image_type = 'extraLarge' THEN 12
-                            WHEN bil.image_type = 'large' THEN 13
-                            WHEN bil.image_type = 'medium' THEN 14
-                            WHEN bil.image_type = 'small' THEN 15
-                            WHEN bil.image_type = 'thumbnail' THEN 16
-                            ELSE 20
-                        END,
+                        cover_image_priority(bil.s3_image_path, bil.is_high_resolution, bil.url, bil.width, bil.height, bil.image_type, bil.is_grayscale),
                         bil.height DESC NULLS LAST,
                         bil.width DESC NULLS LAST,
                         bil.created_at DESC
@@ -182,6 +156,7 @@ BEGIN
                 SELECT relaxed_inner.cover_url,
                        relaxed_inner.cover_s3_key,
                        relaxed_inner.cover_fallback_url,
+                       relaxed_inner.cover_is_grayscale,
                        relaxed_inner.width,
                        relaxed_inner.height,
                        relaxed_inner.is_high_resolution,
@@ -195,22 +170,11 @@ BEGIN
                         COALESCE(bil_relaxed.s3_image_path, bil_relaxed.url) AS cover_url,
                         bil_relaxed.s3_image_path AS cover_s3_key,
                         NULLIF(bil_relaxed.url, '') AS cover_fallback_url,
+                        bil_relaxed.is_grayscale AS cover_is_grayscale,
                         bil_relaxed.width,
                         bil_relaxed.height,
                         COALESCE(bil_relaxed.is_high_resolution, false) AS is_high_resolution,
-                        CASE
-                            WHEN bil_relaxed.s3_image_path IS NOT NULL AND COALESCE(bil_relaxed.is_high_resolution, false) THEN 0
-                            WHEN bil_relaxed.s3_image_path IS NOT NULL THEN 1
-                            WHEN bil_relaxed.url LIKE '%edge=curl%' THEN 5
-                            WHEN COALESCE(bil_relaxed.is_high_resolution, false) THEN 10
-                            WHEN bil_relaxed.width >= 320 AND bil_relaxed.height >= 320 THEN 11
-                            WHEN bil_relaxed.image_type = 'extraLarge' THEN 12
-                            WHEN bil_relaxed.image_type = 'large' THEN 13
-                            WHEN bil_relaxed.image_type = 'medium' THEN 14
-                            WHEN bil_relaxed.image_type = 'small' THEN 15
-                            WHEN bil_relaxed.image_type = 'thumbnail' THEN 16
-                            ELSE 20
-                        END AS cover_priority,
+                        cover_image_priority(bil_relaxed.s3_image_path, bil_relaxed.is_high_resolution, bil_relaxed.url, bil_relaxed.width, bil_relaxed.height, bil_relaxed.image_type, bil_relaxed.is_grayscale) AS cover_priority,
                         COALESCE(bil_relaxed.height, 0) AS height_value,
                         COALESCE(bil_relaxed.width, 0) AS width_value,
                         bil_relaxed.created_at AS created_value
@@ -233,6 +197,7 @@ BEGIN
         ) cover_meta ON TRUE
         GROUP BY input_ids.ord, b.id, b.slug, b.title,
                  cover_meta.cover_url, cover_meta.cover_s3_key, cover_meta.cover_fallback_url,
+                 cover_meta.cover_is_grayscale,
                  bei.average_rating, bei.ratings_count
     )
     SELECT
@@ -243,6 +208,7 @@ BEGIN
         card_data.cover_url,
         card_data.cover_s3_key,
         card_data.cover_fallback_url,
+        card_data.cover_is_grayscale,
         card_data.average_rating,
         card_data.ratings_count,
         card_data.tags
@@ -275,6 +241,7 @@ RETURNS TABLE (
     cover_width INTEGER,
     cover_height INTEGER,
     cover_is_high_resolution BOOLEAN,
+    cover_is_grayscale BOOLEAN,
     average_rating NUMERIC,
     ratings_count INTEGER,
     tags JSONB,
@@ -326,6 +293,7 @@ BEGIN
             cover_meta.width as cover_width,
             cover_meta.height as cover_height,
             cover_meta.is_high_resolution as cover_is_high_resolution,
+            cover_meta.cover_is_grayscale as cover_is_grayscale,
             bei.average_rating,
             bei.ratings_count,
             COALESCE(
@@ -347,6 +315,7 @@ BEGIN
             SELECT chosen.cover_url,
                    chosen.cover_s3_key,
                    chosen.cover_fallback_url,
+                   chosen.cover_is_grayscale,
                    chosen.width,
                    chosen.height,
                    chosen.is_high_resolution
@@ -354,6 +323,7 @@ BEGIN
                 SELECT strict.cover_url,
                        strict.cover_s3_key,
                        strict.cover_fallback_url,
+                       strict.cover_is_grayscale,
                        strict.width,
                        strict.height,
                        strict.is_high_resolution,
@@ -381,14 +351,7 @@ BEGIN
                                   AND bil_fallback.width >= 180
                                   AND bil_fallback.height >= 280
                                 ORDER BY
-                                    CASE
-                                        WHEN bil_fallback.is_high_resolution THEN 0
-                                        WHEN bil_fallback.width >= 320 AND bil_fallback.height >= 320 THEN 1
-                                        WHEN bil_fallback.image_type = 'extraLarge' THEN 2
-                                        WHEN bil_fallback.image_type = 'large' THEN 3
-                                        WHEN bil_fallback.image_type = 'medium' THEN 4
-                                        ELSE 5
-                                    END,
+                                    cover_fallback_priority(bil_fallback.is_high_resolution, bil_fallback.width, bil_fallback.height, bil_fallback.image_type, bil_fallback.is_grayscale),
                                     bil_fallback.height DESC NULLS LAST,
                                     bil_fallback.width DESC NULLS LAST,
                                     bil_fallback.created_at DESC
@@ -396,22 +359,11 @@ BEGIN
                             ),
                             bil_meta.url
                         ) AS cover_fallback_url,
+                        bil_meta.is_grayscale AS cover_is_grayscale,
                         bil_meta.width,
                         bil_meta.height,
                         COALESCE(bil_meta.is_high_resolution, false) AS is_high_resolution,
-                        CASE
-                            WHEN bil_meta.s3_image_path IS NOT NULL AND COALESCE(bil_meta.is_high_resolution, false) THEN 0
-                            WHEN bil_meta.s3_image_path IS NOT NULL THEN 1
-                            WHEN bil_meta.url LIKE '%edge=curl%' THEN 5
-                            WHEN COALESCE(bil_meta.is_high_resolution, false) THEN 10
-                            WHEN bil_meta.width >= 320 AND bil_meta.height >= 320 THEN 11
-                            WHEN bil_meta.image_type = 'extraLarge' THEN 12
-                            WHEN bil_meta.image_type = 'large' THEN 13
-                            WHEN bil_meta.image_type = 'medium' THEN 14
-                            WHEN bil_meta.image_type = 'small' THEN 15
-                            WHEN bil_meta.image_type = 'thumbnail' THEN 16
-                            ELSE 20
-                        END AS cover_priority,
+                        cover_image_priority(bil_meta.s3_image_path, bil_meta.is_high_resolution, bil_meta.url, bil_meta.width, bil_meta.height, bil_meta.image_type, bil_meta.is_grayscale) AS cover_priority,
                         COALESCE(bil_meta.height, 0) AS height_value,
                         COALESCE(bil_meta.width, 0) AS width_value,
                         bil_meta.created_at AS created_value
@@ -425,19 +377,7 @@ BEGIN
                       AND bil_meta.url NOT LIKE '%printsec=copyright%'
                       AND bil_meta.url NOT LIKE '%printsec=toc%'
                     ORDER BY
-                        CASE
-                            WHEN bil_meta.s3_image_path IS NOT NULL AND COALESCE(bil_meta.is_high_resolution, false) THEN 0
-                            WHEN bil_meta.s3_image_path IS NOT NULL THEN 1
-                            WHEN bil_meta.url LIKE '%edge=curl%' THEN 5
-                            WHEN COALESCE(bil_meta.is_high_resolution, false) THEN 10
-                            WHEN bil_meta.width >= 320 AND bil_meta.height >= 320 THEN 11
-                            WHEN bil_meta.image_type = 'extraLarge' THEN 12
-                            WHEN bil_meta.image_type = 'large' THEN 13
-                            WHEN bil_meta.image_type = 'medium' THEN 14
-                            WHEN bil_meta.image_type = 'small' THEN 15
-                            WHEN bil_meta.image_type = 'thumbnail' THEN 16
-                            ELSE 20
-                        END,
+                        cover_image_priority(bil_meta.s3_image_path, bil_meta.is_high_resolution, bil_meta.url, bil_meta.width, bil_meta.height, bil_meta.image_type, bil_meta.is_grayscale),
                         bil_meta.height DESC NULLS LAST,
                         bil_meta.width DESC NULLS LAST,
                         bil_meta.created_at DESC
@@ -447,6 +387,7 @@ BEGIN
                 SELECT relaxed_inner.cover_url,
                        relaxed_inner.cover_s3_key,
                        relaxed_inner.cover_fallback_url,
+                       relaxed_inner.cover_is_grayscale,
                        relaxed_inner.width,
                        relaxed_inner.height,
                        relaxed_inner.is_high_resolution,
@@ -460,22 +401,11 @@ BEGIN
                         COALESCE(bil_relaxed.s3_image_path, bil_relaxed.url) AS cover_url,
                         bil_relaxed.s3_image_path AS cover_s3_key,
                         NULLIF(bil_relaxed.url, '') AS cover_fallback_url,
+                        bil_relaxed.is_grayscale AS cover_is_grayscale,
                         bil_relaxed.width,
                         bil_relaxed.height,
                         COALESCE(bil_relaxed.is_high_resolution, false) AS is_high_resolution,
-                        CASE
-                            WHEN bil_relaxed.s3_image_path IS NOT NULL AND COALESCE(bil_relaxed.is_high_resolution, false) THEN 0
-                            WHEN bil_relaxed.s3_image_path IS NOT NULL THEN 1
-                            WHEN bil_relaxed.url LIKE '%edge=curl%' THEN 5
-                            WHEN COALESCE(bil_relaxed.is_high_resolution, false) THEN 10
-                            WHEN bil_relaxed.width >= 320 AND bil_relaxed.height >= 320 THEN 11
-                            WHEN bil_relaxed.image_type = 'extraLarge' THEN 12
-                            WHEN bil_relaxed.image_type = 'large' THEN 13
-                            WHEN bil_relaxed.image_type = 'medium' THEN 14
-                            WHEN bil_relaxed.image_type = 'small' THEN 15
-                            WHEN bil_relaxed.image_type = 'thumbnail' THEN 16
-                            ELSE 20
-                        END AS cover_priority,
+                        cover_image_priority(bil_relaxed.s3_image_path, bil_relaxed.is_high_resolution, bil_relaxed.url, bil_relaxed.width, bil_relaxed.height, bil_relaxed.image_type, bil_relaxed.is_grayscale) AS cover_priority,
                         COALESCE(bil_relaxed.height, 0) AS height_value,
                         COALESCE(bil_relaxed.width, 0) AS width_value,
                         bil_relaxed.created_at AS created_value
@@ -499,6 +429,7 @@ BEGIN
         GROUP BY input_ids.ord, b.id, b.slug, b.title, b.description, b.published_date,
                  bei.average_rating, bei.ratings_count,
                  cover_meta.cover_url, cover_meta.cover_s3_key, cover_meta.cover_fallback_url,
+                 cover_meta.cover_is_grayscale,
                  cover_meta.width, cover_meta.height, cover_meta.is_high_resolution
     )
     SELECT
@@ -514,6 +445,7 @@ BEGIN
         list_data.cover_width,
         list_data.cover_height,
         list_data.cover_is_high_resolution,
+        list_data.cover_is_grayscale,
         list_data.average_rating,
         list_data.ratings_count,
         list_data.tags,
@@ -552,6 +484,7 @@ RETURNS TABLE (
     cover_width INTEGER,
     cover_height INTEGER,
     cover_is_high_resolution BOOLEAN,
+    cover_is_grayscale BOOLEAN,
     data_source TEXT,
     average_rating NUMERIC,
     ratings_count INTEGER,
@@ -625,6 +558,7 @@ BEGIN
         cover_meta.width as cover_width,
         cover_meta.height as cover_height,
         cover_meta.is_high_resolution as cover_is_high_resolution,
+        cover_meta.is_grayscale as cover_is_grayscale,
         CASE
             WHEN EXISTS (
                 SELECT 1
@@ -673,23 +607,13 @@ BEGIN
                NULLIF(bil_meta.url, '') as cover_fallback_url,
                bil_meta.width,
                bil_meta.height,
-               bil_meta.is_high_resolution
+               bil_meta.is_high_resolution,
+               bil_meta.is_grayscale
         FROM book_image_links bil_meta
         WHERE bil_meta.book_id = b.id
           AND bil_meta.download_error IS NULL
         ORDER BY
-            CASE
-                WHEN bil_meta.s3_image_path IS NOT NULL AND bil_meta.is_high_resolution THEN 0
-                WHEN bil_meta.s3_image_path IS NOT NULL THEN 1
-                WHEN bil_meta.is_high_resolution THEN 2
-                WHEN bil_meta.width >= 320 AND bil_meta.height >= 320 THEN 3
-                WHEN bil_meta.image_type = 'extraLarge' THEN 4
-                WHEN bil_meta.image_type = 'large' THEN 5
-                WHEN bil_meta.image_type = 'medium' THEN 6
-                WHEN bil_meta.image_type = 'small' THEN 7
-                WHEN bil_meta.image_type = 'thumbnail' THEN 8
-                ELSE 9
-            END,
+            cover_image_priority(bil_meta.s3_image_path, bil_meta.is_high_resolution, bil_meta.url, bil_meta.width, bil_meta.height, bil_meta.image_type, bil_meta.is_grayscale),
             bil_meta.height DESC NULLS LAST,
             bil_meta.width DESC NULLS LAST,
             bil_meta.created_at DESC
@@ -701,6 +625,7 @@ BEGIN
              bei.average_rating, bei.ratings_count, bei.preview_link, bei.info_link,
              cover_meta.cover_url, cover_meta.cover_s3_key, cover_meta.cover_fallback_url,
              cover_meta.width, cover_meta.height, cover_meta.is_high_resolution,
+             cover_meta.is_grayscale,
              provider_source.source;
 END;
 $$ LANGUAGE plpgsql STABLE;
@@ -745,18 +670,7 @@ BEGIN
         WHERE bil.book_id = b.id
           AND bil.download_error IS NULL
         ORDER BY
-            CASE
-                WHEN bil.s3_image_path IS NOT NULL AND bil.is_high_resolution THEN 0
-                WHEN bil.s3_image_path IS NOT NULL THEN 1
-                WHEN bil.is_high_resolution THEN 2
-                WHEN bil.width >= 320 AND bil.height >= 320 THEN 3
-                WHEN bil.image_type = 'extraLarge' THEN 4
-                WHEN bil.image_type = 'large' THEN 5
-                WHEN bil.image_type = 'medium' THEN 6
-                WHEN bil.image_type = 'small' THEN 7
-                WHEN bil.image_type = 'thumbnail' THEN 8
-                ELSE 9
-            END,
+            cover_image_priority(bil.s3_image_path, bil.is_high_resolution, bil.url, bil.width, bil.height, bil.image_type, bil.is_grayscale),
             bil.height DESC NULLS LAST,
             bil.width DESC NULLS LAST,
             bil.created_at DESC
@@ -794,6 +708,7 @@ RETURNS TABLE (
     cover_url TEXT,
     cover_s3_key TEXT,
     cover_fallback_url TEXT,
+    cover_is_grayscale BOOLEAN,
     average_rating NUMERIC,
     ratings_count INTEGER,
     tags JSONB
@@ -808,6 +723,7 @@ BEGIN
         bc.cover_url,
         bc.cover_s3_key,
         bc.cover_fallback_url,
+        bc.cover_is_grayscale,
         bc.average_rating,
         bc.ratings_count,
         bc.tags
@@ -820,6 +736,7 @@ BEGIN
         cover_url,
         cover_s3_key,
         cover_fallback_url,
+        cover_is_grayscale,
         average_rating,
         ratings_count,
         tags
