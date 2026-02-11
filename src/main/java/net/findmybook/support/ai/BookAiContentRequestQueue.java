@@ -15,6 +15,8 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Supplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -28,6 +30,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class BookAiContentRequestQueue {
 
+    private static final Logger log = LoggerFactory.getLogger(BookAiContentRequestQueue.class);
     private static final int MAX_ALLOWED_PARALLEL = 20;
     private static final int DEFAULT_MAX_BACKGROUND_PENDING = 100_000;
 
@@ -242,7 +245,10 @@ public class BookAiContentRequestQueue {
                 if (throwable == null) {
                     task.result.complete(supplierResult);
                 } else {
-                    task.result.completeExceptionally(unwrapCompletionFailure(throwable));
+                    Throwable failure = unwrapCompletionFailure(throwable);
+                    log.warn("AI queue task failed [id={}, lane={}, priority={}]",
+                        task.id, task.lane, task.priority, failure);
+                    task.result.completeExceptionally(failure);
                 }
                 synchronized (this) {
                     runningById.remove(task.id);

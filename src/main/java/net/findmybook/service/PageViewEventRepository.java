@@ -3,7 +3,8 @@ package net.findmybook.service;
 import jakarta.annotation.Nullable;
 import java.sql.Timestamp;
 import java.time.Instant;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Async;
@@ -17,8 +18,9 @@ import org.springframework.util.StringUtils;
  * generic route-level analytics events such as homepage traffic.</p>
  */
 @Service
-@Slf4j
 public class PageViewEventRepository {
+
+    private static final Logger log = LoggerFactory.getLogger(PageViewEventRepository.class);
 
     private final JdbcTemplate jdbcTemplate;
 
