@@ -152,7 +152,7 @@ public class CoverS3UploadCoordinator {
             .publishOn(Schedulers.boundedElastic())
             .subscribe(
                 details -> handleUploadSuccess(details, bookId, bookUuid, sample),
-                error -> handleUploadError(error, bookId, sample)
+                error -> handleUploadError(error, bookId, bookUuid, sample)
             );
     }
 
@@ -258,10 +258,12 @@ public class CoverS3UploadCoordinator {
         s3UploadSuccesses.increment();
     }
 
-    private void handleUploadError(Throwable error, String bookId, Timer.Sample sample) {
+    private void handleUploadError(Throwable error, String bookId, UUID bookUuid, Timer.Sample sample) {
         sample.stop(s3UploadDuration);
         s3UploadFailures.increment();
 
+        String errorForDb = resolveFailureReason(error);
+        
         switch (error) {
             case CoverDownloadException downloadException -> {
                 String causeMessage = downloadException.getCause() != null
@@ -272,23 +274,32 @@ public class CoverS3UploadCoordinator {
                     CODE_S3_DOWNLOAD_FAILED,
                     causeMessage,
                     downloadException.getImageUrl());
+                errorForDb = "DownloadFailed: " + causeMessage;
             }
-            case CoverProcessingException processingException ->
+            case CoverProcessingException processingException -> {
                 logger.error("S3 upload failed for book {} (non-retryable) [code={}]: reason={}",
                     bookId,
                     CODE_S3_PROCESSING_FAILED,
                     resolveFailureReason(processingException));
-            case CoverTooLargeException tooLargeException ->
+                if (processingException.getRejectionReason() != null) {
+                    errorForDb = processingException.getRejectionReason().name();
+                }
+            }
+            case CoverTooLargeException tooLargeException -> {
                 logger.error("S3 upload failed for book {} (non-retryable) [code={}]: reason=image-too-large actual={} max={}",
                     bookId,
                     CODE_S3_TOO_LARGE,
                     tooLargeException.getActualSize(),
                     tooLargeException.getMaxSize());
-            case UnsafeUrlException unsafeUrlException ->
+                errorForDb = "TooLarge";
+            }
+            case UnsafeUrlException unsafeUrlException -> {
                 logger.error("S3 upload failed for book {} (non-retryable) [code={}]: reason=unsafe-url imageUrl={}",
                     bookId,
                     CODE_S3_UNSAFE_URL,
                     unsafeUrlException.getImageUrl());
+                errorForDb = "UnsafeUrl";
+            }
             case S3UploadException s3UploadException ->
                 logger.warn("S3 upload skipped for book {} due to runtime configuration [code={}]: reason={}",
                     bookId,
@@ -303,6 +314,11 @@ public class CoverS3UploadCoordinator {
                     s3UploadSuccesses.count(),
                     s3UploadFailures.count(),
                     error);
+        }
+        
+        // Record error in database so failure isn't silent
+        if (!(error instanceof S3UploadException)) { // Don't record runtime config skips (e.g. disabled)
+             coverPersistenceService.recordDownloadError(bookUuid, errorForDb);
         }
     }
 

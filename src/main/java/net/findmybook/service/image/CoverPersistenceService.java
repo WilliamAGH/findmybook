@@ -305,6 +305,32 @@ public class CoverPersistenceService {
     }
     
     /**
+     * Records a download error for the canonical image link of a book.
+     *
+     * @param bookId Canonical book UUID
+     * @param error Error message or code
+     */
+    @Transactional
+    public void recordDownloadError(UUID bookId, String error) {
+        if (bookId == null || !StringUtils.hasText(error)) {
+            return;
+        }
+        try {
+            int updated = jdbcTemplate.update(
+                "UPDATE book_image_links SET download_error = ?, updated_at = NOW() WHERE book_id = ? AND image_type = 'canonical'",
+                error, bookId
+            );
+            if (updated > 0) {
+                log.warn("Recorded download error for book {}: {}", bookId, error);
+            } else {
+                log.warn("Could not record download error for book {} (canonical row not found): {}", bookId, error);
+            }
+        } catch (DataAccessException e) {
+            log.error("Failed to record download error for book {}: {}", bookId, e.getMessage(), e);
+        }
+    }
+    
+    /**
      * Propagates a non-null grayscale flag to all sibling rows for the same book
      * that have not yet been independently analyzed ({@code is_grayscale IS NULL}).
      *

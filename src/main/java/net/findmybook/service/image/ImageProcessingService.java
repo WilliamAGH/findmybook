@@ -50,6 +50,7 @@ public class ImageProcessingService {
     private static final int DOMINANT_COLOR_SAMPLE_STEP = 5; // Sample every 5th pixel
     private static final double DOMINANT_COLOR_THRESHOLD_PERCENTAGE = 0.80; // Adjusted from 0.90 to 0.80 (80%)
     private static final int WHITE_THRESHOLD_RGB = 240; // RGB components > 240 are considered "white"
+    private static final int LOG_PREVIEW_LENGTH = 200; // Max length for response body logging
 
     /**
      * Processes an image for S3 storage, optimizing size and quality
@@ -75,8 +76,16 @@ public class ImageProcessingService {
         }
 
         if (rawImageBytes.length < MIN_IMAGE_BYTES) {
-            logger.warn("Book ID {}: Response too small to be a cover image ({} bytes, minimum {} bytes).",
-                bookIdForLog, rawImageBytes.length, MIN_IMAGE_BYTES);
+            String contentPreview = new String(rawImageBytes, java.nio.charset.StandardCharsets.UTF_8);
+            // Truncate if somehow long but under MIN_IMAGE_BYTES (unlikely but safe)
+            if (contentPreview.length() > LOG_PREVIEW_LENGTH) {
+                contentPreview = contentPreview.substring(0, LOG_PREVIEW_LENGTH) + "...";
+            }
+            // Replace newlines to keep log clean
+            contentPreview = contentPreview.replace("\n", "\\n").replace("\r", "");
+            
+            logger.warn("Book ID {}: Response too small to be a cover image ({} bytes, minimum {} bytes). Content preview: '{}'",
+                bookIdForLog, rawImageBytes.length, MIN_IMAGE_BYTES, contentPreview);
             return CompletableFuture.completedFuture(ProcessedImage.rejected(CoverRejectionReason.RESPONSE_TOO_SMALL,
                 "Response too small to be a cover image (%d bytes, minimum %d bytes)".formatted(rawImageBytes.length, MIN_IMAGE_BYTES)));
         }
