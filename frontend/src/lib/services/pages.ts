@@ -12,8 +12,22 @@ import {
   RouteManifestSchema,
 } from "$lib/validation/schemas";
 
-export function getHomePagePayload(): Promise<HomePayload> {
-  return getJson("/api/pages/home", HomePayloadSchema, "getHomePagePayload");
+export type PopularWindow = "30d" | "90d" | "all";
+
+export interface HomePayloadRequestOptions {
+  popularWindow?: PopularWindow;
+  popularLimit?: number;
+}
+
+export function getHomePagePayload(options: HomePayloadRequestOptions = {}): Promise<HomePayload> {
+  const url = new URL("/api/pages/home", window.location.origin);
+  if (options.popularWindow) {
+    url.searchParams.set("popularWindow", options.popularWindow);
+  }
+  if (typeof options.popularLimit === "number") {
+    url.searchParams.set("popularLimit", String(options.popularLimit));
+  }
+  return getJson(`${url.pathname}${url.search}`, HomePayloadSchema, "getHomePagePayload");
 }
 
 export function getSitemapPayload(viewType: "authors" | "books", letter: string, pageNumber: number): Promise<SitemapPayload> {

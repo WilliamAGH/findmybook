@@ -1,23 +1,19 @@
 package net.findmybook.controller;
 
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
-import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Matcher;
+import net.findmybook.application.page.PublicPagePayloadUseCase;
 import net.findmybook.config.SitemapProperties;
 import net.findmybook.controller.PageApiPayloads.CategoriesFacetsPayload;
-import net.findmybook.controller.PageApiPayloads.CategoryFacetPayload;
 import net.findmybook.controller.PageApiPayloads.HomePayload;
 import net.findmybook.controller.PageApiPayloads.OpenGraphMetaPayload;
 import net.findmybook.controller.PageApiPayloads.PageMetadataPayload;
 import net.findmybook.controller.PageApiPayloads.SitemapAuthorPayload;
 import net.findmybook.controller.PageApiPayloads.SitemapBookPayload;
 import net.findmybook.controller.PageApiPayloads.SitemapPayload;
-import net.findmybook.dto.BookCard;
-import net.findmybook.service.AffiliateLinkService;
 import net.findmybook.service.BookSeoMetadataService;
 import net.findmybook.service.HomePageSectionsService;
 import net.findmybook.service.SitemapService;
@@ -25,22 +21,18 @@ import net.findmybook.service.SitemapService.AuthorSection;
 import net.findmybook.service.SitemapService.BookSitemapItem;
 import net.findmybook.service.SitemapService.PagedResult;
 import net.findmybook.util.PagingUtils;
-import net.findmybook.util.cover.CoverPrioritizer;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
-import org.springframework.util.StringUtils;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.util.UriUtils;
-import reactor.core.publisher.Mono;
 import org.springframework.web.server.ResponseStatusException;
-import java.util.ArrayList;
+import reactor.core.publisher.Mono;
 
 /**
  * REST endpoints that provide typed payloads for SPA-rendered public pages.
@@ -49,40 +41,33 @@ import java.util.ArrayList;
 @RequestMapping("/api/pages")
 public class PageApiController {
 
-    private static final Logger log = LoggerFactory.getLogger(PageApiController.class);
-    private static final int MAX_BESTSELLERS = 8;
-    private static final int MAX_RECENT_BOOKS = 8;
-    private static final int DEFAULT_CATEGORY_FACET_LIMIT = 24;
-    private static final int MAX_CATEGORY_FACET_LIMIT = 200;
-    private static final int DEFAULT_CATEGORY_MIN_BOOKS = 1;
-
-    private final HomePageSectionsService homePageSectionsService;
+    private final PublicPagePayloadUseCase publicPagePayloadUseCase;
     private final SitemapService sitemapService;
     private final SitemapProperties sitemapProperties;
-    private final AffiliateLinkService affiliateLinkService;
+    private final HomePageSectionsService homePageSectionsService;
     private final BookSeoMetadataService bookSeoMetadataService;
     private final int maxDescriptionLength;
 
     /**
      * Creates the page payload controller.
      *
-     * @param homePageSectionsService service that hydrates homepage/book sections
+     * @param publicPagePayloadUseCase use case for homepage/affiliate/category payloads
      * @param sitemapService service that loads sitemap buckets and pages
      * @param sitemapProperties configured sitemap base URL and sizes
-     * @param affiliateLinkService service that computes outbound purchase links
+     * @param homePageSectionsService service used for metadata book lookups
      * @param bookSeoMetadataService service that computes route metadata payloads
      * @param maxDescriptionLength configured maximum description length for route SEO metadata
      */
-    public PageApiController(HomePageSectionsService homePageSectionsService,
+    public PageApiController(PublicPagePayloadUseCase publicPagePayloadUseCase,
                              SitemapService sitemapService,
                              SitemapProperties sitemapProperties,
-                             AffiliateLinkService affiliateLinkService,
+                             HomePageSectionsService homePageSectionsService,
                              BookSeoMetadataService bookSeoMetadataService,
                              @Value("${app.seo.max-description-length:170}") int maxDescriptionLength) {
-        this.homePageSectionsService = homePageSectionsService;
+        this.publicPagePayloadUseCase = publicPagePayloadUseCase;
         this.sitemapService = sitemapService;
         this.sitemapProperties = sitemapProperties;
-        this.affiliateLinkService = affiliateLinkService;
+        this.homePageSectionsService = homePageSectionsService;
         this.bookSeoMetadataService = bookSeoMetadataService;
         this.maxDescriptionLength = maxDescriptionLength;
     }
@@ -93,38 +78,9 @@ public class PageApiController {
      * @return asynchronous payload used by the SPA home route
      */
     @GetMapping("/home")
-    public Mono<HomePayload> homePayload() {
-        Mono<List<BookCard>> bestsellers = homePageSectionsService.loadCurrentBestsellers(MAX_BESTSELLERS)
-            .map(cards -> retainRenderableCovers(cards, MAX_BESTSELLERS))
-            .timeout(Duration.ofSeconds(3));
-        Mono<List<BookCard>> recentBooks = homePageSectionsService.loadRecentBooks(MAX_RECENT_BOOKS)
-            .map(cards -> retainRenderableCovers(cards, MAX_RECENT_BOOKS))
-            .timeout(Duration.ofSeconds(3));
-
-        return Mono.zip(bestsellers, recentBooks)
-            .map(tuple -> new HomePayload(tuple.getT1(), tuple.getT2()))
-            .onErrorMap(ex -> {
-                log.warn("Failed to build /api/pages/home payload: {}", ex.getMessage());
-                return new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Homepage payload load failed", ex);
-            });
-    }
-
-    private static List<BookCard> retainRenderableCovers(List<BookCard> cards, int maxItems) {
-        if (cards == null || cards.isEmpty() || maxItems <= 0) {
-            return List.of();
-        }
-
-        List<BookCard> filtered = new ArrayList<>(Math.min(cards.size(), maxItems));
-        for (BookCard card : cards) {
-            if (card == null || CoverPrioritizer.score(card) <= 0) {
-                continue;
-            }
-            filtered.add(card);
-            if (filtered.size() >= maxItems) {
-                break;
-            }
-        }
-        return List.copyOf(filtered);
+    public Mono<HomePayload> homePayload(@RequestParam(name = "popularWindow", required = false) String popularWindow,
+                                         @RequestParam(name = "popularLimit", required = false) Integer popularLimit) {
+        return publicPagePayloadUseCase.loadHomePayload(popularWindow, popularLimit);
     }
 
     /**
@@ -135,15 +91,7 @@ public class PageApiController {
      */
     @GetMapping("/book/{identifier}/affiliate-links")
     public Mono<ResponseEntity<Map<String, String>>> affiliateLinks(@PathVariable String identifier) {
-        if (!StringUtils.hasText(identifier)) {
-            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Book identifier is required"));
-        }
-
-        return homePageSectionsService.locateBook(identifier)
-            .map(book -> ResponseEntity.ok(affiliateLinkService.generateLinks(book)))
-            .switchIfEmpty(Mono.error(
-                new ResponseStatusException(HttpStatus.NOT_FOUND, "No book found for identifier: " + identifier)
-            ));
+        return publicPagePayloadUseCase.loadAffiliateLinks(identifier);
     }
 
     /**
@@ -203,22 +151,7 @@ public class PageApiController {
         @RequestParam(name = "limit", required = false) Integer limit,
         @RequestParam(name = "minBooks", required = false) Integer minBooks
     ) {
-        int safeLimit = PagingUtils.safeLimit(
-            limit != null ? limit : 0,
-            DEFAULT_CATEGORY_FACET_LIMIT,
-            1,
-            MAX_CATEGORY_FACET_LIMIT
-        );
-        int safeMinBooks = minBooks == null ? DEFAULT_CATEGORY_MIN_BOOKS : Math.max(0, minBooks);
-        List<CategoryFacetPayload> genres = homePageSectionsService.loadCategoryFacets(safeLimit, safeMinBooks).stream()
-            .map(facet -> new CategoryFacetPayload(facet.name(), facet.bookCount()))
-            .toList();
-        return ResponseEntity.ok(new CategoriesFacetsPayload(
-            genres,
-            Instant.now(),
-            safeLimit,
-            safeMinBooks
-        ));
+        return publicPagePayloadUseCase.loadCategoryFacets(limit, minBooks);
     }
 
     /**
