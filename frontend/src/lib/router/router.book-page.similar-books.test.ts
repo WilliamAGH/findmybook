@@ -65,6 +65,17 @@ beforeEach(() => {
   subscribeToBookCoverUpdatesMock.mockResolvedValue(() => {});
 });
 
+const DISPLAYABLE_COVER = {
+  s3ImagePath: null,
+  externalImageUrl: null,
+  width: 300,
+  height: 450,
+  highResolution: false,
+  preferredUrl: "https://cdn.example.com/cover.jpg",
+  fallbackUrl: null,
+  source: "GOOGLE_BOOKS",
+};
+
 function createBookPayload(overrides: Record<string, unknown>) {
   return {
     id: "book-1",
@@ -98,20 +109,9 @@ function createBookPayload(overrides: Record<string, unknown>) {
 
 describe("BookPage similar books", () => {
   it("shouldRenderCoverGridWhenSimilarBooksHaveDisplayableCovers", async () => {
-    const coverPayload = {
-      s3ImagePath: null,
-      externalImageUrl: null,
-      width: 300,
-      height: 450,
-      highResolution: false,
-      preferredUrl: "https://cdn.example.com/cover.jpg",
-      fallbackUrl: null,
-      source: "GOOGLE_BOOKS",
-    };
-
     getSimilarBooksMock.mockResolvedValueOnce([
-      createBookPayload({ id: "related-1", slug: "related-1", title: "Related One", cover: coverPayload }),
-      createBookPayload({ id: "related-2", slug: "related-2", title: "Related Two", cover: coverPayload }),
+      createBookPayload({ id: "related-1", slug: "related-1", title: "Related One", cover: DISPLAYABLE_COVER }),
+      createBookPayload({ id: "related-2", slug: "related-2", title: "Related Two", cover: DISPLAYABLE_COVER }),
     ]);
 
     const currentUrl = new URL("https://findmybook.net/book/book-1");
@@ -150,6 +150,37 @@ describe("BookPage similar books", () => {
     });
 
     expect(screen.queryByRole("heading", { name: "You might also like" })).not.toBeInTheDocument();
+  });
+
+  it("shouldExcludeCurrentBookFromSimilarBooksDisplay", async () => {
+    getSimilarBooksMock.mockResolvedValueOnce([
+      createBookPayload({ id: "book-1", slug: "book-1", title: "Current Book", cover: DISPLAYABLE_COVER }),
+      createBookPayload({ id: "related-1", slug: "related-1", title: "Related One", cover: DISPLAYABLE_COVER }),
+      createBookPayload({ id: "related-2", slug: "related-2", title: "Related Two", cover: DISPLAYABLE_COVER }),
+    ]);
+
+    const currentUrl = new URL("https://findmybook.net/book/book-1");
+    render(BookPage, {
+      props: {
+        currentUrl,
+        identifier: "book-1",
+      },
+    });
+
+    const sectionHeading = await screen.findByRole("heading", { name: "You might also like" });
+    expect(sectionHeading).toBeInTheDocument();
+
+    const recommendationSection = sectionHeading.closest("section");
+    expect(recommendationSection).not.toBeNull();
+    const recommendationCovers = recommendationSection?.querySelectorAll("img");
+    expect(recommendationCovers).toHaveLength(2);
+
+    const linkHrefs = Array.from(recommendationSection?.querySelectorAll("a") ?? []).map(
+      (a) => a.getAttribute("href"),
+    );
+    expect(linkHrefs).not.toContain("/book/book-1");
+    expect(linkHrefs).toContain("/book/related-1");
+    expect(linkHrefs).toContain("/book/related-2");
   });
 
   it("shouldHideRecommendationCardWhenPrimaryAndFallbackCoversFailToLoad", async () => {

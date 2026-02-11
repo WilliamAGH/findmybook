@@ -342,7 +342,7 @@
 
     <BookEditions editions={book.editions} />
 
-    <BookSimilarBooks books={similarBooks} loadFailed={similarBooksFailed} />
+    <BookSimilarBooks books={similarBooks} loadFailed={similarBooksFailed} currentBookId={book.id} />
   {:else}
     <p class="text-sm text-anthracite-600 dark:text-slate-300">Book not found.</p>
   {/if}

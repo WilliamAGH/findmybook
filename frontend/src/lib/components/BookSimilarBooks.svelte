@@ -18,7 +18,16 @@
   /** Matches ImageDimensionUtils.MAX_ASPECT_RATIO (height / width). */
   const MAX_COVER_ASPECT_RATIO = 2.0;
 
-  let { books, loadFailed = false }: { books: Book[]; loadFailed?: boolean } = $props();
+  let {
+    books,
+    loadFailed = false,
+    currentBookId = null,
+  }: {
+    books: Book[];
+    loadFailed?: boolean;
+    /** Excludes the currently displayed book from the recommendation grid. */
+    currentBookId?: string | null;
+  } = $props();
 
   let failedCoverBookIds = $state(new Set<string>());
   let fallbackAttemptedBookIds = $state(new Set<string>());
@@ -75,7 +84,9 @@
     return !failedCoverBookIds.has(book.id);
   }
 
-  let displayableBooks = $derived(books.filter(hasDisplayableCover));
+  let displayableBooks = $derived(
+    books.filter((book) => book.id !== currentBookId && hasDisplayableCover(book)),
+  );
 
   function resolveFallbackUrl(book: Book): string | null {
     const fallback = book.cover?.fallbackUrl;
