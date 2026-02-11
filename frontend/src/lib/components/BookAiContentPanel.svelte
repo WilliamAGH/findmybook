@@ -296,7 +296,9 @@
         return;
       }
       if (!hasRenderableAiContent(book) && !aiLoading && !aiAutoTriggerDeferred) {
-        void triggerAiGeneration(false);
+        // Existing-but-degenerate snapshots must bypass cache to force regeneration.
+        const requiresRefresh = Boolean(book?.aiContent);
+        void triggerAiGeneration(requiresRefresh);
       }
     }, 0);
 
