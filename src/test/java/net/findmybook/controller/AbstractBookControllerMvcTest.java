@@ -9,6 +9,7 @@ import java.util.Optional;
 import java.util.UUID;
 import net.findmybook.application.book.BookDetailResponseUseCase;
 import net.findmybook.application.book.RecommendationCardResponseUseCase;
+import net.findmybook.application.book.SimilarBooksResponseUseCase;
 import net.findmybook.application.ai.BookAiContentService;
 import net.findmybook.application.cover.BookCoverResolutionService;
 import net.findmybook.application.cover.BrowserCoverIngestUseCase;
@@ -94,13 +95,14 @@ abstract class AbstractBookControllerMvcTest {
             new BookDetailResponseUseCase(bookAiContentService, recentlyViewedService);
         RecommendationCardResponseUseCase recommendationCardResponseUseCase =
             new RecommendationCardResponseUseCase();
+        SimilarBooksResponseUseCase similarBooksResponseUseCase =
+            new SimilarBooksResponseUseCase(bookSearchService, recommendationCardResponseUseCase, recommendationService);
         BookController bookController = new BookController(
             bookSearchService,
             bookIdentifierResolver,
             searchPaginationService,
             bookDetailResponseUseCase,
-            recommendationCardResponseUseCase,
-            recommendationService,
+            similarBooksResponseUseCase,
             bookDataOrchestrator
         );
         BookCoverResolutionService bookCoverResolutionService = new BookCoverResolutionService(

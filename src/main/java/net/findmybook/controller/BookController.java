@@ -5,11 +5,10 @@ package net.findmybook.controller;
 
 import jakarta.annotation.Nullable;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import net.findmybook.application.book.BookDetailResponseUseCase;
-import net.findmybook.application.book.RecommendationCardResponseUseCase;
+import net.findmybook.application.book.SimilarBooksResponseUseCase;
 import net.findmybook.controller.dto.BookDto;
 import net.findmybook.controller.dto.BookDtoMapper;
 import net.findmybook.controller.dto.search.AuthorSearchResponse;
@@ -26,7 +25,6 @@ import net.findmybook.model.image.ImageResolutionPreference;
 import net.findmybook.service.BookDataOrchestrator;
 import net.findmybook.service.BookIdentifierResolver;
 import net.findmybook.service.BookSearchService;
-import net.findmybook.service.RecommendationService;
 import net.findmybook.service.SearchPaginationService;
 import net.findmybook.util.ApplicationConstants;
 import net.findmybook.util.EnumParsingUtils;
@@ -54,8 +52,7 @@ public class BookController {
     private final BookIdentifierResolver bookIdentifierResolver;
     private final SearchPaginationService searchPaginationService;
     private final BookDetailResponseUseCase bookDetailResponseUseCase;
-    private final RecommendationCardResponseUseCase recommendationCardResponseUseCase;
-    private final RecommendationService recommendationService;
+    private final SimilarBooksResponseUseCase similarBooksResponseUseCase;
     /**
      * The book data orchestrator, may be null when disabled.
      */
@@ -68,23 +65,20 @@ public class BookController {
      * @param bookIdentifierResolver the identifier resolver
      * @param searchPaginationService the pagination service
      * @param bookDetailResponseUseCase use case for detail response enrichment and side effects
-     * @param recommendationCardResponseUseCase use case for recommendation DTO ordering/mapping
-     * @param recommendationService service responsible for recommendation regeneration
+     * @param similarBooksResponseUseCase use case for similar-books cache/regeneration response shaping
      * @param bookDataOrchestrator the data orchestrator, or null when disabled
      */
     public BookController(BookSearchService bookSearchService,
                           BookIdentifierResolver bookIdentifierResolver,
                           SearchPaginationService searchPaginationService,
                           BookDetailResponseUseCase bookDetailResponseUseCase,
-                          RecommendationCardResponseUseCase recommendationCardResponseUseCase,
-                          RecommendationService recommendationService,
+                          SimilarBooksResponseUseCase similarBooksResponseUseCase,
                           BookDataOrchestrator bookDataOrchestrator) {
         this.bookSearchService = bookSearchService;
         this.bookIdentifierResolver = bookIdentifierResolver;
         this.searchPaginationService = searchPaginationService;
         this.bookDetailResponseUseCase = bookDetailResponseUseCase;
-        this.recommendationCardResponseUseCase = recommendationCardResponseUseCase;
-        this.recommendationService = recommendationService;
+        this.similarBooksResponseUseCase = similarBooksResponseUseCase;
         this.bookDataOrchestrator = bookDataOrchestrator;
     }
 
@@ -211,75 +205,13 @@ public class BookController {
                 return Mono.<List<BookDto>>empty();
             }
             UUID sourceUuid = maybeUuid.get();
-            return resolveSimilarBooks(identifier, sourceUuid, safeLimit);
+            return similarBooksResponseUseCase.resolveSimilarBooks(identifier, sourceUuid, safeLimit);
         });
 
         return ReactiveControllerUtils.withErrorHandling(
             similarBooks,
             String.format("Failed to load similar books for '%s'", identifier)
         );
-    }
-
-    private Mono<List<BookDto>> resolveSimilarBooks(String identifier, UUID sourceUuid, int safeLimit) {
-        return Mono.fromCallable(() -> {
-                List<net.findmybook.dto.RecommendationCard> cards = bookSearchService.fetchRecommendationCards(sourceUuid, safeLimit);
-                boolean hasActiveRows = bookSearchService.hasActiveRecommendationCards(sourceUuid);
-                return new SimilarCacheSnapshot(cards, hasActiveRows);
-            })
-            .subscribeOn(Schedulers.boundedElastic())
-            .flatMap(cacheSnapshot -> {
-                List<BookDto> cachedDtos = recommendationCardResponseUseCase.mapRecommendationCards(cacheSnapshot.cards());
-                boolean hasActiveRows = cacheSnapshot.hasActiveRows();
-                if (hasActiveRows && !cachedDtos.isEmpty()) {
-                    return Mono.just(cachedDtos);
-                }
-
-                log.info("Recommendation cache is stale or empty for '{}'; regenerating recommendations.", identifier);
-                return recommendationService.regenerateSimilarBooks(identifier, safeLimit)
-                    .flatMap(generatedBooks -> Mono
-                        .fromCallable(() -> bookSearchService.fetchRecommendationCards(sourceUuid, safeLimit))
-                        .subscribeOn(Schedulers.boundedElastic())
-                        .map(refreshedCards -> toSimilarBookDtos(new SimilarBookRefreshContext(safeLimit, cachedDtos, generatedBooks, refreshedCards))))
-                    .onErrorResume(regenerationFailure -> {
-                        if (!cachedDtos.isEmpty()) {
-                            log.warn(
-                                "Recommendation regeneration failed for '{}'; serving {} stale cached recommendation cards.",
-                                identifier,
-                                cachedDtos.size(),
-                                regenerationFailure
-                            );
-                            return Mono.just(cachedDtos);
-                        }
-                        return Mono.error(regenerationFailure);
-                    });
-            });
-    }
-
-    private List<BookDto> toSimilarBookDtos(SimilarBookRefreshContext context) {
-        List<BookDto> refreshedDtos = recommendationCardResponseUseCase.mapRecommendationCards(context.refreshedCards());
-        if (!refreshedDtos.isEmpty()) {
-            return refreshedDtos;
-        }
-        if (!context.cachedDtos().isEmpty()) {
-            return context.cachedDtos();
-        }
-        if (context.generatedBooks() == null || context.generatedBooks().isEmpty()) {
-            return List.of();
-        }
-        return context.generatedBooks().stream()
-            .map(BookDtoMapper::toDto)
-            .filter(Objects::nonNull)
-            .limit(context.safeLimit())
-            .toList();
-    }
-
-    private record SimilarCacheSnapshot(List<net.findmybook.dto.RecommendationCard> cards, boolean hasActiveRows) {
-    }
-
-    private record SimilarBookRefreshContext(int safeLimit,
-                                             List<BookDto> cachedDtos,
-                                             List<Book> generatedBooks,
-                                             List<net.findmybook.dto.RecommendationCard> refreshedCards) {
     }
 
     private Mono<ResponseEntity<BookDto>> resolveBookRequest(String identifier,
