@@ -302,7 +302,7 @@ class CoverS3UploadCoordinatorTest {
         );
         CoverDownloadException wrapped = new CoverDownloadException("book-1", "https://example.com/a.jpg", notFound);
 
-        assertThat(CoverBackfillService.isNotFoundResponse(wrapped)).isTrue();
+        assertThat(CoverSourceFetcher.isNotFoundResponse(wrapped)).isTrue();
     }
 
     @Test
@@ -311,7 +311,7 @@ class CoverS3UploadCoordinatorTest {
             new CoverProcessingException("book-2", "https://example.com/b.jpg",
                 CoverRejectionReason.PLACEHOLDER_TOO_SMALL, "Image dimensions too small, likely a placeholder");
 
-        assertThat(CoverBackfillService.isLikelyNoCoverImageFailure(processingException)).isTrue();
+        assertThat(CoverSourceFetcher.isLikelyNoCoverImageFailure(processingException)).isTrue();
     }
 
     @Test
@@ -319,14 +319,14 @@ class CoverS3UploadCoordinatorTest {
         CoverProcessingException infrastructureError =
             new CoverProcessingException("book-3", "https://example.com/c.jpg", "IOException during processing");
 
-        assertThat(CoverBackfillService.isLikelyNoCoverImageFailure(infrastructureError)).isFalse();
+        assertThat(CoverSourceFetcher.isLikelyNoCoverImageFailure(infrastructureError)).isFalse();
     }
 
     @Test
     void should_UseFirstNonBlankCauseMessage_When_SummarizingThrowable() {
         RuntimeException exception = new RuntimeException(" ", new IllegalStateException("inner-cause-message"));
 
-        assertThat(CoverBackfillService.summarizeThrowable(exception)).isEqualTo("inner-cause-message");
+        assertThat(CoverSourceFetcher.summarizeThrowable(exception)).isEqualTo("inner-cause-message");
     }
 
     private void assertCounterEventuallyEquals(String metricName, double expectedValue) {

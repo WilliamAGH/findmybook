@@ -13,6 +13,8 @@
  */
 package net.findmybook.controller;
 
+import net.findmybook.application.cover.BackfillMode;
+import net.findmybook.application.cover.BackfillProgress;
 import net.findmybook.application.cover.CoverBackfillService;
 import net.findmybook.scheduler.BookCacheWarmingScheduler;
 import net.findmybook.scheduler.NewYorkTimesBestsellerScheduler;
@@ -376,15 +378,15 @@ public class AdminController {
             @RequestParam(name = "limit", defaultValue = "100") int limit) {
 
         if (coverBackfillService.isRunning()) {
-            CoverBackfillService.BackfillProgress current = coverBackfillService.getProgress();
+            BackfillProgress current = coverBackfillService.getProgress();
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                 "A cover backfill is already running (" + current.processed() + "/" + current.totalCandidates() + ")");
         }
 
-        CoverBackfillService.BackfillMode backfillMode = switch (mode.toLowerCase()) {
-            case "missing" -> CoverBackfillService.BackfillMode.MISSING;
-            case "grayscale" -> CoverBackfillService.BackfillMode.GRAYSCALE;
-            case "rejected" -> CoverBackfillService.BackfillMode.REJECTED;
+        BackfillMode backfillMode = switch (mode.toLowerCase()) {
+            case "missing" -> BackfillMode.MISSING;
+            case "grayscale" -> BackfillMode.GRAYSCALE;
+            case "rejected" -> BackfillMode.REJECTED;
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                 "Invalid backfill mode: '" + mode + "'. Supported values: missing, grayscale, rejected");
         };
@@ -403,7 +405,7 @@ public class AdminController {
      * @return progress snapshot as JSON
      */
     @GetMapping(value = "/backfill/covers/status", produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<CoverBackfillService.BackfillProgress> getCoverBackfillStatus() {
+    public ResponseEntity<BackfillProgress> getCoverBackfillStatus() {
         return ResponseEntity.ok(coverBackfillService.getProgress());
     }
 

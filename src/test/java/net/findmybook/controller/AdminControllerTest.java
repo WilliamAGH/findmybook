@@ -1,6 +1,9 @@
 package net.findmybook.controller;
 
+import net.findmybook.application.cover.BackfillMode;
+import net.findmybook.application.cover.BackfillProgress;
 import net.findmybook.application.cover.CoverBackfillService;
+import net.findmybook.application.cover.SourceAttemptStatus;
 import net.findmybook.scheduler.BookCacheWarmingScheduler;
 import net.findmybook.scheduler.NewYorkTimesBestsellerScheduler;
 import net.findmybook.service.ApiCircuitBreakerService;
@@ -26,6 +29,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -148,13 +152,13 @@ class AdminControllerTest {
 
     @Test
     void getCoverBackfillStatus_shouldReturnCurrentAndLastAttemptDiagnostics_WhenAvailable() {
-        CoverBackfillService.SourceAttemptStatus openLibraryAttempt = new CoverBackfillService.SourceAttemptStatus(
+        SourceAttemptStatus openLibraryAttempt = new SourceAttemptStatus(
             "OPEN_LIBRARY",
             "NOT_FOUND",
             "no usable cover content from OPEN_LIBRARY (404 Not Found)",
             Instant.parse("2026-02-10T00:00:00Z")
         );
-        CoverBackfillService.BackfillProgress expectedProgress = new CoverBackfillService.BackfillProgress(
+        BackfillProgress expectedProgress = new BackfillProgress(
             20,
             3,
             1,
@@ -172,11 +176,62 @@ class AdminControllerTest {
         );
         when(coverBackfillService.getProgress()).thenReturn(expectedProgress);
 
-        CoverBackfillService.BackfillProgress responseBody = adminController.getCoverBackfillStatus().getBody();
+        BackfillProgress responseBody = adminController.getCoverBackfillStatus().getBody();
 
         assertEquals(expectedProgress, responseBody);
         assertNotNull(responseBody);
         assertEquals("NOT_FOUND", responseBody.currentBookAttempts().get(0).outcome());
         assertEquals("book-current", responseBody.currentBookId());
+    }
+
+    @Test
+    void startCoverBackfill_shouldReturnConflict_WhenAlreadyRunning() {
+        when(coverBackfillService.isRunning()).thenReturn(true);
+        when(coverBackfillService.getProgress()).thenReturn(new BackfillProgress(
+            50, 10, 5, 5, true,
+            null, null, null, List.of(),
+            null, null, null, null, List.of()
+        ));
+
+        ResponseStatusException exception = assertThrows(
+            ResponseStatusException.class,
+            () -> adminController.startCoverBackfill("missing", 100)
+        );
+
+        assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
+        assertTrue(exception.getReason().contains("already running"));
+    }
+
+    @Test
+    void startCoverBackfill_shouldReturnBadRequest_WhenModeIsInvalid() {
+        when(coverBackfillService.isRunning()).thenReturn(false);
+
+        ResponseStatusException exception = assertThrows(
+            ResponseStatusException.class,
+            () -> adminController.startCoverBackfill("bogus", 100)
+        );
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        assertTrue(exception.getReason().contains("Invalid backfill mode"));
+    }
+
+    @Test
+    void startCoverBackfill_shouldReturnAccepted_WhenStartedSuccessfully() {
+        when(coverBackfillService.isRunning()).thenReturn(false);
+
+        var response = adminController.startCoverBackfill("missing", 100);
+
+        assertEquals(HttpStatus.ACCEPTED, response.getStatusCode());
+        assertTrue(response.getBody().contains("mode=MISSING"));
+        verify(coverBackfillService).runBackfill(BackfillMode.MISSING, 100);
+    }
+
+    @Test
+    void cancelCoverBackfill_shouldReturnOk_WhenCancelled() {
+        var response = adminController.cancelCoverBackfill();
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertTrue(response.getBody().contains("cancellation requested"));
+        verify(coverBackfillService).cancel();
     }
 }

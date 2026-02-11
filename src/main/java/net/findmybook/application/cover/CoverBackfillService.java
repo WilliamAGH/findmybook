@@ -1,32 +1,21 @@
 package net.findmybook.application.cover;
 
-import tools.jackson.databind.JsonNode;
-import net.findmybook.exception.CoverProcessingException;
-import net.findmybook.model.image.ImageDetails;
-import net.findmybook.service.GoogleApiFetcher;
-import net.findmybook.service.image.S3BookCoverService;
-import net.findmybook.support.cover.CoverImageUrlSelector;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.scheduling.annotation.Async;
-import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
-import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.reactive.function.client.WebClientResponseException;
-
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 /**
  * Batch-fetches cover images from external APIs for books that lack
@@ -38,7 +27,7 @@ import java.util.function.Consumer;
  *
  * <p>Tries sources in order: Open Library → Google Books → Longitood,
  * stopping at the first success per book. Downloaded images flow through
- * {@link S3BookCoverService} which handles processing, grayscale detection,
+ * {@link net.findmybook.service.image.S3BookCoverService} which handles processing, grayscale detection,
  * S3 upload, and persistence.</p>
  */
 @Service
@@ -53,126 +42,13 @@ public class CoverBackfillService {
     private static final Duration BATCH_COOLDOWN = Duration.ofSeconds(60);
 
     // ── Backoff ─────────────────────────────────────────────────────────
-    private static final Duration INITIAL_BACKOFF = Duration.ofSeconds(30);
-    private static final Duration MAX_BACKOFF = Duration.ofMinutes(5);
-    private static final int MAX_RETRIES_PER_API = 3;
     private static final int CONSECUTIVE_FAILURES_PAUSE_THRESHOLD = 5;
     private static final Duration API_PAUSE_DURATION = Duration.ofMinutes(10);
 
-    // ── Source labels ───────────────────────────────────────────────────
-    private static final String SRC_OPEN_LIBRARY = "OPEN_LIBRARY";
-    private static final String SRC_GOOGLE_BOOKS = "GOOGLE_BOOKS";
-    private static final String SRC_LONGITOOD = "LONGITOOD";
-
-    /** Selects which candidate books a backfill run should target. */
-    public enum BackfillMode { MISSING, GRAYSCALE, REJECTED }
-
-    /**
-     * Represents the latest backfill execution state used by admin status polling.
-     * Carries aggregate counters plus current/last per-book source attempt diagnostics.
-     */
-    public record BackfillProgress(
-        int totalCandidates,
-        int processed,
-        int coverFound,
-        int noCoverFound,
-        boolean running,
-        String currentBookId,
-        String currentBookTitle,
-        String currentBookIsbn,
-        List<SourceAttemptStatus> currentBookAttempts,
-        String lastCompletedBookId,
-        String lastCompletedBookTitle,
-        String lastCompletedBookIsbn,
-        Boolean lastCompletedBookFound,
-        List<SourceAttemptStatus> lastCompletedBookAttempts
-    ) {
-        public BackfillProgress {
-            currentBookAttempts = currentBookAttempts == null ? List.of() : List.copyOf(currentBookAttempts);
-            lastCompletedBookAttempts = lastCompletedBookAttempts == null
-                ? List.of()
-                : List.copyOf(lastCompletedBookAttempts);
-        }
-    }
-
-    record BackfillCandidate(UUID id, String title, String isbn13, String isbn10) {
-        String preferredIsbn() {
-            return StringUtils.hasText(isbn13) ? isbn13 : isbn10;
-        }
-
-        String displayTitle() {
-            return StringUtils.hasText(title) ? title : "<untitled>";
-        }
-    }
-
-    enum SourceAttemptOutcome {
-        SUCCESS,
-        NOT_FOUND,
-        FAILURE,
-        SKIPPED
-    }
-
-    /**
-     * Captures a single source attempt outcome for status visibility and debugging.
-     */
-    public record SourceAttemptStatus(
-        String source,
-        String outcome,
-        String detail,
-        Instant attemptedAt
-    ) {}
-
-    record SourceAttemptResult(SourceAttemptOutcome outcome, String detail) {
-        static SourceAttemptResult success(String detail) {
-            return new SourceAttemptResult(SourceAttemptOutcome.SUCCESS, detail);
-        }
-
-        static SourceAttemptResult notFound(String detail) {
-            return new SourceAttemptResult(SourceAttemptOutcome.NOT_FOUND, detail);
-        }
-
-        static SourceAttemptResult failure(String detail) {
-            return new SourceAttemptResult(SourceAttemptOutcome.FAILURE, detail);
-        }
-
-        static SourceAttemptResult skipped(String detail) {
-            return new SourceAttemptResult(SourceAttemptOutcome.SKIPPED, detail);
-        }
-
-        boolean success() {
-            return outcome == SourceAttemptOutcome.SUCCESS;
-        }
-    }
-
-    record ProcessBookResult(boolean coverFound, List<SourceAttemptStatus> attempts) {
-        ProcessBookResult {
-            attempts = attempts == null ? List.of() : List.copyOf(attempts);
-        }
-    }
-
     private final JdbcTemplate jdbcTemplate;
-    private final S3BookCoverService s3BookCoverService;
-    private final GoogleApiFetcher googleApiFetcher;
-    private final WebClient webClient;
+    private final CoverSourceFetcher sourceFetcher;
+    private final BackfillProgressTracker progressTracker;
 
-    private final AtomicReference<BackfillProgress> progress = new AtomicReference<>(
-        new BackfillProgress(
-            0,
-            0,
-            0,
-            0,
-            false,
-            null,
-            null,
-            null,
-            List.of(),
-            null,
-            null,
-            null,
-            null,
-            List.of()
-        )
-    );
     private final AtomicBoolean backfillRunning = new AtomicBoolean(false);
     private volatile boolean cancelled;
 
@@ -182,18 +58,16 @@ public class CoverBackfillService {
     private final Map<String, Instant> pausedUntil = new ConcurrentHashMap<>();
 
     public CoverBackfillService(JdbcTemplate jdbcTemplate,
-                                S3BookCoverService s3BookCoverService,
-                                GoogleApiFetcher googleApiFetcher,
-                                WebClient.Builder webClientBuilder) {
+                                CoverSourceFetcher sourceFetcher,
+                                BackfillProgressTracker progressTracker) {
         this.jdbcTemplate = jdbcTemplate;
-        this.s3BookCoverService = s3BookCoverService;
-        this.googleApiFetcher = googleApiFetcher;
-        this.webClient = webClientBuilder.build();
+        this.sourceFetcher = sourceFetcher;
+        this.progressTracker = progressTracker;
     }
 
     /** Returns the latest aggregate backfill progress snapshot for admin status polling. */
     public BackfillProgress getProgress() {
-        return progress.get();
+        return progressTracker.getProgress();
     }
 
     /**
@@ -225,111 +99,113 @@ public class CoverBackfillService {
         }
 
         try {
-        cancelled = false;
-        consecutiveFailures.clear();
-        pausedUntil.clear();
+            cancelled = false;
+            consecutiveFailures.clear();
+            pausedUntil.clear();
 
-        List<BackfillCandidate> candidates = queryCandidates(mode, limit > 0 ? limit : 10_000);
-        log.info("Cover backfill starting: mode={}, candidates={}", mode, candidates.size());
-        if (candidates.isEmpty()) {
-            log.info("Cover backfill has no candidates for mode={}; verify candidate query and ISBN availability.", mode);
-        }
-        updateProgress(candidates.size(), 0, 0, 0, true, null, List.of(), null, null, List.of());
-
-        int processed = 0, found = 0, notFound = 0;
-        BackfillCandidate lastCompletedCandidate = null;
-        Boolean lastCompletedFound = null;
-        List<SourceAttemptStatus> lastCompletedAttempts = List.of();
-
-        for (int i = 0; i < candidates.size(); i++) {
-            if (cancelled) {
-                log.info("Cover backfill cancelled after {} books", processed);
-                break;
+            List<BackfillCandidate> candidates = queryCandidates(mode, limit > 0 ? limit : 10_000);
+            log.info("Cover backfill starting: mode={}, candidates={}", mode, candidates.size());
+            if (candidates.isEmpty()) {
+                log.info("Cover backfill has no candidates for mode={}; verify candidate query and ISBN availability.", mode);
             }
+            progressTracker.reset(candidates.size());
 
-            // Batch cooldown
-            if (i > 0 && i % DEFAULT_BATCH_SIZE == 0) {
-                log.info("Batch cooldown after {} books ({} covers found)", processed, found);
-                sleepSafely(BATCH_COOLDOWN);
-            }
+            int processed = 0, found = 0, notFound = 0;
+            BackfillCandidate lastCompletedCandidate = null;
+            Boolean lastCompletedFound = null;
+            List<SourceAttemptStatus> lastCompletedAttempts = List.of();
 
-            BackfillCandidate candidate = candidates.get(i);
-            BackfillCandidate previousCompletedCandidate = lastCompletedCandidate;
-            Boolean previousCompletedFound = lastCompletedFound;
-            List<SourceAttemptStatus> previousCompletedAttempts = lastCompletedAttempts;
-            int processedBeforeBook = processed;
-            int foundBeforeBook = found;
-            int notFoundBeforeBook = notFound;
-            updateProgress(
-                candidates.size(),
-                processedBeforeBook,
-                foundBeforeBook,
-                notFoundBeforeBook,
-                true,
-                candidate,
-                List.of(),
-                previousCompletedCandidate,
-                previousCompletedFound,
-                previousCompletedAttempts
-            );
+            for (int i = 0; i < candidates.size(); i++) {
+                if (cancelled) {
+                    log.info("Cover backfill cancelled after {} books", processed);
+                    break;
+                }
 
-            ProcessBookResult processResult = processBook(
-                candidate,
-                currentAttempts -> updateProgress(
+                // Batch cooldown
+                if (i > 0 && i % DEFAULT_BATCH_SIZE == 0) {
+                    log.info("Batch cooldown after {} books ({} covers found)", processed, found);
+                    sleepSafely(BATCH_COOLDOWN);
+                }
+
+                BackfillCandidate candidate = candidates.get(i);
+                BackfillCandidate previousCompletedCandidate = lastCompletedCandidate;
+                Boolean previousCompletedFound = lastCompletedFound;
+                List<SourceAttemptStatus> previousCompletedAttempts = lastCompletedAttempts;
+                int processedBeforeBook = processed;
+                int foundBeforeBook = found;
+                int notFoundBeforeBook = notFound;
+
+                progressTracker.updateProgress(
                     candidates.size(),
                     processedBeforeBook,
                     foundBeforeBook,
                     notFoundBeforeBook,
                     true,
                     candidate,
-                    currentAttempts,
+                    List.of(),
                     previousCompletedCandidate,
                     previousCompletedFound,
                     previousCompletedAttempts
-                )
-            );
+                );
 
-            boolean success = processResult.coverFound();
-            processed++;
-            if (success) {
-                found++;
-            } else {
-                notFound++;
+                ProcessBookResult processResult = processBook(
+                    candidate,
+                    currentAttempts -> progressTracker.updateProgress(
+                        candidates.size(),
+                        processedBeforeBook,
+                        foundBeforeBook,
+                        notFoundBeforeBook,
+                        true,
+                        candidate,
+                        currentAttempts,
+                        previousCompletedCandidate,
+                        previousCompletedFound,
+                        previousCompletedAttempts
+                    )
+                );
+
+                boolean success = processResult.coverFound();
+                processed++;
+                if (success) {
+                    found++;
+                } else {
+                    notFound++;
+                }
+                lastCompletedCandidate = candidate;
+                lastCompletedFound = success;
+                lastCompletedAttempts = processResult.attempts();
+
+                progressTracker.updateProgress(
+                    candidates.size(),
+                    processed,
+                    found,
+                    notFound,
+                    true,
+                    null,
+                    List.of(),
+                    lastCompletedCandidate,
+                    lastCompletedFound,
+                    lastCompletedAttempts
+                );
+
+                if (i < candidates.size() - 1) {
+                    sleepSafely(INTER_BOOK_DELAY);
+                }
             }
-            lastCompletedCandidate = candidate;
-            lastCompletedFound = success;
-            lastCompletedAttempts = processResult.attempts();
-            updateProgress(
+
+            log.info("Cover backfill complete: processed={}, found={}, notFound={}", processed, found, notFound);
+            progressTracker.updateProgress(
                 candidates.size(),
                 processed,
                 found,
                 notFound,
-                true,
+                false,
                 null,
                 List.of(),
                 lastCompletedCandidate,
                 lastCompletedFound,
                 lastCompletedAttempts
             );
-
-            if (i < candidates.size() - 1) {
-                sleepSafely(INTER_BOOK_DELAY);
-            }
-        }
-
-        log.info("Cover backfill complete: processed={}, found={}, notFound={}", processed, found, notFound);
-        updateProgress(
-            candidates.size(),
-            processed,
-            found,
-            notFound,
-            false,
-            null,
-            List.of(),
-            lastCompletedCandidate,
-            lastCompletedFound,
-            lastCompletedAttempts
-        );
         } finally {
             backfillRunning.set(false);
         }
@@ -420,8 +296,8 @@ public class CoverBackfillService {
 
         // Try sources in priority order, sleeping between attempts.
         SourceAttemptResult openLibraryResult =
-            trySource(SRC_OPEN_LIBRARY, bookId, title, isbn, () -> tryOpenLibrary(isbn, bookId));
-        recordAttempt(attempts, SRC_OPEN_LIBRARY, openLibraryResult);
+            trySource(CoverSourceFetcher.SRC_OPEN_LIBRARY, bookId, title, isbn, () -> sourceFetcher.tryOpenLibrary(isbn, bookId));
+        recordAttempt(attempts, CoverSourceFetcher.SRC_OPEN_LIBRARY, openLibraryResult);
         attemptPublisher.accept(List.copyOf(attempts));
         if (openLibraryResult.success()) {
             return new ProcessBookResult(true, attempts);
@@ -429,8 +305,8 @@ public class CoverBackfillService {
         sleepSafely(API_CALL_INTERVAL);
 
         SourceAttemptResult googleBooksResult =
-            trySource(SRC_GOOGLE_BOOKS, bookId, title, isbn, () -> tryGoogleBooks(isbn, bookId));
-        recordAttempt(attempts, SRC_GOOGLE_BOOKS, googleBooksResult);
+            trySource(CoverSourceFetcher.SRC_GOOGLE_BOOKS, bookId, title, isbn, () -> sourceFetcher.tryGoogleBooks(isbn, bookId));
+        recordAttempt(attempts, CoverSourceFetcher.SRC_GOOGLE_BOOKS, googleBooksResult);
         attemptPublisher.accept(List.copyOf(attempts));
         if (googleBooksResult.success()) {
             return new ProcessBookResult(true, attempts);
@@ -438,8 +314,8 @@ public class CoverBackfillService {
         sleepSafely(API_CALL_INTERVAL);
 
         SourceAttemptResult longitoodResult =
-            trySource(SRC_LONGITOOD, bookId, title, isbn, () -> tryLongitood(isbn, bookId));
-        recordAttempt(attempts, SRC_LONGITOOD, longitoodResult);
+            trySource(CoverSourceFetcher.SRC_LONGITOOD, bookId, title, isbn, () -> sourceFetcher.tryLongitood(isbn, bookId));
+        recordAttempt(attempts, CoverSourceFetcher.SRC_LONGITOOD, longitoodResult);
         attemptPublisher.accept(List.copyOf(attempts));
         if (longitoodResult.success()) {
             return new ProcessBookResult(true, attempts);
@@ -463,7 +339,7 @@ public class CoverBackfillService {
         String bookId,
         String title,
         String isbn,
-        java.util.function.Supplier<SourceAttemptResult> attempt
+        Supplier<SourceAttemptResult> attempt
     ) {
         Instant pauseEnd = pausedUntil.get(source);
         if (pauseEnd != null && Instant.now().isBefore(pauseEnd)) {
@@ -479,7 +355,7 @@ public class CoverBackfillService {
         try {
             result = attempt.get();
         } catch (RuntimeException ex) {
-            String detail = "failure: unexpected exception while invoking source: " + summarizeThrowable(ex);
+            String detail = "failure: unexpected exception while invoking source: " + CoverSourceFetcher.summarizeThrowable(ex);
             result = SourceAttemptResult.failure(detail);
         }
 
@@ -511,168 +387,6 @@ public class CoverBackfillService {
         return result;
     }
 
-    // ── Open Library ────────────────────────────────────────────────────
-
-    private SourceAttemptResult tryOpenLibrary(String isbn, String bookId) {
-        String url = "https://covers.openlibrary.org/b/isbn/" + isbn + "-L.jpg?default=false";
-        return tryUploadWithRetry(url, bookId, SRC_OPEN_LIBRARY);
-    }
-
-    // ── Google Books ────────────────────────────────────────────────────
-
-    private SourceAttemptResult tryGoogleBooks(String isbn, String bookId) {
-        try {
-            JsonNode response = googleApiFetcher
-                .searchVolumesAuthenticated("isbn:" + isbn, 0, "relevance", null, 1)
-                .onErrorResume(e -> googleApiFetcher.searchVolumesUnauthenticated(
-                    "isbn:" + isbn, 0, "relevance", null, 1))
-                .block(Duration.ofSeconds(15));
-
-            if (response == null || !response.has("items") || !response.get("items").isArray()
-                    || response.get("items").isEmpty()) {
-                return SourceAttemptResult.notFound("google-books: no volumes matched isbn query");
-            }
-
-            JsonNode volumeInfo = response.get("items").get(0).path("volumeInfo");
-            JsonNode imageLinks = volumeInfo.path("imageLinks");
-            if (imageLinks.isMissingNode() || imageLinks.isEmpty()) {
-                return SourceAttemptResult.notFound("google-books: matched volume has no imageLinks");
-            }
-
-            Map<String, String> links = new HashMap<>();
-            imageLinks.properties().forEach(entry ->
-                links.put(entry.getKey(), entry.getValue().asString()));
-
-            String bestUrl = CoverImageUrlSelector.selectPreferredImageUrl(links);
-            if (!StringUtils.hasText(bestUrl)) {
-                return SourceAttemptResult.notFound("google-books: imageLinks did not provide a usable URL");
-            }
-
-            bestUrl = upgradeGoogleBooksImageUrl(bestUrl);
-            return tryUploadWithRetry(bestUrl, bookId, SRC_GOOGLE_BOOKS);
-        } catch (RuntimeException ex) {
-            return SourceAttemptResult.failure("google-books search failed: " + summarizeThrowable(ex));
-        }
-    }
-
-    /**
-     * Upgrades a Google Books thumbnail URL for maximum resolution:
-     * zoom=0 returns the largest available image, edge=curl is cosmetic noise.
-     */
-    static String upgradeGoogleBooksImageUrl(String url) {
-        if (url == null) return null;
-        String upgraded = url.replaceAll("zoom=\\d+", "zoom=0")
-                             .replace("&edge=curl", "")
-                             .replace("?edge=curl&", "?");
-        if (upgraded.startsWith("http://")) {
-            upgraded = "https://" + upgraded.substring(7);
-        }
-        return upgraded;
-    }
-
-    // ── Longitood ───────────────────────────────────────────────────────
-
-    private SourceAttemptResult tryLongitood(String isbn, String bookId) {
-        try {
-            Map<String, String> response = webClient.get()
-                .uri("https://bookcover.longitood.com/bookcover/" + isbn)
-                .retrieve()
-                .bodyToMono(new ParameterizedTypeReference<Map<String, String>>() {})
-                .block(Duration.ofSeconds(10));
-
-            if (response == null || !StringUtils.hasText(response.get("url"))) {
-                return SourceAttemptResult.notFound("longitood: response did not include cover URL");
-            }
-            return tryUploadWithRetry(response.get("url"), bookId, SRC_LONGITOOD);
-        } catch (WebClientResponseException.NotFound ex) {
-            return SourceAttemptResult.notFound("longitood: no cover found (404)");
-        } catch (RuntimeException ex) {
-            return SourceAttemptResult.failure("longitood request failed: " + summarizeThrowable(ex));
-        }
-    }
-
-    // ── Upload with retry ───────────────────────────────────────────────
-
-    private SourceAttemptResult tryUploadWithRetry(String imageUrl, String bookId, String source) {
-        for (int attempt = 0; attempt <= MAX_RETRIES_PER_API; attempt++) {
-            try {
-                ImageDetails result = s3BookCoverService
-                    .uploadCoverToS3Async(imageUrl, bookId, source)
-                    .block(Duration.ofSeconds(30));
-                if (result != null) {
-                    return SourceAttemptResult.success("uploaded from " + source + " using " + imageUrl);
-                }
-                return SourceAttemptResult.failure("upload returned empty details from " + source + " using " + imageUrl);
-            } catch (RuntimeException ex) {
-                String msg = summarizeThrowable(ex);
-                if (isRateLimited(ex) && attempt < MAX_RETRIES_PER_API) {
-                    Duration backoff = calculateBackoff(attempt);
-                    log.info("Rate limited by {} for book {}, backing off {}s (attempt {}/{})",
-                        source, bookId, backoff.toSeconds(), attempt + 1, MAX_RETRIES_PER_API);
-                    sleepSafely(backoff);
-                    continue;
-                }
-                if (isNotFoundResponse(ex) || isLikelyNoCoverImageFailure(ex)) {
-                    return SourceAttemptResult.notFound("no usable cover content from " + source + " (" + msg + ")");
-                }
-                return SourceAttemptResult.failure("upload failed from " + source + ": " + msg);
-            }
-        }
-        return SourceAttemptResult.failure("rate-limit retries exhausted for " + source + " (" + imageUrl + ")");
-    }
-
-    private static boolean isRateLimited(Throwable ex) {
-        if (containsHttpStatus(ex, 429)) return true;
-        String msg = summarizeThrowable(ex);
-        return msg != null && (msg.contains("rate-limited") || msg.contains("rate limit")
-            || msg.contains("RateLimiter"));
-    }
-
-    static boolean isNotFoundResponse(Throwable ex) {
-        return containsHttpStatus(ex, 404);
-    }
-
-    static boolean isLikelyNoCoverImageFailure(Throwable ex) {
-        Throwable current = ex;
-        while (current != null) {
-            if (current instanceof CoverProcessingException cpe && cpe.isNoCoverAvailable()) {
-                return true;
-            }
-            current = current.getCause();
-        }
-        return false;
-    }
-
-    private static boolean containsHttpStatus(Throwable throwable, int statusCode) {
-        Throwable current = throwable;
-        while (current != null) {
-            if (current instanceof WebClientResponseException responseException
-                && responseException.getStatusCode().value() == statusCode) {
-                return true;
-            }
-            current = current.getCause();
-        }
-        return false;
-    }
-
-    static String summarizeThrowable(Throwable throwable) {
-        Throwable current = throwable;
-        while (current != null) {
-            if (StringUtils.hasText(current.getMessage())) {
-                return current.getMessage();
-            }
-            current = current.getCause();
-        }
-        return throwable != null ? throwable.getClass().getSimpleName() : "unknown";
-    }
-
-    private static Duration calculateBackoff(int attempt) {
-        long millis = INITIAL_BACKOFF.toMillis() * (1L << attempt);
-        return Duration.ofMillis(Math.min(millis, MAX_BACKOFF.toMillis()));
-    }
-
-    // ── Helpers ─────────────────────────────────────────────────────────
-
     private void sleepSafely(Duration duration) {
         try {
             Thread.sleep(duration.toMillis());
@@ -685,33 +399,5 @@ public class CoverBackfillService {
 
     private static void recordAttempt(List<SourceAttemptStatus> attempts, String source, SourceAttemptResult result) {
         attempts.add(new SourceAttemptStatus(source, result.outcome().name(), result.detail(), Instant.now()));
-    }
-
-    private void updateProgress(int total,
-                                int processed,
-                                int found,
-                                int notFound,
-                                boolean running,
-                                BackfillCandidate currentBook,
-                                List<SourceAttemptStatus> currentBookAttempts,
-                                BackfillCandidate lastCompletedBook,
-                                Boolean lastCompletedBookFound,
-                                List<SourceAttemptStatus> lastCompletedBookAttempts) {
-        progress.set(new BackfillProgress(
-            total,
-            processed,
-            found,
-            notFound,
-            running,
-            currentBook == null ? null : currentBook.id().toString(),
-            currentBook == null ? null : currentBook.displayTitle(),
-            currentBook == null ? null : currentBook.preferredIsbn(),
-            currentBookAttempts,
-            lastCompletedBook == null ? null : lastCompletedBook.id().toString(),
-            lastCompletedBook == null ? null : lastCompletedBook.displayTitle(),
-            lastCompletedBook == null ? null : lastCompletedBook.preferredIsbn(),
-            lastCompletedBookFound,
-            lastCompletedBookAttempts
-        ));
     }
 }
