@@ -390,13 +390,20 @@ static String envVar(Map<String, String> env, String key) {
 static String toJdbcUrl(String url) {
     if (url.startsWith("jdbc:")) return url;
     URI uri = URI.create(url);
-    String userInfo = uri.getUserInfo();
-    String user = userInfo.substring(0, userInfo.indexOf(':'));
-    String pass = userInfo.substring(userInfo.indexOf(':') + 1);
     String base = "jdbc:postgresql://" + uri.getHost() + ":" + uri.getPort() + uri.getPath();
     String query = uri.getQuery();
-    String sep = (query != null) ? "&" : "?";
     if (query != null) base += "?" + query;
+    String userInfo = uri.getUserInfo();
+    if (userInfo == null || userInfo.isBlank()) {
+        return base;
+    }
+    int separator = userInfo.indexOf(':');
+    if (separator <= 0 || separator == userInfo.length() - 1) {
+        return base;
+    }
+    String user = userInfo.substring(0, separator);
+    String pass = userInfo.substring(separator + 1);
+    String sep = (query != null) ? "&" : "?";
     return base + sep + "user=" + user + "&password=" + pass;
 }
 

@@ -44,7 +44,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
-import static org.mockito.Mockito.lenient;
 
 @ExtendWith(MockitoExtension.class)
 class SitemapRefreshSchedulerTest {
@@ -111,6 +110,7 @@ class NewYorkTimesBestsellerSchedulerTest {
     @Mock
     private BookUpsertService bookUpsertService;
 
+    private NytBestsellerPersistenceCollaborator persistenceCollaborator;
     private NewYorkTimesBestsellerScheduler scheduler;
     private ObjectMapper objectMapper;
 
@@ -118,7 +118,7 @@ class NewYorkTimesBestsellerSchedulerTest {
     void setUp() {
         objectMapper = new ObjectMapper();
         NytBestsellerPayloadMapper payloadMapper = new NytBestsellerPayloadMapper(objectMapper);
-        NytBestsellerPersistenceCollaborator persistenceCollaborator = new NytBestsellerPersistenceCollaborator(
+        persistenceCollaborator = new NytBestsellerPersistenceCollaborator(
             jdbcTemplate,
             supplementalPersistenceService,
             payloadMapper
@@ -133,6 +133,41 @@ class NewYorkTimesBestsellerSchedulerTest {
             persistenceCollaborator,
             true,
             true
+        );
+    }
+
+    @Test
+    void upsertNytExternalIdentifiers_shouldUseAtomicUpsertStatement() throws Exception {
+        JsonNode bookNode = objectMapper.readTree(
+            """
+            {
+              "book_review_link": "https://example.com/review",
+              "first_chapter_link": "https://example.com/preview",
+              "amazon_product_url": "https://example.com/buy",
+              "book_uri": "https://example.com/book"
+            }
+            """
+        );
+
+        persistenceCollaborator.upsertNytExternalIdentifiers(
+            UUID.randomUUID().toString(),
+            bookNode,
+            "9780316769488",
+            "0316769487"
+        );
+
+        verify(jdbcTemplate, times(1)).update(
+            org.mockito.ArgumentMatchers.contains("ON CONFLICT (book_id, source) DO UPDATE"),
+            any(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any()
         );
     }
 
@@ -653,37 +688,13 @@ class NewYorkTimesBestsellerSchedulerTest {
             any(JsonNode.class)
         )).thenReturn(Optional.of("collection-1"));
         when(bookLookupService.resolveCanonicalBookId("9780316769488", null)).thenReturn(existingBookId.toString());
-        lenient().when(jdbcTemplate.update(
-            org.mockito.ArgumentMatchers.contains("UPDATE book_external_ids"),
-            any(),
-            any(),
-            any(),
-            any(),
-            any(),
-            any(),
-            any(),
-            any(),
-            eq(existingBookId)
-        )).thenReturn(1);
 
         assertDoesNotThrow(() -> scheduler.processNewYorkTimesBestsellers());
 
         verify(jdbcTemplate, times(1)).update(
-            org.mockito.ArgumentMatchers.contains("UPDATE book_external_ids"),
+            org.mockito.ArgumentMatchers.contains("ON CONFLICT (book_id, source) DO UPDATE"),
             any(),
-            any(),
-            any(),
-            any(),
-            any(),
-            any(),
-            any(),
-            any(),
-            eq(existingBookId)
-        );
-        verify(jdbcTemplate, never()).update(
-            org.mockito.ArgumentMatchers.contains("INSERT INTO book_external_ids"),
-            any(),
-            any(),
+            eq(existingBookId),
             any(),
             any(),
             any(),

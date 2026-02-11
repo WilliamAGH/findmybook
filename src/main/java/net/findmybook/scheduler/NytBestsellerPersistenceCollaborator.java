@@ -100,34 +100,6 @@ public class NytBestsellerPersistenceCollaborator {
         String purchaseLink = payloadMapper.nullIfBlank(payloadMapper.firstNonEmptyText(bookNode, "amazon_product_url"));
         String canonicalVolumeLink = payloadMapper.nullIfBlank(payloadMapper.firstNonEmptyText(bookNode, "book_uri"));
 
-        int updatedRows = jdbcTemplate.update(
-            """
-            UPDATE book_external_ids
-            SET external_id = COALESCE(book_external_ids.external_id, ?),
-                provider_isbn13 = COALESCE(book_external_ids.provider_isbn13, ?),
-                provider_isbn10 = COALESCE(book_external_ids.provider_isbn10, ?),
-                info_link = COALESCE(NULLIF(book_external_ids.info_link, ''), ?),
-                preview_link = COALESCE(NULLIF(book_external_ids.preview_link, ''), ?),
-                web_reader_link = COALESCE(NULLIF(book_external_ids.web_reader_link, ''), ?),
-                purchase_link = COALESCE(NULLIF(book_external_ids.purchase_link, ''), ?),
-                canonical_volume_link = COALESCE(NULLIF(book_external_ids.canonical_volume_link, ''), ?),
-                last_updated = NOW()
-            WHERE book_id = ? AND source = 'NEW_YORK_TIMES'
-            """,
-            externalId,
-            isbn13,
-            isbn10,
-            infoLink,
-            previewLink,
-            webReaderLink,
-            purchaseLink,
-            canonicalVolumeLink,
-            canonicalUuid
-        );
-        if (updatedRows > 0) {
-            return;
-        }
-
         jdbcTemplate.update(
             """
             INSERT INTO book_external_ids (
@@ -146,6 +118,16 @@ public class NytBestsellerPersistenceCollaborator {
                 created_at
             )
             VALUES (?, ?, 'NEW_YORK_TIMES', ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+            ON CONFLICT (book_id, source) DO UPDATE
+            SET external_id = COALESCE(book_external_ids.external_id, EXCLUDED.external_id),
+                provider_isbn13 = COALESCE(book_external_ids.provider_isbn13, EXCLUDED.provider_isbn13),
+                provider_isbn10 = COALESCE(book_external_ids.provider_isbn10, EXCLUDED.provider_isbn10),
+                info_link = COALESCE(NULLIF(book_external_ids.info_link, ''), EXCLUDED.info_link),
+                preview_link = COALESCE(NULLIF(book_external_ids.preview_link, ''), EXCLUDED.preview_link),
+                web_reader_link = COALESCE(NULLIF(book_external_ids.web_reader_link, ''), EXCLUDED.web_reader_link),
+                purchase_link = COALESCE(NULLIF(book_external_ids.purchase_link, ''), EXCLUDED.purchase_link),
+                canonical_volume_link = COALESCE(NULLIF(book_external_ids.canonical_volume_link, ''), EXCLUDED.canonical_volume_link),
+                last_updated = NOW()
             """,
             IdGenerator.generateLong(),
             canonicalUuid,
