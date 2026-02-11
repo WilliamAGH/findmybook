@@ -13,17 +13,12 @@
  */
 package net.findmybook.controller;
 
-import net.findmybook.application.cover.BackfillMode;
-import net.findmybook.application.cover.BackfillProgress;
-import net.findmybook.application.cover.CoverBackfillService;
 import net.findmybook.scheduler.BookCacheWarmingScheduler;
 import net.findmybook.scheduler.NewYorkTimesBestsellerScheduler;
 import net.findmybook.service.ApiCircuitBreakerService;
-import net.findmybook.service.BackfillCoordinator;
 import net.findmybook.service.S3CoverCleanupService;
 import net.findmybook.service.s3.DryRunSummary;
 import net.findmybook.service.s3.MoveActionSummary;
-import org.springframework.util.StringUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
@@ -58,15 +53,12 @@ public class AdminController {
     private final NewYorkTimesBestsellerScheduler newYorkTimesBestsellerScheduler;
     private final BookCacheWarmingScheduler bookCacheWarmingScheduler;
     private final ApiCircuitBreakerService apiCircuitBreakerService;
-    private final BackfillCoordinator backfillCoordinator;
-    private final CoverBackfillService coverBackfillService;
 
     /**
      * Constructs AdminController with optional services that may be null when disabled.
      *
-     * @param s3CoverCleanupService the S3 cleanup service, or null if S3 is disabled
+     * @param s3CoverCleanupServiceProvider provider for the S3 cleanup service
      * @param newYorkTimesBestsellerScheduler the NYT scheduler, or null if disabled
-     * @param backfillCoordinatorProvider provider for optional backfill coordinator bean
      * @param bookCacheWarmingScheduler the cache warming scheduler
      * @param apiCircuitBreakerService the circuit breaker service
      * @param configuredS3Prefix configured source prefix for S3 cleanup
@@ -75,10 +67,8 @@ public class AdminController {
      */
     public AdminController(ObjectProvider<S3CoverCleanupService> s3CoverCleanupServiceProvider,
                            NewYorkTimesBestsellerScheduler newYorkTimesBestsellerScheduler,
-                           ObjectProvider<BackfillCoordinator> backfillCoordinatorProvider,
                            BookCacheWarmingScheduler bookCacheWarmingScheduler,
                            ApiCircuitBreakerService apiCircuitBreakerService,
-                           CoverBackfillService coverBackfillService,
                            @Value("${app.s3.cleanup.prefix:images/book-covers/}") String configuredS3Prefix,
                            @Value("${app.s3.cleanup.default-batch-limit:100}") int defaultBatchLimit,
                            @Value("${app.s3.cleanup.quarantine-prefix:images/non-covers-pages/}") String configuredQuarantinePrefix) {
@@ -86,44 +76,7 @@ public class AdminController {
         this.newYorkTimesBestsellerScheduler = newYorkTimesBestsellerScheduler;
         this.bookCacheWarmingScheduler = bookCacheWarmingScheduler;
         this.apiCircuitBreakerService = apiCircuitBreakerService;
-        this.coverBackfillService = coverBackfillService;
         this.s3CleanupConfig = new S3CleanupConfig(configuredS3Prefix, defaultBatchLimit, configuredQuarantinePrefix);
-        this.backfillCoordinator = backfillCoordinatorProvider.getIfAvailable();
-    }
-
-    /**
-     * Enqueue a Google Books backfill task for a specific volume ID.
-     * Useful for refreshing cover metadata after ingestion fixes.
-     *
-     * @param volumeId Google Books volume identifier
-     * @param priority Optional priority override (1 = highest, 10 = lowest)
-     * @return text response describing the enqueued task
-     */
-    @PostMapping(value = "/backfill/google-volume", produces = MediaType.TEXT_PLAIN_VALUE)
-    public ResponseEntity<String> enqueueGoogleVolumeBackfill(
-            @RequestParam("volumeId") String volumeId,
-            @RequestParam(name = "priority", defaultValue = "3") int priority) {
-
-        if (backfillCoordinator == null) {
-            String message = "Async backfill is disabled. Set APP_FEATURE_ASYNC_BACKFILL_ENABLED=true to enable.";
-            log.warn(message);
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
-        }
-
-        if (!StringUtils.hasText(volumeId)) {
-            String message = "volumeId must not be blank";
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
-        }
-
-        int clampedPriority = Math.clamp(priority, 1, 10);
-        String normalizedVolume = volumeId.trim();
-
-        backfillCoordinator.enqueue("GOOGLE_BOOKS", normalizedVolume, clampedPriority);
-
-        String message = String.format("Enqueued GOOGLE_BOOKS backfill for %s with priority %d",
-            normalizedVolume, clampedPriority);
-        log.info(message);
-        return ResponseEntity.ok(message);
     }
 
     /**
@@ -397,60 +350,4 @@ public class AdminController {
         }
     }
 
-    // ── Cover backfill endpoints ────────────────────────────────────────
-
-    /**
-     * Starts an asynchronous cover backfill run.
-     *
-     * @param mode  {@code missing} (default), {@code grayscale}, or {@code rejected}
-     * @param limit maximum number of books to process (default 100)
-     * @return acknowledgement message
-     */
-    @PostMapping(value = "/backfill/covers", produces = MediaType.TEXT_PLAIN_VALUE)
-    public ResponseEntity<String> startCoverBackfill(
-            @RequestParam(name = "mode", defaultValue = "missing") String mode,
-            @RequestParam(name = "limit", defaultValue = "100") int limit) {
-
-        if (coverBackfillService.isRunning()) {
-            BackfillProgress current = coverBackfillService.getProgress();
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                "A cover backfill is already running (" + current.processed() + "/" + current.totalCandidates() + ")");
-        }
-
-        BackfillMode backfillMode = switch (mode.toLowerCase()) {
-            case "missing" -> BackfillMode.MISSING;
-            case "grayscale" -> BackfillMode.GRAYSCALE;
-            case "rejected" -> BackfillMode.REJECTED;
-            default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                "Invalid backfill mode: '" + mode + "'. Supported values: missing, grayscale, rejected");
-        };
-
-        int clampedLimit = Math.clamp(limit, 1, 10_000);
-        coverBackfillService.runBackfill(backfillMode, clampedLimit);
-
-        String message = String.format("Cover backfill started: mode=%s, limit=%d", backfillMode, clampedLimit);
-        log.info(message);
-        return ResponseEntity.accepted().body(message);
-    }
-
-    /**
-     * Returns the current progress of a running (or last completed) cover backfill.
-     *
-     * @return progress snapshot as JSON
-     */
-    @GetMapping(value = "/backfill/covers/status", produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<BackfillProgress> getCoverBackfillStatus() {
-        return ResponseEntity.ok(coverBackfillService.getProgress());
-    }
-
-    /**
-     * Requests cancellation of the running cover backfill.
-     *
-     * @return acknowledgement message
-     */
-    @PostMapping(value = "/backfill/covers/cancel", produces = MediaType.TEXT_PLAIN_VALUE)
-    public ResponseEntity<String> cancelCoverBackfill() {
-        coverBackfillService.cancel();
-        return ResponseEntity.ok("Cover backfill cancellation requested");
-    }
 }

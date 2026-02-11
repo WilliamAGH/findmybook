@@ -65,6 +65,7 @@ class AdminControllerTest {
     private CoverBackfillService coverBackfillService;
 
     private AdminController adminController;
+    private BackfillAdminController backfillAdminController;
 
     @BeforeEach
     void setUp() {
@@ -73,13 +74,15 @@ class AdminControllerTest {
         adminController = new AdminController(
             s3CoverCleanupServiceProvider,
             newYorkTimesBestsellerScheduler,
-            backfillCoordinatorProvider,
             bookCacheWarmingScheduler,
             apiCircuitBreakerService,
-            coverBackfillService,
             TEST_S3_PREFIX,
             TEST_BATCH_LIMIT,
             TEST_QUARANTINE_PREFIX
+        );
+        backfillAdminController = new BackfillAdminController(
+            backfillCoordinatorProvider,
+            coverBackfillService
         );
     }
 
@@ -233,7 +236,7 @@ class AdminControllerTest {
         );
         when(coverBackfillService.getProgress()).thenReturn(expectedProgress);
 
-        BackfillProgress responseBody = adminController.getCoverBackfillStatus().getBody();
+        BackfillProgress responseBody = backfillAdminController.getCoverBackfillStatus().getBody();
 
         assertEquals(expectedProgress, responseBody);
         assertNotNull(responseBody);
@@ -252,7 +255,7 @@ class AdminControllerTest {
 
         ResponseStatusException exception = assertThrows(
             ResponseStatusException.class,
-            () -> adminController.startCoverBackfill("missing", 100)
+            () -> backfillAdminController.startCoverBackfill("missing", 100)
         );
 
         assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
@@ -265,7 +268,7 @@ class AdminControllerTest {
 
         ResponseStatusException exception = assertThrows(
             ResponseStatusException.class,
-            () -> adminController.startCoverBackfill("bogus", 100)
+            () -> backfillAdminController.startCoverBackfill("bogus", 100)
         );
 
         assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
@@ -276,7 +279,7 @@ class AdminControllerTest {
     void startCoverBackfill_shouldReturnAccepted_WhenStartedSuccessfully() {
         when(coverBackfillService.isRunning()).thenReturn(false);
 
-        var response = adminController.startCoverBackfill("missing", 100);
+        var response = backfillAdminController.startCoverBackfill("missing", 100);
 
         assertEquals(HttpStatus.ACCEPTED, response.getStatusCode());
         assertTrue(response.getBody().contains("mode=MISSING"));
@@ -285,7 +288,7 @@ class AdminControllerTest {
 
     @Test
     void cancelCoverBackfill_shouldReturnOk_WhenCancelled() {
-        var response = adminController.cancelCoverBackfill();
+        var response = backfillAdminController.cancelCoverBackfill();
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertTrue(response.getBody().contains("cancellation requested"));

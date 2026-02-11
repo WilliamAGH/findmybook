@@ -5,14 +5,12 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -45,7 +43,7 @@ public class CoverBackfillService {
     private static final int CONSECUTIVE_FAILURES_PAUSE_THRESHOLD = 5;
     private static final Duration API_PAUSE_DURATION = Duration.ofMinutes(10);
 
-    private final JdbcTemplate jdbcTemplate;
+    private final BackfillCandidateQuery candidateQuery;
     private final CoverSourceFetcher sourceFetcher;
     private final BackfillProgressTracker progressTracker;
 
@@ -57,10 +55,10 @@ public class CoverBackfillService {
     /** Per-source pause-until timestamp. */
     private final Map<String, Instant> pausedUntil = new ConcurrentHashMap<>();
 
-    public CoverBackfillService(JdbcTemplate jdbcTemplate,
+    public CoverBackfillService(BackfillCandidateQuery candidateQuery,
                                 CoverSourceFetcher sourceFetcher,
                                 BackfillProgressTracker progressTracker) {
-        this.jdbcTemplate = jdbcTemplate;
+        this.candidateQuery = candidateQuery;
         this.sourceFetcher = sourceFetcher;
         this.progressTracker = progressTracker;
     }
@@ -98,19 +96,20 @@ public class CoverBackfillService {
             return;
         }
 
+        int processed = 0;
         try {
             cancelled = false;
             consecutiveFailures.clear();
             pausedUntil.clear();
 
-            List<BackfillCandidate> candidates = queryCandidates(mode, limit > 0 ? limit : 10_000);
+            List<BackfillCandidate> candidates = candidateQuery.queryCandidates(mode, limit > 0 ? limit : 10_000);
             log.info("Cover backfill starting: mode={}, candidates={}", mode, candidates.size());
             if (candidates.isEmpty()) {
                 log.info("Cover backfill has no candidates for mode={}; verify candidate query and ISBN availability.", mode);
             }
             progressTracker.reset(candidates.size());
 
-            int processed = 0, found = 0, notFound = 0;
+            int found = 0, notFound = 0;
             BackfillCandidate lastCompletedCandidate = null;
             Boolean lastCompletedFound = null;
             List<SourceAttemptStatus> lastCompletedAttempts = List.of();
@@ -206,75 +205,13 @@ public class CoverBackfillService {
                 lastCompletedFound,
                 lastCompletedAttempts
             );
+        } catch (RuntimeException unexpectedException) {
+            log.error("Cover backfill failed unexpectedly: mode={}, limit={}, processed={}", mode, limit, processed, unexpectedException);
+            progressTracker.updateProgress(0, processed, 0, 0, false, null, List.of(), null, null, List.of());
+            throw unexpectedException;
         } finally {
             backfillRunning.set(false);
         }
-    }
-
-    // ── Candidate queries ───────────────────────────────────────────────
-
-    private List<BackfillCandidate> queryCandidates(BackfillMode mode, int limit) {
-        String sql = switch (mode) {
-            case MISSING -> """
-                SELECT b.id, b.title, b.isbn13, b.isbn10
-                FROM books b
-                WHERE (b.isbn13 IS NOT NULL OR b.isbn10 IS NOT NULL)
-                  AND NOT EXISTS (
-                      SELECT 1 FROM book_image_links bil
-                      WHERE bil.book_id = b.id
-                        AND bil.download_error IS NULL
-                        AND ((bil.url IS NOT NULL AND bil.url <> '')
-                             OR (bil.s3_image_path IS NOT NULL AND bil.s3_image_path <> ''))
-                  )
-                ORDER BY b.created_at DESC
-                LIMIT ?
-                """;
-            case GRAYSCALE -> """
-                SELECT b.id, b.title, b.isbn13, b.isbn10
-                FROM books b
-                WHERE (b.isbn13 IS NOT NULL OR b.isbn10 IS NOT NULL)
-                  AND EXISTS (
-                      SELECT 1 FROM book_image_links bil
-                      WHERE bil.book_id = b.id AND bil.is_grayscale = true
-                  )
-                  AND NOT EXISTS (
-                      SELECT 1 FROM book_image_links bil
-                      WHERE bil.book_id = b.id
-                        AND bil.download_error IS NULL
-                        AND COALESCE(bil.is_grayscale, false) = false
-                        AND ((bil.url IS NOT NULL AND bil.url <> '')
-                             OR (bil.s3_image_path IS NOT NULL AND bil.s3_image_path <> ''))
-                  )
-                ORDER BY b.created_at DESC
-                LIMIT ?
-                """;
-            case REJECTED -> """
-                SELECT b.id, b.title, b.isbn13, b.isbn10
-                FROM books b
-                WHERE (b.isbn13 IS NOT NULL OR b.isbn10 IS NOT NULL)
-                  AND EXISTS (
-                      SELECT 1 FROM book_image_links bil
-                      WHERE bil.book_id = b.id
-                        AND bil.download_error IS NOT NULL
-                  )
-                  AND NOT EXISTS (
-                      SELECT 1 FROM book_image_links bil
-                      WHERE bil.book_id = b.id
-                        AND bil.download_error IS NULL
-                        AND bil.s3_image_path IS NOT NULL
-                        AND bil.s3_image_path <> ''
-                  )
-                ORDER BY b.created_at DESC
-                LIMIT ?
-                """;
-        };
-
-        return jdbcTemplate.query(sql, (rs, rowNum) -> new BackfillCandidate(
-            rs.getObject("id", UUID.class),
-            rs.getString("title"),
-            rs.getString("isbn13"),
-            rs.getString("isbn10")
-        ), limit);
     }
 
     // ── Per-book processing ─────────────────────────────────────────────
@@ -355,6 +292,7 @@ public class CoverBackfillService {
         try {
             result = attempt.get();
         } catch (RuntimeException ex) {
+            log.error("Unexpected exception from {} for book {} isbn={}: {}", source, bookId, isbn, ex.getMessage(), ex);
             String detail = "failure: unexpected exception while invoking source: " + CoverSourceFetcher.summarizeThrowable(ex);
             result = SourceAttemptResult.failure(detail);
         }
