@@ -134,7 +134,8 @@ void runAiContentBackfill(BookAiContentService aiContentService, UUID bookId, bo
         }
     );
     if (outcome.generated()) {
-        int version = outcome.snapshot().map(s -> s.version()).orElse(-1);
+        int version = outcome.snapshot().map(s -> s.version())
+            .orElseThrow(() -> new IllegalStateException("Generated outcome missing snapshot for bookId=" + bookId));
         System.out.printf("AI summary generated: version=%d promptHash=%s%n", version, outcome.promptHash());
     } else {
         System.out.printf("AI summary skipped: prompt hash unchanged (%s)%n", outcome.promptHash());
@@ -152,7 +153,8 @@ void runSeoMetadataBackfill(BookSeoMetadataGenerationService seoMetadataGenerati
         : seoMetadataGenerationService.generateAndPersistIfPromptChanged(bookId);
 
     if (outcome.generated()) {
-        int version = outcome.snapshot().map(s -> s.version()).orElse(-1);
+        int version = outcome.snapshot().map(s -> s.version())
+            .orElseThrow(() -> new IllegalStateException("Generated outcome missing snapshot for bookId=" + bookId));
         System.out.printf("SEO metadata generated: version=%d promptHash=%s%n", version, outcome.promptHash());
     } else {
         System.out.printf("SEO metadata skipped: prompt hash unchanged (%s)%n", outcome.promptHash());

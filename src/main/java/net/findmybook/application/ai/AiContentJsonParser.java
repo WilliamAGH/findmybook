@@ -2,6 +2,7 @@ package net.findmybook.application.ai;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import net.findmybook.domain.ai.BookAiContent;
 import org.slf4j.Logger;
@@ -273,9 +274,7 @@ class AiContentJsonParser {
     }
 
     private String normalizeLine(String raw) {
-        if (raw == null) {
-            return "";
-        }
+        Objects.requireNonNull(raw, "raw line must not be null");
         return raw
             .replace('\t', ' ')
             .replaceAll("^\\s*(?:[\\-*•]\\s+|\\d+[.)]\\s+)", "")
