@@ -22,6 +22,9 @@ import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 
+static final int SEO_MAX_ATTEMPTS = 3;
+static final long SEO_RETRY_BASE_DELAY_MILLIS = 1500L;
+
 void main(String[] args) {
     if (args.length < 1 || args[0].isBlank()) {
         printUsageAndExit();
@@ -99,15 +102,70 @@ void runSeoMetadataBackfill(BookSeoMetadataGenerationService seoMetadataGenerati
         return;
     }
 
-    BookSeoMetadataGenerationService.GenerationOutcome outcome = force
-        ? seoMetadataGenerationService.generateAndPersist(bookId)
-        : seoMetadataGenerationService.generateAndPersistIfPromptChanged(bookId);
+    BookSeoMetadataGenerationService.GenerationOutcome outcome = generateSeoOutcomeWithRetries(
+        seoMetadataGenerationService,
+        bookId,
+        force
+    );
 
     if (outcome.generated()) {
         int version = outcome.snapshot() != null ? outcome.snapshot().version() : -1;
         System.out.printf("SEO metadata generated: version=%d promptHash=%s%n", version, outcome.promptHash());
     } else {
         System.out.printf("SEO metadata skipped: prompt hash unchanged (%s)%n", outcome.promptHash());
+    }
+}
+
+BookSeoMetadataGenerationService.GenerationOutcome generateSeoOutcomeWithRetries(
+    BookSeoMetadataGenerationService seoMetadataGenerationService,
+    UUID bookId,
+    boolean force
+) {
+    int attempt = 1;
+    while (attempt <= SEO_MAX_ATTEMPTS) {
+        try {
+            return force
+                ? seoMetadataGenerationService.generateAndPersist(bookId)
+                : seoMetadataGenerationService.generateAndPersistIfPromptChanged(bookId);
+        } catch (IllegalStateException exception) {
+            boolean retryableFailure = isRetryableSeoFailure(exception);
+            if (!retryableFailure || attempt == SEO_MAX_ATTEMPTS) {
+                throw exception;
+            }
+            System.err.printf(
+                "SEO metadata generation attempt %d/%d failed for bookId=%s: %s%n",
+                attempt,
+                SEO_MAX_ATTEMPTS,
+                bookId,
+                exception.getMessage()
+            );
+            sleepBeforeRetry(attempt);
+            attempt++;
+        }
+    }
+    throw new IllegalStateException("SEO metadata generation exhausted retries unexpectedly");
+}
+
+boolean isRetryableSeoFailure(IllegalStateException exception) {
+    if (exception.getCause() != null) {
+        return true;
+    }
+    String message = exception.getMessage();
+    if (message == null || message.isBlank()) {
+        return false;
+    }
+    return message.contains("response was empty")
+        || message.contains("did not include a valid JSON object")
+        || message.contains("JSON parsing failed")
+        || message.contains("generation failed");
+}
+
+void sleepBeforeRetry(int attempt) {
+    long delayMillis = SEO_RETRY_BASE_DELAY_MILLIS * Math.max(1, attempt);
+    try {
+        Thread.sleep(delayMillis);
+    } catch (InterruptedException interruptedException) {
+        Thread.currentThread().interrupt();
     }
 }
 
