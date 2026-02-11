@@ -394,6 +394,23 @@ describe("BookPage fallback lookup", () => {
     expect(getAffiliateLinksMock).toHaveBeenCalledWith("OL13535055W");
   });
 
+  it("shouldBuildExploreBackLinkFromPopularWindowWhenSpaHistoryIsMissing", async () => {
+    const currentUrl = new URL(
+      "https://findmybook.net/book/book-1?bookId=book-1&popularWindow=90d&page=2&orderBy=newest&view=grid",
+    );
+    window.history.replaceState(null, "", `${currentUrl.pathname}${currentUrl.search}`);
+
+    render(BookPage, {
+      props: {
+        currentUrl,
+        identifier: "book-1",
+      },
+    });
+
+    const backLink = await screen.findByRole("link", { name: "Back to Results" });
+    expect(backLink.getAttribute("href")).toBe("/explore?popularWindow=90d&page=2&orderBy=newest&view=grid");
+  });
+
   it("shouldHideTitleAndAuthorExpandButtonsWhenContentIsNotActuallyTruncated", async () => {
     getBookMock.mockResolvedValueOnce(
       createBookPayload({

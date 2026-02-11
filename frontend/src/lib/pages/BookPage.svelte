@@ -277,13 +277,22 @@
   }
 
   function legacySearchFallbackHref(): string {
-    const query = currentUrl.searchParams.get("query");
-    if (!query) {
+    const query = currentUrl.searchParams.get("query")?.trim() ?? "";
+    const rawPopularWindow = currentUrl.searchParams.get("popularWindow");
+    const popularWindow = rawPopularWindow === "30d" || rawPopularWindow === "90d" || rawPopularWindow === "all"
+      ? rawPopularWindow
+      : null;
+
+    let url: URL;
+    if (query.length > 0) {
+      url = new URL("/search", window.location.origin);
+      url.searchParams.set("query", query);
+    } else if (popularWindow) {
+      url = new URL("/explore", window.location.origin);
+      url.searchParams.set("popularWindow", popularWindow);
+    } else {
       return "/";
     }
-
-    const url = new URL("/search", window.location.origin);
-    url.searchParams.set("query", query);
 
     const page = currentUrl.searchParams.get("page");
     const orderBy = currentUrl.searchParams.get("orderBy");
