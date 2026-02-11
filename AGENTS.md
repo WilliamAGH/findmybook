@@ -13,6 +13,7 @@
 - [DOC0] MUST read prerequisite docs by path before editing matching source paths.
 - [SCO1] MUST confirm objective and scope before edits and preserve request traceability.
 - [FIL1] MUST NOT create files without explicit user approval after exhaustive reuse search.
+- [FIL2] File-creation approval MUST NOT be interpreted as permission to grow monolith files; preserve SRP/DRY/DDD boundaries.
 - [BLK1] MUST fix root causes; no hidden degradation, no silent fallbacks, no fake data.
 - [TYP0] Type safety is blocking: no raw types, unchecked casts, `Object`, or `Map<String,Object>`.
 - [ERR0] Exception handling is blocking: no swallowed errors, no broad catch-all handling, no empty catches.
@@ -58,6 +59,11 @@
 - [FIL1c] Create markdown scratch files only under `tmp/` unless user-directed otherwise.
 - [FIL1d] Delete temporary markdown artifacts when the task is complete.
 - [FIL1e] MUST edit existing files before introducing parallel structures.
+
+### [FIL2] File Growth Guardrails
+- [FIL2a] Approval to create files MUST be treated as scope control for new functionality, not as pressure to append more responsibilities into existing files.
+- [FIL2b] When touched files approach or exceed [LOC1] ceilings, MUST extract cohesive responsibilities into focused files/components/services.
+- [FIL2c] MUST prefer boundary-preserving extraction over appending unrelated logic, to maintain SRP, DRY, and DDD boundaries.
 
 ## Blocking
 ### [BLK1] Root Cause Resolution (Blocking)
