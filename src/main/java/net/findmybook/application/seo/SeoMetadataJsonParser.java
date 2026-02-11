@@ -23,14 +23,14 @@ class SeoMetadataJsonParser {
      * @param responseText raw LLM response text
      * @return parsed SEO metadata values
      */
-    ParsedSeoMetadata parse(String responseText) {
+    SeoMetadataCandidate parse(String responseText) {
         if (!StringUtils.hasText(responseText)) {
             throw new IllegalStateException("SEO metadata response was empty");
         }
         JsonNode payload = parseJsonPayload(responseText);
         String seoTitle = requiredText(payload, "seoTitle", "seo_title", "title");
         String seoDescription = requiredText(payload, "seoDescription", "seo_description", "description", "metaDescription");
-        return new ParsedSeoMetadata(seoTitle, seoDescription);
+        return new SeoMetadataCandidate(seoTitle, seoDescription);
     }
 
     private JsonNode parseJsonPayload(String responseText) {
@@ -60,7 +60,7 @@ class SeoMetadataJsonParser {
     private Optional<String> optionalText(JsonNode payload, String field, String... aliases) {
         JsonNode fieldNode = payload.get(field);
         if (fieldNode != null && !fieldNode.isNull()) {
-            String fieldValue = fieldNode.asText();
+            String fieldValue = fieldNode.asString();
             if (StringUtils.hasText(fieldValue)) {
                 return Optional.of(fieldValue.trim());
             }
@@ -68,7 +68,7 @@ class SeoMetadataJsonParser {
         for (String alias : aliases) {
             JsonNode aliasNode = payload.get(alias);
             if (aliasNode != null && !aliasNode.isNull()) {
-                String aliasValue = aliasNode.asText();
+                String aliasValue = aliasNode.asString();
                 if (StringUtils.hasText(aliasValue)) {
                     return Optional.of(aliasValue.trim());
                 }
@@ -77,12 +77,4 @@ class SeoMetadataJsonParser {
         return Optional.empty();
     }
 
-    /**
-     * Parsed SEO metadata payload.
-     *
-     * @param seoTitle parsed title candidate
-     * @param seoDescription parsed description candidate
-     */
-    record ParsedSeoMetadata(String seoTitle, String seoDescription) {
-    }
 }

@@ -1,35 +1,17 @@
 package net.findmybook.application.seo;
 
-import com.openai.client.OpenAIClient;
-import com.openai.client.okhttp.OpenAIOkHttpClient;
-import com.openai.core.RequestOptions;
-import com.openai.core.Timeout;
-import com.openai.errors.OpenAIException;
-import com.openai.models.ChatModel;
-import com.openai.models.chat.completions.ChatCompletion;
-import com.openai.models.chat.completions.ChatCompletionCreateParams;
-import com.openai.models.chat.completions.ChatCompletionMessageParam;
-import com.openai.models.chat.completions.ChatCompletionSystemMessageParam;
-import com.openai.models.chat.completions.ChatCompletionUserMessageParam;
-import java.time.Duration;
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.regex.Pattern;
 import net.findmybook.adapters.persistence.BookSeoMetadataRepository;
 import net.findmybook.domain.seo.BookSeoMetadataSnapshot;
 import net.findmybook.dto.BookDetail;
 import net.findmybook.service.BookDataOrchestrator;
 import net.findmybook.service.BookSearchService;
 import net.findmybook.util.HashUtils;
-import net.findmybook.util.SeoUtils;
-import net.findmybook.util.UrlUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-import tools.jackson.databind.ObjectMapper;
 
 /**
  * Generates and persists versioned SEO metadata for book detail pages.
@@ -38,40 +20,14 @@ import tools.jackson.databind.ObjectMapper;
 public class BookSeoMetadataGenerationService {
 
     private static final Logger log = LoggerFactory.getLogger(BookSeoMetadataGenerationService.class);
-    private static final String DEFAULT_PROVIDER = "openai";
     private static final String FALLBACK_PROVIDER = "deterministic-fallback";
-    private static final String DEFAULT_MODEL = "gpt-5-mini";
-    private static final long MAX_COMPLETION_TOKENS = 220L;
-    private static final int MAX_GENERATION_ATTEMPTS = 3;
     private static final int MIN_DESCRIPTION_LENGTH = 50;
-    private static final int TARGET_TITLE_LENGTH = 60;
-    private static final int TARGET_DESCRIPTION_LENGTH = 160;
-    private static final String API_KEY_SENTINEL = "not-configured";
-    private static final String TITLE_SUFFIX = " - Book Details | findmybook.net";
-    private static final Pattern EXPECTED_TITLE_PATTERN =
-        Pattern.compile("^.+ - Book Details \\| findmybook\\.net$", Pattern.CASE_INSENSITIVE);
-
-    private static final String SYSTEM_PROMPT = """
-        You are an SEO metadata specialist for findmybook.net.
-        Return ONLY strict JSON in this exact shape:
-        {"seoTitle": string, "seoDescription": string}
-        Rules:
-        - seoTitle must be in this exact format: [Book Title] - Book Details | findmybook.net
-        - Optimize seoTitle for around 50-60 characters when possible.
-        - seoDescription must be natural, specific, and between 140 and 160 characters.
-        - Do not use markdown, code fences, or extra keys.
-        - Do not fabricate factual claims not supported by the provided context.
-        """;
 
     private final BookSeoMetadataRepository repository;
     private final BookSearchService bookSearchService;
     private final BookDataOrchestrator bookDataOrchestrator;
-    private final SeoMetadataJsonParser parser;
-    private final OpenAIClient openAiClient;
-    private final boolean available;
-    private final String configuredModel;
-    private final long requestTimeoutSeconds;
-    private final long readTimeoutSeconds;
+    private final BookSeoMetadataClient seoMetadataClient;
+    private final SeoMetadataNormalizationPolicy normalizationPolicy;
 
     /**
      * Creates the SEO generation service.
@@ -80,43 +36,21 @@ public class BookSeoMetadataGenerationService {
         BookSeoMetadataRepository repository,
         BookSearchService bookSearchService,
         BookDataOrchestrator bookDataOrchestrator,
-        ObjectMapper objectMapper,
-        @Value("${AI_DEFAULT_OPENAI_API_KEY:${OPENAI_API_KEY:}}") String apiKey,
-        @Value("${AI_DEFAULT_OPENAI_BASE_URL:${OPENAI_BASE_URL:https://api.openai.com/v1}}") String baseUrl,
-        @Value("${AI_DEFAULT_SEO_LLM_MODEL:${AI_DEFAULT_LLM_MODEL:${OPENAI_MODEL:" + DEFAULT_MODEL + "}}}") String model,
-        @Value("${AI_DEFAULT_OPENAI_REQUEST_TIMEOUT_SECONDS:120}") long requestTimeoutSeconds,
-        @Value("${AI_DEFAULT_OPENAI_READ_TIMEOUT_SECONDS:75}") long readTimeoutSeconds
+        BookSeoMetadataClient seoMetadataClient,
+        SeoMetadataNormalizationPolicy normalizationPolicy
     ) {
         this.repository = repository;
         this.bookSearchService = bookSearchService;
         this.bookDataOrchestrator = bookDataOrchestrator;
-        this.parser = new SeoMetadataJsonParser(objectMapper);
-        this.configuredModel = StringUtils.hasText(model) ? model.trim() : DEFAULT_MODEL;
-        this.requestTimeoutSeconds = Math.max(1L, requestTimeoutSeconds);
-        this.readTimeoutSeconds = Math.max(1L, readTimeoutSeconds);
-
-        if (StringUtils.hasText(apiKey) && !API_KEY_SENTINEL.equals(apiKey.trim())) {
-            String resolvedBaseUrl = UrlUtils.normalizeOpenAiBaseUrl(baseUrl);
-            this.openAiClient = OpenAIOkHttpClient.builder()
-                .apiKey(apiKey.trim())
-                .baseUrl(resolvedBaseUrl)
-                .maxRetries(0)
-                .build();
-            this.available = true;
-            log.info("Book SEO metadata generation service configured (model={}, baseUrl={})", this.configuredModel, resolvedBaseUrl);
-            return;
-        }
-
-        this.openAiClient = null;
-        this.available = false;
-        log.warn("Book SEO metadata generation service is disabled: no API key configured");
+        this.seoMetadataClient = seoMetadataClient;
+        this.normalizationPolicy = normalizationPolicy;
     }
 
     /**
      * Indicates whether SEO generation is currently configured.
      */
     public boolean isAvailable() {
-        return available;
+        return seoMetadataClient.isAvailable();
     }
 
     /**
@@ -149,7 +83,6 @@ public class BookSeoMetadataGenerationService {
      */
     public GenerationOutcome generateAndPersistIfPromptChanged(UUID bookId) {
         ensureAvailable();
-
         PromptContext promptContext = loadPromptContext(bookId);
         String prompt = buildPrompt(promptContext);
         String promptHash = sha256(prompt);
@@ -165,107 +98,39 @@ public class BookSeoMetadataGenerationService {
                                                                  PromptContext promptContext,
                                                                  String prompt,
                                                                  String promptHash) {
-        IllegalStateException lastGenerationFailure = null;
-        for (int attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt++) {
-            try {
-                String rawResponse = streamAndCollectResponse(prompt);
-                SeoMetadataJsonParser.ParsedSeoMetadata parsedMetadata = parser.parse(rawResponse);
-                String normalizedTitle = normalizeSeoTitle(parsedMetadata.seoTitle(), promptContext.bookTitle());
-                String normalizedDescription = normalizeSeoDescription(parsedMetadata.seoDescription(), promptContext.description());
-                return repository.insertNewCurrentVersion(
-                    bookId,
-                    normalizedTitle,
-                    normalizedDescription,
-                    configuredModel,
-                    DEFAULT_PROVIDER,
-                    promptHash
-                );
-            } catch (IllegalStateException generationFailure) {
-                lastGenerationFailure = generationFailure;
-                if (attempt < MAX_GENERATION_ATTEMPTS && isRetryableGenerationFailure(generationFailure)) {
-                    log.warn(
-                        "Book SEO metadata generation attempt {}/{} failed for bookId={} model={} (will retry): {}",
-                        attempt,
-                        MAX_GENERATION_ATTEMPTS,
-                        bookId,
-                        configuredModel,
-                        generationFailure.getMessage()
-                    );
-                    continue;
-                }
-                break;
-            }
-        }
-
-        String fallbackTitle = buildDeterministicTitle(promptContext.bookTitle());
-        String fallbackDescription = SeoUtils.truncateDescription(promptContext.description(), TARGET_DESCRIPTION_LENGTH);
-        log.error(
-            "Book SEO metadata generation failed after {} attempts for bookId={} model={}; persisting deterministic fallback metadata",
-            MAX_GENERATION_ATTEMPTS,
-            bookId,
-            configuredModel,
-            lastGenerationFailure
-        );
-        return repository.insertNewCurrentVersion(
-            bookId,
-            fallbackTitle,
-            fallbackDescription,
-            configuredModel,
-            FALLBACK_PROVIDER,
-            promptHash
-        );
-    }
-
-    private boolean isRetryableGenerationFailure(IllegalStateException generationFailure) {
-        if (generationFailure.getCause() != null) {
-            return true;
-        }
-        String failureMessage = generationFailure.getMessage();
-        if (!StringUtils.hasText(failureMessage)) {
-            return false;
-        }
-        return failureMessage.contains("response was empty")
-            || failureMessage.contains("did not include a valid JSON object")
-            || failureMessage.contains("JSON parsing failed")
-            || failureMessage.contains("generation failed");
-    }
-
-    private String streamAndCollectResponse(String prompt) {
-        ChatCompletionCreateParams params = ChatCompletionCreateParams.builder()
-            .model(ChatModel.of(configuredModel))
-            .messages(List.of(
-                ChatCompletionMessageParam.ofSystem(ChatCompletionSystemMessageParam.builder().content(SYSTEM_PROMPT).build()),
-                ChatCompletionMessageParam.ofUser(ChatCompletionUserMessageParam.builder().content(prompt).build())
-            ))
-            .maxCompletionTokens(MAX_COMPLETION_TOKENS)
-            .temperature(0.2)
-            .build();
-
-        RequestOptions options = RequestOptions.builder()
-            .timeout(Timeout.builder()
-                .request(Duration.ofSeconds(requestTimeoutSeconds))
-                .read(Duration.ofSeconds(readTimeoutSeconds))
-                .build())
-            .build();
-
         try {
-            ChatCompletion completion = openAiClient.chat().completions().create(params, options);
-            if (completion.choices().isEmpty()) {
-                throw new IllegalStateException("SEO metadata response contained no choices");
-            }
-            String response = completion.choices().get(0).message().content().orElse("");
-            if (!StringUtils.hasText(response)) {
-                throw new IllegalStateException("SEO metadata response was empty");
-            }
-            return response;
-        } catch (OpenAIException openAiException) {
-            log.error("Book SEO metadata generation API call failed (model={})", configuredModel, openAiException);
-            throw new IllegalStateException("SEO metadata generation failed", openAiException);
-        } catch (IllegalStateException parseException) {
-            throw parseException;
-        } catch (Exception unexpectedException) {
-            log.error("Book SEO metadata generation failed with unexpected error (model={})", configuredModel, unexpectedException);
-            throw new IllegalStateException("SEO metadata generation failed: " + unexpectedException.getMessage(), unexpectedException);
+            SeoMetadataCandidate generatedMetadata = seoMetadataClient.generate(bookId, prompt);
+            String normalizedTitle = normalizationPolicy.normalizeSeoTitle(generatedMetadata.seoTitle(), promptContext.bookTitle());
+            String normalizedDescription = normalizationPolicy.normalizeSeoDescription(
+                generatedMetadata.seoDescription(),
+                promptContext.description()
+            );
+            return repository.insertNewCurrentVersion(
+                bookId,
+                normalizedTitle,
+                normalizedDescription,
+                seoMetadataClient.configuredModel(),
+                seoMetadataClient.provider(),
+                promptHash
+            );
+        } catch (IllegalStateException generationFailure) {
+            String fallbackTitle = normalizationPolicy.buildDeterministicTitle(promptContext.bookTitle());
+            String fallbackDescription = normalizationPolicy.buildDeterministicDescription(promptContext.description());
+            log.error(
+                "Book SEO metadata generation failed for bookId={} model={}: {}; persisting deterministic fallback metadata",
+                bookId,
+                seoMetadataClient.configuredModel(),
+                generationFailure.getMessage(),
+                generationFailure
+            );
+            return repository.insertNewCurrentVersion(
+                bookId,
+                fallbackTitle,
+                fallbackDescription,
+                seoMetadataClient.configuredModel(),
+                FALLBACK_PROVIDER,
+                promptHash
+            );
         }
     }
 
@@ -289,55 +154,6 @@ public class BookSeoMetadataGenerationService {
         return new PromptContext(bookTitle, authors, publisher, publishedDate, description);
     }
 
-    private String normalizeSeoTitle(String candidateTitle, String fallbackBookTitle) {
-        String fallbackTitle = buildDeterministicTitle(fallbackBookTitle);
-        if (!StringUtils.hasText(candidateTitle)) {
-            return fallbackTitle;
-        }
-        String normalized = candidateTitle.replaceAll("\\s+", " ").trim();
-        if (!EXPECTED_TITLE_PATTERN.matcher(normalized).matches() || normalized.length() > TARGET_TITLE_LENGTH) {
-            return fallbackTitle;
-        }
-        return normalized;
-    }
-
-    private String normalizeSeoDescription(String candidateDescription, String fallbackDescriptionSource) {
-        String fallbackDescription = SeoUtils.truncateDescription(fallbackDescriptionSource, TARGET_DESCRIPTION_LENGTH);
-        if (!StringUtils.hasText(candidateDescription)) {
-            return fallbackDescription;
-        }
-        String plainDescription = candidateDescription
-            .replaceAll("<[^>]*>", " ")
-            .replaceAll("\\s+", " ")
-            .trim();
-        if (!StringUtils.hasText(plainDescription)) {
-            return fallbackDescription;
-        }
-        return SeoUtils.truncateDescription(plainDescription, TARGET_DESCRIPTION_LENGTH);
-    }
-
-    private String buildDeterministicTitle(String rawBookTitle) {
-        String title = StringUtils.hasText(rawBookTitle) ? rawBookTitle.trim() : "Book";
-        int titleBudget = Math.max(10, TARGET_TITLE_LENGTH - TITLE_SUFFIX.length());
-        String normalizedTitle = truncateForTitle(title, titleBudget);
-        return normalizedTitle + TITLE_SUFFIX;
-    }
-
-    private String truncateForTitle(String value, int maxLength) {
-        if (value.length() <= maxLength) {
-            return value;
-        }
-        if (maxLength <= 3) {
-            return value.substring(0, maxLength);
-        }
-        String shortened = value.substring(0, maxLength - 3);
-        int lastSpace = shortened.lastIndexOf(' ');
-        if (lastSpace > 5) {
-            shortened = shortened.substring(0, lastSpace);
-        }
-        return shortened + "...";
-    }
-
     private String buildPrompt(PromptContext context) {
         return """
             Title: %s
@@ -356,7 +172,7 @@ public class BookSeoMetadataGenerationService {
     }
 
     private void ensureAvailable() {
-        if (!available || openAiClient == null) {
+        if (!seoMetadataClient.isAvailable()) {
             throw new IllegalStateException("SEO metadata generation service is not configured");
         }
     }
