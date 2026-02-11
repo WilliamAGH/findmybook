@@ -3,9 +3,9 @@ package net.findmybook.application.book;
 import net.findmybook.adapters.persistence.RecommendationMaintenanceRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataAccessResourceFailureException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -50,5 +50,18 @@ class RecommendationCacheRefreshUseCaseTest {
         assertThatThrownBy(useCase::refreshAllRecommendations)
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("refresh failed");
+    }
+
+    @Test
+    void should_WrapDataAccessFailure_When_CountQueryThrows() {
+        RecommendationCacheRefreshUseCase useCase =
+            new RecommendationCacheRefreshUseCase(recommendationMaintenanceRepository, 30);
+        when(recommendationMaintenanceRepository.countRecommendationRows())
+            .thenThrow(new DataAccessResourceFailureException("database unavailable"));
+
+        assertThatThrownBy(useCase::refreshAllRecommendations)
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("data-access error")
+            .hasCauseInstanceOf(DataAccessResourceFailureException.class);
     }
 }
