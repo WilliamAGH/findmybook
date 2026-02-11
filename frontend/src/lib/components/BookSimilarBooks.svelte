@@ -1,129 +1,160 @@
 <script lang="ts">
   /**
-   * Related-book section with modal expansion for the book detail page.
-   * Maps domain Book objects to BookCardDisplay for consistent rendering.
+   * Cover-forward recommendation section for the book detail page.
+   *
+   * Filters similar books to those with displayable covers using the same
+   * validation pipeline as the backend CoverQuality/CoverPrioritizer:
+   * non-null renderable URL, non-placeholder, valid aspect ratio when
+   * dimensions are known, and runtime load-failure tracking.
    */
-  import BookCard, { type BookCardDisplay } from "$lib/components/BookCard.svelte";
-  import { Sparkles, X } from "@lucide/svelte";
   import type { Book } from "$lib/validation/schemas";
 
+  /** Matches CoverQuality.isRenderable() placeholder detection. */
+  const PLACEHOLDER_COVER_SEGMENT = "placeholder-book-cover.svg";
+
+  /** Matches ImageDimensionUtils.MIN_ASPECT_RATIO (height / width). */
+  const MIN_COVER_ASPECT_RATIO = 1.2;
+
+  /** Matches ImageDimensionUtils.MAX_ASPECT_RATIO (height / width). */
+  const MAX_COVER_ASPECT_RATIO = 2.0;
+
   let { books, loadFailed = false }: { books: Book[]; loadFailed?: boolean } = $props();
-  let isModalOpen = $state(false);
 
-  const PREVIEW_COUNT = 3;
-  const MODAL_HEADING_ID = "related-books-modal-heading";
+  let failedCoverBookIds = $state(new Set<string>());
 
-  let previewBooks = $derived(books.slice(0, PREVIEW_COUNT));
-
-  function toCard(item: Book): BookCardDisplay {
-    return {
-      id: item.id,
-      slug: item.slug ?? item.id,
-      title: item.title ?? "Untitled",
-      authors: item.authors.map((author) => author.name),
-      description: item.descriptionContent?.text ?? item.description,
-      coverUrl: item.cover?.preferredUrl ?? item.cover?.s3ImagePath ?? item.cover?.externalImageUrl ?? null,
-      fallbackCoverUrl: item.cover?.fallbackUrl ?? "/images/placeholder-book-cover.svg",
-    };
+  /**
+   * Resolves the best available cover URL for a book.
+   * Priority mirrors toCard() and mapSearchHitToBookCard() across the frontend.
+   */
+  function resolveCoverUrl(book: Book): string | null {
+    return book.cover?.preferredUrl
+      ?? book.cover?.s3ImagePath
+      ?? book.cover?.externalImageUrl
+      ?? null;
   }
 
-  function openModal(): void {
-    isModalOpen = true;
+  /** Mirrors CoverQuality.isRenderable() and coverRelayPersistence placeholder check. */
+  function isPlaceholder(url: string): boolean {
+    return url.toLowerCase().includes(PLACEHOLDER_COVER_SEGMENT);
   }
 
-  function closeModal(): void {
-    isModalOpen = false;
-  }
-
-  function handleBackdropClick(event: MouseEvent): void {
-    const target = event.target as HTMLElement | null;
-    if (target?.dataset.relatedBackdrop === "true") {
-      closeModal();
+  /**
+   * Validates aspect ratio when dimensions are known.
+   * Mirrors ImageDimensionUtils.hasValidAspectRatio() — unknown dimensions
+   * pass validation because the backend has already ranked cover quality.
+   */
+  function hasKnownValidAspectRatio(
+    width: number | null | undefined,
+    height: number | null | undefined,
+  ): boolean {
+    if (!width || !height || width <= 0 || height <= 0) {
+      return true;
     }
+    const ratio = height / width;
+    return ratio >= MIN_COVER_ASPECT_RATIO && ratio <= MAX_COVER_ASPECT_RATIO;
   }
 
-  function handleWindowKeydown(event: KeyboardEvent): void {
-    if (isModalOpen && event.key === "Escape") {
-      closeModal();
+  /**
+   * Determines whether a book has a cover suitable for the recommendation grid.
+   * Combines: renderable URL + non-placeholder + valid aspect ratio + no runtime failure.
+   */
+  function hasDisplayableCover(book: Book): boolean {
+    const url = resolveCoverUrl(book);
+    if (!url || url.trim().length === 0) {
+      return false;
     }
+    if (isPlaceholder(url)) {
+      return false;
+    }
+    if (!hasKnownValidAspectRatio(book.cover?.width, book.cover?.height)) {
+      return false;
+    }
+    return !failedCoverBookIds.has(book.id);
   }
 
-  $effect(() => {
-    if (!isModalOpen) {
+  let displayableBooks = $derived(books.filter(hasDisplayableCover));
+
+  function resolveFallbackUrl(book: Book): string | null {
+    const fallback = book.cover?.fallbackUrl;
+    if (!fallback || fallback.trim().length === 0 || isPlaceholder(fallback)) {
+      return null;
+    }
+    return fallback;
+  }
+
+  function authorNames(book: Book): string {
+    if (book.authors.length === 0) {
+      return "Unknown author";
+    }
+    return book.authors.map((a) => a.name).join(", ");
+  }
+
+  function bookHref(book: Book): string {
+    return `/book/${encodeURIComponent(book.slug ?? book.id)}`;
+  }
+
+  /** Attempts fallback URL on cover load failure; hides the card when all URLs fail. */
+  function handleCoverError(bookId: string, event: Event): void {
+    const img = event.target as HTMLImageElement;
+    const book = books.find((b) => b.id === bookId);
+    if (!book) {
+      failedCoverBookIds = new Set([...failedCoverBookIds, bookId]);
       return;
     }
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  });
+
+    const fallback = resolveFallbackUrl(book);
+    if (fallback && img.src !== fallback) {
+      img.src = fallback;
+      return;
+    }
+
+    failedCoverBookIds = new Set([...failedCoverBookIds, bookId]);
+  }
 </script>
 
-<svelte:window onkeydown={handleWindowKeydown} />
+{#if displayableBooks.length > 0}
+  <section class="space-y-5" aria-labelledby="related-books-heading">
+    <h2
+      id="related-books-heading"
+      class="text-lg font-semibold tracking-tight text-anthracite-900 dark:text-slate-100"
+    >
+      You might also like
+    </h2>
 
-{#if books.length > 0}
-  <section class="space-y-3" aria-labelledby="related-books-heading">
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <h2 id="related-books-heading" class="inline-flex items-center gap-2 text-xl font-semibold text-anthracite-900 dark:text-slate-100">
-        <Sparkles size={20} class="text-canvas-500 dark:text-canvas-400" />
-        You might also like
-      </h2>
-      <button
-        type="button"
-        class="inline-flex items-center rounded-lg border border-linen-300 bg-white px-3 py-1.5 text-sm font-medium text-anthracite-800 transition hover:bg-linen-100 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
-        aria-haspopup="dialog"
-        onclick={openModal}
-      >
-        View related books ({books.length})
-      </button>
-    </div>
-    <p class="text-sm text-anthracite-600 dark:text-slate-300">Suggested titles based on related metadata and reading signals.</p>
-    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {#each previewBooks as item (item.id)}
-        <BookCard book={toCard(item)} href={`/book/${encodeURIComponent(item.slug ?? item.id)}`} />
+    <div class="grid grid-cols-2 gap-x-5 gap-y-6 sm:grid-cols-3 xl:grid-cols-6">
+      {#each displayableBooks as book (book.id)}
+        <a href={bookHref(book)} class="group block">
+          <div
+            class="flex aspect-[2/3] items-center justify-center overflow-hidden rounded-lg bg-linen-100 p-3 transition-all duration-300 group-hover:-translate-y-0.5 group-hover:shadow-book dark:bg-slate-800/60"
+          >
+            <img
+              src={resolveCoverUrl(book)}
+              alt={`${book.title ?? "Book"} cover`}
+              class="max-h-full w-auto rounded-book object-contain transition-transform duration-300 group-hover:scale-[1.03]"
+              loading="lazy"
+              onerror={(e) => handleCoverError(book.id, e)}
+            />
+          </div>
+
+          <h3
+            class="mt-2.5 line-clamp-2 text-sm font-medium leading-snug text-anthracite-900 transition-colors group-hover:text-canvas-600 dark:text-slate-100 dark:group-hover:text-canvas-400"
+          >
+            {book.title ?? "Untitled"}
+          </h3>
+          <p class="mt-0.5 truncate text-xs text-anthracite-500 dark:text-slate-400">
+            {authorNames(book)}
+          </p>
+        </a>
       {/each}
     </div>
   </section>
-
-  {#if isModalOpen}
-    <div
-      class="fixed inset-0 z-50 flex items-center justify-center bg-anthracite-950/60 p-4 backdrop-blur-[2px]"
-      data-related-backdrop="true"
-      onclick={handleBackdropClick}
-      role="presentation"
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={MODAL_HEADING_ID}
-        tabindex="-1"
-        class="flex max-h-[88vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-linen-300 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900"
-      >
-        <div class="flex items-center justify-between border-b border-linen-200 px-4 py-3 dark:border-slate-700">
-          <h3 id={MODAL_HEADING_ID} class="text-lg font-semibold text-anthracite-900 dark:text-slate-100">You Might Also Like</h3>
-          <button
-            type="button"
-            onclick={closeModal}
-            class="rounded-md p-1.5 text-anthracite-500 transition hover:bg-linen-100 hover:text-anthracite-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-            aria-label="Close related books modal"
-          >
-            <X size={18} />
-          </button>
-        </div>
-        <div class="overflow-y-auto px-4 py-4 md:px-6 md:py-5">
-          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {#each books as item (item.id)}
-              <BookCard book={toCard(item)} href={`/book/${encodeURIComponent(item.slug ?? item.id)}`} />
-            {/each}
-          </div>
-        </div>
-      </div>
-    </div>
-  {/if}
 {:else if loadFailed}
   <section class="space-y-3">
-    <h2 class="text-xl font-semibold text-anthracite-900 dark:text-slate-100">You might also like</h2>
-    <p class="text-sm text-anthracite-500 dark:text-slate-400">Unable to load related books right now.</p>
+    <h2 class="text-lg font-semibold text-anthracite-900 dark:text-slate-100">
+      You might also like
+    </h2>
+    <p class="text-sm text-anthracite-500 dark:text-slate-400">
+      Unable to load related books right now.
+    </p>
   </section>
 {/if}
