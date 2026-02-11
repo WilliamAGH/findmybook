@@ -88,6 +88,7 @@ public class BookCollectionPersistenceService {
                                                        String description,
                                                        LocalDate bestsellersDate,
                                                        LocalDate publishedDate,
+                                                       String updatedFrequency,
                                                        JsonNode rawListJson) {
         if (jdbcTemplate == null || listCode == null || publishedDate == null) {
             return Optional.empty();
@@ -102,10 +103,10 @@ public class BookCollectionPersistenceService {
 
         try {
             String id = jdbcTemplate.queryForObject(
-                "INSERT INTO book_collections (id, collection_type, source, provider_list_id, provider_list_code, display_name, normalized_name, description, bestsellers_date, published_date, raw_data_json, created_at, updated_at) " +
-                "VALUES (?, 'BESTSELLER_LIST', 'NYT', ?, ?, ?, ?, ?, ?, ?, ?::jsonb, NOW(), NOW()) " +
+                "INSERT INTO book_collections (id, collection_type, source, provider_list_id, provider_list_code, display_name, normalized_name, description, bestsellers_date, published_date, updated_frequency, raw_data_json, created_at, updated_at) " +
+                "VALUES (?, 'BESTSELLER_LIST', 'NYT', ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, NOW(), NOW()) " +
                 "ON CONFLICT (source, provider_list_code, published_date) " +
-                "DO UPDATE SET display_name = EXCLUDED.display_name, description = EXCLUDED.description, raw_data_json = EXCLUDED.raw_data_json, updated_at = NOW() RETURNING id",
+                "DO UPDATE SET display_name = EXCLUDED.display_name, description = EXCLUDED.description, updated_frequency = COALESCE(EXCLUDED.updated_frequency, book_collections.updated_frequency), raw_data_json = EXCLUDED.raw_data_json, updated_at = NOW() RETURNING id",
                 (rs, rowNum) -> rs.getString("id"),
                 IdGenerator.generateShort(),
                 providerListId,
@@ -115,6 +116,7 @@ public class BookCollectionPersistenceService {
                 description,
                 bestsellersDate,
                 publishedDate,
+                updatedFrequency,
                 rawJson
             );
 

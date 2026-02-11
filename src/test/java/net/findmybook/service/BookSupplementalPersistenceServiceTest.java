@@ -104,4 +104,32 @@ class BookSupplementalPersistenceServiceTest {
             any()
         );
     }
+
+    @Test
+    void assignTag_shouldUpsertTagDisplayName_WhenCanonicalTagAlreadyExists() {
+        when(jdbcTemplate.queryForObject(anyString(), org.mockito.ArgumentMatchers.<RowMapper<String>>any(), any(Object[].class)))
+            .thenReturn("tag-003");
+
+        service.assignTag(
+            "33333333-3333-4333-8333-333333333333",
+            "nyt_list_audio_fiction",
+            "NYT List: Audio Fiction",
+            "NYT",
+            1.0d,
+            Map.of("list_code", "audio-fiction", "rank", 1)
+        );
+
+        ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+        verify(jdbcTemplate).queryForObject(
+            sqlCaptor.capture(),
+            org.mockito.ArgumentMatchers.<RowMapper<String>>any(),
+            any(),
+            eq("nyt_list_audio_fiction"),
+            eq("NYT List: Audio Fiction"),
+            eq("QUALIFIER")
+        );
+
+        assertThat(sqlCaptor.getValue()).contains("display_name = CASE WHEN EXCLUDED.display_name IS NOT NULL");
+        assertThat(sqlCaptor.getValue()).contains("btrim(EXCLUDED.display_name) <> ''");
+    }
 }

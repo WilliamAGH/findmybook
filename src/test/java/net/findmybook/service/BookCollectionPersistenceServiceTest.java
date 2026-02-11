@@ -14,6 +14,7 @@ import org.springframework.jdbc.core.RowMapper;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -47,7 +48,7 @@ class BookCollectionPersistenceServiceTest {
         when(jdbcTemplate.queryForObject(
                 anyString(),
                 org.mockito.ArgumentMatchers.<RowMapper<String>>any(),
-                any(), any(), any(), any(), any(), any(), any(), any(), any()
+                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()
         )).thenReturn("collection-123");
 
         Optional<String> result = service.upsertBestsellerCollection(
@@ -58,6 +59,7 @@ class BookCollectionPersistenceServiceTest {
                 "Latest weekly update",
                 LocalDate.of(2024, 9, 1),
                 LocalDate.of(2024, 9, 8),
+                "WEEKLY",
                 raw
         );
 
@@ -69,7 +71,7 @@ class BookCollectionPersistenceServiceTest {
                 startsWith("INSERT INTO book_collections (id, collection_type, source, provider_list_id"),
                 org.mockito.ArgumentMatchers.<RowMapper<String>>any(),
                 argCaptor.capture(), argCaptor.capture(), argCaptor.capture(), argCaptor.capture(),
-                argCaptor.capture(), argCaptor.capture(), argCaptor.capture(), argCaptor.capture(), argCaptor.capture()
+                argCaptor.capture(), argCaptor.capture(), argCaptor.capture(), argCaptor.capture(), argCaptor.capture(), argCaptor.capture()
         );
 
         List<Object> captured = argCaptor.getAllValues();
@@ -77,6 +79,60 @@ class BookCollectionPersistenceServiceTest {
         assertThat(captured.get(2)).isEqualTo("hardcover-fiction");
         assertThat(captured.get(3)).isEqualTo("NYT Hardcover Fiction");
         assertThat(captured.get(4)).isEqualTo("hardcover-fiction");
-        assertThat(captured.get(8)).isEqualTo(raw.toString());
+        assertThat(captured.get(8)).isEqualTo("WEEKLY");
+        assertThat(captured.get(9)).isEqualTo(raw.toString());
+    }
+
+    @Test
+    void upsertBestsellerCollection_includesUpdatedFrequencyInSqlContract() {
+        when(jdbcTemplate.queryForObject(
+            anyString(),
+            org.mockito.ArgumentMatchers.<RowMapper<String>>any(),
+            any(), any(), any(), any(), any(), any(), any(), any(), any(), any()
+        )).thenReturn("collection-456");
+
+        service.upsertBestsellerCollection(
+            "nyt-nonfiction-2024-40",
+            "hardcover-nonfiction",
+            "NYT Hardcover Nonfiction",
+            "hardcover-nonfiction",
+            "Latest weekly update",
+            LocalDate.of(2024, 9, 15),
+            LocalDate.of(2024, 9, 22),
+            "WEEKLY",
+            objectMapper.createObjectNode()
+        );
+
+        ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+        verify(jdbcTemplate).queryForObject(
+            sqlCaptor.capture(),
+            org.mockito.ArgumentMatchers.<RowMapper<String>>any(),
+            any(), any(), any(), any(), any(), any(), any(), any(), any(), any()
+        );
+
+        assertThat(sqlCaptor.getValue()).contains("updated_frequency");
+    }
+
+    @Test
+    void upsertBestsellerMembership_usesIdempotentConflictKey_WhenPersistingDuplicateRows() {
+        service.upsertBestsellerMembership(
+            "collection-1",
+            UUID.randomUUID().toString(),
+            1,
+            10,
+            2,
+            1,
+            "9780316769488",
+            null,
+            "https://amazon.example/item",
+            "{\"title\":\"Example\"}"
+        );
+
+        ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+        verify(jdbcTemplate).update(
+            sqlCaptor.capture(),
+            any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()
+        );
+        assertThat(sqlCaptor.getValue()).contains("ON CONFLICT (collection_id, book_id) DO UPDATE");
     }
 }
