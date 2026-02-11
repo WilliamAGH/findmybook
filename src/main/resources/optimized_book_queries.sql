@@ -277,12 +277,14 @@ BEGIN
                 (
                     SELECT ARRAY_AGG(category_name ORDER BY category_name)
                     FROM (
-                        SELECT DISTINCT bc_inner.display_name AS category_name
+                        SELECT DISTINCT ON (bc_inner.normalized_name)
+                               bc_inner.display_name AS category_name
                         FROM book_collections_join bcj_inner
                         JOIN book_collections bc_inner ON bc_inner.id = bcj_inner.collection_id
                         WHERE bcj_inner.book_id = b.id
                           AND bc_inner.collection_type = 'CATEGORY'
                           AND bc_inner.display_name IS NOT NULL
+                        ORDER BY bc_inner.normalized_name, bc_inner.display_name
                     ) category_list
                 ),
                 ARRAY[]::TEXT[]
@@ -526,13 +528,17 @@ BEGIN
         COALESCE(
             (
                 SELECT ARRAY(
-                    SELECT DISTINCT bc_inner.display_name
-                    FROM book_collections_join bcj_inner
-                    JOIN book_collections bc_inner ON bc_inner.id = bcj_inner.collection_id
-                    WHERE bcj_inner.book_id = b.id
-                      AND bc_inner.display_name IS NOT NULL
-                      AND bc_inner.collection_type = 'CATEGORY'
-                    ORDER BY bc_inner.display_name
+                    SELECT display_name FROM (
+                        SELECT DISTINCT ON (bc_inner.normalized_name)
+                               bc_inner.display_name
+                        FROM book_collections_join bcj_inner
+                        JOIN book_collections bc_inner ON bc_inner.id = bcj_inner.collection_id
+                        WHERE bcj_inner.book_id = b.id
+                          AND bc_inner.display_name IS NOT NULL
+                          AND bc_inner.collection_type = 'CATEGORY'
+                        ORDER BY bc_inner.normalized_name, bc_inner.display_name
+                    ) deduped
+                    ORDER BY display_name
                 )
             ),
             ARRAY[]::TEXT[]
