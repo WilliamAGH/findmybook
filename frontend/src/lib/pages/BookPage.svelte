@@ -49,6 +49,10 @@
   let titleExpanded = $state(false);
   let titleOverflows = $state(false);
 
+  let authorElement = $state<HTMLParagraphElement | null>(null);
+  let authorExpanded = $state(false);
+  let authorOverflows = $state(false);
+
   let descriptionContainer = $state<HTMLElement | null>(null);
   let descriptionExpanded = $state(false);
   let descriptionMeasured = $state(false);
@@ -59,6 +63,7 @@
   let descriptionNaturalHeightPx = $state(DESCRIPTION_FALLBACK_HEIGHT_PX);
   let descriptionResizeObserver: ResizeObserver | null = null;
   let titleResizeObserver: ResizeObserver | null = null;
+  let authorResizeObserver: ResizeObserver | null = null;
 
   let unsubscribeRealtime: (() => void) | null = null;
   let loadSequence = 0;
@@ -326,6 +331,12 @@
     }
   }
 
+  function measureAuthorOverflow(): void {
+    if (authorElement && !authorExpanded) {
+      authorOverflows = authorElement.scrollHeight > authorElement.clientHeight;
+    }
+  }
+
   let previousBookId = $state<string | null>(null);
 
   $effect(() => {
@@ -334,6 +345,8 @@
       previousBookId = currentId;
       titleExpanded = false;
       titleOverflows = false;
+      authorExpanded = false;
+      authorOverflows = false;
 
       descriptionExpanded = false;
       descriptionMeasured = false;
@@ -368,6 +381,36 @@
       if (titleResizeObserver) {
         titleResizeObserver.disconnect();
         titleResizeObserver = null;
+      }
+    };
+  });
+
+  $effect(() => {
+    if (!authorElement) {
+      if (authorResizeObserver) {
+        authorResizeObserver.disconnect();
+        authorResizeObserver = null;
+      }
+      return;
+    }
+
+    const currentAuthors = book?.authors;
+    if (currentAuthors && currentAuthors.length > 0) {
+      measureAuthorOverflow();
+    }
+
+    if (authorResizeObserver) {
+      authorResizeObserver.disconnect();
+    }
+    authorResizeObserver = new ResizeObserver(() => {
+      measureAuthorOverflow();
+    });
+    authorResizeObserver.observe(authorElement);
+
+    return () => {
+      if (authorResizeObserver) {
+        authorResizeObserver.disconnect();
+        authorResizeObserver = null;
       }
     };
   });
@@ -469,7 +512,23 @@
               {titleExpanded ? "Show less" : "Show full title"}
             </button>
           {/if}
-          <p class="text-base text-anthracite-700 dark:text-slate-300">{authorNames()}</p>
+          <p
+            bind:this={authorElement}
+            class="text-base text-anthracite-700 dark:text-slate-300"
+            class:line-clamp-3={!authorExpanded}
+            title={authorNames()}
+          >
+            {authorNames()}
+          </p>
+          {#if authorOverflows}
+            <button
+              type="button"
+              onclick={() => authorExpanded = !authorExpanded}
+              class="self-start text-sm font-medium text-canvas-600 transition hover:text-canvas-700 dark:text-canvas-400 dark:hover:text-canvas-300"
+            >
+              {authorExpanded ? "Show less" : "Show full author"}
+            </button>
+          {/if}
 
           {#if (book.viewMetrics?.totalViews ?? 0) > MIN_VIEW_COUNT_DISPLAY_THRESHOLD}
             <p class="flex items-center gap-1.5 text-xs text-sage-500 dark:text-sage-400">
