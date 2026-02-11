@@ -71,6 +71,7 @@ public class RecentBookViewRepository {
             );
         } catch (DataAccessException ex) {
             log.error("Failed to record recent view for book {}: {}", canonicalBookId, ex.getMessage(), ex);
+            throw new IllegalStateException("Failed to record recent view for book " + canonicalBookId, ex);
         }
     }
 

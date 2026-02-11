@@ -42,9 +42,11 @@ public class RecommendationCardResponseUseCase {
                 continue;
             }
             String id = card.card().id();
-            cardsById.putIfAbsent(id, card);
+            if (cardsById.putIfAbsent(id, card) != null) {
+                continue;
+            }
             sortableCards.add(card.card());
-            insertionOrder.putIfAbsent(id, index++);
+            insertionOrder.put(id, index++);
         }
 
         if (sortableCards.isEmpty()) {

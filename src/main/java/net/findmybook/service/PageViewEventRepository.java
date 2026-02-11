@@ -70,6 +70,7 @@ public class PageViewEventRepository {
             );
         } catch (DataAccessException ex) {
             log.error("Failed to record page view for pageKey '{}': {}", pageKey, ex.getMessage(), ex);
+            throw new IllegalStateException("Failed to record page view for pageKey '" + pageKey + "'", ex);
         }
     }
 }

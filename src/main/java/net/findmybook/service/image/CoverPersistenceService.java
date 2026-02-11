@@ -238,9 +238,9 @@ public class CoverPersistenceService {
             return new PersistenceResult(true, canonicalUrl, width, height, highRes);
 
         } catch (IllegalArgumentException ex) {
-            log.error("Failed to update cover metadata after S3 upload for book {}: {}",
-                bookId, ex.getMessage(), ex);
-            return new PersistenceResult(false, canonicalUrl, width, height, highRes);
+            log.error("Failed to update cover metadata after S3 upload for book {} (S3 object may be orphaned: s3Key={}): {}",
+                bookId, s3Key, ex.getMessage(), ex);
+            throw ex;
         } catch (DataAccessException ex) {
             log.error("Failed to update cover metadata after S3 upload for book {} due to database error: {}",
                 bookId, ex.getMessage(), ex);
@@ -297,7 +297,7 @@ public class CoverPersistenceService {
 
         } catch (IllegalArgumentException ex) {
             log.error("Failed to persist external cover for book {}: {}", bookId, ex.getMessage(), ex);
-            return new PersistenceResult(false, resolved.url(), resolved.width(), resolved.height(), resolved.highResolution());
+            throw ex;
         } catch (DataAccessException ex) {
             log.error("Failed to persist external cover for book {} due to database error: {}", bookId, ex.getMessage(), ex);
             throw ex;

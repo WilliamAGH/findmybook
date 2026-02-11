@@ -51,7 +51,7 @@ final class BookQueryCoverNormalizer {
                 ? card.fallbackCoverUrl()
                 : (resolved != null ? resolved.url() : coverUrl);
             String s3Key = resolveS3Key(resolved, card.coverS3Key());
-            Boolean grayscale = fallback != null ? fallback.grayscale() : card.coverGrayscale();
+            Boolean grayscale = fallback != null && fallback.grayscale() != null ? fallback.grayscale() : card.coverGrayscale();
             return new BookCard(
                 card.id(), card.slug(), card.title(), card.authors(),
                 coverUrl, s3Key, fallbackUrl,
@@ -72,7 +72,7 @@ final class BookQueryCoverNormalizer {
                 ? item.coverFallbackUrl()
                 : (resolved != null ? resolved.url() : coverUrl);
             String s3Key = resolveS3Key(resolved, item.coverS3Key());
-            Boolean grayscale = fallback != null ? fallback.grayscale() : item.coverGrayscale();
+            Boolean grayscale = fallback != null && fallback.grayscale() != null ? fallback.grayscale() : item.coverGrayscale();
             return new BookListItem(
                 item.id(), item.slug(), item.title(), item.description(),
                 item.authors(), item.categories(),
@@ -94,7 +94,7 @@ final class BookQueryCoverNormalizer {
             String fallbackUrl = StringUtils.hasText(detail.coverFallbackUrl())
                 ? detail.coverFallbackUrl()
                 : detail.thumbnailUrl();
-            Boolean grayscale = fallback != null ? fallback.grayscale() : detail.coverGrayscale();
+            Boolean grayscale = fallback != null && fallback.grayscale() != null ? fallback.grayscale() : detail.coverGrayscale();
             return new BookDetail(
                 detail.id(), detail.slug(), detail.title(), detail.description(),
                 detail.publisher(), detail.publishedDate(), detail.language(), detail.pageCount(),

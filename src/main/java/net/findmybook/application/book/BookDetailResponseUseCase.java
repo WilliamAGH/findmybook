@@ -51,7 +51,7 @@ public class BookDetailResponseUseCase {
      */
     public BookDto enrichDetailResponse(BookDto bookDto, @Nullable String rawViewWindow) {
         if (bookDto == null) {
-            return null;
+            throw new IllegalArgumentException("bookDto must not be null; callers should resolve book existence before enrichment");
         }
 
         Optional<RecentBookViewRepository.ViewWindow> requestedWindow = parseViewWindow(rawViewWindow);
