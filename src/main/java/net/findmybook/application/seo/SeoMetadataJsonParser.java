@@ -25,7 +25,7 @@ class SeoMetadataJsonParser {
      */
     SeoMetadataCandidate parse(String responseText) {
         if (!StringUtils.hasText(responseText)) {
-            throw new IllegalStateException("SEO metadata response was empty");
+            throw new BookSeoGenerationException("SEO metadata response was empty");
         }
         JsonNode payload = parseJsonPayload(responseText);
         String seoTitle = requiredText(payload, "seoTitle", "seo_title", "title");
@@ -41,13 +41,13 @@ class SeoMetadataJsonParser {
             int openBrace = cleaned.indexOf('{');
             int closeBrace = cleaned.lastIndexOf('}');
             if (openBrace < 0 || closeBrace <= openBrace) {
-                throw new IllegalStateException("SEO metadata response did not include a valid JSON object");
+                throw new BookSeoGenerationException("SEO metadata response did not include a valid JSON object");
             }
             String extracted = cleaned.substring(openBrace, closeBrace + 1);
             try {
                 return objectMapper.readTree(extracted);
             } catch (JacksonException parseException) {
-                throw new IllegalStateException("SEO metadata response JSON parsing failed", parseException);
+                throw new BookSeoGenerationException("SEO metadata response JSON parsing failed", parseException);
             }
         }
     }

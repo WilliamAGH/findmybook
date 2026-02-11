@@ -120,11 +120,11 @@ class BookSeoMetadataClient {
     SeoMetadataCandidate generate(UUID bookId, String prompt) {
         ensureAvailable();
 
-        IllegalStateException lastGenerationFailure = null;
+        BookSeoGenerationException lastGenerationFailure = null;
         for (int attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt++) {
             try {
                 return generateOnce(prompt);
-            } catch (IllegalStateException generationFailure) {
+            } catch (BookSeoGenerationException generationFailure) {
                 lastGenerationFailure = generationFailure;
                 if (attempt < MAX_GENERATION_ATTEMPTS && isRetryableGenerationFailure(generationFailure)) {
                     log.warn(
@@ -142,7 +142,7 @@ class BookSeoMetadataClient {
         }
 
         if (lastGenerationFailure == null) {
-            throw new IllegalStateException(
+            throw new BookSeoGenerationException(
                 "SEO metadata generation failed for bookId=%s model=%s".formatted(bookId, configuredModel)
             );
         }
@@ -170,24 +170,24 @@ class BookSeoMetadataClient {
         try {
             ChatCompletion completion = openAiClient.chat().completions().create(params, options);
             if (completion.choices().isEmpty()) {
-                throw new IllegalStateException("SEO metadata response contained no choices");
+                throw new BookSeoGenerationException("SEO metadata response contained no choices");
             }
             String response = completion.choices().get(0).message().content().orElse("");
             if (!StringUtils.hasText(response)) {
-                throw new IllegalStateException("SEO metadata response was empty");
+                throw new BookSeoGenerationException("SEO metadata response was empty");
             }
             return parser.parse(response);
         } catch (OpenAIException openAiException) {
             String detail = BookAiGenerationException.describeApiError(openAiException);
             log.error("SEO metadata API call failed (model={}): {}", configuredModel, detail);
-            throw new IllegalStateException(
+            throw new BookSeoGenerationException(
                 "SEO metadata generation failed (%s): %s".formatted(configuredModel, detail),
                 openAiException
             );
         }
     }
 
-    private boolean isRetryableGenerationFailure(IllegalStateException generationFailure) {
+    private boolean isRetryableGenerationFailure(BookSeoGenerationException generationFailure) {
         if (generationFailure.getCause() != null) {
             return true;
         }
@@ -203,7 +203,7 @@ class BookSeoMetadataClient {
 
     private void ensureAvailable() {
         if (!available || openAiClient == null) {
-            throw new IllegalStateException("SEO metadata generation service is not configured");
+            throw new BookSeoGenerationException("SEO metadata generation service is not configured");
         }
     }
 }

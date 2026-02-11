@@ -2,6 +2,7 @@ package net.findmybook.application.ai;
 
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import net.findmybook.application.seo.BookSeoGenerationException;
 import net.findmybook.application.seo.BookSeoMetadataGenerationService;
 import net.findmybook.service.event.BookUpsertEvent;
 import net.findmybook.support.ai.BookAiContentRequestQueue;
@@ -90,7 +91,7 @@ public class BookAiIngestionMetadataCoordinator {
                 } else {
                     log.debug("Skipped ingestion AI summary for unchanged prompt hash book {}", bookId);
                 }
-            } catch (BookAiGenerationException | IllegalStateException aiFailure) {
+            } catch (BookAiGenerationException aiFailure) {
                 log.error("Failed generating ingestion AI summary for book {}", bookId, aiFailure);
                 firstFailure = aiFailure;
             }
@@ -105,7 +106,7 @@ public class BookAiIngestionMetadataCoordinator {
                 } else {
                     log.debug("Skipped ingestion SEO metadata for unchanged prompt hash book {}", bookId);
                 }
-            } catch (IllegalStateException | DataAccessException seoFailure) {
+            } catch (BookSeoGenerationException | DataAccessException seoFailure) {
                 if (isMissingSeoMetadataRelation(seoFailure)) {
                     if (seoGenerationEnabled.compareAndSet(true, false)) {
                         log.error(

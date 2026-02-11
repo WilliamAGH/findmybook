@@ -118,7 +118,7 @@ public class BookSeoMetadataGenerationService {
                 seoMetadataClient.provider(),
                 promptHash
             );
-        } catch (IllegalStateException generationFailure) {
+        } catch (BookSeoGenerationException generationFailure) {
             String fallbackTitle = normalizationPolicy.buildDeterministicTitle(promptContext.bookTitle());
             String fallbackDescription = normalizationPolicy.buildDeterministicDescription(promptContext.description());
             log.error(
