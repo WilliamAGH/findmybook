@@ -54,17 +54,6 @@ public class LocalDiskCoverCacheService {
         return cacheRemoteImageInternal(imageUrl, bookIdForLog, provenanceData, sourceNameString);
     }
 
-    /**
-     * @deprecated Local disk caching has been retired. Delegates to the S3 pipeline.
-     */
-    @Deprecated(since = "2025-10-01", forRemoval = true)
-    public CompletableFuture<ImageDetails> downloadAndStoreImageLocallyAsync(String imageUrl,
-                                                                             String bookIdForLog,
-                                                                             ImageProvenanceData provenanceData,
-                                                                             String sourceNameString) {
-        return cacheRemoteImageInternal(imageUrl, bookIdForLog, provenanceData, sourceNameString);
-    }
-
     private CompletableFuture<ImageDetails> cacheRemoteImageInternal(String imageUrl,
                                                                      String bookIdForLog,
                                                                      ImageProvenanceData provenanceData,
@@ -171,14 +160,6 @@ public class LocalDiskCoverCacheService {
     }
 
     public ImageDetails buildPlaceholderImageDetails(String bookIdForLog, String reasonSuffix) {
-        return placeholderImageDetails(bookIdForLog, reasonSuffix);
-    }
-
-    /**
-     * @deprecated Use {@link #placeholderImageDetails(String, String)}.
-     */
-    @Deprecated(since = "2025-10-01", forRemoval = true)
-    public ImageDetails createPlaceholderImageDetails(String bookIdForLog, String reasonSuffix) {
         return placeholderImageDetails(bookIdForLog, reasonSuffix);
     }
 

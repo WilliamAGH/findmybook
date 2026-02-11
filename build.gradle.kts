@@ -31,6 +31,8 @@ java {
 tasks.withType<JavaCompile>().configureEach {
     options.release.set(targetRelease)
     options.compilerArgs.add("--enable-preview")
+    options.compilerArgs.add("-Xlint:deprecation")
+    options.compilerArgs.add("-Xlint:unchecked")
 }
 
 val toolchains = project.extensions.getByType(JavaToolchainService::class)

@@ -56,12 +56,6 @@ public enum CoverImageSource {
     MOCK("Mock Source"),
     
     /**
-     * Deprecated alias for undefined source.
-     */
-    @Deprecated
-    UNKNOWN("Undefined Source"),
-    
-    /**
      * Source not yet determined
      * - Default state before source is set
      * - Typically used during initialization
