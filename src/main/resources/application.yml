@@ -61,6 +61,11 @@ spring:
         # period: 7d 
         # use-cache-control-header: true # Ensure Cache-Control header is used
 
+  servlet:
+    multipart:
+      max-file-size: 5MB          # Aligns with app.cover-cache.max-file-size-bytes (5242880)
+      max-request-size: 6MB       # Slightly above file limit to cover multipart overhead
+
   codec: # Correctly nested under spring
     max-in-memory-size: 10MB # Configure global max buffer size for WebClient
 
@@ -187,6 +192,10 @@ resilience4j:
         timeoutDuration: 0ms
       bookAiContentRateLimiter:
         limitForPeriod: 10          # 10 AI requests per minute
+        limitRefreshPeriod: 1m
+        timeoutDuration: 0ms        # Fail fast when limit exceeded
+      coverRelayRateLimiter:
+        limitForPeriod: 10          # 10 browser cover relays per minute (app-wide, not per-client)
         limitRefreshPeriod: 1m
         timeoutDuration: 0ms        # Fail fast when limit exceeded
   bulkhead:

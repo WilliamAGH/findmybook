@@ -46,6 +46,8 @@ public class SecurityConfig {
     private static final Logger log = LoggerFactory.getLogger(SecurityConfig.class);
     private static final String SIMPLE_ANALYTICS_SCRIPT_ORIGIN = "https://scripts.simpleanalyticscdn.com";
     private static final String SIMPLE_ANALYTICS_QUEUE_ORIGIN = "https://queue.simpleanalyticscdn.com";
+    private static final String GOOGLE_BOOKS_ORIGIN = "https://books.google.com";
+    private static final String GOOGLE_BOOKS_CONTENT_ORIGIN = "https://books.googleusercontent.com";
 
     private final AuthenticationEntryPoint customBasicAuthenticationEntryPoint;
     private final Environment environment;
@@ -140,7 +142,10 @@ public class SecurityConfig {
         StringBuilder scriptSrcDirective = new StringBuilder(
             "'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://cdn.tailwindcss.com 'unsafe-inline' blob:"
         );
-        StringBuilder connectSrcDirective = new StringBuilder("'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com");
+        StringBuilder connectSrcDirective = new StringBuilder(
+            "'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com "
+                + GOOGLE_BOOKS_ORIGIN + " " + GOOGLE_BOOKS_CONTENT_ORIGIN
+        );
 
         if (simpleAnalyticsEnabled) {
             scriptSrcDirective.append(" ").append(SIMPLE_ANALYTICS_SCRIPT_ORIGIN);
