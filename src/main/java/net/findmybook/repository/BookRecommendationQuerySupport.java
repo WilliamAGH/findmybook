@@ -81,13 +81,15 @@ final class BookRecommendationQuerySupport {
 
         int fetchLimit = Math.max(limit, Math.min(limit * candidateSourceIds.size(), limit * 3));
 
+        // Keep recommendations available even when refresh jobs lag behind expiry.
+        // Active rows are ranked first; stale rows remain eligible as a deterministic fallback.
         String sql = """
             SELECT bc.*, br.score, br.reason, br.source
             FROM book_recommendations br
             JOIN LATERAL get_book_cards(ARRAY[br.recommended_book_id]) bc ON TRUE
             WHERE br.source_book_id IN (%s)
-              AND (br.expires_at IS NULL OR br.expires_at > NOW())
             ORDER BY CASE WHEN br.source_book_id = ? THEN 0 ELSE 1 END,
+                     CASE WHEN br.expires_at IS NULL OR br.expires_at > NOW() THEN 0 ELSE 1 END,
                      br.score DESC NULLS LAST,
                      br.generated_at DESC
             LIMIT ?
@@ -109,6 +111,45 @@ final class BookRecommendationQuerySupport {
             return new RecommendationCard(card, score, reason, source);
         });
         return mergeRecommendations(raw, limit);
+    }
+
+    /**
+     * Checks whether any non-expired recommendation rows exist for the source book cluster.
+     *
+     * @param sourceBookId canonical source book identifier
+     * @return true when at least one active recommendation row exists
+     */
+    boolean hasActiveRecommendations(UUID sourceBookId) {
+        if (sourceBookId == null) {
+            return false;
+        }
+
+        List<UUID> resolvedSourceIds = resolveClusterSourceIds(sourceBookId);
+        List<UUID> candidateSourceIds = resolvedSourceIds.isEmpty() ? List.of(sourceBookId) : resolvedSourceIds;
+        String placeholders = candidateSourceIds.stream()
+            .map(id -> "?")
+            .collect(Collectors.joining(", "));
+
+        String sql = """
+            SELECT 1
+            FROM book_recommendations br
+            WHERE br.source_book_id IN (%s)
+              AND (br.expires_at IS NULL OR br.expires_at > NOW())
+            LIMIT 1
+            """.formatted(placeholders);
+
+        try {
+            List<Integer> rows = jdbcTemplate.query(sql, ps -> {
+                int index = 1;
+                for (UUID id : candidateSourceIds) {
+                    ps.setObject(index++, id);
+                }
+            }, (rs, rowNum) -> rs.getInt(1));
+            return !rows.isEmpty();
+        } catch (DataAccessException ex) {
+            log.error("Failed to check active recommendation rows for {}: {}", sourceBookId, ex.getMessage(), ex);
+            throw new IllegalStateException("Active recommendation check failed for " + sourceBookId, ex);
+        }
     }
 
     private List<UUID> resolveClusterSourceIds(UUID sourceBookId) {

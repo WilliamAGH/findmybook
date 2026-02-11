@@ -4,6 +4,7 @@ import net.findmybook.dto.BookCard;
 import net.findmybook.dto.BookDetail;
 import net.findmybook.dto.BookListItem;
 import net.findmybook.dto.EditionSummary;
+import net.findmybook.dto.RecommendationCard;
 import net.findmybook.test.annotations.DbIntegrationTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -203,6 +204,36 @@ class BookQueryRepositoryTest {
         Optional<BookDetail> detailOpt = bookQueryRepository.fetchBookDetailBySlug("nonexistent-book-slug-12345");
 
         assertThat(detailOpt).isEmpty();
+    }
+
+    @Test
+    void testFetchRecommendationCards_usesPersistedRowsEvenWhenExpired() {
+        if (bookQueryRepository == null || jdbcTemplate == null) {
+            return;
+        }
+
+        UUID sourceBookId = jdbcTemplate.query(
+            """
+            SELECT source_book_id
+            FROM book_recommendations
+            GROUP BY source_book_id
+            ORDER BY MAX(generated_at) DESC
+            LIMIT 1
+            """,
+            rs -> rs.next() ? (UUID) rs.getObject(1) : null
+        );
+
+        if (sourceBookId == null) {
+            return;
+        }
+
+        List<RecommendationCard> recommendations = bookQueryRepository.fetchRecommendationCards(sourceBookId, 6);
+        assertThat(recommendations).isNotEmpty();
+        assertThat(recommendations.size()).isLessThanOrEqualTo(6);
+        recommendations.forEach(card -> {
+            assertThat(card.card()).isNotNull();
+            assertThat(card.card().id()).isNotBlank();
+        });
     }
 
     @Test
