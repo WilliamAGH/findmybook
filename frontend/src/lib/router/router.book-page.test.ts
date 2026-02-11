@@ -168,28 +168,21 @@ describe("BookPage fallback lookup", () => {
     expect(getAffiliateLinksMock).toHaveBeenCalledWith("OL13535055W");
   });
 
-  it("shouldOpenRelatedBooksModalWhenSimilarBooksAreAvailable", async () => {
+  it("shouldRenderCoverGridWhenSimilarBooksHaveDisplayableCovers", async () => {
+    const coverPayload = {
+      s3ImagePath: null,
+      externalImageUrl: null,
+      width: 300,
+      height: 450,
+      highResolution: false,
+      preferredUrl: "https://cdn.example.com/cover.jpg",
+      fallbackUrl: null,
+      source: "GOOGLE_BOOKS",
+    };
+
     getSimilarBooksMock.mockResolvedValueOnce([
-      createBookPayload({
-        id: "related-book-1",
-        slug: "related-book-1",
-        title: "Related Book One",
-      }),
-      createBookPayload({
-        id: "related-book-2",
-        slug: "related-book-2",
-        title: "Related Book Two",
-      }),
-      createBookPayload({
-        id: "related-book-3",
-        slug: "related-book-3",
-        title: "Related Book Three",
-      }),
-      createBookPayload({
-        id: "related-book-4",
-        slug: "related-book-4",
-        title: "Related Book Four",
-      }),
+      createBookPayload({ id: "related-1", slug: "related-1", title: "Related One", cover: coverPayload }),
+      createBookPayload({ id: "related-2", slug: "related-2", title: "Related Two", cover: coverPayload }),
     ]);
 
     const currentUrl = new URL("https://findmybook.net/book/book-1");
@@ -200,13 +193,33 @@ describe("BookPage fallback lookup", () => {
       },
     });
 
-    const openModalButton = await screen.findByRole("button", { name: "View related books (4)" });
-    await fireEvent.click(openModalButton);
+    const sectionHeading = await screen.findByRole("heading", { name: "You might also like" });
+    expect(sectionHeading).toBeInTheDocument();
+
+    const recommendationSection = sectionHeading.closest("section")!;
+    const recommendationCovers = recommendationSection.querySelectorAll("img");
+    expect(recommendationCovers).toHaveLength(2);
+  });
+
+  it("shouldHideRecommendationSectionWhenAllSimilarBooksLackCovers", async () => {
+    getSimilarBooksMock.mockResolvedValueOnce([
+      createBookPayload({ id: "no-cover-1", slug: "no-cover-1", title: "No Cover" }),
+      createBookPayload({ id: "no-cover-2", slug: "no-cover-2", title: "Also No Cover" }),
+    ]);
+
+    const currentUrl = new URL("https://findmybook.net/book/book-1");
+    render(BookPage, {
+      props: {
+        currentUrl,
+        identifier: "book-1",
+      },
+    });
 
     await waitFor(() => {
-      expect(screen.getByRole("dialog", { name: "You Might Also Like" })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Close related books modal" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Book" })).toBeInTheDocument();
     });
+
+    expect(screen.queryByRole("heading", { name: "You might also like" })).not.toBeInTheDocument();
   });
 
   it("shouldBuildExploreBackLinkFromPopularWindowWhenSpaHistoryIsMissing", async () => {
