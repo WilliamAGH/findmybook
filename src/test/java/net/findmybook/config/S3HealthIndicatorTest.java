@@ -25,8 +25,10 @@ import java.time.Duration;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -214,5 +216,25 @@ class S3HealthIndicatorTest {
         ResourceHttpRequestHandler resourceHandler = assertInstanceOf(ResourceHttpRequestHandler.class, frontendHandler);
         assertNotNull(resourceHandler.getCacheControl());
         assertEquals("no-cache, must-revalidate", resourceHandler.getCacheControl().getHeaderValue());
+    }
+}
+
+class SecurityConfigContentSecurityPolicyTest {
+
+    @Test
+    void should_IncludeSimpleAnalyticsScriptOriginInConnectSrc_When_SimpleAnalyticsEnabled() {
+        String csp = SecurityConfig.buildContentSecurityPolicy(false, true);
+
+        assertTrue(csp.contains("script-src 'self'"));
+        assertTrue(csp.contains("https://scripts.simpleanalyticscdn.com"));
+        assertTrue(csp.contains("connect-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://queue.simpleanalyticscdn.com https://scripts.simpleanalyticscdn.com"));
+    }
+
+    @Test
+    void should_ExcludeSimpleAnalyticsOrigins_When_SimpleAnalyticsDisabled() {
+        String csp = SecurityConfig.buildContentSecurityPolicy(false, false);
+
+        assertFalse(csp.contains("https://queue.simpleanalyticscdn.com"));
+        assertFalse(csp.contains("https://scripts.simpleanalyticscdn.com"));
     }
 }
