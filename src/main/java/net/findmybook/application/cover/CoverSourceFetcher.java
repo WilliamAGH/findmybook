@@ -91,7 +91,7 @@ public class CoverSourceFetcher {
             return tryUploadWithRetry(bestUrl, bookId, SRC_GOOGLE_BOOKS);
 
         } catch (WebClientException | JacksonException | IllegalStateException ex) {
-            log.debug("Google Books search failed for ISBN {}", isbn, ex);
+            log.warn("Google Books search failed for ISBN {}", isbn, ex);
             // WebClientException: HTTP errors or connection issues
             // JacksonException: JSON parsing issues
             // IllegalStateException: timeout from block()
@@ -132,7 +132,7 @@ public class CoverSourceFetcher {
         } catch (WebClientResponseException.NotFound ex) {
             return SourceAttemptResult.notFound("longitood: no cover found (404)");
         } catch (WebClientException | IllegalStateException ex) {
-            log.debug("Longitood request failed for ISBN {}", isbn, ex);
+            log.warn("Longitood request failed for ISBN {}", isbn, ex);
             // WebClientException: other HTTP errors or connection issues
             // IllegalStateException: timeout from block()
             return SourceAttemptResult.failure("longitood request failed: " + summarizeThrowable(ex));
@@ -153,7 +153,7 @@ public class CoverSourceFetcher {
                 return SourceAttemptResult.failure("upload returned empty details from " + source + " using " + imageUrl);
 
             } catch (WebClientException | CoverProcessingException | IllegalStateException ex) {
-                log.debug("Upload failed for book {} from source {} (attempt {})", bookId, source, attempt, ex);
+                log.warn("Upload failed for book {} from source {} (attempt {})", bookId, source, attempt, ex);
                 // WebClientException: HTTP/Net errors during fetch/upload
                 // CoverProcessingException: Business logic rejection (e.g. placeholder) or S3/Infra error
                 // IllegalStateException: timeout from block()

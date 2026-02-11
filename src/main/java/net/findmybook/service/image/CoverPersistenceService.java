@@ -327,6 +327,7 @@ public class CoverPersistenceService {
             }
         } catch (DataAccessException e) {
             log.error("Failed to record download error for book {}: {}", bookId, e.getMessage(), e);
+            throw new IllegalStateException("Failed to persist download error for book " + bookId, e);
         }
     }
     
