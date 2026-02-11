@@ -154,6 +154,20 @@ public class BookCollectionPersistenceService {
         try {
             // Validate that bookId is a valid UUID
             UUID bookUuid = UUID.fromString(bookId);
+
+            if (position != null) {
+                // Maintain the unique rank invariant by vacating any prior occupant
+                // before assigning this rank to the incoming book.
+                JdbcUtils.executeUpdate(
+                    jdbcTemplate,
+                    "UPDATE book_collections_join " +
+                    "SET position = NULL, updated_at = NOW() " +
+                    "WHERE collection_id = ? AND position = ? AND book_id <> ?",
+                    collectionId,
+                    position,
+                    bookUuid
+                );
+            }
             
             log.debug("Inserting book into collection: collectionId='{}', bookId='{}', position={}, isbn13='{}'",
                 collectionId, bookId, position, providerIsbn13);

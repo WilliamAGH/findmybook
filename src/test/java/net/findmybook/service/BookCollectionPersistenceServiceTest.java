@@ -20,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.startsWith;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -128,8 +129,13 @@ class BookCollectionPersistenceServiceTest {
             "{\"title\":\"Example\"}"
         );
 
-        ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
         verify(jdbcTemplate).update(
+            startsWith("UPDATE book_collections_join SET position = NULL"),
+            any(), any(), any()
+        );
+
+        ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+        verify(jdbcTemplate, times(1)).update(
             sqlCaptor.capture(),
             any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()
         );
