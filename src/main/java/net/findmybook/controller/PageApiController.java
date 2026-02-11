@@ -81,8 +81,9 @@ public class PageApiController {
      */
     @GetMapping("/home")
     public Mono<HomePayload> homePayload(@RequestParam(name = "popularWindow", required = false) String popularWindow,
-                                         @RequestParam(name = "popularLimit", required = false) Integer popularLimit) {
-        return publicPagePayloadUseCase.loadHomePayload(popularWindow, popularLimit);
+                                         @RequestParam(name = "popularLimit", required = false) Integer popularLimit,
+                                         @RequestParam(name = "recordView", required = false, defaultValue = "true") boolean recordView) {
+        return publicPagePayloadUseCase.loadHomePayload(popularWindow, popularLimit, recordView);
     }
 
     /**
