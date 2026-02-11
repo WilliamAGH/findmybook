@@ -19,9 +19,10 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -175,9 +176,9 @@ public class CoverBackfillService {
     private volatile boolean cancelled;
 
     /** Per-source consecutive failure counter; reset on success. */
-    private final Map<String, Integer> consecutiveFailures = new HashMap<>();
+    private final Map<String, Integer> consecutiveFailures = new ConcurrentHashMap<>();
     /** Per-source pause-until timestamp. */
-    private final Map<String, Instant> pausedUntil = new HashMap<>();
+    private final Map<String, Instant> pausedUntil = new ConcurrentHashMap<>();
 
     public CoverBackfillService(JdbcTemplate jdbcTemplate,
                                 S3BookCoverService s3BookCoverService,
@@ -675,6 +676,7 @@ public class CoverBackfillService {
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             cancelled = true;
+            log.info("Cover backfill sleep interrupted; treating as cancellation");
         }
     }
 
