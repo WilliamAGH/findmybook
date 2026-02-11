@@ -1,9 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import DOMPurify from "dompurify";
-  import BookAffiliateLinks from "$lib/components/BookAffiliateLinks.svelte";
-  import BookAiContentPanel from "$lib/components/BookAiContentPanel.svelte";
-  import BookCategories from "$lib/components/BookCategories.svelte";
+  import BookDetailCard from "$lib/components/book/BookDetailCard.svelte";
   import BookEditions from "$lib/components/BookEditions.svelte";
   import BookSimilarBooks from "$lib/components/BookSimilarBooks.svelte";
   import { previousSpaPath } from "$lib/router/router";
@@ -11,23 +8,17 @@
     getAffiliateLinks,
     getBook,
     getSimilarBooks,
+    persistRenderedCover,
   } from "$lib/services/books";
+  import {
+    mergePersistedCoverIntoBook,
+    reserveCoverRelayCandidate,
+  } from "$lib/services/coverRelayPersistence";
   import { subscribeToBookCoverUpdates } from "$lib/services/realtime";
   import type { Book, BookAiContentSnapshot } from "$lib/validation/schemas";
-  import {
-    Star,
-    ChevronDown,
-    ChevronLeft,
-    Globe,
-    BookOpen,
-    Calendar,
-    Eye,
-  } from "@lucide/svelte";
+  import { ChevronLeft } from "@lucide/svelte";
 
-  const MIN_VIEW_COUNT_DISPLAY_THRESHOLD = 10;
-  const TITLE_MAX_LINES = 3;
-  const AUTHOR_MAX_LINES = 3;
-  const CLAMP_OVERFLOW_EPSILON_PX = 2;
+  const attemptedCoverPersistKeys = new Set<string>();
 
   let {
     currentUrl,
@@ -47,26 +38,6 @@
   let liveCoverUrl = $state<string | null>(null);
   const fallbackCoverImage = "/images/placeholder-book-cover.svg";
   let detailCoverUrl = $state<string>(fallbackCoverImage);
-
-  let titleElement = $state<HTMLHeadingElement | null>(null);
-  let titleExpanded = $state(false);
-  let titleOverflows = $state(false);
-
-  let authorElement = $state<HTMLParagraphElement | null>(null);
-  let authorExpanded = $state(false);
-  let authorOverflows = $state(false);
-
-  let descriptionContainer = $state<HTMLElement | null>(null);
-  let descriptionExpanded = $state(false);
-  let descriptionMeasured = $state(false);
-  let descriptionOverflows = $state(false);
-  const DESCRIPTION_MAX_LINES = 13;
-  const DESCRIPTION_FALLBACK_HEIGHT_PX = 288; // 18rem — roughly 12-13 lines at text-sm leading-relaxed
-  let descriptionMaxHeightPx = $state(DESCRIPTION_FALLBACK_HEIGHT_PX);
-  let descriptionNaturalHeightPx = $state(DESCRIPTION_FALLBACK_HEIGHT_PX);
-  let descriptionResizeObserver: ResizeObserver | null = null;
-  let titleResizeObserver: ResizeObserver | null = null;
-  let authorResizeObserver: ResizeObserver | null = null;
 
   let unsubscribeRealtime: (() => void) | null = null;
   let loadSequence = 0;
@@ -114,7 +85,9 @@
 
     try {
       const loadedBook = await loadBookWithFallback(identifier);
-      if (sequence !== loadSequence) return;
+      if (sequence !== loadSequence) {
+        return;
+      }
 
       const relatedIdentifier = loadedBook.id.trim().length > 0
         ? loadedBook.id
@@ -124,11 +97,11 @@
         getSimilarBooks(relatedIdentifier, 6),
         getAffiliateLinks(relatedIdentifier),
       ]);
-      if (sequence !== loadSequence) return;
+      if (sequence !== loadSequence) {
+        return;
+      }
 
       book = loadedBook;
-      // Supplemental data uses visible degradation: child components render
-      // error states via the loadFailed prop, so failures are never hidden.
       if (similarResult.status === "rejected") {
         similarBooks = [];
         similarBooksFailed = true;
@@ -152,21 +125,24 @@
           (coverUrl) => {
             liveCoverUrl = coverUrl;
           },
-          (error) => {
-            console.error("Realtime cover update error:", error.message);
+          (realtimeError) => {
+            console.error("Realtime cover update error:", realtimeError.message);
           },
         );
       } catch (realtimeError) {
         console.error("Realtime cover subscription failed:", realtimeError);
         unsubscribeRealtime = null;
       }
+
       if (sequence !== loadSequence && unsubscribeRealtime) {
         unsubscribeRealtime();
         unsubscribeRealtime = null;
       }
-    } catch (error) {
-      if (sequence !== loadSequence) return;
-      errorMessage = error instanceof Error ? error.message : "Unable to load this book";
+    } catch (loadError) {
+      if (sequence !== loadSequence) {
+        return;
+      }
+      errorMessage = loadError instanceof Error ? loadError.message : "Unable to load this book";
       book = null;
       similarBooks = [];
       similarBooksFailed = false;
@@ -180,12 +156,13 @@
   }
 
   function handleAiContentUpdate(aiContent: BookAiContentSnapshot): void {
-    if (book) {
-      book = {
-        ...book,
-        aiContent,
-      };
+    if (!book) {
+      return;
     }
+    book = {
+      ...book,
+      aiContent,
+    };
   }
 
   function preferredBookCoverUrl(): string {
@@ -219,61 +196,42 @@
       detailCoverUrl = fallbackUrl;
       return;
     }
+
     if (detailCoverUrl !== fallbackCoverImage) {
       console.warn(`[BookPage] Fallback cover also failed for "${book?.title}": ${failedUrl} → using placeholder`);
       detailCoverUrl = fallbackCoverImage;
     }
   }
 
-  function authorNames(): string {
-    if (!book || book.authors.length === 0) {
-      return "Unknown author";
+  async function handleDetailCoverLoad(): Promise<void> {
+    const currentBook = book;
+    const normalizedRenderedUrl = reserveCoverRelayCandidate(
+      currentBook,
+      detailCoverUrl,
+      fallbackCoverImage,
+      attemptedCoverPersistKeys,
+    );
+    if (!currentBook || !normalizedRenderedUrl) {
+      return;
     }
-    return book.authors.map((author) => author.name).join(", ");
-  }
 
-  function publishedDateText(): string {
-    if (!book?.publication?.publishedDate) {
-      return "Unknown";
+    try {
+      const persistedCover = await persistRenderedCover({
+        identifier: currentBook.id,
+        renderedCoverUrl: normalizedRenderedUrl,
+        source: currentBook.cover?.source ?? null,
+      });
+
+      liveCoverUrl = persistedCover.storedCoverUrl;
+      detailCoverUrl = persistedCover.storedCoverUrl;
+      book = mergePersistedCoverIntoBook(currentBook, persistedCover, normalizedRenderedUrl);
+      console.info(`[BookPage] Persisted rendered cover for "${currentBook.title}" to ${persistedCover.storageKey}`);
+    } catch (persistError) {
+      console.warn(
+        `[BookPage] Failed to persist rendered cover for "${currentBook.title}" from ${normalizedRenderedUrl}`,
+        persistError,
+      );
     }
-    const date = new Date(book.publication.publishedDate);
-    if (Number.isNaN(date.getTime())) {
-      return String(book.publication.publishedDate);
-    }
-    return date.toLocaleDateString();
-  }
-
-  let sanitizedDescriptionHtml = $derived(
-    book?.descriptionContent?.html && book.descriptionContent.html.trim().length > 0
-      ? DOMPurify.sanitize(book.descriptionContent.html)
-      : "",
-  );
-
-  /** Whether the description content is currently height-constrained. */
-  let descriptionCollapsed = $derived(
-    !descriptionExpanded && (!descriptionMeasured || descriptionOverflows),
-  );
-
-  function resolveDescriptionMaxHeightPx(container: HTMLElement): number {
-    const lineHeight = Number.parseFloat(getComputedStyle(container).lineHeight);
-    if (!Number.isFinite(lineHeight) || lineHeight <= 0) {
-      return DESCRIPTION_FALLBACK_HEIGHT_PX;
-    }
-    return Math.ceil(lineHeight * DESCRIPTION_MAX_LINES);
-  }
-
-  function measureDescriptionOverflow(): void {
-    requestAnimationFrame(() => {
-      if (!descriptionContainer) {
-        descriptionMeasured = false;
-        return;
-      }
-      const maxHeightPx = resolveDescriptionMaxHeightPx(descriptionContainer);
-      descriptionMaxHeightPx = maxHeightPx;
-      descriptionNaturalHeightPx = descriptionContainer.scrollHeight;
-      descriptionOverflows = descriptionContainer.scrollHeight > maxHeightPx + 1;
-      descriptionMeasured = true;
-    });
   }
 
   function legacySearchFallbackHref(): string {
@@ -298,6 +256,7 @@
     const orderBy = currentUrl.searchParams.get("orderBy");
     const view = currentUrl.searchParams.get("view");
     const year = currentUrl.searchParams.get("year");
+
     if (page) {
       url.searchParams.set("page", page);
     }
@@ -337,144 +296,6 @@
     detailCoverUrl = preferredBookCoverUrl();
   });
 
-  function measureTitleOverflow(): void {
-    if (!titleElement || titleExpanded) {
-      return;
-    }
-    titleOverflows = hasClampOverflow(titleElement, TITLE_MAX_LINES);
-  }
-
-  function hasClampOverflow(element: HTMLElement, maxLines: number): boolean {
-    const scrollDelta = element.scrollHeight - element.clientHeight;
-    if (scrollDelta <= CLAMP_OVERFLOW_EPSILON_PX) {
-      return false;
-    }
-
-    const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight);
-    if (!Number.isFinite(lineHeight) || lineHeight <= 0) {
-      return scrollDelta > CLAMP_OVERFLOW_EPSILON_PX;
-    }
-
-    const clampThresholdPx = Math.ceil(lineHeight * maxLines) + CLAMP_OVERFLOW_EPSILON_PX;
-    return element.scrollHeight > clampThresholdPx;
-  }
-
-  function measureAuthorOverflow(): void {
-    if (!authorElement || authorExpanded) {
-      return;
-    }
-    authorOverflows = hasClampOverflow(authorElement, AUTHOR_MAX_LINES);
-  }
-
-  let previousBookId = $state<string | null>(null);
-
-  $effect(() => {
-    const currentId = book?.id ?? null;
-    if (currentId && currentId !== previousBookId) {
-      previousBookId = currentId;
-      titleExpanded = false;
-      titleOverflows = false;
-      authorExpanded = false;
-      authorOverflows = false;
-
-      descriptionExpanded = false;
-      descriptionMeasured = false;
-      descriptionOverflows = false;
-      measureDescriptionOverflow();
-    }
-  });
-
-  $effect(() => {
-    if (!titleElement) {
-      if (titleResizeObserver) {
-        titleResizeObserver.disconnect();
-        titleResizeObserver = null;
-      }
-      return;
-    }
-
-    const currentTitle = book?.title;
-    if (currentTitle) {
-      measureTitleOverflow();
-    }
-
-    if (titleResizeObserver) {
-      titleResizeObserver.disconnect();
-    }
-    titleResizeObserver = new ResizeObserver(() => {
-      measureTitleOverflow();
-    });
-    titleResizeObserver.observe(titleElement);
-
-    return () => {
-      if (titleResizeObserver) {
-        titleResizeObserver.disconnect();
-        titleResizeObserver = null;
-      }
-    };
-  });
-
-  $effect(() => {
-    if (!authorElement) {
-      if (authorResizeObserver) {
-        authorResizeObserver.disconnect();
-        authorResizeObserver = null;
-      }
-      return;
-    }
-
-    const currentAuthors = book?.authors;
-    if (currentAuthors && currentAuthors.length > 0) {
-      measureAuthorOverflow();
-    }
-
-    if (authorResizeObserver) {
-      authorResizeObserver.disconnect();
-    }
-    authorResizeObserver = new ResizeObserver(() => {
-      measureAuthorOverflow();
-    });
-    authorResizeObserver.observe(authorElement);
-
-    return () => {
-      if (authorResizeObserver) {
-        authorResizeObserver.disconnect();
-        authorResizeObserver = null;
-      }
-    };
-  });
-
-  $effect(() => {
-    if (!descriptionContainer) {
-      if (descriptionResizeObserver) {
-        descriptionResizeObserver.disconnect();
-        descriptionResizeObserver = null;
-      }
-      return;
-    }
-
-    const currentHtml = sanitizedDescriptionHtml;
-    const currentRawDescription = book?.description;
-    if (currentHtml || currentRawDescription) {
-      measureDescriptionOverflow();
-    }
-
-    if (descriptionResizeObserver) {
-      descriptionResizeObserver.disconnect();
-    }
-    descriptionResizeObserver = new ResizeObserver(() => {
-      measureDescriptionOverflow();
-    });
-    descriptionResizeObserver.observe(descriptionContainer);
-
-    return () => {
-      if (descriptionResizeObserver) {
-        descriptionResizeObserver.disconnect();
-        descriptionResizeObserver = null;
-      }
-    };
-  });
-
   onMount(() => {
     return () => {
       if (unsubscribeRealtime) {
@@ -492,7 +313,6 @@
       {errorMessage}
     </div>
   {:else if book}
-    <!-- Back to Previous Route -->
     <a
       href={backHref()}
       onclick={goBackToPreviousRoute}
@@ -502,190 +322,15 @@
       Back to Results
     </a>
 
-    <!-- Book Detail Card -->
-    <article
-      class="overflow-clip rounded-xl border border-linen-200 shadow-soft dark:border-slate-700"
-      aria-labelledby="book-page-title"
-    >
-      <div class="grid gap-6 p-5 md:grid-cols-[320px_1fr] md:p-8">
-        <!-- Cover -->
-        <div class="md:sticky md:top-20 md:self-start relative flex items-center justify-center overflow-hidden rounded-xl bg-linen-50 p-6 dark:bg-slate-900">
-          <img
-            src={detailCoverUrl}
-            alt={`${book.title ?? "Book"} cover`}
-            class="max-h-[400px] w-auto rounded-book object-contain shadow-book"
-            loading="lazy"
-            onerror={handleDetailCoverError}
-          />
-          {#if book.extras?.averageRating !== undefined && book.extras?.averageRating !== null}
-            <div class="absolute right-3 top-3 flex items-center gap-1 rounded-lg bg-canvas-400 px-2.5 py-1 text-sm font-medium text-white shadow-sm">
-              <Star size={12} class="fill-current" />
-              <span>{Number(book.extras.averageRating).toFixed(1)}</span>
-            </div>
-          {/if}
-        </div>
-
-        <!-- Details -->
-        <div class="flex flex-col gap-4">
-          <h1
-            id="book-page-title"
-            bind:this={titleElement}
-            class="break-words text-3xl font-semibold text-balance text-anthracite-900 dark:text-slate-100"
-            class:line-clamp-3={!titleExpanded}
-            title={book.title ?? undefined}
-          >
-            {book.title ?? "Book details"}
-          </h1>
-          {#if titleOverflows}
-            <button
-              type="button"
-              onclick={() => titleExpanded = !titleExpanded}
-              class="self-start text-sm font-medium text-canvas-600 transition hover:text-canvas-700 dark:text-canvas-400 dark:hover:text-canvas-300"
-            >
-              {titleExpanded ? "Show less" : "Show full title"}
-            </button>
-          {/if}
-          <p
-            bind:this={authorElement}
-            class="break-words text-base text-anthracite-700 dark:text-slate-300"
-            class:line-clamp-3={!authorExpanded}
-            title={authorNames()}
-          >
-            {authorNames()}
-          </p>
-          {#if authorOverflows}
-            <button
-              type="button"
-              onclick={() => authorExpanded = !authorExpanded}
-              class="self-start text-sm font-medium text-canvas-600 transition hover:text-canvas-700 dark:text-canvas-400 dark:hover:text-canvas-300"
-            >
-              {authorExpanded ? "Show less" : "Show full author"}
-            </button>
-          {/if}
-
-          {#if (book.viewMetrics?.totalViews ?? 0) > MIN_VIEW_COUNT_DISPLAY_THRESHOLD}
-            <p class="flex items-center gap-1.5 text-xs text-sage-500 dark:text-sage-400">
-              <Eye size={14} class="shrink-0" />
-              <span>{book.viewMetrics!.totalViews.toLocaleString()} views</span>
-            </p>
-          {/if}
-
-          <!-- Metadata Grid -->
-          <h2 id="book-metadata-heading" class="text-lg font-semibold text-anthracite-900 dark:text-slate-100">Book Details</h2>
-          <dl class="grid gap-3 text-sm text-anthracite-700 dark:text-slate-300 sm:grid-cols-2">
-            {#if book.publication?.publishedDate}
-              <div class="flex items-start gap-2">
-                <Calendar size={16} class="mt-0.5 shrink-0 text-canvas-500" />
-                <div>
-                  <dt class="font-medium text-anthracite-800 dark:text-slate-200">Published</dt>
-                  <dd>{publishedDateText()}</dd>
-                </div>
-              </div>
-            {/if}
-            {#if book.publication?.publisher}
-              <div class="flex items-start gap-2">
-                <BookOpen size={16} class="mt-0.5 shrink-0 text-canvas-500" />
-                <div>
-                  <dt class="font-medium text-anthracite-800 dark:text-slate-200">Publisher</dt>
-                  <dd>{book.publication.publisher}</dd>
-                </div>
-              </div>
-            {/if}
-            {#if book.publication?.language}
-              <div class="flex items-start gap-2">
-                <Globe size={16} class="mt-0.5 shrink-0 text-canvas-500" />
-                <div>
-                  <dt class="font-medium text-anthracite-800 dark:text-slate-200">Language</dt>
-                  <dd>{book.publication.language}</dd>
-                </div>
-              </div>
-            {/if}
-            {#if book.publication?.pageCount}
-              <div class="flex items-start gap-2">
-                <BookOpen size={16} class="mt-0.5 shrink-0 text-canvas-500" />
-                <div>
-                  <dt class="font-medium text-anthracite-800 dark:text-slate-200">Pages</dt>
-                  <dd>{book.publication.pageCount.toLocaleString()}</dd>
-                </div>
-              </div>
-            {/if}
-          </dl>
-
-          <BookAffiliateLinks links={affiliateLinks} loadFailed={affiliateLinksFailed} />
-
-          <!-- Description -->
-          {#if sanitizedDescriptionHtml.length > 0 || book.description}
-            <section
-              class="rounded-xl border border-linen-200 bg-linen-50/60 dark:border-slate-700 dark:bg-slate-900/60"
-              aria-labelledby="book-publisher-heading"
-            >
-              <div class="flex items-center justify-between gap-3 px-4 py-3">
-                <h2 id="book-publisher-heading" class="text-sm font-medium text-anthracite-700 dark:text-slate-300">
-                  From the Publisher
-                </h2>
-                <button
-                  type="button"
-                  class="inline-flex items-center gap-1.5 text-xs font-medium text-anthracite-600 transition hover:text-anthracite-900 disabled:cursor-default disabled:opacity-60 dark:text-slate-400 dark:hover:text-slate-100"
-                  onclick={() => descriptionExpanded = !descriptionExpanded}
-                  aria-expanded={!descriptionCollapsed}
-                  disabled={descriptionMeasured && !descriptionOverflows}
-                  aria-label={descriptionCollapsed ? "Expand publisher description" : "Collapse publisher description"}
-                >
-                  <ChevronDown
-                    size={14}
-                    class="shrink-0 transition-transform duration-200 {descriptionCollapsed ? '-rotate-90' : ''}"
-                  />
-                  {descriptionCollapsed ? "Expand" : "Collapse"}
-                </button>
-              </div>
-              <div class="border-t border-linen-200 px-4 pb-4 pt-3 dark:border-slate-700">
-                <div class="relative">
-                  <div
-                    bind:this={descriptionContainer}
-                    class="book-description-expandable break-words text-sm leading-relaxed text-anthracite-700 dark:text-slate-300 overflow-hidden transition-[max-height] duration-300 ease-in-out"
-                    class:book-description-content={sanitizedDescriptionHtml.length > 0}
-                    class:whitespace-pre-wrap={sanitizedDescriptionHtml.length === 0}
-                    style:--book-description-max-height={descriptionCollapsed
-                      ? `${descriptionMaxHeightPx}px`
-                      : `${descriptionNaturalHeightPx}px`}
-                  >
-                    {#if sanitizedDescriptionHtml.length > 0}
-                      {@html sanitizedDescriptionHtml}
-                    {:else}
-                      {book.description}
-                    {/if}
-                  </div>
-                  {#if descriptionMeasured && descriptionOverflows && !descriptionExpanded}
-                    <div class="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-linear-to-t from-linen-50 via-linen-50/70 to-transparent dark:from-slate-900 dark:via-slate-900/70"></div>
-                  {/if}
-                </div>
-                {#if descriptionMeasured && descriptionOverflows}
-                  <button
-                    type="button"
-                    onclick={() => descriptionExpanded = !descriptionExpanded}
-                    class="mx-auto mt-1 flex items-center justify-center rounded-md p-1 text-anthracite-400 transition hover:text-anthracite-700 dark:text-slate-500 dark:hover:text-slate-200"
-                    aria-label={descriptionExpanded ? 'Collapse description' : 'Expand description'}
-                  >
-                    <ChevronDown
-                      size={18}
-                      class="transition-transform duration-200 {descriptionExpanded ? 'rotate-180' : ''}"
-                    />
-                  </button>
-                {/if}
-              </div>
-            </section>
-          {/if}
-
-          <BookAiContentPanel
-            identifier={book.id}
-            {book}
-            onAiContentUpdate={handleAiContentUpdate}
-          />
-
-          <BookCategories categories={book.categories} />
-        </div>
-      </div>
-    </article>
+    <BookDetailCard
+      {book}
+      {detailCoverUrl}
+      {affiliateLinks}
+      {affiliateLinksFailed}
+      onAiContentUpdate={handleAiContentUpdate}
+      onCoverLoad={handleDetailCoverLoad}
+      onCoverError={handleDetailCoverError}
+    />
 
     <BookEditions editions={book.editions} />
 
@@ -694,49 +339,3 @@
     <p class="text-sm text-anthracite-600 dark:text-slate-300">Book not found.</p>
   {/if}
 </section>
-
-<style>
-  .book-description-expandable {
-    max-height: var(--book-description-max-height);
-  }
-
-  .book-description-content :global(p),
-  .book-description-content :global(ul),
-  .book-description-content :global(ol),
-  .book-description-content :global(blockquote),
-  .book-description-content :global(pre) {
-    margin: 0 0 0.75rem 0;
-  }
-
-  .book-description-content :global(ul),
-  .book-description-content :global(ol) {
-    padding-left: 1.2rem;
-  }
-
-  .book-description-content :global(ul) {
-    list-style-type: disc;
-  }
-
-  .book-description-content :global(ol) {
-    list-style-type: decimal;
-  }
-
-  .book-description-content :global(li) {
-    margin-bottom: 0.35rem;
-  }
-
-  .book-description-content :global(strong),
-  .book-description-content :global(b) {
-    font-weight: 600;
-  }
-
-  .book-description-content :global(a) {
-    color: #0b5ea7;
-    text-decoration: underline;
-    text-underline-offset: 2px;
-  }
-
-  :global([data-theme="dark"]) .book-description-content :global(a) {
-    color: #60a5fa;
-  }
-</style>

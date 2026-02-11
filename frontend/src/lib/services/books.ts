@@ -4,7 +4,7 @@
  * All data flows through the backend HTTP API with typed Zod validation at the boundary.
  * Includes normalizers for realtime search hits received via WebSocket.
  */
-import { getJson } from "$lib/services/http";
+import { getJson, postMultipart } from "$lib/services/http";
 import type { SortOption, TimeWindow } from "$lib/services/searchConfig";
 import { validateWithSchema } from "$lib/validation/validate";
 import {
@@ -19,6 +19,10 @@ import {
   AffiliateLinksSchema,
   RealtimeSearchHitCandidateSchema,
 } from "$lib/validation/schemas";
+import {
+  type CoverIngestResponse,
+  CoverIngestResponseSchema,
+} from "$lib/validation/coverSchemas";
 
 const DEFAULT_SIMILAR_BOOKS_LIMIT = 6;
 const inFlightSearchRequests = new Map<string, Promise<SearchResponse>>();
@@ -38,6 +42,12 @@ export interface SearchParams {
   coverSource: string;
   resolution: string;
   publishedYear?: number | null;
+}
+
+export interface PersistRenderedCoverRequest {
+  identifier: string;
+  renderedCoverUrl: string;
+  source?: string | null;
 }
 
 function buildSearchUrl(params: SearchParams): string {
@@ -97,6 +107,81 @@ export function getAffiliateLinks(identifier: string): Promise<Record<string, st
 
 export function getBookAiContentQueueStats(): Promise<BookAiContentQueueStats> {
   return getJson("/api/books/ai/content/queue", BookAiContentQueueStatsSchema, "getBookAiContentQueueStats");
+}
+
+function imageFileExtensionFromMimeType(contentType: string): string {
+  const normalized = contentType.split(";")[0]?.trim().toLowerCase() ?? "";
+  if (normalized === "image/png") {
+    return ".png";
+  }
+  if (normalized === "image/webp") {
+    return ".webp";
+  }
+  if (normalized === "image/gif") {
+    return ".gif";
+  }
+  if (normalized === "image/svg+xml") {
+    return ".svg";
+  }
+  if (normalized === "image/jpeg" || normalized === "image/jpg") {
+    return ".jpg";
+  }
+  return ".jpg";
+}
+
+function normalizeHttpCoverUrl(rawUrl: string): string {
+  const parsed = new URL(rawUrl, window.location.origin);
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`persistRenderedCover received unsupported protocol: ${parsed.protocol}`);
+  }
+  return parsed.href;
+}
+
+function normalizeCoverSource(source: string | null | undefined): string | null {
+  if (!source) {
+    return null;
+  }
+  const trimmed = source.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+export async function persistRenderedCover(request: PersistRenderedCoverRequest): Promise<CoverIngestResponse> {
+  const normalizedCoverUrl = normalizeHttpCoverUrl(request.renderedCoverUrl);
+  const imageResponse = await fetch(normalizedCoverUrl, {
+    method: "GET",
+    mode: "cors",
+    credentials: "omit",
+    cache: "force-cache",
+  });
+
+  if (!imageResponse.ok) {
+    throw new Error(`persistRenderedCover failed to fetch image bytes (${imageResponse.status})`);
+  }
+
+  const contentType = imageResponse.headers.get("content-type") ?? "";
+  if (!contentType.toLowerCase().startsWith("image/")) {
+    throw new Error(`persistRenderedCover expected image/* response but received '${contentType}'`);
+  }
+
+  const imageBlob = await imageResponse.blob();
+  if (imageBlob.size <= 0) {
+    throw new Error("persistRenderedCover fetched an empty image blob");
+  }
+
+  const formData = new FormData();
+  formData.append("image", imageBlob, `cover${imageFileExtensionFromMimeType(contentType)}`);
+  formData.append("sourceUrl", normalizedCoverUrl);
+  const normalizedSource = normalizeCoverSource(request.source);
+  if (normalizedSource) {
+    formData.append("source", normalizedSource);
+  }
+
+  return postMultipart(
+    `/api/covers/${encodeURIComponent(request.identifier)}/ingest`,
+    formData,
+    CoverIngestResponseSchema,
+    `persistRenderedCover:${request.identifier}`,
+  );
 }
 
 function normalizeAuthorNames(rawAuthors: string[]): Array<{ id: string | null; name: string }> {
