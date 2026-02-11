@@ -1,9 +1,5 @@
 import type { Book } from "$lib/validation/schemas";
-
-/**
- * Shared queue threshold for automatic AI generation triggering.
- */
-export const AI_AUTO_TRIGGER_QUEUE_THRESHOLD = 5;
+import { isDegenerateText } from "$lib/validation/textQuality";
 
 /**
  * Minimum plain-text description length required for faithful AI generation.
@@ -41,6 +37,14 @@ export function resolvedDescriptionLength(book: Book | null | undefined): number
 }
 
 /**
+ * Determines whether a book has AI content that is safe to render in the panel.
+ */
+export function hasRenderableAiContent(book: Book | null | undefined): boolean {
+  const summary = book?.aiContent?.summary;
+  return !!summary && !isDegenerateText(summary);
+}
+
+/**
  * Determines whether production UI must suppress the Reader's Guide panel due to
  * insufficient source material and no cached AI content.
  */
@@ -49,7 +53,7 @@ export function shouldSuppressPanelForShortDescriptionInProduction(
   book: Book | null | undefined,
 ): boolean {
   return !aiFailureDiagnosticsEnabled
-    && !book?.aiContent
+    && !hasRenderableAiContent(book)
     && resolvedDescriptionLength(book) < AI_MINIMUM_DESCRIPTION_LENGTH;
 }
 
@@ -62,5 +66,5 @@ export function shouldRenderPanel(
   book: Book | null | undefined,
 ): boolean {
   return !shouldSuppressPanelForShortDescriptionInProduction(aiFailureDiagnosticsEnabled, book)
-    && (aiServiceAvailable || !!book?.aiContent);
+    && (aiServiceAvailable || hasRenderableAiContent(book));
 }

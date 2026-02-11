@@ -2,6 +2,7 @@ package net.findmybook.controller;
 
 import jakarta.servlet.RequestDispatcher;
 import jakarta.servlet.http.HttpServletRequest;
+import net.findmybook.domain.seo.SeoMetadata;
 import net.findmybook.service.BookSeoMetadataService;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
@@ -66,7 +67,7 @@ public class ErrorDiagnosticsController implements ErrorViewResolver {
             return null;
         }
         String requestPath = resolveRequestPath(request, model);
-        BookSeoMetadataService.SeoMetadata metadata = status == HttpStatus.NOT_FOUND
+        SeoMetadata metadata = status == HttpStatus.NOT_FOUND
             ? bookSeoMetadataService.notFoundMetadata(requestPath)
             : bookSeoMetadataService.errorMetadata(status.value(), requestPath);
 

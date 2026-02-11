@@ -1,5 +1,6 @@
 package net.findmybook.application.ai;
 
+import com.openai.errors.OpenAIException;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
@@ -11,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import net.findmybook.adapters.persistence.BookAiContentRepository;
+import net.findmybook.domain.ai.BookAiContent;
 import net.findmybook.dto.BookDetail;
 import net.findmybook.service.BookDataOrchestrator;
 import net.findmybook.service.BookIdentifierResolver;
@@ -85,6 +87,83 @@ class BookAiContentServiceTest {
         assertThat(context).isNotNull();
         assertThat(context.toString()).contains(enrichedDescription);
         verify(bookDataOrchestrator).enrichDescriptionForAiIfNeeded(bookId, detail, "short", 50);
+    }
+
+    @Test
+    void should_ReturnTrueForRetryableFailure_When_GenerationFailureIsCausedByOpenAiException() {
+        BookAiContentService service = newService();
+        OpenAIException openAiException = mock(OpenAIException.class);
+        BookAiGenerationException generationFailure = new BookAiGenerationException(
+            BookAiGenerationException.ErrorCode.GENERATION_FAILED,
+            "AI content generation failed (gpt-5-mini): HTTP 503 server error",
+            openAiException
+        );
+
+        Boolean retryable = ReflectionTestUtils.invokeMethod(service, "isRetryableGenerationFailure", generationFailure);
+
+        assertThat(retryable).isTrue();
+    }
+
+    @Test
+    void should_ReturnTrueForRetryableFailure_When_ParseFailureHasRetryableMessage() {
+        BookAiContentService service = newService();
+        BookAiGenerationException generationFailure = new BookAiGenerationException(
+            BookAiGenerationException.ErrorCode.GENERATION_FAILED,
+            "AI content generation failed (gpt-5-mini): AI response did not include a valid JSON object",
+            new IllegalStateException("AI response did not include a valid JSON object")
+        );
+
+        Boolean retryable = ReflectionTestUtils.invokeMethod(service, "isRetryableGenerationFailure", generationFailure);
+
+        assertThat(retryable).isTrue();
+    }
+
+    @Test
+    void should_ReturnFalseForRetryableFailure_When_ErrorCodeIsNotGenerationFailed() {
+        BookAiContentService service = newService();
+        BookAiGenerationException validationFailure = new BookAiGenerationException(
+            BookAiGenerationException.ErrorCode.DESCRIPTION_TOO_SHORT,
+            "Book description is missing or too short for faithful AI generation."
+        );
+
+        Boolean retryable = ReflectionTestUtils.invokeMethod(service, "isRetryableGenerationFailure", validationFailure);
+
+        assertThat(retryable).isFalse();
+    }
+
+    @Test
+    void should_ParsePlainTextFallback_When_ModelReturnsNonJsonSections() {
+        AiContentJsonParser parser = new AiContentJsonParser(new ObjectMapper());
+
+        String plainTextResponse = """
+            Summary: A practical guide to building resilient systems in fast-moving teams.
+            Reader Fit: Engineers and technical leads who need actionable reliability practices.
+            Key Themes:
+            - incident response
+            - observability
+            - operational excellence
+            Takeaways:
+            - Establish shared ownership for reliability outcomes.
+            - Invest in runbooks and post-incident learning.
+            Context: Aligns modern SRE ideas with day-to-day delivery pressure.
+            """;
+
+        BookAiContent parsed = parser.parse(plainTextResponse);
+
+        assertThat(parsed.summary()).contains("practical guide");
+        assertThat(parsed.readerFit()).contains("Engineers and technical leads");
+        assertThat(parsed.keyThemes()).contains("incident response", "observability");
+        assertThat(parsed.takeaways()).contains("Establish shared ownership for reliability outcomes.");
+        assertThat(parsed.context()).contains("SRE ideas");
+    }
+
+    @Test
+    void should_ThrowWhenParserCannotBuildSummary_When_ResponseHasNoUsefulContent() {
+        AiContentJsonParser parser = new AiContentJsonParser(new ObjectMapper());
+
+        assertThatThrownBy(() -> parser.parse("   "))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("AI content response was empty");
     }
 
     private BookAiContentService newService() {

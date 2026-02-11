@@ -2,13 +2,16 @@ package net.findmybook.controller;
 
 import java.net.URI;
 import java.util.function.Predicate;
-import lombok.extern.slf4j.Slf4j;
 import net.findmybook.model.Book;
+import net.findmybook.domain.seo.SeoMetadata;
 import net.findmybook.service.BookSeoMetadataService;
 import net.findmybook.service.HomePageSectionsService;
 import net.findmybook.util.IsbnUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.util.StringUtils;
@@ -17,6 +20,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 /**
  * Serves SEO-enriched HTML shells for individual book pages and redirects
@@ -26,15 +30,18 @@ import reactor.core.publisher.Mono;
  * the controller 303-redirects to the slug form before rendering.
  */
 @Controller
-@Slf4j
 public class BookDetailPageController extends SpaShellController {
+
+    private static final Logger log = LoggerFactory.getLogger(BookDetailPageController.class);
+    private static final String OPEN_GRAPH_CACHE_CONTROL =
+        "public, max-age=86400, s-maxage=86400, stale-while-revalidate=3600";
 
     private final HomePageSectionsService homePageSectionsService;
     private final int maxDescriptionLength;
 
     public BookDetailPageController(HomePageSectionsService homePageSectionsService,
                                     BookSeoMetadataService bookSeoMetadataService,
-                                    @Value("${app.seo.max-description-length:170}") int maxDescriptionLength) {
+                                    @Value("${app.seo.max-description-length:160}") int maxDescriptionLength) {
         super(bookSeoMetadataService);
         this.homePageSectionsService = homePageSectionsService;
         this.maxDescriptionLength = maxDescriptionLength;
@@ -96,9 +103,7 @@ public class BookDetailPageController extends SpaShellController {
                     if (book == null) {
                         return spaResponse(bookSeoMetadataService.notFoundMetadata("/book/" + id), HttpStatus.NOT_FOUND);
                     }
-                    String canonical = canonicalIdentifier(book);
-                    homePageSectionsService.recordRecentlyViewed(book);
-                    BookSeoMetadataService.SeoMetadata metadata = bookSeoMetadataService.bookMetadata(book, maxDescriptionLength);
+                    SeoMetadata metadata = bookSeoMetadataService.bookMetadata(book, maxDescriptionLength);
                     return spaResponse(metadata, HttpStatus.OK);
                 })
                 .switchIfEmpty(Mono.just(spaResponse(
@@ -113,6 +118,32 @@ public class BookDetailPageController extends SpaShellController {
                 e
             );
         });
+    }
+
+    /**
+     * Serves a crawler-safe dynamic OpenGraph PNG for canonical book routes.
+     *
+     * @param identifier slug, UUID, or alternate route identifier
+     * @return 1200x630 PNG payload for {@code og:image}
+     */
+    @GetMapping(value = "/api/pages/og/book/{identifier}", produces = MediaType.IMAGE_PNG_VALUE)
+    public Mono<ResponseEntity<byte[]>> bookOpenGraphImage(@PathVariable String identifier) {
+        if (!StringUtils.hasText(identifier)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Book identifier is required");
+        }
+        String normalizedIdentifier = identifier.trim();
+
+        Mono<byte[]> imageMono = homePageSectionsService.locateBook(normalizedIdentifier)
+            .flatMap(book -> Mono.fromCallable(() -> bookSeoMetadataService.renderBookOpenGraphImage(book, normalizedIdentifier))
+                .subscribeOn(Schedulers.boundedElastic()))
+            .switchIfEmpty(Mono.fromCallable(() -> bookSeoMetadataService.renderFallbackBookOpenGraphImage(normalizedIdentifier))
+                .subscribeOn(Schedulers.boundedElastic()));
+
+        return imageMono.map(imageBytes -> ResponseEntity.ok()
+            .contentType(MediaType.IMAGE_PNG)
+            .header("Cache-Control", OPEN_GRAPH_CACHE_CONTROL)
+            .header("Content-Length", String.valueOf(imageBytes.length))
+            .body(imageBytes));
     }
 
     /** Redirects any ISBN form to the canonical {@code /book/{slug}} path. */

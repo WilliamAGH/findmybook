@@ -4,6 +4,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import net.findmybook.domain.seo.OpenGraphProperty;
 import net.findmybook.model.Book;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -47,6 +48,8 @@ public class BookOpenGraphPropertyFactory {
         for (String tag : seoMarkupFormatter.normalizeTextValues(book.getCategories(), MAX_BOOK_TAGS)) {
             properties.add(new OpenGraphProperty("book:tag", tag));
         }
+
+        // TODO: add book:author property (profile URL array per ogp.me spec) once author profile pages exist
 
         return List.copyOf(properties);
     }

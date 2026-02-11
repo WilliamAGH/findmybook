@@ -17,8 +17,19 @@ public final class PageApiPayloads {
      *
      * @param currentBestsellers bestseller cards section
      * @param recentBooks recent-books section
+     * @param popularBooks most-viewed books for the selected window
+     * @param popularWindow applied popularity window ({@code 30d}, {@code 90d}, {@code all})
      */
-    public record HomePayload(List<BookCard> currentBestsellers, List<BookCard> recentBooks) {
+    public record HomePayload(List<BookCard> currentBestsellers,
+                              List<BookCard> recentBooks,
+                              List<BookCard> popularBooks,
+                              String popularWindow) {
+        /**
+         * Backward-compatible constructor for callers that do not request popular-book cards.
+         */
+        public HomePayload(List<BookCard> currentBestsellers, List<BookCard> recentBooks) {
+            this(currentBestsellers, recentBooks, List.of(), "30d");
+        }
     }
 
     /**

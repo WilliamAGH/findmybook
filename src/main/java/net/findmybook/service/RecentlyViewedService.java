@@ -117,9 +117,6 @@ public class RecentlyViewedService {
             bookToAdd.setSlug(finalCanonicalId);
         }
 
-        // Use a final reference for lambda capture below
-        final Book bookRef = bookToAdd;
-
         // Lock-free operations using ConcurrentLinkedDeque
         // Remove existing entry for this book
         recentlyViewedBooks.removeIf(b ->
@@ -140,9 +137,24 @@ public class RecentlyViewedService {
 
         if (recentBookViewRepository != null && recentBookViewRepository.isEnabled()) {
             recentBookViewRepository.recordView(finalCanonicalId, Instant.now(), "web");
-            recentBookViewRepository.fetchStatsForBook(finalCanonicalId)
-                    .ifPresent(stats -> applyViewStats(bookRef, stats));
         }
+    }
+
+    /**
+     * Returns a persisted view count for a canonical book ID and requested window.
+     *
+     * @param canonicalBookId canonical book identifier
+     * @param viewWindow requested aggregation window
+     * @return count of matching view events; zero when persistence is unavailable
+     */
+    public long fetchViewCount(String canonicalBookId, RecentBookViewRepository.ViewWindow viewWindow) {
+        if (recentBookViewRepository == null
+            || !recentBookViewRepository.isEnabled()
+            || !StringUtils.hasText(canonicalBookId)
+            || viewWindow == null) {
+            return 0L;
+        }
+        return recentBookViewRepository.fetchViewCountForBook(canonicalBookId, viewWindow);
     }
 
     /**
@@ -220,22 +232,6 @@ public class RecentlyViewedService {
         }
     }
 
-
-    /**
-     * Applies persisted view statistics to the supplied book.
-     *
-     * @param book target book instance to enrich
-     * @param stats view statistics retrieved from the repository
-     */
-    private void applyViewStats(Book book, RecentBookViewRepository.ViewStats stats) {
-        if (book == null || stats == null) {
-            return;
-        }
-        book.addQualifier("recent.views.lastViewedAt", stats.lastViewedAt());
-        book.addQualifier("recent.views.24h", stats.viewsLast24h());
-        book.addQualifier("recent.views.7d", stats.viewsLast7d());
-        book.addQualifier("recent.views.30d", stats.viewsLast30d());
-    }
 
     /**
      * Clears the recently viewed books list

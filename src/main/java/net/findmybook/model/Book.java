@@ -60,6 +60,7 @@ public class Book {
     private Integer coverImageWidth;
     private Integer coverImageHeight;
     private Boolean isCoverHighResolution;
+    private Boolean isCoverGrayscale;
     private Double heightCm;
     private Double widthCm;
     private Double thicknessCm;

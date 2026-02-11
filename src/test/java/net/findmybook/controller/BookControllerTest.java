@@ -11,6 +11,7 @@ import net.findmybook.dto.EditionSummary;
 import net.findmybook.model.Book;
 import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.model.image.ImageResolutionPreference;
+import net.findmybook.service.RecentBookViewRepository;
 import net.findmybook.service.SearchPaginationService;
 import net.findmybook.util.cover.CoverUrlResolver;
 import org.junit.jupiter.api.DisplayName;
@@ -26,6 +27,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -135,6 +139,86 @@ class BookControllerTest extends AbstractBookControllerMvcTest {
             .andExpect(jsonPath("$.descriptionContent.format", equalTo("PLAIN_TEXT")))
             .andExpect(jsonPath("$.descriptionContent.html", equalTo("<p>Fixture Description</p>")))
             .andExpect(jsonPath("$.descriptionContent.text", equalTo("Fixture Description")));
+
+        verify(recentlyViewedService).addToRecentlyViewed(argThat(book ->
+            fixtureBook.getId().equals(book.getId())
+                && fixtureBook.getSlug().equals(book.getSlug())
+                && fixtureBook.getTitle().equals(book.getTitle())
+        ));
+    }
+
+    @Test
+    @DisplayName("GET /api/books/{identifier} returns view metrics when window is requested")
+    void getBookByIdentifier_includesViewMetricsForRequestedWindow() throws Exception {
+        var detail = buildDetailFromBook(fixtureBook);
+        when(bookSearchService.fetchBookDetailBySlug(fixtureBook.getSlug()))
+            .thenReturn(Optional.of(detail));
+        when(recentlyViewedService.fetchViewCount(
+            fixtureBook.getId(),
+            RecentBookViewRepository.ViewWindow.LAST_90_DAYS
+        )).thenReturn(42L);
+
+        performAsync(get("/api/books/" + fixtureBook.getSlug())
+            .param("viewWindow", "90d"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.viewMetrics.window", equalTo("90d")))
+            .andExpect(jsonPath("$.viewMetrics.totalViews", equalTo(42)));
+
+        verify(recentlyViewedService).fetchViewCount(
+            fixtureBook.getId(),
+            RecentBookViewRepository.ViewWindow.LAST_90_DAYS
+        );
+    }
+
+    @Test
+    @DisplayName("GET /api/books/{identifier} rejects unsupported viewWindow")
+    void getBookByIdentifier_rejectsInvalidViewWindow() throws Exception {
+        performAsync(get("/api/books/" + fixtureBook.getSlug())
+            .param("viewWindow", "7d"))
+            .andExpect(status().isBadRequest());
+
+        verify(recentlyViewedService, never()).addToRecentlyViewed(any(Book.class));
+    }
+
+    @Test
+    @DisplayName("GET /api/books/slug/{slug} accepts viewWindow and returns view metrics")
+    void getBookBySlug_includesViewMetricsForRequestedWindow() throws Exception {
+        var detail = buildDetailFromBook(fixtureBook);
+        when(bookSearchService.fetchBookDetailBySlug(fixtureBook.getSlug()))
+            .thenReturn(Optional.of(detail));
+        when(recentlyViewedService.fetchViewCount(
+            fixtureBook.getId(),
+            RecentBookViewRepository.ViewWindow.LAST_30_DAYS
+        )).thenReturn(9L);
+
+        performAsync(get("/api/books/slug/" + fixtureBook.getSlug())
+            .param("viewWindow", "30d"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.viewMetrics.window", equalTo("30d")))
+            .andExpect(jsonPath("$.viewMetrics.totalViews", equalTo(9)));
+    }
+
+    @Test
+    @DisplayName("GET /api/books/{identifier} returns view metrics for all-time window")
+    void should_IncludeAllTimeViewMetrics_When_ViewWindowIsAll() throws Exception {
+        var detail = buildDetailFromBook(fixtureBook);
+        when(bookSearchService.fetchBookDetailBySlug(fixtureBook.getSlug()))
+            .thenReturn(Optional.of(detail));
+        when(recentlyViewedService.fetchViewCount(
+            fixtureBook.getId(),
+            RecentBookViewRepository.ViewWindow.ALL_TIME
+        )).thenReturn(1000L);
+
+        performAsync(get("/api/books/" + fixtureBook.getSlug())
+            .param("viewWindow", "all"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.viewMetrics.window", equalTo("all")))
+            .andExpect(jsonPath("$.viewMetrics.totalViews", equalTo(1000)));
+
+        verify(recentlyViewedService).fetchViewCount(
+            fixtureBook.getId(),
+            RecentBookViewRepository.ViewWindow.ALL_TIME
+        );
     }
 
     @Test
@@ -267,6 +351,8 @@ class BookControllerTest extends AbstractBookControllerMvcTest {
 
         performAsync(get("/api/books/missing"))
             .andExpect(status().isNotFound());
+
+        verify(recentlyViewedService, never()).addToRecentlyViewed(any(Book.class));
     }
 
     @Test

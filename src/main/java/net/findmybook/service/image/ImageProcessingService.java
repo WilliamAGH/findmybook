@@ -1,6 +1,8 @@
 package net.findmybook.service.image;
 
+import net.findmybook.model.image.CoverRejectionReason;
 import net.findmybook.model.image.ProcessedImage;
+import net.findmybook.util.cover.GrayscaleAnalyzer;
 import net.findmybook.util.cover.ImageDimensionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,11 +44,13 @@ public class ImageProcessingService {
     private static final int MIN_ACCEPTABLE_DIMENSION = 50; // Reject if smaller than this
     private static final int MIN_PLACEHOLDER_SIZE = 5; // Reject 1x1-5x5 pixel placeholders
     private static final int NO_UPSCALE_THRESHOLD_WIDTH = 300; // Don't upscale if original is smaller than this
+    private static final int MIN_IMAGE_BYTES = 1024; // Reject responses under 1 KB
 
     // Constants for dominant color check
     private static final int DOMINANT_COLOR_SAMPLE_STEP = 5; // Sample every 5th pixel
     private static final double DOMINANT_COLOR_THRESHOLD_PERCENTAGE = 0.80; // Adjusted from 0.90 to 0.80 (80%)
     private static final int WHITE_THRESHOLD_RGB = 240; // RGB components > 240 are considered "white"
+    private static final int LOG_PREVIEW_LENGTH = 200; // Max length for response body logging
 
     /**
      * Processes an image for S3 storage, optimizing size and quality
@@ -68,14 +72,29 @@ public class ImageProcessingService {
     public CompletableFuture<ProcessedImage> processImageForS3(byte[] rawImageBytes, String bookIdForLog) {
         if (rawImageBytes == null || rawImageBytes.length == 0) {
             logger.warn("Book ID {}: Raw image bytes are null or empty. Cannot process.", bookIdForLog);
-            return CompletableFuture.completedFuture(ProcessedImage.failure("Raw image bytes null or empty"));
+            return CompletableFuture.completedFuture(ProcessedImage.rejected(CoverRejectionReason.RAW_BYTES_EMPTY));
+        }
+
+        if (rawImageBytes.length < MIN_IMAGE_BYTES) {
+            String contentPreview = new String(rawImageBytes, java.nio.charset.StandardCharsets.UTF_8);
+            // Truncate if somehow long but under MIN_IMAGE_BYTES (unlikely but safe)
+            if (contentPreview.length() > LOG_PREVIEW_LENGTH) {
+                contentPreview = contentPreview.substring(0, LOG_PREVIEW_LENGTH) + "...";
+            }
+            // Replace newlines to keep log clean
+            contentPreview = contentPreview.replace("\n", "\\n").replace("\r", "");
+            
+            logger.warn("Book ID {}: Response too small to be a cover image ({} bytes, minimum {} bytes). Content preview: '{}'",
+                bookIdForLog, rawImageBytes.length, MIN_IMAGE_BYTES, contentPreview);
+            return CompletableFuture.completedFuture(ProcessedImage.rejected(CoverRejectionReason.RESPONSE_TOO_SMALL,
+                "Response too small to be a cover image (%d bytes, minimum %d bytes)".formatted(rawImageBytes.length, MIN_IMAGE_BYTES)));
         }
 
         try (ByteArrayInputStream bais = new ByteArrayInputStream(rawImageBytes)) {
             BufferedImage rawOriginalImage = ImageIO.read(bais);
             if (rawOriginalImage == null) {
                 logger.warn("Book ID {}: Could not read raw bytes into a BufferedImage. Image format might be unsupported or corrupt.", bookIdForLog);
-                return CompletableFuture.completedFuture(ProcessedImage.failure("Unsupported or corrupt image format"));
+                return CompletableFuture.completedFuture(ProcessedImage.rejected(CoverRejectionReason.UNREADABLE_IMAGE));
             }
 
             // Convert to a standard RGB colorspace to avoid issues with JPEG writer and for consistent analysis
@@ -84,6 +103,11 @@ public class ImageProcessingService {
             g.drawImage(rawOriginalImage, 0, 0, null);
             g.dispose();
 
+            boolean isGrayscale = GrayscaleAnalyzer.isEffectivelyGrayscale(originalImage);
+            if (isGrayscale) {
+                logger.info("Book ID {}: Image detected as grayscale/B&W.", bookIdForLog);
+            }
+
             int originalWidth = originalImage.getWidth();
             int originalHeight = originalImage.getHeight();
             double aspectRatio = originalWidth == 0 ? 0.0 : (double) originalHeight / originalWidth;
@@ -91,20 +115,20 @@ public class ImageProcessingService {
             if (!ImageDimensionUtils.hasValidAspectRatio(originalWidth, originalHeight)) {
                 logger.warn("Book ID {}: Image dimensions {}x{} yield aspect ratio {} (outside acceptable range). Likely not a cover. REJECTED.",
                     bookIdForLog, originalWidth, originalHeight, String.format("%.2f", aspectRatio));
-                return CompletableFuture.completedFuture(ProcessedImage.failure("InvalidAspectRatio"));
+                return CompletableFuture.completedFuture(ProcessedImage.rejected(CoverRejectionReason.INVALID_ASPECT_RATIO));
             }
 
             // Reject obviously invalid images (1x1 placeholders from OpenLibrary, etc.)
             if (originalWidth <= MIN_PLACEHOLDER_SIZE || originalHeight <= MIN_PLACEHOLDER_SIZE) {
                 logger.warn("Book ID {}: Image dimensions ({}x{}) are suspiciously small (≤5px). Likely a placeholder. REJECTED.", 
                     bookIdForLog, originalWidth, originalHeight);
-                return CompletableFuture.completedFuture(ProcessedImage.failure("PlaceholderImage_TooSmall"));
+                return CompletableFuture.completedFuture(ProcessedImage.rejected(CoverRejectionReason.PLACEHOLDER_TOO_SMALL));
             }
 
             // Perform dominant color check
             if (isDominantlyWhite(originalImage, bookIdForLog)) {
                 logger.warn("Book ID {}: Image is predominantly white. Flagged as likely not a cover.", bookIdForLog);
-                return CompletableFuture.completedFuture(ProcessedImage.failure("LikelyNotACover_DominantColor"));
+                return CompletableFuture.completedFuture(ProcessedImage.rejected(CoverRejectionReason.DOMINANT_WHITE));
             }
 
             if (originalWidth < MIN_ACCEPTABLE_DIMENSION || originalHeight < MIN_ACCEPTABLE_DIMENSION) {
@@ -112,7 +136,7 @@ public class ImageProcessingService {
                     bookIdForLog, originalWidth, originalHeight, MIN_ACCEPTABLE_DIMENSION, MIN_ACCEPTABLE_DIMENSION);
                 // Still attempt to compress it, but don't resize.
                 // Note: originalImage is already in TYPE_INT_RGB here
-                return CompletableFuture.completedFuture(compressOriginal(originalImage, bookIdForLog, originalWidth, originalHeight));
+                return CompletableFuture.completedFuture(compressOriginal(originalImage, bookIdForLog, originalWidth, originalHeight, isGrayscale));
             }
 
             int newWidth;
@@ -146,7 +170,7 @@ public class ImageProcessingService {
                  g2d.dispose();
             }
 
-            return CompletableFuture.completedFuture(compressImageToJpeg(outputImage, bookIdForLog, newWidth, newHeight));
+            return CompletableFuture.completedFuture(compressImageToJpeg(outputImage, bookIdForLog, newWidth, newHeight, isGrayscale));
 
         } catch (IOException e) {
             logger.error("Book ID {}: IOException during image processing: {}", bookIdForLog, e.getMessage(), e);
@@ -167,9 +191,9 @@ public class ImageProcessingService {
      * @return ProcessedImage containing the compressed image data
      * @throws IOException If compression fails
      */
-    private ProcessedImage compressOriginal(BufferedImage imageToCompress, String bookIdForLog, int width, int height) throws IOException {
+    private ProcessedImage compressOriginal(BufferedImage imageToCompress, String bookIdForLog, int width, int height, boolean isGrayscale) throws IOException {
         logger.debug("Book ID {}: Compressing original small image ({}x{}) as JPEG.", bookIdForLog, width, height);
-        return compressImageToJpeg(imageToCompress, bookIdForLog, width, height);
+        return compressImageToJpeg(imageToCompress, bookIdForLog, width, height, isGrayscale);
     }
 
     /**
@@ -182,7 +206,7 @@ public class ImageProcessingService {
      * @return ProcessedImage containing the compressed JPEG data
      * @throws IOException If compression fails
      */
-    private ProcessedImage compressImageToJpeg(BufferedImage imageToCompress, String bookIdForLog, int finalWidth, int finalHeight) throws IOException {
+    private ProcessedImage compressImageToJpeg(BufferedImage imageToCompress, String bookIdForLog, int finalWidth, int finalHeight, boolean isGrayscale) throws IOException {
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
             Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName("jpeg");
             if (!writers.hasNext()) {
@@ -203,7 +227,7 @@ public class ImageProcessingService {
             byte[] processedBytes = baos.toByteArray();
             logger.info("Book ID {}: Successfully processed image to JPEG. Original size (approx if read): N/A, Processed size: {} bytes, Dimensions: {}x{}", 
                 bookIdForLog, processedBytes.length, finalWidth, finalHeight);
-            return ProcessedImage.success(processedBytes, ".jpg", "image/jpeg", finalWidth, finalHeight);
+            return ProcessedImage.success(processedBytes, ".jpg", "image/jpeg", finalWidth, finalHeight, isGrayscale);
         }
     }
 

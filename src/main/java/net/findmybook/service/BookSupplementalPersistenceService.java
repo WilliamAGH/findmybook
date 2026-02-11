@@ -177,7 +177,7 @@ public class BookSupplementalPersistenceService {
         try {
             return jdbcTemplate.queryForObject(
                 "INSERT INTO book_tags (id, key, display_name, tag_type, created_at, updated_at) VALUES (?, ?, ?, ?, NOW(), NOW()) " +
-                "ON CONFLICT (key) DO UPDATE SET display_name = COALESCE(book_tags.display_name, EXCLUDED.display_name), updated_at = NOW() RETURNING id",
+                "ON CONFLICT (key) DO UPDATE SET display_name = CASE WHEN EXCLUDED.display_name IS NOT NULL AND btrim(EXCLUDED.display_name) <> '' THEN EXCLUDED.display_name ELSE book_tags.display_name END, updated_at = NOW() RETURNING id",
                 (rs, rowNum) -> rs.getString("id"),
                 IdGenerator.generate(), key, displayName, tagType
             );

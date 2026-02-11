@@ -4,7 +4,7 @@
   import { isBookAiContentStreamError, streamBookAiContent } from "$lib/services/bookAiContentStream";
   import { getBookAiContentQueueStats } from "$lib/services/books";
   import {
-    AI_AUTO_TRIGGER_QUEUE_THRESHOLD,
+    hasRenderableAiContent,
     PRODUCTION_ENVIRONMENT_MODE,
     normalizeEnvironmentMode,
     shouldRenderPanel,
@@ -42,7 +42,7 @@
   /** True when the auto-trigger $effect is about to fire but hasn't yet set aiLoading. */
   let willAutoTrigger = $derived(
     !!identifier
-      && !book?.aiContent
+      && !hasRenderableAiContent(book)
       && !aiAutoTriggerDeferred
       && lastAutoTriggerIdentifier !== identifier,
   );
@@ -110,6 +110,7 @@
       return;
     }
 
+    console.error("[BookAiContentPanel] AI failure in production:", failure.code, failure.message);
     aiErrorMessage = null;
     if (failure.code === "queue_busy") {
       aiQueueMessage = "Queue is busy right now. Try again shortly.";
@@ -119,7 +120,7 @@
 
     aiQueueMessage = null;
     aiAutoTriggerDeferred = false;
-    if (!book?.aiContent || failure.code === "service_unavailable" || failure.retryable === false) {
+    if (!hasRenderableAiContent(book) || failure.code === "service_unavailable" || failure.retryable === false) {
       aiServiceAvailable = false;
     }
   }
@@ -161,23 +162,13 @@
           aiAutoTriggerDeferred = false;
           return false;
         }
-        if (!book?.aiContent) {
+        if (!hasRenderableAiContent(book)) {
           return false;
         }
         aiErrorMessage = refresh ? "AI content service is not available right now." : null;
         return false;
       }
       aiServiceAvailable = true;
-      if (queueStats.pending > AI_AUTO_TRIGGER_QUEUE_THRESHOLD) {
-        aiQueueMessage = `Queue busy (${queueStats.pending} waiting)`;
-        aiAutoTriggerDeferred = !refresh;
-        if (aiFailureDiagnosticsEnabled() && refresh) {
-          aiErrorMessage = "Queue is busy right now. Try again shortly.";
-        } else {
-          aiErrorMessage = null;
-        }
-        return false;
-      }
       return true;
     } catch (queueError) {
       console.error("[BookAiContentPanel] Queue stats failed:", queueError);
@@ -192,7 +183,7 @@
         aiErrorMessage = null;
         aiQueueMessage = null;
         aiAutoTriggerDeferred = false;
-        if (!book?.aiContent) {
+        if (!hasRenderableAiContent(book)) {
           aiServiceAvailable = false;
         }
       }
@@ -304,8 +295,10 @@
       if (identifier !== scheduledIdentifier) {
         return;
       }
-      if (!book?.aiContent && !aiLoading && !aiAutoTriggerDeferred) {
-        void triggerAiGeneration(false);
+      if (!hasRenderableAiContent(book) && !aiLoading && !aiAutoTriggerDeferred) {
+        // Existing-but-degenerate snapshots must bypass cache to force regeneration.
+        const requiresRefresh = Boolean(book?.aiContent);
+        void triggerAiGeneration(requiresRefresh);
       }
     }, 0);
 

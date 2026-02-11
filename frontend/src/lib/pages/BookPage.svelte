@@ -21,8 +21,13 @@
     Globe,
     BookOpen,
     Calendar,
-    Info,
+    Eye,
   } from "@lucide/svelte";
+
+  const MIN_VIEW_COUNT_DISPLAY_THRESHOLD = 10;
+  const TITLE_MAX_LINES = 3;
+  const AUTHOR_MAX_LINES = 3;
+  const CLAMP_OVERFLOW_EPSILON_PX = 2;
 
   let {
     currentUrl,
@@ -47,6 +52,10 @@
   let titleExpanded = $state(false);
   let titleOverflows = $state(false);
 
+  let authorElement = $state<HTMLParagraphElement | null>(null);
+  let authorExpanded = $state(false);
+  let authorOverflows = $state(false);
+
   let descriptionContainer = $state<HTMLElement | null>(null);
   let descriptionExpanded = $state(false);
   let descriptionMeasured = $state(false);
@@ -57,6 +66,7 @@
   let descriptionNaturalHeightPx = $state(DESCRIPTION_FALLBACK_HEIGHT_PX);
   let descriptionResizeObserver: ResizeObserver | null = null;
   let titleResizeObserver: ResizeObserver | null = null;
+  let authorResizeObserver: ResizeObserver | null = null;
 
   let unsubscribeRealtime: (() => void) | null = null;
   let loadSequence = 0;
@@ -79,7 +89,7 @@
 
   async function loadBookWithFallback(identifierFromRoute: string): Promise<Book> {
     try {
-      return await getBook(identifierFromRoute);
+      return await getBook(identifierFromRoute, "30d");
     } catch (primaryError) {
       const fallbackIdentifier = fallbackIdentifierFromUrl();
       if (!isHttpNotFoundError(primaryError) || !fallbackIdentifier || fallbackIdentifier === identifierFromRoute) {
@@ -88,7 +98,7 @@
       console.warn(
         `[BookPage] Book lookup by route identifier '${identifierFromRoute}' returned 404; retrying with fallback '${fallbackIdentifier}'`,
       );
-      return getBook(fallbackIdentifier);
+      return getBook(fallbackIdentifier, "30d");
     }
   }
 
@@ -267,13 +277,22 @@
   }
 
   function legacySearchFallbackHref(): string {
-    const query = currentUrl.searchParams.get("query");
-    if (!query) {
+    const query = currentUrl.searchParams.get("query")?.trim() ?? "";
+    const rawPopularWindow = currentUrl.searchParams.get("popularWindow");
+    const popularWindow = rawPopularWindow === "30d" || rawPopularWindow === "90d" || rawPopularWindow === "all"
+      ? rawPopularWindow
+      : null;
+
+    let url: URL;
+    if (query.length > 0) {
+      url = new URL("/search", window.location.origin);
+      url.searchParams.set("query", query);
+    } else if (popularWindow) {
+      url = new URL("/explore", window.location.origin);
+      url.searchParams.set("popularWindow", popularWindow);
+    } else {
       return "/";
     }
-
-    const url = new URL("/search", window.location.origin);
-    url.searchParams.set("query", query);
 
     const page = currentUrl.searchParams.get("page");
     const orderBy = currentUrl.searchParams.get("orderBy");
@@ -319,9 +338,32 @@
   });
 
   function measureTitleOverflow(): void {
-    if (titleElement && !titleExpanded) {
-      titleOverflows = titleElement.scrollHeight > titleElement.clientHeight;
+    if (!titleElement || titleExpanded) {
+      return;
     }
+    titleOverflows = hasClampOverflow(titleElement, TITLE_MAX_LINES);
+  }
+
+  function hasClampOverflow(element: HTMLElement, maxLines: number): boolean {
+    const scrollDelta = element.scrollHeight - element.clientHeight;
+    if (scrollDelta <= CLAMP_OVERFLOW_EPSILON_PX) {
+      return false;
+    }
+
+    const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight);
+    if (!Number.isFinite(lineHeight) || lineHeight <= 0) {
+      return scrollDelta > CLAMP_OVERFLOW_EPSILON_PX;
+    }
+
+    const clampThresholdPx = Math.ceil(lineHeight * maxLines) + CLAMP_OVERFLOW_EPSILON_PX;
+    return element.scrollHeight > clampThresholdPx;
+  }
+
+  function measureAuthorOverflow(): void {
+    if (!authorElement || authorExpanded) {
+      return;
+    }
+    authorOverflows = hasClampOverflow(authorElement, AUTHOR_MAX_LINES);
   }
 
   let previousBookId = $state<string | null>(null);
@@ -332,6 +374,8 @@
       previousBookId = currentId;
       titleExpanded = false;
       titleOverflows = false;
+      authorExpanded = false;
+      authorOverflows = false;
 
       descriptionExpanded = false;
       descriptionMeasured = false;
@@ -366,6 +410,36 @@
       if (titleResizeObserver) {
         titleResizeObserver.disconnect();
         titleResizeObserver = null;
+      }
+    };
+  });
+
+  $effect(() => {
+    if (!authorElement) {
+      if (authorResizeObserver) {
+        authorResizeObserver.disconnect();
+        authorResizeObserver = null;
+      }
+      return;
+    }
+
+    const currentAuthors = book?.authors;
+    if (currentAuthors && currentAuthors.length > 0) {
+      measureAuthorOverflow();
+    }
+
+    if (authorResizeObserver) {
+      authorResizeObserver.disconnect();
+    }
+    authorResizeObserver = new ResizeObserver(() => {
+      measureAuthorOverflow();
+    });
+    authorResizeObserver.observe(authorElement);
+
+    return () => {
+      if (authorResizeObserver) {
+        authorResizeObserver.disconnect();
+        authorResizeObserver = null;
       }
     };
   });
@@ -429,7 +503,10 @@
     </a>
 
     <!-- Book Detail Card -->
-    <article class="overflow-clip rounded-xl border border-linen-200 shadow-soft dark:border-slate-700">
+    <article
+      class="overflow-clip rounded-xl border border-linen-200 shadow-soft dark:border-slate-700"
+      aria-labelledby="book-page-title"
+    >
       <div class="grid gap-6 p-5 md:grid-cols-[320px_1fr] md:p-8">
         <!-- Cover -->
         <div class="md:sticky md:top-20 md:self-start relative flex items-center justify-center overflow-hidden rounded-xl bg-linen-50 p-6 dark:bg-slate-900">
@@ -451,8 +528,9 @@
         <!-- Details -->
         <div class="flex flex-col gap-4">
           <h1
+            id="book-page-title"
             bind:this={titleElement}
-            class="text-3xl font-semibold text-balance text-anthracite-900 dark:text-slate-100"
+            class="break-words text-3xl font-semibold text-balance text-anthracite-900 dark:text-slate-100"
             class:line-clamp-3={!titleExpanded}
             title={book.title ?? undefined}
           >
@@ -467,71 +545,104 @@
               {titleExpanded ? "Show less" : "Show full title"}
             </button>
           {/if}
-          <p class="text-base text-anthracite-700 dark:text-slate-300">{authorNames()}</p>
+          <p
+            bind:this={authorElement}
+            class="break-words text-base text-anthracite-700 dark:text-slate-300"
+            class:line-clamp-3={!authorExpanded}
+            title={authorNames()}
+          >
+            {authorNames()}
+          </p>
+          {#if authorOverflows}
+            <button
+              type="button"
+              onclick={() => authorExpanded = !authorExpanded}
+              class="self-start text-sm font-medium text-canvas-600 transition hover:text-canvas-700 dark:text-canvas-400 dark:hover:text-canvas-300"
+            >
+              {authorExpanded ? "Show less" : "Show full author"}
+            </button>
+          {/if}
+
+          {#if (book.viewMetrics?.totalViews ?? 0) > MIN_VIEW_COUNT_DISPLAY_THRESHOLD}
+            <p class="flex items-center gap-1.5 text-xs text-sage-500 dark:text-sage-400">
+              <Eye size={14} class="shrink-0" />
+              <span>{book.viewMetrics!.totalViews.toLocaleString()} views</span>
+            </p>
+          {/if}
 
           <!-- Metadata Grid -->
+          <h2 id="book-metadata-heading" class="text-lg font-semibold text-anthracite-900 dark:text-slate-100">Book Details</h2>
           <dl class="grid gap-3 text-sm text-anthracite-700 dark:text-slate-300 sm:grid-cols-2">
-            <div class="flex items-start gap-2">
-              <Calendar size={16} class="mt-0.5 shrink-0 text-canvas-500" />
-              <div>
-                <dt class="font-medium text-anthracite-800 dark:text-slate-200">Published</dt>
-                <dd>{publishedDateText()}</dd>
+            {#if book.publication?.publishedDate}
+              <div class="flex items-start gap-2">
+                <Calendar size={16} class="mt-0.5 shrink-0 text-canvas-500" />
+                <div>
+                  <dt class="font-medium text-anthracite-800 dark:text-slate-200">Published</dt>
+                  <dd>{publishedDateText()}</dd>
+                </div>
               </div>
-            </div>
-            <div class="flex items-start gap-2">
-              <BookOpen size={16} class="mt-0.5 shrink-0 text-canvas-500" />
-              <div>
-                <dt class="font-medium text-anthracite-800 dark:text-slate-200">Publisher</dt>
-                <dd>{book.publication?.publisher ?? "Unknown"}</dd>
+            {/if}
+            {#if book.publication?.publisher}
+              <div class="flex items-start gap-2">
+                <BookOpen size={16} class="mt-0.5 shrink-0 text-canvas-500" />
+                <div>
+                  <dt class="font-medium text-anthracite-800 dark:text-slate-200">Publisher</dt>
+                  <dd>{book.publication.publisher}</dd>
+                </div>
               </div>
-            </div>
-            <div class="flex items-start gap-2">
-              <Globe size={16} class="mt-0.5 shrink-0 text-canvas-500" />
-              <div>
-                <dt class="font-medium text-anthracite-800 dark:text-slate-200">Language</dt>
-                <dd>{book.publication?.language ?? "Unknown"}</dd>
+            {/if}
+            {#if book.publication?.language}
+              <div class="flex items-start gap-2">
+                <Globe size={16} class="mt-0.5 shrink-0 text-canvas-500" />
+                <div>
+                  <dt class="font-medium text-anthracite-800 dark:text-slate-200">Language</dt>
+                  <dd>{book.publication.language}</dd>
+                </div>
               </div>
-            </div>
-            <div class="flex items-start gap-2">
-              <Info size={16} class="mt-0.5 shrink-0 text-canvas-500" />
-              <div>
-                <dt class="font-medium text-anthracite-800 dark:text-slate-200">Pages</dt>
-                <dd>{book.publication?.pageCount ?? "Unknown"}</dd>
+            {/if}
+            {#if book.publication?.pageCount}
+              <div class="flex items-start gap-2">
+                <BookOpen size={16} class="mt-0.5 shrink-0 text-canvas-500" />
+                <div>
+                  <dt class="font-medium text-anthracite-800 dark:text-slate-200">Pages</dt>
+                  <dd>{book.publication.pageCount.toLocaleString()}</dd>
+                </div>
               </div>
-            </div>
+            {/if}
           </dl>
 
           <BookAffiliateLinks links={affiliateLinks} loadFailed={affiliateLinksFailed} />
 
           <!-- Description -->
           {#if sanitizedDescriptionHtml.length > 0 || book.description}
-            <section class="rounded-xl border border-linen-200 bg-linen-50/60 dark:border-slate-700 dark:bg-slate-900/60">
+            <section
+              class="rounded-xl border border-linen-200 bg-linen-50/60 dark:border-slate-700 dark:bg-slate-900/60"
+              aria-labelledby="book-publisher-heading"
+            >
               <div class="flex items-center justify-between gap-3 px-4 py-3">
+                <h2 id="book-publisher-heading" class="text-sm font-medium text-anthracite-700 dark:text-slate-300">
+                  From the Publisher
+                </h2>
                 <button
                   type="button"
-                  class="inline-flex items-center gap-1.5 text-sm font-medium text-anthracite-700 transition hover:text-anthracite-900 disabled:cursor-default disabled:opacity-60 dark:text-slate-300 dark:hover:text-slate-100"
+                  class="inline-flex items-center gap-1.5 text-xs font-medium text-anthracite-600 transition hover:text-anthracite-900 disabled:cursor-default disabled:opacity-60 dark:text-slate-400 dark:hover:text-slate-100"
                   onclick={() => descriptionExpanded = !descriptionExpanded}
                   aria-expanded={!descriptionCollapsed}
                   disabled={descriptionMeasured && !descriptionOverflows}
+                  aria-label={descriptionCollapsed ? "Expand publisher description" : "Collapse publisher description"}
                 >
                   <ChevronDown
                     size={14}
                     class="shrink-0 transition-transform duration-200 {descriptionCollapsed ? '-rotate-90' : ''}"
                   />
-                  From the Publisher
+                  {descriptionCollapsed ? "Expand" : "Collapse"}
                 </button>
-                <span
-                  aria-hidden="true"
-                  class="inline-flex items-center justify-center rounded-md p-1 opacity-0"
-                >
-                  <ChevronDown size={14} />
-                </span>
               </div>
               <div class="border-t border-linen-200 px-4 pb-4 pt-3 dark:border-slate-700">
                 <div class="relative">
                   <div
                     bind:this={descriptionContainer}
-                    class="book-description-expandable text-sm leading-relaxed text-anthracite-700 dark:text-slate-300 overflow-hidden transition-[max-height] duration-300 ease-in-out"
+                    class="book-description-expandable break-words text-sm leading-relaxed text-anthracite-700 dark:text-slate-300 overflow-hidden transition-[max-height] duration-300 ease-in-out"
                     class:book-description-content={sanitizedDescriptionHtml.length > 0}
                     class:whitespace-pre-wrap={sanitizedDescriptionHtml.length === 0}
                     style:--book-description-max-height={descriptionCollapsed

@@ -16,11 +16,9 @@ package net.findmybook.controller;
 import net.findmybook.scheduler.BookCacheWarmingScheduler;
 import net.findmybook.scheduler.NewYorkTimesBestsellerScheduler;
 import net.findmybook.service.ApiCircuitBreakerService;
-import net.findmybook.service.BackfillCoordinator;
 import net.findmybook.service.S3CoverCleanupService;
 import net.findmybook.service.s3.DryRunSummary;
 import net.findmybook.service.s3.MoveActionSummary;
-import org.springframework.util.StringUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,6 +31,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+
+import java.time.LocalDate;
 
 @RestController
 @RequestMapping("/admin")
@@ -53,14 +53,12 @@ public class AdminController {
     private final NewYorkTimesBestsellerScheduler newYorkTimesBestsellerScheduler;
     private final BookCacheWarmingScheduler bookCacheWarmingScheduler;
     private final ApiCircuitBreakerService apiCircuitBreakerService;
-    private final BackfillCoordinator backfillCoordinator;
 
     /**
      * Constructs AdminController with optional services that may be null when disabled.
      *
-     * @param s3CoverCleanupService the S3 cleanup service, or null if S3 is disabled
+     * @param s3CoverCleanupServiceProvider provider for the S3 cleanup service
      * @param newYorkTimesBestsellerScheduler the NYT scheduler, or null if disabled
-     * @param backfillCoordinatorProvider provider for optional backfill coordinator bean
      * @param bookCacheWarmingScheduler the cache warming scheduler
      * @param apiCircuitBreakerService the circuit breaker service
      * @param configuredS3Prefix configured source prefix for S3 cleanup
@@ -69,7 +67,6 @@ public class AdminController {
      */
     public AdminController(ObjectProvider<S3CoverCleanupService> s3CoverCleanupServiceProvider,
                            NewYorkTimesBestsellerScheduler newYorkTimesBestsellerScheduler,
-                           ObjectProvider<BackfillCoordinator> backfillCoordinatorProvider,
                            BookCacheWarmingScheduler bookCacheWarmingScheduler,
                            ApiCircuitBreakerService apiCircuitBreakerService,
                            @Value("${app.s3.cleanup.prefix:images/book-covers/}") String configuredS3Prefix,
@@ -80,42 +77,6 @@ public class AdminController {
         this.bookCacheWarmingScheduler = bookCacheWarmingScheduler;
         this.apiCircuitBreakerService = apiCircuitBreakerService;
         this.s3CleanupConfig = new S3CleanupConfig(configuredS3Prefix, defaultBatchLimit, configuredQuarantinePrefix);
-        this.backfillCoordinator = backfillCoordinatorProvider.getIfAvailable();
-    }
-
-    /**
-     * Enqueue a Google Books backfill task for a specific volume ID.
-     * Useful for refreshing cover metadata after ingestion fixes.
-     *
-     * @param volumeId Google Books volume identifier
-     * @param priority Optional priority override (1 = highest, 10 = lowest)
-     * @return text response describing the enqueued task
-     */
-    @PostMapping(value = "/backfill/google-volume", produces = MediaType.TEXT_PLAIN_VALUE)
-    public ResponseEntity<String> enqueueGoogleVolumeBackfill(
-            @RequestParam("volumeId") String volumeId,
-            @RequestParam(name = "priority", defaultValue = "3") int priority) {
-
-        if (backfillCoordinator == null) {
-            String message = "Async backfill is disabled. Set APP_FEATURE_ASYNC_BACKFILL_ENABLED=true to enable.";
-            log.warn(message);
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
-        }
-
-        if (!StringUtils.hasText(volumeId)) {
-            String message = "volumeId must not be blank";
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
-        }
-
-        int clampedPriority = Math.clamp(priority, 1, 10);
-        String normalizedVolume = volumeId.trim();
-
-        backfillCoordinator.enqueue("GOOGLE_BOOKS", normalizedVolume, clampedPriority);
-
-        String message = String.format("Enqueued GOOGLE_BOOKS backfill for %s with priority %d",
-            normalizedVolume, clampedPriority);
-        log.info(message);
-        return ResponseEntity.ok(message);
     }
 
     /**
@@ -144,10 +105,6 @@ public class AdminController {
         int requestedLimit     = limitOptional != null ? limitOptional : s3CleanupConfig.defaultBatchLimit();
         int batchLimitToUse    = requestedLimit > 0 ? requestedLimit : Integer.MAX_VALUE;
         if (requestedLimit <= 0) {
-            // This behavior can be adjusted; for now, let's say 0 or negative means a very large number (effectively no limit for practical purposes)
-            // or stick to a sane default if that's preferred
-            // The S3CoverCleanupService currently handles batchLimit > 0
-            // If batchLimit is 0 or negative, it processes all
             log.warn("Batch limit {} requested; treating as unlimited.", requestedLimit);
         }
         
@@ -181,7 +138,7 @@ public class AdminController {
             log.info("S3 Cover Cleanup Dry Run response prepared for prefix: '{}', limit: {}. Summary: {} flagged out of {} scanned.", 
                         prefixToUse, batchLimitToUse, summary.getTotalFlagged(), summary.getTotalScanned());
             return ResponseEntity.ok(responseBody);
-        } catch (RuntimeException ex) {
+        } catch (IllegalStateException ex) {
             String errorMessage = String.format(
                 "Failed to complete S3 Cover Cleanup Dry Run with prefix: '%s', limit: %d.",
                 prefixToUse,
@@ -239,7 +196,14 @@ public class AdminController {
             
             log.info("S3 Cover Cleanup Move Action completed. Summary: {}", summary.toString());
             return ResponseEntity.ok(summary);
-        } catch (RuntimeException ex) {
+        } catch (IllegalArgumentException ex) {
+            String errorMessage = String.format(
+                "Invalid move action parameters. Source Prefix: '%s', Limit: %d, Quarantine Prefix: '%s'.",
+                sourcePrefixToUse, batchLimitToUse, quarantinePrefixToUse
+            );
+            log.warn(errorMessage, ex);
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, errorMessage, ex);
+        } catch (IllegalStateException ex) {
             String errorMessage = String.format(
                 "Failed to complete S3 Cover Cleanup Move Action. Source Prefix: '%s', Limit: %d, Quarantine Prefix: '%s'.",
                 sourcePrefixToUse, batchLimitToUse, quarantinePrefixToUse
@@ -250,26 +214,62 @@ public class AdminController {
     }
 
     /**
-     * Triggers the New York Times Bestseller processing job.
+     * Triggers New York Times bestseller processing.
+     * <p>
+     * Modes:
+     * <ul>
+     *   <li>Default (no params): run the latest overview ingest once.</li>
+     *   <li>{@code publishedDate=yyyy-MM-dd}: force one historical date ingest.</li>
+     *   <li>{@code rerunAll=true}: rerun all historical NYT publication dates in Postgres.</li>
+     * </ul>
      *
+     * @param publishedDate optional NYT publication date to force
+     * @param rerunAll when true, rerun all historical NYT publication dates
      * @return A ResponseEntity indicating the outcome of the trigger.
      */
     @PostMapping(value = "/trigger-nyt-bestsellers", produces = MediaType.TEXT_PLAIN_VALUE)
-    public ResponseEntity<String> triggerNytBestsellerProcessing() {
-        log.info("Admin endpoint /admin/trigger-nyt-bestsellers invoked.");
+    public ResponseEntity<String> triggerNytBestsellerProcessing(
+        @RequestParam(name = "publishedDate", required = false) LocalDate publishedDate,
+        @RequestParam(name = "rerunAll", defaultValue = "false") boolean rerunAll
+    ) {
+        log.info("Admin endpoint /admin/trigger-nyt-bestsellers invoked. publishedDate={}, rerunAll={}",
+            publishedDate,
+            rerunAll);
         
         if (newYorkTimesBestsellerScheduler == null) {
             String errorMessage = "New York Times Bestseller Scheduler is not available. S3 integration may be disabled.";
             log.warn(errorMessage);
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, errorMessage);
         }
+
+        if (rerunAll && publishedDate != null) {
+            throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "Cannot combine rerunAll=true with a specific publishedDate."
+            );
+        }
         
         try {
-            // It's good practice to run schedulers asynchronously if they are long-running,
-            // but for a manual trigger, a direct call might be acceptable depending on execution time.
-            // If processNewYorkTimesBestsellers is very long, consider wrapping in an async task.
-            newYorkTimesBestsellerScheduler.processNewYorkTimesBestsellers();
-            String successMessage = "Successfully triggered New York Times Bestseller processing job.";
+            String successMessage;
+            if (rerunAll) {
+                NewYorkTimesBestsellerScheduler.HistoricalRerunSummary summary =
+                    newYorkTimesBestsellerScheduler.rerunHistoricalBestsellers();
+                successMessage = String.format(
+                    "NYT historical rerun completed. totalDates=%d, succeeded=%d, failed=%d%s",
+                    summary.totalDates(),
+                    summary.succeededDates(),
+                    summary.failedDates(),
+                    summary.failures().isEmpty() ? "" : ", failures=" + summary.failures()
+                );
+            } else if (publishedDate != null) {
+                newYorkTimesBestsellerScheduler.forceProcessNewYorkTimesBestsellers(publishedDate);
+                successMessage = "Successfully triggered New York Times Bestseller processing job for "
+                    + publishedDate
+                    + ".";
+            } else {
+                newYorkTimesBestsellerScheduler.processNewYorkTimesBestsellers();
+                successMessage = "Successfully triggered New York Times Bestseller processing job.";
+            }
             log.info(successMessage);
             return ResponseEntity.ok(successMessage);
         } catch (IllegalStateException ex) {
@@ -277,13 +277,6 @@ public class AdminController {
             throw new ResponseStatusException(
                 HttpStatus.BAD_REQUEST,
                 ex.getMessage() != null ? ex.getMessage() : "Failed to trigger New York Times Bestseller processing job.",
-                ex
-            );
-        } catch (RuntimeException ex) {
-            log.error("Failed to trigger New York Times Bestseller processing job.", ex);
-            throw new ResponseStatusException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
-                "Failed to trigger New York Times Bestseller processing job.",
                 ex
             );
         }
@@ -356,4 +349,5 @@ public class AdminController {
             );
         }
     }
+
 }

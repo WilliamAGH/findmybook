@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -123,12 +122,11 @@ class BookAiContentControllerTest {
         when(aiContentService.resolveBookId("slug")).thenReturn(Optional.of(bookId));
         when(aiContentService.findCurrent(bookId)).thenReturn(Optional.empty());
         when(aiContentService.isAvailable()).thenReturn(true);
-        when(requestQueue.snapshot()).thenReturn(new BookAiContentRequestQueue.QueueSnapshot(0, 0, 1));
 
         BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent> task =
             new BookAiContentRequestQueue.EnqueuedTask<>("task-1", new CompletableFuture<>(), new CompletableFuture<>());
 
-        when(requestQueue.<BookAiContentService.GeneratedContent>enqueue(
+        when(requestQueue.<BookAiContentService.GeneratedContent>enqueueForeground(
             anyInt(),
             org.mockito.ArgumentMatchers.<Supplier<BookAiContentService.GeneratedContent>>any()
         )).thenReturn(task);
@@ -140,29 +138,32 @@ class BookAiContentControllerTest {
             .andExpect(status().isOk())
             .andExpect(content().contentType("text/event-stream"));
             
-        verify(requestQueue).enqueue(eq(0), any());
+        verify(requestQueue).enqueueForeground(eq(0), any());
     }
 
     @Test
-    @DisplayName("POST stream returns error event when queue is above threshold")
-    void streamAiContent_returnsError_WhenQueueIsBusy() throws Exception {
+    @DisplayName("POST stream continues to enqueue foreground task even when pending queue is high")
+    void should_EnqueueForegroundTask_When_QueueBusyWithBackgroundWork() throws Exception {
         UUID bookId = UUID.randomUUID();
         when(aiContentService.resolveBookId("busy-slug")).thenReturn(Optional.of(bookId));
         when(aiContentService.findCurrent(bookId)).thenReturn(Optional.empty());
         when(aiContentService.isAvailable()).thenReturn(true);
-        when(requestQueue.snapshot()).thenReturn(new BookAiContentRequestQueue.QueueSnapshot(1, 6, 1));
 
-        String responseBody = mockMvc.perform(post("/api/books/busy-slug/ai/content/stream"))
+        BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent> task =
+            new BookAiContentRequestQueue.EnqueuedTask<>("task-busy-1", new CompletableFuture<>(), new CompletableFuture<>());
+        when(requestQueue.<BookAiContentService.GeneratedContent>enqueueForeground(
+            anyInt(),
+            org.mockito.ArgumentMatchers.<Supplier<BookAiContentService.GeneratedContent>>any()
+        )).thenReturn(task);
+        when(requestQueue.getPosition("task-busy-1")).thenReturn(
+            new BookAiContentRequestQueue.QueuePosition(true, 1, 1, 6000, 1)
+        );
+
+        mockMvc.perform(post("/api/books/busy-slug/ai/content/stream"))
             .andExpect(status().isOk())
-            .andExpect(content().contentType("text/event-stream"))
-            .andReturn()
-            .getResponse()
-            .getContentAsString();
+            .andExpect(content().contentType("text/event-stream"));
 
-        assertThat(responseBody).contains("event:error");
-        assertThat(responseBody).contains("AI queue is currently busy");
-        assertThat(responseBody).contains("\"code\":\"queue_busy\"");
-        verify(requestQueue, never()).enqueue(anyInt(), any());
+        verify(requestQueue).enqueueForeground(eq(0), any());
     }
 
     @Test
@@ -261,7 +262,7 @@ class BookAiContentControllerTest {
 
         BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent> task =
             new BookAiContentRequestQueue.EnqueuedTask<>("task-failed-1", started, failedResult);
-        when(requestQueue.<BookAiContentService.GeneratedContent>enqueue(
+        when(requestQueue.<BookAiContentService.GeneratedContent>enqueueForeground(
             anyInt(),
             org.mockito.ArgumentMatchers.<Supplier<BookAiContentService.GeneratedContent>>any()
         )).thenReturn(task);

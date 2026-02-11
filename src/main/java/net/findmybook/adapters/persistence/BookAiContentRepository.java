@@ -79,6 +79,34 @@ public class BookAiContentRepository {
     }
 
     /**
+     * Loads the prompt hash for the current AI snapshot, when present.
+     *
+     * @param bookId canonical book UUID
+     * @return current prompt hash when present and non-blank
+     */
+    @Transactional(readOnly = true)
+    public Optional<String> fetchCurrentPromptHash(UUID bookId) {
+        if (bookId == null) {
+            throw new IllegalArgumentException("bookId is required");
+        }
+        String promptHash = jdbcTemplate.query(
+            """
+            SELECT prompt_hash
+            FROM book_ai_content
+            WHERE book_id = ? AND is_current = true
+            ORDER BY version_number DESC
+            LIMIT 1
+            """,
+            rs -> rs.next() ? rs.getString("prompt_hash") : null,
+            bookId
+        );
+        if (promptHash == null || promptHash.isBlank()) {
+            return Optional.empty();
+        }
+        return Optional.of(promptHash);
+    }
+
+    /**
      * Stores a new version and marks it current for the supplied book.
      *
      * @param bookId canonical book UUID

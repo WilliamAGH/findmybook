@@ -23,6 +23,7 @@ public class CoverUrlSafetyValidator {
     private static final Pattern RFC_1918_172_RANGE = Pattern.compile("^172\\.(1[6-9]|2\\d|3[0-1])\\..*");
 
     private static final Set<String> ALLOWED_HOSTS = Set.of(
+        "books.google.com",
         "books.googleusercontent.com",
         "covers.openlibrary.org",
         "images-na.ssl-images-amazon.com",
@@ -30,13 +31,12 @@ public class CoverUrlSafetyValidator {
         "m.media-amazon.com",
         "images.amazon.com",
         "d1w7fb2mkkr3kw.cloudfront.net",
-        "ia600100.us.archive.org",
-        "ia800100.us.archive.org",
-        "ia601400.us.archive.org",
-        "ia800200.us.archive.org",
+        "us.archive.org",
         "syndetics.com",
         "cdn.penguin.com",
         "images.penguinrandomhouse.com",
+        "static.nytimes.com",
+        "static01.nyt.com",
         "longitood.com"
     );
 

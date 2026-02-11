@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ChevronDown, RefreshCw } from "@lucide/svelte";
   import type { Book } from "$lib/validation/schemas";
+  import { hasRenderableAiContent } from "$lib/services/bookAiContentPanelState";
 
   interface Props {
     book: Book;
@@ -33,39 +34,43 @@
 
 <section class="rounded-xl border border-linen-200 bg-linen-50/60 dark:border-slate-700 dark:bg-slate-900/60">
   <div class="flex items-center justify-between gap-3 px-4 py-3">
-    <button
-      type="button"
-      class="inline-flex items-center gap-1.5 text-sm font-medium text-anthracite-700 transition hover:text-anthracite-900 dark:text-slate-300 dark:hover:text-slate-100"
-      onclick={onToggleCollapsed}
-      aria-expanded={!collapsed}
-    >
-      <ChevronDown
-        size={14}
-        class="shrink-0 transition-transform duration-200 {collapsed ? '-rotate-90' : ''}"
-      />
-      Reader's Guide
-    </button>
-    {#if aiServiceAvailable}
+    <h2 class="text-sm font-medium text-anthracite-700 dark:text-slate-300">Reader's Guide</h2>
+    <div class="flex items-center gap-2">
       <button
         type="button"
-        class="inline-flex items-center justify-center rounded-md p-1 text-anthracite-500 transition hover:bg-linen-100 hover:text-anthracite-700 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-        disabled={aiLoading}
-        onclick={onRefresh}
-        title="Refresh"
-        aria-label="Refresh"
+        class="inline-flex items-center gap-1.5 text-xs font-medium text-anthracite-600 transition hover:text-anthracite-900 dark:text-slate-400 dark:hover:text-slate-100"
+        onclick={onToggleCollapsed}
+        aria-expanded={!collapsed}
+        aria-label={collapsed ? "Expand Reader's Guide" : "Collapse Reader's Guide"}
       >
-        <RefreshCw size={14} class={aiLoading ? "animate-spin" : ""} />
+        <ChevronDown
+          size={14}
+          class="shrink-0 transition-transform duration-200 {collapsed ? '-rotate-90' : ''}"
+        />
+        {collapsed ? "Expand" : "Collapse"}
       </button>
-    {/if}
+      {#if aiServiceAvailable}
+        <button
+          type="button"
+          class="inline-flex items-center justify-center rounded-md p-1 text-anthracite-500 transition hover:bg-linen-100 hover:text-anthracite-700 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          disabled={aiLoading}
+          onclick={onRefresh}
+          title="Refresh"
+          aria-label="Refresh"
+        >
+          <RefreshCw size={14} class={aiLoading ? "animate-spin" : ""} />
+        </button>
+      {/if}
+    </div>
   </div>
 
   {#if !collapsed}
     <div class="border-t border-linen-200 px-4 pb-4 pt-3 dark:border-slate-700">
-      {#if book.aiContent}
+      {#if book.aiContent && hasRenderableAiContent(book)}
         {#if aiErrorMessage}
           <p class="mb-2 text-xs text-red-700 dark:text-red-300">{aiErrorMessage}</p>
         {/if}
-        <p class="text-sm leading-relaxed text-anthracite-800 dark:text-slate-200">
+        <p class="break-words text-sm leading-relaxed text-anthracite-800 dark:text-slate-200">
           {book.aiContent.summary}
         </p>
 
@@ -76,7 +81,7 @@
             </h3>
             <ul class="space-y-1 pl-4">
               {#each book.aiContent.takeaways as point}
-                <li class="list-disc text-sm text-anthracite-700 dark:text-slate-300">{point}</li>
+                <li class="list-disc break-words text-sm text-anthracite-700 dark:text-slate-300">{point}</li>
               {/each}
             </ul>
           </div>
@@ -87,7 +92,7 @@
             <h3 class="mb-1 text-xs font-semibold uppercase tracking-wide text-anthracite-500 dark:text-slate-400">
               Audience
             </h3>
-            <p class="text-sm text-anthracite-700 dark:text-slate-300">{book.aiContent.readerFit}</p>
+            <p class="break-words text-sm text-anthracite-700 dark:text-slate-300">{book.aiContent.readerFit}</p>
           </div>
         {/if}
 
@@ -96,14 +101,14 @@
             <h3 class="mb-1 text-xs font-semibold uppercase tracking-wide text-anthracite-500 dark:text-slate-400">
               Context
             </h3>
-            <p class="text-sm text-anthracite-700 dark:text-slate-300">{book.aiContent.context}</p>
+            <p class="break-words text-sm text-anthracite-700 dark:text-slate-300">{book.aiContent.context}</p>
           </div>
         {/if}
 
         {#if book.aiContent.keyThemes.length > 0}
           <div class="mt-3 flex flex-wrap gap-1.5">
             {#each book.aiContent.keyThemes as theme}
-              <span class="rounded-full border border-linen-300 px-2 py-0.5 text-[11px] text-anthracite-700 dark:border-slate-600 dark:text-slate-300">
+              <span class="max-w-full truncate rounded-full border border-linen-300 px-2 py-0.5 text-[11px] text-anthracite-700 dark:border-slate-600 dark:text-slate-300">
                 {theme}
               </span>
             {/each}
@@ -134,6 +139,10 @@
           ></span>
           <p class="text-sm text-anthracite-600 dark:text-slate-400">Loading AI content...</p>
         </div>
+      {:else}
+        <p class="text-xs text-anthracite-500 dark:text-slate-400">
+          AI content is unavailable right now. Use refresh to try again.
+        </p>
       {/if}
     </div>
   {/if}

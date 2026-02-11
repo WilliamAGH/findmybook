@@ -29,6 +29,7 @@ import net.findmybook.util.UrlUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import tools.jackson.databind.ObjectMapper;
@@ -42,6 +43,7 @@ public class BookAiContentService {
     private static final String DEFAULT_API_MODE = "chat";
     private static final String DEFAULT_MODEL = "gpt-5-mini";
     private static final long MAX_COMPLETION_TOKENS = 1000L;
+    private static final int MAX_GENERATION_ATTEMPTS = 3;
     private static final int MIN_DESCRIPTION_LENGTH = 50;
     private static final double SAMPLING_TEMPERATURE = 0.2;
     private static final String API_KEY_SENTINEL = "not-configured";
@@ -125,7 +127,52 @@ public class BookAiContentService {
         ensureAvailable();
         String prompt = buildPrompt(loadPromptContext(bookId));
         String promptHash = sha256(prompt);
+        return generateAndPersistFromPrompt(bookId, prompt, promptHash, onDelta);
+    }
 
+    /**
+     * Generates fresh AI content only when prompt context has changed since the current version.
+     *
+     * @param bookId canonical book UUID
+     * @param onDelta callback for streamed model deltas
+     * @return generation outcome with generated/skipped semantics
+     */
+    public GenerationOutcome generateAndPersistIfPromptChanged(UUID bookId, Consumer<String> onDelta) {
+        ensureAvailable();
+        String prompt = buildPrompt(loadPromptContext(bookId));
+        String promptHash = sha256(prompt);
+        Optional<String> existingPromptHash = repository.fetchCurrentPromptHash(bookId);
+        if (existingPromptHash.isPresent() && existingPromptHash.get().equals(promptHash)) {
+            return GenerationOutcome.skipped(bookId, promptHash, findCurrent(bookId));
+        }
+        GeneratedContent generated = generateAndPersistFromPrompt(bookId, prompt, promptHash, onDelta);
+        return GenerationOutcome.generated(bookId, promptHash, Optional.of(generated.snapshot()));
+    }
+
+    private GeneratedContent generateAndPersistFromPrompt(UUID bookId, String prompt, String promptHash, Consumer<String> onDelta) {
+        BookAiGenerationException lastGenerationFailure = null;
+        for (int attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt++) {
+            try {
+                return generateAndPersistSingleAttempt(bookId, prompt, promptHash, onDelta);
+            } catch (BookAiGenerationException generationFailure) {
+                lastGenerationFailure = generationFailure;
+                if (attempt < MAX_GENERATION_ATTEMPTS && isRetryableGenerationFailure(generationFailure)) {
+                    log.warn("AI generation attempt {}/{} failed for bookId={} model={} (will retry): {}",
+                        attempt, MAX_GENERATION_ATTEMPTS, bookId, configuredModel, generationFailure.getMessage());
+                    continue;
+                }
+                break;
+            }
+        }
+
+        if (lastGenerationFailure == null) {
+            throw new BookAiGenerationException(BookAiGenerationException.ErrorCode.GENERATION_FAILED,
+                "AI content generation failed (%s)".formatted(configuredModel));
+        }
+        throw lastGenerationFailure;
+    }
+
+    private GeneratedContent generateAndPersistSingleAttempt(UUID bookId, String prompt, String promptHash, Consumer<String> onDelta) {
         ChatCompletionCreateParams params = ChatCompletionCreateParams.builder()
             .model(ChatModel.of(configuredModel))
             .messages(List.of(
@@ -152,15 +199,53 @@ public class BookAiContentService {
                 }
             });
         } catch (OpenAIException ex) {
-            log.error("Book AI streaming failed for bookId={} model={}", bookId, configuredModel, ex);
+            String detail = BookAiGenerationException.describeApiError(ex);
+            log.error("AI streaming failed for bookId={} model={}: {}", bookId, configuredModel, detail);
             throw new BookAiGenerationException(BookAiGenerationException.ErrorCode.GENERATION_FAILED,
-                "AI streaming failed for book: " + bookId, ex);
+                "AI content generation failed (%s): %s".formatted(configuredModel, detail), ex);
         }
 
         String rawMessage = fullResponseBuilder.toString();
-        BookAiContent aiContent = jsonParser.parse(rawMessage);
+        BookAiContent aiContent;
+        try {
+            aiContent = jsonParser.parse(rawMessage);
+        } catch (IllegalStateException parseFailure) {
+            log.error("AI content parsing failed for bookId={} model={}: {}", bookId, configuredModel, parseFailure.getMessage());
+            String parseMessage = StringUtils.hasText(parseFailure.getMessage()) ? parseFailure.getMessage() : "invalid JSON response";
+            boolean isQualityFailure = parseMessage.contains("quality check failed");
+            BookAiGenerationException.ErrorCode errorCode = isQualityFailure
+                ? BookAiGenerationException.ErrorCode.DEGENERATE_CONTENT
+                : BookAiGenerationException.ErrorCode.GENERATION_FAILED;
+            throw new BookAiGenerationException(errorCode,
+                "AI content generation failed (%s): %s".formatted(configuredModel, parseMessage), parseFailure);
+        }
         BookAiContentSnapshot snapshot = repository.insertNewCurrentVersion(bookId, aiContent, configuredModel, DEFAULT_PROVIDER, promptHash);
         return new GeneratedContent(rawMessage, snapshot);
+    }
+
+    private boolean isRetryableGenerationFailure(BookAiGenerationException generationFailure) {
+        if (generationFailure.errorCode() == BookAiGenerationException.ErrorCode.DEGENERATE_CONTENT) {
+            return true;
+        }
+        if (generationFailure.errorCode() != BookAiGenerationException.ErrorCode.GENERATION_FAILED) {
+            return false;
+        }
+        Throwable cause = generationFailure.getCause();
+        if (cause instanceof OpenAIException) {
+            return true;
+        }
+        if (cause instanceof IllegalStateException parseFailure) {
+            String message = parseFailure.getMessage();
+            if (!StringUtils.hasText(message)) {
+                return false;
+            }
+            return message.contains("response was empty")
+                || message.contains("did not include a valid JSON object")
+                || message.contains("JSON parsing failed")
+                || message.contains("missing required field")
+                || message.contains("contained no choices");
+        }
+        return false;
     }
 
     /** Indicates whether AI generation is currently configured and available. */
@@ -190,7 +275,7 @@ public class BookAiContentService {
         String description = detail.description() == null ? null : detail.description().trim();
         try {
             description = bookDataOrchestrator.enrichDescriptionForAiIfNeeded(bookId, detail, description, MIN_DESCRIPTION_LENGTH);
-        } catch (RuntimeException ex) {
+        } catch (IllegalStateException | DataAccessException ex) {
             log.error("Description enrichment failed for bookId={}", bookId, ex);
             throw new BookAiGenerationException(BookAiGenerationException.ErrorCode.ENRICHMENT_FAILED,
                 "Description enrichment failed for book: " + bookId, ex);
@@ -246,6 +331,20 @@ public class BookAiContentService {
 
     /** Immutable generation result used by SSE controllers. */
     public record GeneratedContent(String rawMessage, BookAiContentSnapshot snapshot) {}
+
+    /** Immutable outcome used by background ingestion generation workflows. */
+    public record GenerationOutcome(UUID bookId,
+                                    boolean generated,
+                                    String promptHash,
+                                    Optional<BookAiContentSnapshot> snapshot) {
+        private static GenerationOutcome skipped(UUID bookId, String promptHash, Optional<BookAiContentSnapshot> snapshot) {
+            return new GenerationOutcome(bookId, false, promptHash, snapshot);
+        }
+
+        private static GenerationOutcome generated(UUID bookId, String promptHash, Optional<BookAiContentSnapshot> snapshot) {
+            return new GenerationOutcome(bookId, true, promptHash, snapshot);
+        }
+    }
 
     private record BookPromptContext(UUID bookId, String title, String authors, String description, String publishedDate, String publisher) {}
 }

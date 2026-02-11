@@ -1,35 +1,27 @@
 package net.findmybook.util;
 
 import java.util.*;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
  * Single source of truth for category validation, normalization, and deduplication.
- * 
+ *
  * <p>This utility ensures consistent category handling across the entire application:
  * <ul>
- *   <li>Splits compound categories (e.g., "Fiction / Science Fiction" → ["Fiction", "Science Fiction"])</li>
+ *   <li>Splits compound categories on "/" delimiter (e.g., "Fiction / Science Fiction")</li>
  *   <li>Normalizes whitespace and removes empty/blank entries</li>
- *   <li>Deduplicates categories (case-insensitive)</li>
+ *   <li>Deduplicates using the canonical database slug, not just display text</li>
+ *   <li>Rejects garbage categories (Dewey decimal, MARC codes, purely numeric)</li>
  *   <li>Preserves original casing in display names while normalizing for comparison</li>
  * </ul>
- * 
- * <p><strong>Usage Locations:</strong>
- * <ul>
- *   <li>{@code RecommendationService} - for category-based book matching</li>
- *   <li>{@code BookCollectionPersistenceService} - for database persistence</li>
- *   <li>{@code BookSupplementalPersistenceService} - for category deduplication before save</li>
- *   <li>{@code GoogleBooksMapper} - for API response parsing</li>
- * </ul>
- * 
+ *
  * @see net.findmybook.service.RecommendationService
  * @see net.findmybook.service.BookCollectionPersistenceService
  */
 public final class CategoryNormalizer {
 
-    /**
-     * Regex pattern for splitting compound categories with flexible whitespace
-     */
+    /** Regex pattern for splitting compound categories with flexible whitespace. */
     private static final String SPLIT_PATTERN = "\\s*/\\s*";
 
     /**
@@ -38,39 +30,51 @@ public final class CategoryNormalizer {
      */
     private static final String WHITESPACE_COLLAPSE_PATTERN = "\\s+";
 
+    /** Matches strings that are purely numeric, Dewey Decimal, or numeric codes (e.g., "823.7", "3248", ".001"). */
+    private static final Pattern GARBAGE_NUMERIC = Pattern.compile("^[.\\d][\\d.\\-\\s]*[a-z]?$", Pattern.CASE_INSENSITIVE);
+
+    /** Matches MARC-like codes (e.g., "700=aacr2", "04b044sinebk"). */
+    private static final Pattern GARBAGE_MARC = Pattern.compile("^\\d+[=a-z].*$", Pattern.CASE_INSENSITIVE);
+
+    /** Matches classification-style codes with numeric prefix (e.g., "89.70 international relations"). */
+    private static final Pattern GARBAGE_CLASSIFICATION = Pattern.compile("^\\d+\\.\\d+\\s+\\S.*$");
+
+    /** Minimum number of Latin letters required for a category to be meaningful. */
+    private static final int MIN_LATIN_LETTERS = 3;
+
+    private static final int MIN_DISPLAY_LENGTH = 2;
+    private static final int MAX_DISPLAY_LENGTH = 255;
+
     private CategoryNormalizer() {
         // Utility class - no instantiation
     }
 
     /**
      * Normalizes and deduplicates a list of categories.
-     * 
-     * <p>This is the primary method for processing category lists:
-     * <ul>
-     *   <li>Splits compound categories on "/" delimiter</li>
-     *   <li>Trims whitespace from each part</li>
-     *   <li>Removes empty/blank entries</li>
-     *   <li>Deduplicates based on case-insensitive comparison</li>
-     *   <li>Preserves original casing of first occurrence</li>
-     *   <li>Maintains insertion order</li>
-     * </ul>
-     * 
+     *
+     * <p>This is the primary method for processing category lists. It uses the canonical
+     * database slug ({@link #normalizeForDatabase}) as the deduplication key, so categories
+     * that differ only in punctuation or casing are collapsed. For example,
+     * "Fiction, anthologies (multiple authors)" and "Fiction / Anthologies (Multiple Authors)"
+     * both produce slug {@code fiction-anthologies-multiple-authors} and are treated as one.
+     *
      * <p><strong>Example:</strong>
      * <pre>
      * Input:  ["Fiction / Science Fiction", "fiction", "History", " ", "history / military"]
      * Output: ["Fiction", "Science Fiction", "History", "Military"]
      * </pre>
-     * 
+     *
      * @param categories Raw category list from external source (Google Books, user input, etc.)
-     * @return Normalized, deduplicated list preserving insertion order and original casing
+     * @return Normalized, deduplicated, valid categories preserving insertion order and original casing
      */
     public static List<String> normalizeAndDeduplicate(List<String> categories) {
         if (ValidationUtils.isNullOrEmpty(categories)) {
             return List.of();
         }
 
-        Set<String> seen = new LinkedHashSet<>(); // Preserves insertion order
-        Map<String, String> lowercaseToOriginal = new LinkedHashMap<>();
+        // Use canonical slug as dedup key so "Fiction, anthologies" and
+        // "Fiction / Anthologies" collapse to one entry.
+        Map<String, String> slugToDisplay = new LinkedHashMap<>();
 
         for (String category : categories) {
             if (!StringUtils.hasText(category)) {
@@ -79,26 +83,20 @@ public final class CategoryNormalizer {
 
             // Split compound categories (e.g., "Fiction / Science Fiction")
             String[] parts = category.split(SPLIT_PATTERN);
-            
+
             for (String part : parts) {
-                // Trim leading/trailing whitespace and collapse internal whitespace to single spaces
-                // This ensures "Science  Fiction" and "Science Fiction" are treated as identical
                 String trimmed = part.trim().replaceAll(WHITESPACE_COLLAPSE_PATTERN, " ");
-                if (trimmed.isEmpty()) {
+                if (trimmed.isEmpty() || !isValid(trimmed)) {
                     continue;
                 }
 
-                String lowercase = trimmed.toLowerCase(Locale.ROOT);
-                
-                // Only add if not seen before (case-insensitive deduplication)
-                if (!lowercaseToOriginal.containsKey(lowercase)) {
-                    lowercaseToOriginal.put(lowercase, trimmed);
-                    seen.add(trimmed);
-                }
+                String slug = normalizeForDatabase(trimmed);
+                // Keep first occurrence's display name
+                slugToDisplay.putIfAbsent(slug, trimmed);
             }
         }
 
-        return new ArrayList<>(seen);
+        return new ArrayList<>(slugToDisplay.values());
     }
 
     /**
@@ -171,17 +169,19 @@ public final class CategoryNormalizer {
     }
 
     /**
-     * Validates that a category name meets basic requirements.
-     * 
-     * <p>Requirements:
+     * Validates that a category name is meaningful and not a classification code.
+     *
+     * <p>Rejects:
      * <ul>
-     *   <li>Not null or blank</li>
-     *   <li>At least 2 characters (after trimming)</li>
-     *   <li>Does not exceed 255 characters</li>
+     *   <li>Null, blank, or too short (&lt; 2 chars) / too long (&gt; 255 chars)</li>
+     *   <li>Dewey Decimal codes (e.g., "823.7", ".001", "940.53")</li>
+     *   <li>MARC record codes (e.g., "700=aacr2", "04b044sinebk")</li>
+     *   <li>Classification-prefixed labels (e.g., "89.70 international relations")</li>
+     *   <li>Strings with fewer than 3 Latin letters (catches pure-numeric and code-like entries)</li>
      * </ul>
-     * 
+     *
      * @param category Category name to validate
-     * @return true if valid, false otherwise
+     * @return true if the category represents a meaningful human-readable subject
      */
     public static boolean isValid(String category) {
         if (!StringUtils.hasText(category)) {
@@ -189,16 +189,37 @@ public final class CategoryNormalizer {
         }
 
         String trimmed = category.trim();
-        return trimmed.length() >= 2 && trimmed.length() <= 255;
+        if (trimmed.length() < MIN_DISPLAY_LENGTH || trimmed.length() > MAX_DISPLAY_LENGTH) {
+            return false;
+        }
+
+        // Reject Dewey Decimal / purely numeric codes
+        if (GARBAGE_NUMERIC.matcher(trimmed).matches()) {
+            return false;
+        }
+
+        // Reject MARC-style codes (digit-prefixed alphanumeric strings)
+        if (GARBAGE_MARC.matcher(trimmed).matches()) {
+            return false;
+        }
+
+        // Reject classification-prefixed labels ("89.70 international relations")
+        if (GARBAGE_CLASSIFICATION.matcher(trimmed).matches()) {
+            return false;
+        }
+
+        // Must contain at least MIN_LATIN_LETTERS Latin letters to be a meaningful subject
+        long latinLetterCount = trimmed.codePoints()
+                .filter(Character::isLetter)
+                .count();
+        return latinLetterCount >= MIN_LATIN_LETTERS;
     }
 
     /**
      * Filters a list of categories to only valid entries.
-     * 
-     * <p>Removes invalid categories based on {@link #isValid(String)} criteria.
-     * 
+     *
      * @param categories Category list to filter
-     * @return List containing only valid categories
+     * @return List containing only valid categories; empty list if input is null/empty
      */
     public static List<String> filterValid(List<String> categories) {
         if (ValidationUtils.isNullOrEmpty(categories)) {
@@ -206,25 +227,26 @@ public final class CategoryNormalizer {
         }
 
         return categories.stream()
-                        .filter(CategoryNormalizer::isValid)
-                        .collect(Collectors.toList());
+                         .filter(CategoryNormalizer::isValid)
+                         .collect(Collectors.toList());
     }
 
     /**
-     * Checks if two categories are equivalent (case-insensitive).
-     * 
+     * Checks if two categories are equivalent using the canonical database slug.
+     *
+     * <p>This catches equivalence across punctuation differences:
+     * "Fiction, anthologies" and "Fiction / Anthologies" are equivalent
+     * because both normalize to {@code fiction-anthologies}.
+     *
      * @param category1 First category
      * @param category2 Second category
-     * @return true if categories are equivalent (ignoring case and whitespace)
+     * @return true if categories produce the same canonical slug
      */
     public static boolean areEquivalent(String category1, String category2) {
         if (!StringUtils.hasText(category1) || !StringUtils.hasText(category2)) {
             return false;
         }
 
-        // Collapse internal whitespace for consistent comparison
-        String normalized1 = category1.trim().replaceAll(WHITESPACE_COLLAPSE_PATTERN, " ");
-        String normalized2 = category2.trim().replaceAll(WHITESPACE_COLLAPSE_PATTERN, " ");
-        return normalized1.equalsIgnoreCase(normalized2);
+        return normalizeForDatabase(category1).equals(normalizeForDatabase(category2));
     }
 }

@@ -2,14 +2,17 @@ package net.findmybook.controller;
 
 import net.findmybook.service.BookSeoMetadataService;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.util.UriComponentsBuilder;
 import org.springframework.util.StringUtils;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import java.util.regex.Matcher;
@@ -24,8 +27,11 @@ import org.springframework.http.HttpStatus;
  * free-text queries into an explicit {@code year} query parameter via 303 redirect.
  */
 @Controller
-@Slf4j
 public class HomeController extends SpaShellController {
+
+    private static final Logger log = LoggerFactory.getLogger(HomeController.class);
+    private static final String OPEN_GRAPH_CACHE_CONTROL =
+        "public, max-age=86400, s-maxage=86400, stale-while-revalidate=3600";
 
     private final boolean isYearFilteringEnabled;
     private static final Pattern YEAR_PATTERN = Pattern.compile("\\b(19\\d{2}|20\\d{2})\\b");
@@ -100,6 +106,22 @@ public class HomeController extends SpaShellController {
     @GetMapping("/404")
     public ResponseEntity<String> notFound() {
         return spaResponse(bookSeoMetadataService.notFoundMetadata("/404"), HttpStatus.NOT_FOUND);
+    }
+
+    /**
+     * Serves a branded dynamic OpenGraph PNG for non-book routes.
+     *
+     * @return 1200x630 PNG payload for {@code og:image}
+     */
+    @GetMapping(value = "/api/pages/og/route", produces = MediaType.IMAGE_PNG_VALUE)
+    public Mono<ResponseEntity<byte[]>> routeOpenGraphImage() {
+        return Mono.fromCallable(() -> bookSeoMetadataService.renderRouteOpenGraphImage())
+            .subscribeOn(Schedulers.boundedElastic())
+            .map(imageBytes -> ResponseEntity.ok()
+                .contentType(MediaType.IMAGE_PNG)
+                .header("Cache-Control", OPEN_GRAPH_CACHE_CONTROL)
+                .header("Content-Length", String.valueOf(imageBytes.length))
+                .body(imageBytes));
     }
 
 }

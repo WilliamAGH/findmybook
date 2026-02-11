@@ -16,6 +16,8 @@ import java.util.Optional;
  */
 public final class CoverPrioritizer {
 
+    private static final int MIN_COLOR_COVER_SCORE = 2;
+
     private CoverPrioritizer() {
     }
 
@@ -28,7 +30,8 @@ public final class CoverPrioritizer {
             book.getExternalImageUrl(),
             book.getCoverImageWidth(),
             book.getCoverImageHeight(),
-            book.getIsCoverHighResolution()
+            book.getIsCoverHighResolution(),
+            book.getIsCoverGrayscale()
         );
     }
 
@@ -48,8 +51,23 @@ public final class CoverPrioritizer {
             resolved.url(),
             resolved.width(),
             resolved.height(),
-            resolved.highResolution()
+            resolved.highResolution(),
+            card.coverGrayscale()
         );
+    }
+
+    /**
+     * Returns {@code true} when the book has a known renderable color cover.
+     */
+    public static boolean hasColorCover(Book book) {
+        return score(book) >= MIN_COLOR_COVER_SCORE;
+    }
+
+    /**
+     * Returns {@code true} when the card has a known renderable color cover.
+     */
+    public static boolean hasColorCover(BookCard card) {
+        return score(card) >= MIN_COLOR_COVER_SCORE;
     }
 
     public static Comparator<Book> bookComparator(Map<String, Integer> insertionOrder) {
@@ -61,8 +79,9 @@ public final class CoverPrioritizer {
         if (primarySort == null) {
             return bookComparator(insertionOrder);
         }
-        Comparator<Book> comparator = primarySort
-            .thenComparingInt(CoverPrioritizer::coverPresenceRank)
+        Comparator<Book> comparator = Comparator
+            .comparingInt(CoverPrioritizer::coverPresenceRank)
+            .thenComparing(primarySort)
             .thenComparingInt(CoverPrioritizer::sourceRank)
             .thenComparingInt(CoverPrioritizer::matchTypeRank)
             .thenComparing(Comparator.<Book>comparingDouble(CoverPrioritizer::relevanceScore).reversed())
@@ -134,7 +153,10 @@ public final class CoverPrioritizer {
     }
 
     private static int coverPresenceRank(Book book) {
-        return score(book) > 0 ? 0 : 1;
+        if (hasColorCover(book)) return 0; // color cover
+        int quality = score(book);
+        if (quality == 1) return 1;   // grayscale cover
+        return 2;                     // no cover
     }
 
     private static int sourceRank(Book book) {

@@ -263,3 +263,5 @@ fix-s3-acl-public-all:
 		--prefix "$(S3_ACL_PREFIX)" \
 		--dry-run "$(S3_ACL_DRY_RUN)" \
 		--verbose "$(S3_ACL_VERBOSE)"
+
+include backfill-ai-seo.mk

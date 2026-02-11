@@ -18,6 +18,7 @@ enum AiErrorCode {
     QUEUE_BUSY("queue_busy", "AI queue is currently busy; please try again in a moment", true),
     STREAM_TIMEOUT("stream_timeout", "AI generation timed out", true),
     EMPTY_GENERATION("empty_generation", "AI generation returned no data", true),
+    DEGENERATE_CONTENT("degenerate_content", "AI generation produced unusable content", true),
     CACHE_SERIALIZATION_FAILED("cache_serialization_failed", "Cached AI content is unavailable", true),
     DESCRIPTION_TOO_SHORT("description_too_short", "AI content is unavailable for this book", false),
     ENRICHMENT_FAILED("enrichment_failed", "Book description enrichment providers are unavailable", true),

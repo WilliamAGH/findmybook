@@ -125,6 +125,36 @@ class CoverUpdateNotifierServiceTest {
     }
 
     @Test
+    void should_TriggerUploadForNytUpsert_When_NytSourceEventArrives() {
+        String bookId = UUID.randomUUID().toString();
+        BookUpsertEvent event = new BookUpsertEvent(
+            bookId,
+            "the-book-thief",
+            "The Book Thief",
+            false,
+            "NEW_YORK_TIMES",
+            Map.of("thumbnail", "https://static01.nyt.com/images/test.jpg"),
+            "https://static01.nyt.com/images/test.jpg",
+            "NEW_YORK_TIMES"
+        );
+        CoverRealtimePayloadFactory.BookUpsertPayload payload =
+            new CoverRealtimePayloadFactory.BookUpsertPayload(
+                bookId,
+                "the-book-thief",
+                "The Book Thief",
+                false,
+                "NEW_YORK_TIMES",
+                "https://static01.nyt.com/images/test.jpg"
+            );
+        when(payloadFactory.createBookUpsertPayload(event)).thenReturn(payload);
+
+        service.handleBookUpsert(event);
+
+        verify(messagingTemplate).convertAndSend("/topic/book/" + bookId + "/upsert", payload);
+        verify(coverS3UploadCoordinator).triggerUpload(event);
+    }
+
+    @Test
     void should_SkipBookUpsertDispatch_When_BookIdMissing() {
         BookUpsertEvent event = new BookUpsertEvent(
             " ",

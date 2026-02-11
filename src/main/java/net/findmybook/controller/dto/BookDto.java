@@ -20,7 +20,8 @@ public record BookDto(String id,
                       List<String> recommendationIds,
                       Map<String, Object> extras,
                       DescriptionContent descriptionContent,
-                      BookAiContentSnapshotDto aiContent) {
+                      BookAiContentSnapshotDto aiContent,
+                      ViewMetricsDto viewMetrics) {
     /**
      * Canonical description payload formatted on the backend for deterministic client rendering.
      *
@@ -51,6 +52,53 @@ public record BookDto(String id,
     }
 
     /**
+     * Optional view-count metrics for the current detail request window.
+     *
+     * @param window query window selector ({@code 30d}, {@code 90d}, {@code all})
+     * @param totalViews total recorded views for the selected window
+     */
+    public record ViewMetricsDto(String window, long totalViews) {
+    }
+
+    /**
+     * Backward-compatible constructor that omits detail-page view metrics.
+     */
+    public BookDto(String id,
+                   String slug,
+                   String title,
+                   String description,
+                   PublicationDto publication,
+                   List<AuthorDto> authors,
+                   List<String> categories,
+                   List<CollectionDto> collections,
+                   List<TagDto> tags,
+                   CoverDto cover,
+                   List<EditionDto> editions,
+                   List<String> recommendationIds,
+                   Map<String, Object> extras,
+                   DescriptionContent descriptionContent,
+                   BookAiContentSnapshotDto aiContent) {
+        this(
+            id,
+            slug,
+            title,
+            description,
+            publication,
+            authors,
+            categories,
+            collections,
+            tags,
+            cover,
+            editions,
+            recommendationIds,
+            extras,
+            descriptionContent,
+            aiContent,
+            null
+        );
+    }
+
+    /**
      * Returns a copy with an updated AI snapshot while preserving all existing fields.
      */
     public BookDto withAiContent(BookAiContentSnapshotDto aiContentSnapshot) {
@@ -69,7 +117,32 @@ public record BookDto(String id,
             recommendationIds,
             extras,
             descriptionContent,
-            aiContentSnapshot
+            aiContentSnapshot,
+            viewMetrics
+        );
+    }
+
+    /**
+     * Returns a copy with updated detail-page view metrics.
+     */
+    public BookDto withViewMetrics(ViewMetricsDto metrics) {
+        return new BookDto(
+            id,
+            slug,
+            title,
+            description,
+            publication,
+            authors,
+            categories,
+            collections,
+            tags,
+            cover,
+            editions,
+            recommendationIds,
+            extras,
+            descriptionContent,
+            aiContent,
+            metrics
         );
     }
 }

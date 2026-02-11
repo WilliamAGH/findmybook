@@ -5,6 +5,7 @@ import java.util.Date;
 import java.util.List;
 import net.findmybook.model.Book;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.ObjectMapper;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -12,7 +13,7 @@ class BookStructuredDataRendererTest {
 
     @Test
     void should_RenderBookGraphJsonLd_When_BookMetadataProvided() {
-        BookStructuredDataRenderer renderer = new BookStructuredDataRenderer(new SeoMarkupFormatter());
+        BookStructuredDataRenderer renderer = new BookStructuredDataRenderer(new ObjectMapper(), new SeoMarkupFormatter());
         Book book = new Book();
         book.setId("book-id");
         book.setSlug("the-catcher-in-the-rye");
@@ -60,7 +61,7 @@ class BookStructuredDataRendererTest {
 
     @Test
     void should_EmitIsbn10AsIdentifier_When_Isbn13Missing() {
-        BookStructuredDataRenderer renderer = new BookStructuredDataRenderer(new SeoMarkupFormatter());
+        BookStructuredDataRenderer renderer = new BookStructuredDataRenderer(new ObjectMapper(), new SeoMarkupFormatter());
         Book book = new Book();
         book.setTitle("Legacy ISBN Book");
         book.setIsbn10("0316769487");
@@ -84,7 +85,7 @@ class BookStructuredDataRendererTest {
 
     @Test
     void should_UseFallbackDescription_When_BookDescriptionIsMissing() {
-        BookStructuredDataRenderer renderer = new BookStructuredDataRenderer(new SeoMarkupFormatter());
+        BookStructuredDataRenderer renderer = new BookStructuredDataRenderer(new ObjectMapper(), new SeoMarkupFormatter());
         Book book = new Book();
         book.setTitle("Untitled");
 

@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -156,10 +157,14 @@ class FindmybookApplicationTests {
             assertInstanceOf(ThreadPoolTaskScheduler.class, applicationTaskScheduler);
         ThreadPoolTaskScheduler brokerScheduler =
             assertInstanceOf(ThreadPoolTaskScheduler.class, messageBrokerTaskScheduler);
+        var applicationExecutor = applicationScheduler.getScheduledThreadPoolExecutor();
 
         assertEquals(APPLICATION_SCHEDULER_THREAD_PREFIX, applicationScheduler.getThreadNamePrefix());
         assertEquals(MESSAGE_BROKER_SCHEDULER_THREAD_PREFIX, brokerScheduler.getThreadNamePrefix());
         assertNotEquals(applicationScheduler.getThreadNamePrefix(), brokerScheduler.getThreadNamePrefix());
+        assertNotNull(applicationExecutor);
+        assertFalse(applicationExecutor.getContinueExistingPeriodicTasksAfterShutdownPolicy());
+        assertFalse(applicationExecutor.getExecuteExistingDelayedTasksAfterShutdownPolicy());
     }
 
     @Test

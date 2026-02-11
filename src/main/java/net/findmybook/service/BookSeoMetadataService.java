@@ -1,12 +1,13 @@
 package net.findmybook.service;
 
-import java.util.List;
-import java.util.Map;
 import java.util.regex.Pattern;
+import java.util.Optional;
 import net.findmybook.application.seo.BookSeoMetadataUseCase;
 import net.findmybook.application.seo.RouteSeoMetadataUseCase;
 import net.findmybook.application.seo.SeoPresentationDefaults;
 import net.findmybook.application.seo.SeoRouteManifestUseCase;
+import net.findmybook.domain.seo.RouteManifest;
+import net.findmybook.domain.seo.SeoMetadata;
 import net.findmybook.model.Book;
 import net.findmybook.service.image.LocalDiskCoverCacheService;
 import net.findmybook.support.seo.BookOpenGraphImageResolver;
@@ -21,13 +22,16 @@ import net.findmybook.support.seo.SpaShellDocumentRenderer;
 import net.findmybook.support.seo.SpaShellRenderContext;
 import net.findmybook.util.ApplicationConstants;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
+import tools.jackson.databind.ObjectMapper;
 
 /**
- * Compatibility adapter for controller-facing SEO contracts.
+ * Facade for controller-facing SEO contracts.
  *
- * <p>This service keeps existing controller/test call sites stable while
- * delegating metadata composition to application-layer SEO use cases.
+ * <p>Delegates metadata composition to application-layer SEO use cases
+ * and returns canonical {@link SeoMetadata} and {@link RouteManifest}
+ * domain types directly.
  */
 @Service
 public class BookSeoMetadataService {
@@ -50,14 +54,16 @@ public class BookSeoMetadataService {
         RouteStructuredDataRenderer routeStructuredDataRenderer = new RouteStructuredDataRenderer();
 
         this.routeSeoMetadataUseCase = new RouteSeoMetadataUseCase(
-            canonicalUrlResolver, manifestUseCase, routeStructuredDataRenderer, seoMarkupFormatter);
+            canonicalUrlResolver, manifestUseCase, routeStructuredDataRenderer, seoMarkupFormatter,
+            new net.findmybook.support.seo.RouteOpenGraphPngRenderer());
         this.bookSeoMetadataUseCase = new BookSeoMetadataUseCase(
-            new BookStructuredDataRenderer(seoMarkupFormatter),
+            new BookStructuredDataRenderer(new ObjectMapper(), seoMarkupFormatter),
             new BookOpenGraphPropertyFactory(seoMarkupFormatter),
             new BookOpenGraphImageResolver(localDiskCoverCacheService),
             canonicalUrlResolver,
             seoMarkupFormatter,
-            routeStructuredDataRenderer
+            routeStructuredDataRenderer,
+            bookId -> Optional.empty()
         );
         this.seoRouteManifestUseCase = manifestUseCase;
         this.spaShellDocumentRenderer = new SpaShellDocumentRenderer(
@@ -79,43 +85,82 @@ public class BookSeoMetadataService {
     }
 
     public SeoMetadata homeMetadata() {
-        return toServiceSeoMetadata(routeSeoMetadataUseCase.homeMetadata());
+        return routeSeoMetadataUseCase.homeMetadata();
     }
 
     public SeoMetadata searchMetadata() {
-        return toServiceSeoMetadata(routeSeoMetadataUseCase.searchMetadata());
+        return routeSeoMetadataUseCase.searchMetadata();
     }
 
     public SeoMetadata exploreMetadata() {
-        return toServiceSeoMetadata(routeSeoMetadataUseCase.exploreMetadata());
+        return routeSeoMetadataUseCase.exploreMetadata();
     }
 
     public SeoMetadata categoriesMetadata() {
-        return toServiceSeoMetadata(routeSeoMetadataUseCase.categoriesMetadata());
+        return routeSeoMetadataUseCase.categoriesMetadata();
     }
 
     public SeoMetadata bookFallbackMetadata(String identifier) {
-        return toServiceSeoMetadata(bookSeoMetadataUseCase.bookFallbackMetadata(identifier));
+        return bookSeoMetadataUseCase.bookFallbackMetadata(identifier);
     }
 
     public SeoMetadata bookMetadata(Book book, int maxDescriptionLength) {
-        return toServiceSeoMetadata(bookSeoMetadataUseCase.bookMetadata(book, maxDescriptionLength));
+        return bookSeoMetadataUseCase.bookMetadata(book, maxDescriptionLength);
+    }
+
+    /**
+     * Renders the dynamic OpenGraph image bytes for a resolved book route.
+     *
+     * @param book canonical book metadata
+     * @param identifier route identifier used in cache keying and fallback labels
+     * @return encoded PNG bytes for {@code og:image}
+     */
+    @Cacheable(
+        value = "bookOgImages",
+        key = "#identifier + ':' + (#book != null && #book.getId() != null ? #book.getId() : 'unknown')",
+        sync = true
+    )
+    public byte[] renderBookOpenGraphImage(Book book, String identifier) {
+        return bookSeoMetadataUseCase.bookOpenGraphImage(book, identifier);
+    }
+
+    /**
+     * Renders fallback OpenGraph image bytes when the book route cannot be resolved.
+     *
+     * @param identifier unresolved route identifier
+     * @return encoded fallback PNG bytes
+     */
+    @Cacheable(value = "bookOgImages", key = "'missing:' + #identifier", sync = true)
+    public byte[] renderFallbackBookOpenGraphImage(String identifier) {
+        return bookSeoMetadataUseCase.bookOpenGraphFallbackImage(identifier);
+    }
+
+    /**
+     * Renders the branded OpenGraph PNG for non-book routes (homepage, search, explore, etc.).
+     *
+     * <p>The rendered image is deterministic and cached after the first call via
+     * the underlying {@link RouteOpenGraphPngRenderer} in-process cache.
+     *
+     * @return encoded 1200x630 PNG bytes
+     */
+    public byte[] renderRouteOpenGraphImage() {
+        return routeSeoMetadataUseCase.renderRouteOpenGraphImage();
     }
 
     public SeoMetadata sitemapMetadata(String canonicalPath) {
-        return toServiceSeoMetadata(routeSeoMetadataUseCase.sitemapMetadata(canonicalPath));
+        return routeSeoMetadataUseCase.sitemapMetadata(canonicalPath);
     }
 
     public SeoMetadata notFoundMetadata(String requestPath) {
-        return toServiceSeoMetadata(routeSeoMetadataUseCase.notFoundMetadata(requestPath));
+        return routeSeoMetadataUseCase.notFoundMetadata(requestPath);
     }
 
     public SeoMetadata errorMetadata(int statusCode, String requestPath) {
-        return toServiceSeoMetadata(routeSeoMetadataUseCase.errorMetadata(statusCode, requestPath));
+        return routeSeoMetadataUseCase.errorMetadata(statusCode, requestPath);
     }
 
     public RouteManifest routeManifest() {
-        return toServiceRouteManifest(seoRouteManifestUseCase.routeManifest());
+        return seoRouteManifestUseCase.routeManifest();
     }
 
     public String routeManifestJson() {
@@ -134,9 +179,15 @@ public class BookSeoMetadataService {
         return seoRouteManifestUseCase.sitemapRoutePattern();
     }
 
+    /**
+     * Renders the full SPA shell HTML document for server-side rendering.
+     *
+     * @param seoMetadata route-level SEO metadata to embed in the shell
+     * @return fully rendered HTML document string
+     */
     public String renderSpaShell(SeoMetadata seoMetadata) {
         var ctx = new SpaShellRenderContext(
-            toDomainSeoMetadata(seoMetadata),
+            seoMetadata,
             routeSeoMetadataUseCase.homeMetadata(),
             SeoPresentationDefaults.PAGE_TITLE_SUFFIX,
             SeoPresentationDefaults.BRAND_NAME,
@@ -150,116 +201,5 @@ public class BookSeoMetadataService {
             ApplicationConstants.Urls.BASE_URL
         );
         return spaShellDocumentRenderer.render(ctx);
-    }
-
-    private static SeoMetadata toServiceSeoMetadata(net.findmybook.domain.seo.SeoMetadata metadata) {
-        return new SeoMetadata(
-            metadata.title(),
-            metadata.description(),
-            metadata.canonicalUrl(),
-            metadata.keywords(),
-            metadata.ogImage(),
-            metadata.robots(),
-            metadata.openGraphType(),
-            metadata.openGraphProperties(),
-            metadata.structuredDataJson()
-        );
-    }
-
-    private static net.findmybook.domain.seo.SeoMetadata toDomainSeoMetadata(SeoMetadata metadata) {
-        if (metadata == null) {
-            return null;
-        }
-        return new net.findmybook.domain.seo.SeoMetadata(
-            metadata.title(),
-            metadata.description(),
-            metadata.canonicalUrl(),
-            metadata.keywords(),
-            metadata.ogImage(),
-            metadata.robots(),
-            metadata.openGraphType(),
-            metadata.openGraphProperties(),
-            metadata.structuredDataJson()
-        );
-    }
-
-    private static RouteManifest toServiceRouteManifest(net.findmybook.domain.seo.RouteManifest manifest) {
-        List<RouteDefinition> routeDefinitions = manifest.publicRoutes().stream()
-            .map(BookSeoMetadataService::toServiceRouteDefinition)
-            .toList();
-        return new RouteManifest(manifest.version(), routeDefinitions, manifest.passthroughPrefixes());
-    }
-
-    private static RouteDefinition toServiceRouteDefinition(net.findmybook.domain.seo.RouteDefinition routeDefinition) {
-        return new RouteDefinition(
-            routeDefinition.name(),
-            routeDefinition.matchType(),
-            routeDefinition.pattern(),
-            routeDefinition.paramNames(),
-            routeDefinition.defaults(),
-            routeDefinition.allowedQueryParams(),
-            routeDefinition.canonicalPathTemplate()
-        );
-    }
-
-    public record RouteManifest(
-        int version,
-        List<RouteDefinition> publicRoutes,
-        List<String> passthroughPrefixes
-    ) {
-    }
-
-    public record RouteDefinition(
-        String name,
-        String matchType,
-        String pattern,
-        List<String> paramNames,
-        Map<String, String> defaults,
-        List<String> allowedQueryParams,
-        String canonicalPathTemplate
-    ) {
-    }
-
-    public record SeoMetadata(
-        String title,
-        String description,
-        String canonicalUrl,
-        String keywords,
-        String ogImage,
-        String robots,
-        String openGraphType,
-        List<net.findmybook.domain.seo.OpenGraphProperty> openGraphProperties,
-        String structuredDataJson
-    ) {
-        public SeoMetadata(String title,
-                           String description,
-                           String canonicalUrl,
-                           String keywords,
-                           String ogImage,
-                           String robots) {
-            this(
-                title,
-                description,
-                canonicalUrl,
-                keywords,
-                ogImage,
-                robots,
-                SeoPresentationDefaults.OPEN_GRAPH_TYPE_WEBSITE,
-                List.of(),
-                ""
-            );
-        }
-
-        public SeoMetadata {
-            openGraphType = hasText(openGraphType)
-                ? openGraphType
-                : SeoPresentationDefaults.OPEN_GRAPH_TYPE_WEBSITE;
-            openGraphProperties = openGraphProperties == null ? List.of() : List.copyOf(openGraphProperties);
-            structuredDataJson = structuredDataJson == null ? "" : structuredDataJson;
-        }
-
-        private static boolean hasText(String candidate) {
-            return candidate != null && !candidate.trim().isEmpty();
-        }
     }
 }

@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 
 import net.findmybook.config.WebConfig;
 import net.findmybook.model.Book;
+import net.findmybook.domain.seo.SeoMetadata;
 import net.findmybook.service.BookSeoMetadataService;
 import net.findmybook.service.HomePageSectionsService;
 import net.findmybook.service.image.LocalDiskCoverCacheService;
@@ -36,6 +37,9 @@ import java.util.Date;
     excludeAutoConfiguration = org.springframework.boot.security.autoconfigure.web.reactive.ReactiveWebSecurityAutoConfiguration.class)
 @TestPropertySource(properties = "app.feature.year-filtering.enabled=true")
 class HomeControllerTest {
+
+    private static final String OPEN_GRAPH_CACHE_CONTROL =
+        "public, max-age=86400, s-maxage=86400, stale-while-revalidate=3600";
 
     @Autowired
     private WebTestClient webTestClient;
@@ -232,7 +236,7 @@ class HomeControllerTest {
         book.setPageCount(214);
         book.setPublishedDate(Date.from(Instant.parse("1951-07-16T00:00:00Z")));
 
-        BookSeoMetadataService.SeoMetadata metadata = bookSeoMetadataService.bookMetadata(book, 170);
+        SeoMetadata metadata = bookSeoMetadataService.bookMetadata(book, 170);
         String html = bookSeoMetadataService.renderSpaShell(metadata);
 
         assertTrue(html.contains("<meta property=\"og:type\" content=\"book\">"));
@@ -248,7 +252,7 @@ class HomeControllerTest {
 
     @Test
     void should_GenerateRouteSpecificSitemapMetadata_When_CanonicalPathIncludesViewBucketAndPage() {
-        BookSeoMetadataService.SeoMetadata metadata = bookSeoMetadataService.sitemapMetadata("/sitemap/books/B/3");
+        SeoMetadata metadata = bookSeoMetadataService.sitemapMetadata("/sitemap/books/B/3");
 
         assertTrue(metadata.title().equals("Books Sitemap: B Page 3"));
         assertTrue(metadata.description().contains("books indexed under B on page 3"));
@@ -257,7 +261,7 @@ class HomeControllerTest {
 
     @Test
     void should_CanonicalizeNotFoundMetadataTo404Route_When_RequestPathIsUnknown() {
-        BookSeoMetadataService.SeoMetadata metadata = bookSeoMetadataService.notFoundMetadata("/book/missing-book");
+        SeoMetadata metadata = bookSeoMetadataService.notFoundMetadata("/book/missing-book");
 
         assertTrue(metadata.canonicalUrl().equals("https://findmybook.net/404"));
         assertTrue(metadata.robots().equals("noindex, nofollow, noarchive"));
@@ -274,5 +278,42 @@ class HomeControllerTest {
             .exchange()
             .expectStatus().isEqualTo(HttpStatus.SEE_OTHER)
             .expectHeader().valueEquals("Location", "/book/canonical-slug");
+    }
+
+    @Test
+    void should_ReturnDynamicOpenGraphPng_When_BookOpenGraphRouteRequested() {
+        Book book = new Book();
+        book.setId("book-id");
+        book.setSlug("the-hobbit");
+        book.setTitle("The Hobbit");
+        book.setAuthors(java.util.List.of("J.R.R. Tolkien"));
+        when(homePageSectionsService.locateBook("the-hobbit")).thenReturn(Mono.just(book));
+
+        webTestClient.get().uri("/api/pages/og/book/the-hobbit")
+            .exchange()
+            .expectStatus().isOk()
+            .expectHeader().contentTypeCompatibleWith(MediaType.IMAGE_PNG)
+            .expectHeader().valueEquals("Cache-Control", OPEN_GRAPH_CACHE_CONTROL)
+            .expectBody(byte[].class)
+            .value(imageBytes -> {
+                assertTrue(imageBytes.length > 64);
+                assertEquals((byte) 0x89, imageBytes[0]);
+                assertEquals((byte) 0x50, imageBytes[1]);
+                assertEquals((byte) 0x4E, imageBytes[2]);
+                assertEquals((byte) 0x47, imageBytes[3]);
+            });
+    }
+
+    @Test
+    void should_ReturnFallbackOpenGraphPng_When_BookOpenGraphIdentifierIsMissing() {
+        when(homePageSectionsService.locateBook("missing-book")).thenReturn(Mono.empty());
+
+        webTestClient.get().uri("/api/pages/og/book/missing-book")
+            .exchange()
+            .expectStatus().isOk()
+            .expectHeader().contentTypeCompatibleWith(MediaType.IMAGE_PNG)
+            .expectHeader().valueEquals("Cache-Control", OPEN_GRAPH_CACHE_CONTROL)
+            .expectBody(byte[].class)
+            .value(imageBytes -> assertTrue(imageBytes.length > 64));
     }
 }

@@ -44,6 +44,8 @@ import org.springframework.util.StringUtils;
 public class SecurityConfig {
 
     private static final Logger log = LoggerFactory.getLogger(SecurityConfig.class);
+    private static final String SIMPLE_ANALYTICS_SCRIPT_ORIGIN = "https://scripts.simpleanalyticscdn.com";
+    private static final String SIMPLE_ANALYTICS_QUEUE_ORIGIN = "https://queue.simpleanalyticscdn.com";
 
     private final AuthenticationEntryPoint customBasicAuthenticationEntryPoint;
     private final Environment environment;
@@ -116,39 +118,53 @@ public class SecurityConfig {
             ReferrerPolicyHeaderWriter.ReferrerPolicy policy = ReferrerPolicyHeaderWriter.ReferrerPolicy.valueOf(referrerPolicy);
             headers.referrerPolicy(referrer -> referrer.policy(policy));
 
-            // Check if CSP is enabled first
-            // Allow HTTP and HTTPS images from any source - book covers come from many external sources
-            // (Google Books, Open Library, Goodreads, Amazon, etc.)
-            // Note: HTTP allowed because some providers (e.g., Google Books API) return HTTP URLs
-            StringBuilder imgSrcDirective = new StringBuilder("'self' data: blob: https: http: ");
-            StringBuilder scriptSrcDirective = new StringBuilder("'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://cdn.tailwindcss.com 'unsafe-inline' blob:");
-            StringBuilder connectSrcDirective = new StringBuilder("'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com");
-
-            if (simpleAnalyticsEnabled) {
-                scriptSrcDirective.append(" https://scripts.simpleanalyticscdn.com");
-                connectSrcDirective.append(" https://queue.simpleanalyticscdn.com");
-            }
-
-            if (clickyEnabled) {
-                // Add Clicky Analytics domains for script-src, connect-src, and img-src
-                // Include both HTTP and HTTPS as Clicky may use either depending on page protocol
-                scriptSrcDirective.append(" https://static.getclicky.com http://static.getclicky.com https://in.getclicky.com http://in.getclicky.com https://clicky.com http://clicky.com");
-                connectSrcDirective.append(" https://static.getclicky.com http://static.getclicky.com https://in.getclicky.com http://in.getclicky.com https://clicky.com http://clicky.com");
-                imgSrcDirective.append(" https://in.getclicky.com http://in.getclicky.com");
-            }
-
-            // Add Content Security Policy header with dynamic directives
-            headers.addHeaderWriter(new StaticHeadersWriter("Content-Security-Policy",
-                "default-src 'self'; " +
-                "script-src " + scriptSrcDirective.toString() + "; " +
-                "style-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.googleapis.com 'unsafe-inline'; " +
-                "img-src " + imgSrcDirective.toString().trim() + "; " + // trim to remove trailing space if no additional domains
-                "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; " +
-                "connect-src " + connectSrcDirective.toString() + "; " +
-                "frame-src 'self'; " +
-                "object-src 'none'"
+            headers.addHeaderWriter(new StaticHeadersWriter(
+                "Content-Security-Policy",
+                buildContentSecurityPolicy(clickyEnabled, simpleAnalyticsEnabled)
             ));
         });
+    }
+
+    /**
+     * Builds the repository-standard Content Security Policy header value.
+     *
+     * <p>Simple Analytics requires both script and network origins because the
+     * browser may request script source maps via fetch/XHR pathways that are
+     * governed by {@code connect-src} in modern browsers.
+     */
+    static String buildContentSecurityPolicy(boolean clickyEnabled, boolean simpleAnalyticsEnabled) {
+        // Allow HTTP and HTTPS images from any source - book covers come from many external sources
+        // (Google Books, Open Library, Goodreads, Amazon, etc.)
+        // Note: HTTP allowed because some providers (e.g., Google Books API) return HTTP URLs.
+        StringBuilder imgSrcDirective = new StringBuilder("'self' data: blob: https: http: ");
+        StringBuilder scriptSrcDirective = new StringBuilder(
+            "'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://cdn.tailwindcss.com 'unsafe-inline' blob:"
+        );
+        StringBuilder connectSrcDirective = new StringBuilder("'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com");
+
+        if (simpleAnalyticsEnabled) {
+            scriptSrcDirective.append(" ").append(SIMPLE_ANALYTICS_SCRIPT_ORIGIN);
+            // Keep queue endpoint and script origin for source-map/network lookups.
+            connectSrcDirective.append(" ").append(SIMPLE_ANALYTICS_QUEUE_ORIGIN);
+            connectSrcDirective.append(" ").append(SIMPLE_ANALYTICS_SCRIPT_ORIGIN);
+        }
+
+        if (clickyEnabled) {
+            // Add Clicky Analytics domains for script-src, connect-src, and img-src.
+            // Include both HTTP and HTTPS as Clicky may use either depending on page protocol.
+            scriptSrcDirective.append(" https://static.getclicky.com http://static.getclicky.com https://in.getclicky.com http://in.getclicky.com https://clicky.com http://clicky.com");
+            connectSrcDirective.append(" https://static.getclicky.com http://static.getclicky.com https://in.getclicky.com http://in.getclicky.com https://clicky.com http://clicky.com");
+            imgSrcDirective.append(" https://in.getclicky.com http://in.getclicky.com");
+        }
+
+        return "default-src 'self'; "
+            + "script-src " + scriptSrcDirective + "; "
+            + "style-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.googleapis.com 'unsafe-inline'; "
+            + "img-src " + imgSrcDirective.toString().trim() + "; "
+            + "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; "
+            + "connect-src " + connectSrcDirective + "; "
+            + "frame-src 'self'; "
+            + "object-src 'none'";
     }
 
     @Bean

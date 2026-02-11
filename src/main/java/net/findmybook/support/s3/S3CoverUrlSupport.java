@@ -61,6 +61,10 @@ public class S3CoverUrlSupport {
             height
         );
 
+        if (processedImage != null) {
+            details.setGrayscale(processedImage.isGrayscale());
+        }
+
         buildCdnUrl(s3Key).ifPresent(cdnUrl -> {
             details.setUrlOrPath(cdnUrl);
             details.setStorageLocation(ImageDetails.STORAGE_S3);

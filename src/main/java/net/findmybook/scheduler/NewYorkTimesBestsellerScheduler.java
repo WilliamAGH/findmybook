@@ -1,18 +1,15 @@
 package net.findmybook.scheduler;
 
-import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ArrayNode;
 import net.findmybook.dto.BookAggregate;
 import net.findmybook.service.BookCollectionPersistenceService;
 import net.findmybook.service.BookLookupService;
-import net.findmybook.service.BookSupplementalPersistenceService;
 import net.findmybook.service.BookUpsertService;
 import net.findmybook.service.NewYorkTimesService;
 import net.findmybook.support.retry.AdvisoryLockRetrySupport;
-import net.findmybook.util.LoggingUtils;
 import net.findmybook.util.DateParsingUtils;
+import net.findmybook.util.LoggingUtils;
 import lombok.extern.slf4j.Slf4j;
 import jakarta.annotation.Nullable;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,27 +21,10 @@ import org.springframework.util.StringUtils;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.regex.Pattern;
-
-import net.findmybook.util.IsbnUtils;
 
 /**
- * Scheduler that ingests New York Times bestseller data directly into Postgres.
- * <p>
- * Responsibilities:
- * <ul>
- *     <li>Fetch overview data from the NYT API.</li>
- *     <li>Persist list metadata in {@code book_collections}.</li>
- *     <li>Persist list membership in {@code book_collections_join}.</li>
- *     <li>Ensure canonical books exist (delegating to {@link BookDataOrchestrator}).</li>
- *     <li>Tag books with NYT specific qualifiers via {@code book_tag_assignments}.</li>
- * </ul>
+ * Orchestrates NYT bestseller ingestion from API payload to canonical persistence services.
  */
 @Component
 @Slf4j
@@ -52,30 +32,30 @@ public class NewYorkTimesBestsellerScheduler {
 
     private final NewYorkTimesService newYorkTimesService;
     private final BookLookupService bookLookupService;
-    private final ObjectMapper objectMapper;
     private final JdbcTemplate jdbcTemplate;
     private final BookCollectionPersistenceService collectionPersistenceService;
-    private final BookSupplementalPersistenceService supplementalPersistenceService;
     private final BookUpsertService bookUpsertService;
+    private final NytBestsellerPayloadMapper payloadMapper;
+    private final NytBestsellerPersistenceCollaborator persistenceCollaborator;
     private final boolean schedulerEnabled;
     private final boolean nytOnly;
 
     public NewYorkTimesBestsellerScheduler(NewYorkTimesService newYorkTimesService,
                                            BookLookupService bookLookupService,
-                                           ObjectMapper objectMapper,
                                            JdbcTemplate jdbcTemplate,
                                            BookCollectionPersistenceService collectionPersistenceService,
-                                           BookSupplementalPersistenceService supplementalPersistenceService,
                                            BookUpsertService bookUpsertService,
+                                           NytBestsellerPayloadMapper payloadMapper,
+                                           NytBestsellerPersistenceCollaborator persistenceCollaborator,
                                            @Value("${app.nyt.scheduler.enabled:true}") boolean schedulerEnabled,
                                            @Value("${app.nyt.scheduler.nyt-only:true}") boolean nytOnly) {
         this.newYorkTimesService = newYorkTimesService;
         this.bookLookupService = bookLookupService;
-        this.objectMapper = objectMapper;
         this.jdbcTemplate = jdbcTemplate;
         this.collectionPersistenceService = collectionPersistenceService;
-        this.supplementalPersistenceService = supplementalPersistenceService;
         this.bookUpsertService = bookUpsertService;
+        this.payloadMapper = payloadMapper;
+        this.persistenceCollaborator = persistenceCollaborator;
         this.schedulerEnabled = schedulerEnabled;
         this.nytOnly = nytOnly;
     }
@@ -93,6 +73,49 @@ public class NewYorkTimesBestsellerScheduler {
         processNewYorkTimesBestsellers(requestedDate, true);
     }
 
+    /**
+     * Reprocesses all historical NYT publication dates currently tracked in Postgres.
+     *
+     * @return summary containing success/failure counts and failing dates
+     */
+    public HistoricalRerunSummary rerunHistoricalBestsellers() {
+        assertNytOnly();
+        if (jdbcTemplate == null) {
+            throw new IllegalStateException("JdbcTemplate unavailable; NYT historical rerun skipped.");
+        }
+
+        List<LocalDate> publishedDates = loadHistoricalPublishedDates();
+        if (publishedDates.isEmpty()) {
+            log.info("No historical NYT published dates found in Postgres. Running latest overview once instead.");
+            forceProcessNewYorkTimesBestsellers(null);
+            return new HistoricalRerunSummary(0, 1, 0, List.of());
+        }
+
+        int succeededDates = 0;
+        int failedDates = 0;
+        List<String> failures = new ArrayList<>();
+        for (LocalDate publishedDate : publishedDates) {
+            try {
+                forceProcessNewYorkTimesBestsellers(publishedDate);
+                succeededDates++;
+            } catch (RuntimeException exception) {
+                failedDates++;
+                String failureDetail = publishedDate + ": " + resolveFailureMessage(exception);
+                failures.add(failureDetail);
+                log.error("Historical NYT rerun failed for publishedDate={}. Continuing with remaining dates.",
+                    publishedDate,
+                    exception);
+            }
+        }
+
+        return new HistoricalRerunSummary(
+            publishedDates.size(),
+            succeededDates,
+            failedDates,
+            List.copyOf(failures)
+        );
+    }
+
     private void processNewYorkTimesBestsellers(@Nullable LocalDate requestedDate, boolean forceExecution) {
         if (!forceExecution && !schedulerEnabled) {
             log.info("NYT bestseller scheduler disabled via configuration.");
@@ -104,14 +127,13 @@ public class NewYorkTimesBestsellerScheduler {
             return;
         }
 
-        log.info("Starting NYT bestseller ingest{}.",
-            requestedDate != null ? " for " + requestedDate : "");
+        log.info("Starting NYT bestseller ingest{}.", requestedDate != null ? " for " + requestedDate : "");
         JsonNode overview = newYorkTimesService.fetchBestsellerListOverview(requestedDate)
-                .onErrorMap(e -> {
-                    LoggingUtils.error(log, e, "Unable to fetch NYT bestseller overview");
-                    return new IllegalStateException("Unable to fetch NYT bestseller overview", e);
-                })
-                .block(Duration.ofMinutes(2));
+            .onErrorMap(exception -> {
+                LoggingUtils.error(log, exception, "Unable to fetch NYT bestseller overview");
+                return new IllegalStateException("Unable to fetch NYT bestseller overview", exception);
+            })
+            .block(Duration.ofMinutes(2));
 
         if (overview == null || overview.isEmpty()) {
             log.info("NYT overview returned no data. Job complete.");
@@ -119,10 +141,10 @@ public class NewYorkTimesBestsellerScheduler {
         }
 
         JsonNode results = overview.path("results");
-        String bestsellersDateStr = emptyToNull(results.path("bestsellers_date").asString());
-        LocalDate bestsellersDate = bestsellersDateStr == null ? null : parseDate(bestsellersDateStr);
-        String publishedDateStr = emptyToNull(results.path("published_date").asString());
-        LocalDate publishedDate = publishedDateStr == null ? null : parseDate(publishedDateStr);
+        String bestsellersDateText = payloadMapper.firstNonEmptyText(results, "bestsellers_date");
+        LocalDate bestsellersDate = bestsellersDateText == null ? null : parseDate(bestsellersDateText);
+        String publishedDateText = payloadMapper.firstNonEmptyText(results, "published_date");
+        LocalDate publishedDate = publishedDateText == null ? null : parseDate(publishedDateText);
         ArrayNode lists = results.has("lists") && results.get("lists").isArray() ? (ArrayNode) results.get("lists") : null;
 
         if (lists == null || lists.isEmpty()) {
@@ -130,29 +152,59 @@ public class NewYorkTimesBestsellerScheduler {
             return;
         }
 
-        lists.forEach(listNode -> persistList(listNode, bestsellersDate, publishedDate));
-        log.info("NYT bestseller ingest completed successfully{}.",
-            requestedDate != null ? " for " + requestedDate : "");
+        int failedLists = 0;
+        int totalLists = lists.size();
+        for (JsonNode listNode : lists) {
+            try {
+                persistList(listNode, bestsellersDate, publishedDate);
+            } catch (RuntimeException exception) {
+                failedLists++;
+                String listCode = payloadMapper.firstNonEmptyText(listNode, "list_name_encoded");
+                log.error("Failed processing NYT list '{}' during ingest. Continuing with remaining lists.",
+                    listCode != null ? listCode : "unknown",
+                    exception);
+            }
+        }
+        if (failedLists > 0) {
+            throw new IllegalStateException(
+                "NYT ingest completed with %d of %d list(s) failed. Review prior logged errors for details."
+                    .formatted(failedLists, totalLists));
+        }
+
+        log.info("NYT bestseller ingest completed successfully{}.", requestedDate != null ? " for " + requestedDate : "");
     }
 
-    private void persistList(JsonNode listNode, LocalDate bestsellersDate, LocalDate publishedDate) {
-        String displayName = emptyToNull(listNode.path("display_name").asString());
-        String listCode = emptyToNull(listNode.path("list_name_encoded").asString());
-        if (listCode == null || listCode.isBlank()) {
+    private void persistList(JsonNode listNode, @Nullable LocalDate bestsellersDate, @Nullable LocalDate publishedDate) {
+        String listCode = payloadMapper.firstNonEmptyText(listNode, "list_name_encoded");
+        if (!StringUtils.hasText(listCode)) {
             log.warn("Skipping NYT list without list_name_encoded.");
             return;
         }
-        String providerListId = emptyToNull(listNode.path("list_id").asString());
-        String description = emptyToNull(listNode.path("list_name").asString());
-        String normalized = listCode.toLowerCase(Locale.ROOT);
 
-        String publishedDateStr = emptyToNull(listNode.path("published_date").asString());
-        LocalDate listPublishedDate = publishedDateStr == null ? null : parseDate(publishedDateStr);
+        String displayName = payloadMapper.firstNonEmptyText(listNode, "display_name");
+        String listName = payloadMapper.firstNonEmptyText(listNode, "list_name");
+        String naturalListLabel = payloadMapper.resolveNaturalListLabel(displayName, listName, listCode);
+        String providerListId = payloadMapper.firstNonEmptyText(listNode, "list_id");
+        String updatedFrequency = payloadMapper.firstNonEmptyText(listNode, "updated");
+
+        String listPublishedDateText = payloadMapper.firstNonEmptyText(listNode, "published_date");
+        LocalDate listPublishedDate = listPublishedDateText == null ? null : parseDate(listPublishedDateText);
         if (listPublishedDate == null) {
             listPublishedDate = publishedDate;
         }
+
         String collectionId = collectionPersistenceService
-            .upsertBestsellerCollection(providerListId, listCode, displayName, normalized, description, bestsellersDate, listPublishedDate, listNode)
+            .upsertBestsellerCollection(
+                providerListId,
+                listCode,
+                naturalListLabel,
+                listCode.toLowerCase(),
+                listName,
+                bestsellersDate,
+                listPublishedDate,
+                updatedFrequency,
+                listNode
+            )
             .orElse(null);
 
         if (collectionId == null) {
@@ -166,27 +218,48 @@ public class NewYorkTimesBestsellerScheduler {
             return;
         }
 
-        booksNode.forEach(bookNode -> persistListEntry(collectionId, listCode, bookNode));
+        NytListContext listContext = new NytListContext(
+            collectionId,
+            listCode,
+            naturalListLabel,
+            listName,
+            providerListId,
+            updatedFrequency,
+            bestsellersDate,
+            listPublishedDate
+        );
+
+        int failedEntries = 0;
+        int totalEntries = booksNode.size();
+        for (JsonNode bookNode : booksNode) {
+            try {
+                persistListEntry(listContext, bookNode);
+            } catch (RuntimeException exception) {
+                failedEntries++;
+                String title = payloadMapper.firstNonEmptyText(bookNode, "title", "book_title");
+                log.error("Failed processing NYT book '{}' for list '{}'. Continuing with remaining entries.",
+                    title != null ? title : "unknown",
+                    listCode,
+                    exception);
+            }
+        }
+        if (failedEntries > 0) {
+            throw new IllegalStateException(
+                "NYT list '%s' completed with %d of %d failed entr%s."
+                    .formatted(listCode, failedEntries, totalEntries, failedEntries == 1 ? "y" : "ies"));
+        }
     }
 
-    private void persistListEntry(String collectionId, String listCode, JsonNode bookNode) {
-        String isbn13 = IsbnUtils.sanitize(emptyToNull(bookNode.path("primary_isbn13").asString()));
-        String isbn10 = IsbnUtils.sanitize(emptyToNull(bookNode.path("primary_isbn10").asString()));
-
-        // Validate ISBN formats; discard non-ISBN vendor codes (e.g., X0234484)
-        if (isbn13 != null && !IsbnUtils.isValidIsbn13(isbn13)) {
-            isbn13 = null;
-        }
-        if (isbn10 != null && !IsbnUtils.isValidIsbn10(isbn10)) {
-            isbn10 = null;
-        }
+    private void persistListEntry(NytListContext listContext, JsonNode bookNode) {
+        String isbn13 = payloadMapper.resolveNytIsbn13(bookNode);
+        String isbn10 = payloadMapper.resolveNytIsbn10(bookNode);
 
         if (isbn13 == null && isbn10 == null) {
-            log.warn("Skipping NYT list entry without valid ISBNs for list '{}'.", listCode);
+            log.warn("Skipping NYT list entry without valid ISBNs for list '{}'.", listContext.listCode());
             return;
         }
 
-        String canonicalId = resolveOrCreateCanonicalBook(bookNode, listCode, isbn13, isbn10);
+        String canonicalId = resolveOrCreateCanonicalBook(bookNode, listContext, isbn13, isbn10);
         if (canonicalId == null) {
             return;
         }
@@ -194,83 +267,70 @@ public class NewYorkTimesBestsellerScheduler {
         Integer rank = bookNode.path("rank").isInt() ? bookNode.get("rank").asInt() : null;
         Integer weeksOnList = bookNode.path("weeks_on_list").isInt() ? bookNode.get("weeks_on_list").asInt() : null;
         Integer rankLastWeek = bookNode.path("rank_last_week").isInt() ? bookNode.get("rank_last_week").asInt() : null;
-        Integer peakPosition = calculatePeakPosition(bookNode);
-        String providerRef = emptyToNull(bookNode.path("amazon_product_url").asString());
-        String rawItem = serializeBookNode(bookNode, canonicalId);
+        Integer peakPosition = payloadMapper.calculatePeakPosition(bookNode);
+        String providerRef = payloadMapper.firstNonEmptyText(bookNode, "amazon_product_url");
+        String rawItem = payloadMapper.serializeBookNode(bookNode);
 
         collectionPersistenceService.upsertBestsellerMembership(
-            collectionId, canonicalId, rank, weeksOnList, rankLastWeek,
-            peakPosition, isbn13, isbn10, providerRef, rawItem
+            listContext.collectionId(),
+            canonicalId,
+            rank,
+            weeksOnList,
+            rankLastWeek,
+            peakPosition,
+            isbn13,
+            isbn10,
+            providerRef,
+            rawItem
         );
 
-        assignCoreTags(canonicalId, listCode, rank);
+        persistenceCollaborator.assignCoreTags(
+            canonicalId,
+            listContext,
+            bookNode,
+            rank,
+            weeksOnList,
+            rankLastWeek,
+            peakPosition
+        );
     }
 
     @Nullable
-    private String resolveOrCreateCanonicalBook(JsonNode bookNode, String listCode,
-                                                 String isbn13, String isbn10) {
-        String canonicalId = resolveCanonicalBookId(isbn13, isbn10);
+    private String resolveOrCreateCanonicalBook(JsonNode bookNode,
+                                                NytListContext listContext,
+                                                String isbn13,
+                                                String isbn10) {
+        String canonicalId = bookLookupService.resolveCanonicalBookId(isbn13, isbn10);
         boolean isNewBook = (canonicalId == null);
 
-        // IMPORTANT: For NYT ingestion, we DO NOT consult any external sources (Google/OpenLibrary) at all.
-        // If the book is not already present in Postgres, create a minimal canonical record directly from NYT data.
         if (canonicalId == null) {
-            canonicalId = createCanonicalFromNyt(bookNode, listCode, isbn13, isbn10);
+            canonicalId = createCanonicalFromNyt(bookNode, listContext, isbn13, isbn10);
+        } else {
+            persistenceCollaborator.enrichExistingCanonicalBookMetadata(canonicalId, bookNode);
         }
+        persistenceCollaborator.upsertNytExternalIdentifiers(canonicalId, bookNode, isbn13, isbn10);
 
-        String title = emptyToNull(bookNode.path("title").asString());
+        String title = payloadMapper.firstNonEmptyText(bookNode, "title");
         if (canonicalId == null) {
             log.warn("Unable to locate or create canonical book for NYT list entry (ISBN13: {}, ISBN10: {}, title: {}).",
-                isbn13, isbn10, title != null ? title : "unknown");
+                isbn13,
+                isbn10,
+                title != null ? title : "unknown");
             return null;
         }
 
-        log.info("Processing NYT book: canonicalId='{}', isNew={}, isbn13='{}', title='{}'",
-            canonicalId, isNewBook, isbn13, title != null ? title : "unknown");
+        log.info("Processing NYT book: canonicalId='{}', isNew={}, listCode='{}', isbn13='{}', title='{}'",
+            canonicalId,
+            isNewBook,
+            listContext.listCode(),
+            isbn13,
+            title != null ? title : "unknown");
         return canonicalId;
     }
 
     @Nullable
-    private Integer calculatePeakPosition(JsonNode bookNode) {
-        Integer peakPosition = null;
-        JsonNode ranksHistory = bookNode.path("ranks_history");
-        if (ranksHistory.isArray()) {
-            for (JsonNode rh : ranksHistory) {
-                if (rh.path("rank").isInt()) {
-                    int r = rh.get("rank").asInt();
-                    if (peakPosition == null || r < peakPosition) {
-                        peakPosition = r;
-                    }
-                }
-            }
-        }
-        if (peakPosition == null) {
-            if (bookNode.path("rank").isInt()) {
-                peakPosition = bookNode.get("rank").asInt();
-            } else if (bookNode.path("rank_last_week").isInt()) {
-                peakPosition = bookNode.get("rank_last_week").asInt();
-            }
-        }
-        return peakPosition;
-    }
-
-    @Nullable
-    private String serializeBookNode(JsonNode bookNode, String canonicalId) {
-        try {
-            return objectMapper.writeValueAsString(bookNode);
-        } catch (JacksonException e) {
-            log.error("Failed to serialize bestseller book node for canonicalId={}: {}",
-                canonicalId, e.getMessage(), e);
-            return null;
-        }
-    }
-
-    private String resolveCanonicalBookId(String isbn13, String isbn10) {
-        return bookLookupService.resolveCanonicalBookId(isbn13, isbn10);
-    }
-
-    private String createCanonicalFromNyt(JsonNode bookNode, String listCode, String isbn13, String isbn10) {
-        BookAggregate aggregate = buildBookAggregateFromNyt(bookNode, listCode, isbn13, isbn10);
+    private String createCanonicalFromNyt(JsonNode bookNode, NytListContext listContext, String isbn13, String isbn10) {
+        BookAggregate aggregate = payloadMapper.buildBookAggregateFromNyt(bookNode, listContext, isbn13, isbn10);
         if (aggregate == null) {
             return null;
         }
@@ -282,141 +342,34 @@ public class NewYorkTimesBestsellerScheduler {
                 () -> bookUpsertService.upsert(aggregate)
             );
             return result.getBookId().toString();
-        } catch (RuntimeException e) {
+        } catch (RuntimeException exception) {
             throw new IllegalStateException(
                 "Failed to create canonical book from NYT data (isbn13=" + isbn13 + ", isbn10=" + isbn10 + ")",
-                e
+                exception
             );
         }
     }
 
-    private BookAggregate buildBookAggregateFromNyt(JsonNode bookNode, String listCode, String isbn13, String isbn10) {
-        String title = firstNonEmptyText(bookNode, "book_title", "title");
-        if (!StringUtils.hasText(title)) {
-            return null;
-        }
-
-        String normalizedTitle = net.findmybook.util.TextUtils.normalizeBookTitle(title);
-        List<String> normalizedAuthors = extractAuthors(bookNode).stream()
-            .map(net.findmybook.util.TextUtils::normalizeAuthorName)
-            .toList();
-
-        return BookAggregate.builder()
-            .title(normalizedTitle)
-            .description(nullIfBlank(firstNonEmptyText(bookNode, "description", "summary")))
-            .publisher(nullIfBlank(firstNonEmptyText(bookNode, "publisher")))
-            .isbn13(nullIfBlank(isbn13))
-            .isbn10(nullIfBlank(isbn10))
-            .publishedDate(parsePublishedLocalDate(bookNode))
-            .authors(normalizedAuthors.isEmpty() ? null : normalizedAuthors)
-            .categories(buildNytCategories(listCode))
-            .identifiers(buildNytIdentifiers(bookNode, isbn13, isbn10))
-            .slugBase(net.findmybook.util.SlugGenerator.generateBookSlug(normalizedTitle, normalizedAuthors))
-            .build();
+    private List<LocalDate> loadHistoricalPublishedDates() {
+        return jdbcTemplate.query(
+            """
+            SELECT DISTINCT published_date
+            FROM book_collections
+            WHERE source = 'NYT'
+              AND collection_type = 'BESTSELLER_LIST'
+              AND published_date IS NOT NULL
+            ORDER BY published_date ASC
+            """,
+            (resultSet, rowNum) -> resultSet.getObject("published_date", LocalDate.class)
+        );
     }
 
-    private BookAggregate.ExternalIdentifiers buildNytIdentifiers(JsonNode bookNode, String isbn13, String isbn10) {
-        Map<String, String> imageLinks = new HashMap<>();
-        String imageUrl = firstNonEmptyText(bookNode, "book_image", "book_image_url");
-        if (StringUtils.hasText(imageUrl)) {
-            imageLinks.put("thumbnail", imageUrl);
+    private static String resolveFailureMessage(RuntimeException exception) {
+        String message = exception.getMessage();
+        if (StringUtils.hasText(message)) {
+            return message;
         }
-
-        BookAggregate.ExternalIdentifiers.ExternalIdentifiersBuilder builder =
-            BookAggregate.ExternalIdentifiers.builder()
-                .source("NEW_YORK_TIMES")
-                .externalId(isbn13 != null ? isbn13 : isbn10)
-                .providerIsbn13(isbn13)
-                .providerIsbn10(isbn10)
-                .imageLinks(imageLinks);
-
-        String purchaseUrl = firstNonEmptyText(bookNode, "amazon_product_url");
-        if (StringUtils.hasText(purchaseUrl)) {
-            builder.purchaseLink(purchaseUrl);
-        }
-        return builder.build();
-    }
-
-    @Nullable
-    private List<String> buildNytCategories(String listCode) {
-        if (!StringUtils.hasText(listCode)) {
-            return null;
-        }
-        return List.of("NYT " + listCode.replace('-', ' '));
-    }
-
-    @Nullable
-    private LocalDate parsePublishedLocalDate(JsonNode bookNode) {
-        Date published = parsePublishedDate(bookNode);
-        return published != null ? new java.sql.Date(published.getTime()).toLocalDate() : null;
-    }
-
-    @Nullable
-    private static String nullIfBlank(String value) {
-        return StringUtils.hasText(value) ? value : null;
-    }
-
-    private Date parsePublishedDate(JsonNode bookNode) {
-        String dateStr = firstNonEmptyText(bookNode, "published_date", "publication_dt", "created_date");
-        if (!StringUtils.hasText(dateStr)) {
-            return null;
-        }
-        return DateParsingUtils.parseFlexibleDate(dateStr);
-    }
-
-    private List<String> extractAuthors(JsonNode bookNode) {
-        List<String> authors = new ArrayList<>();
-        addAuthors(authors, emptyToNull(bookNode.path("author").asString()));
-        addAuthors(authors, emptyToNull(bookNode.path("contributor").asString()));
-        addAuthors(authors, emptyToNull(bookNode.path("contributor_note").asString()));
-        if (authors.isEmpty()) {
-            return List.of();
-        }
-        LinkedHashSet<String> deduped = new LinkedHashSet<>(authors);
-        return new ArrayList<>(deduped);
-    }
-
-    private static final Pattern AUTHOR_AND_SEPARATOR_PATTERN = Pattern.compile("(?i)\\band\\b");
-    private static final String AUTHOR_DELIMITER_PATTERN = "[,;&]";
-
-    private void addAuthors(List<String> authors, @Nullable String raw) {
-        String sanitized = raw == null ? "" : raw;
-        if (!StringUtils.hasText(sanitized)) {
-            return;
-        }
-        String normalized = AUTHOR_AND_SEPARATOR_PATTERN.matcher(sanitized).replaceAll(",");
-        for (String part : normalized.split(AUTHOR_DELIMITER_PATTERN)) {
-            String cleaned = part.trim();
-            if (StringUtils.hasText(cleaned)) {
-                authors.add(cleaned);
-            }
-        }
-    }
-
-    private String firstNonEmptyText(JsonNode node, String... fieldNames) {
-        for (String field : fieldNames) {
-            if (node.hasNonNull(field)) {
-                String value = node.get(field).asString();
-                if (StringUtils.hasText(value)) {
-                    return value.trim();
-                }
-            }
-        }
-        return null;
-    }
-
-    private static String emptyToNull(String value) {
-        return value == null || value.isEmpty() ? null : value;
-    }
-
-    private void assignCoreTags(String bookId, String listCode, Integer rank) {
-        Map<String, Object> metadata = new HashMap<>();
-        metadata.put("list_code", listCode);
-        if (rank != null) {
-            metadata.put("rank", rank);
-        }
-        supplementalPersistenceService.assignTag(bookId, "nyt_bestseller", "NYT Bestseller", "NYT", 1.0, metadata);
-        supplementalPersistenceService.assignTag(bookId, "nyt_list_" + listCode.replaceAll("[^a-z0-9]", "_"), "NYT List: " + listCode, "NYT", 1.0, metadata);
+        return exception.getClass().getSimpleName();
     }
 
     private void assertNytOnly() {
@@ -425,15 +378,30 @@ public class NewYorkTimesBestsellerScheduler {
         }
     }
 
-    private LocalDate parseDate(String date) {
-        if (date == null || date.isBlank()) {
+    @Nullable
+    private LocalDate parseDate(@Nullable String dateText) {
+        if (!StringUtils.hasText(dateText)) {
             return null;
         }
-        LocalDate parsed = DateParsingUtils.parseBestsellerDate(date);
+        LocalDate parsed = DateParsingUtils.parseBestsellerDate(dateText);
         if (parsed == null) {
-            log.warn("Failed to parse date from non-blank input: '{}'", date);
+            log.warn("Failed to parse date from non-blank input: '{}'", dateText);
         }
         return parsed;
     }
 
+    /**
+     * Summary returned by historical NYT rerun executions.
+     *
+     * @param totalDates total number of historical publication dates selected for rerun
+     * @param succeededDates number of publication dates that completed successfully
+     * @param failedDates number of publication dates that failed
+     * @param failures per-date failure details in {@code yyyy-MM-dd: message} format
+     */
+    public record HistoricalRerunSummary(
+        int totalDates,
+        int succeededDates,
+        int failedDates,
+        List<String> failures
+    ) {}
 }

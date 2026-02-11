@@ -2,14 +2,22 @@
   import { onMount } from "svelte";
   import { navigate } from "$lib/router/router";
   import BookCard, { type BookCardDisplay } from "$lib/components/BookCard.svelte";
-  import { getHomePagePayload } from "$lib/services/pages";
+  import { getHomePagePayload, type PopularWindow } from "$lib/services/pages";
   import { Search, Info } from "@lucide/svelte";
 
   let loading = $state(true);
   let errorMessage = $state<string | null>(null);
   let bestsellers = $state<BookCardDisplay[]>([]);
   let recentBooks = $state<BookCardDisplay[]>([]);
+  let popularBooks = $state<BookCardDisplay[]>([]);
+  let selectedPopularWindow = $state<PopularWindow>("30d");
   let query = $state("");
+
+  const popularWindowOptions: Array<{ value: PopularWindow; label: string }> = [
+    { value: "30d", label: "30d" },
+    { value: "90d", label: "90d" },
+    { value: "all", label: "All Time" },
+  ];
 
   function toDisplayCard(payload: {
     id: string;
@@ -35,21 +43,38 @@
     };
   }
 
-  async function loadHome(): Promise<void> {
+  let loadRequestId = 0;
+
+  async function loadHome(window: PopularWindow = selectedPopularWindow): Promise<void> {
+    const requestId = ++loadRequestId;
     loading = true;
     errorMessage = null;
 
     try {
-      const payload = await getHomePagePayload();
+      const payload = await getHomePagePayload({ popularWindow: window, popularLimit: 8, recordView: true });
+      if (requestId !== loadRequestId) return;
       bestsellers = payload.currentBestsellers.map(toDisplayCard);
       recentBooks = payload.recentBooks.map(toDisplayCard);
+      popularBooks = payload.popularBooks.map(toDisplayCard);
+      selectedPopularWindow = payload.popularWindow;
     } catch (error) {
+      if (requestId !== loadRequestId) return;
       errorMessage = error instanceof Error ? error.message : "Unable to load homepage content";
       bestsellers = [];
       recentBooks = [];
+      popularBooks = [];
     } finally {
-      loading = false;
+      if (requestId === loadRequestId) {
+        loading = false;
+      }
     }
+  }
+
+  function setPopularWindow(window: PopularWindow): void {
+    if (window === selectedPopularWindow && !errorMessage) {
+      return;
+    }
+    void loadHome(window);
   }
 
   function submitSearch(event: SubmitEvent): void {
@@ -144,7 +169,7 @@
         NYT Bestsellers
       </h2>
       <a
-        href={`/search?query=${encodeURIComponent("new york times")}`}
+        href={`/explore?query=${encodeURIComponent("new york times bestseller")}`}
         class="rounded-lg border border-canvas-400 px-6 py-2.5 text-sm font-medium text-canvas-600 transition-all duration-200 hover:bg-canvas-50 hover:text-canvas-700 dark:border-canvas-600 dark:text-canvas-400 dark:hover:bg-slate-700 dark:hover:text-canvas-300"
       >
         View All
@@ -164,6 +189,43 @@
     {/if}
   </div>
 
+  <!-- Most Popular -->
+  <div class="mb-12 space-y-6">
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <h2 class="font-heading text-2xl font-bold text-anthracite-900 dark:text-slate-50 md:text-3xl">
+        Most Popular
+      </h2>
+      <div class="inline-flex w-fit items-center gap-1 rounded-lg border border-linen-300 bg-white p-1 dark:border-slate-700 dark:bg-slate-800">
+        {#each popularWindowOptions as option (option.value)}
+          <button
+            type="button"
+            onclick={() => setPopularWindow(option.value)}
+            class={`rounded-md px-3 py-1.5 text-xs font-medium transition-all duration-200 ${
+              selectedPopularWindow === option.value
+                ? "bg-canvas-400 text-white shadow-canvas"
+                : "text-anthracite-700 hover:bg-linen-100 dark:text-slate-300 dark:hover:bg-slate-700"
+            }`}
+            aria-pressed={selectedPopularWindow === option.value}
+          >
+            {option.label}
+          </button>
+        {/each}
+      </div>
+    </div>
+    {#if !loading && popularBooks.length === 0}
+      <div class="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/40 dark:text-blue-200">
+        <Info size={16} />
+        No popular books yet for this window.
+      </div>
+    {:else}
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {#each popularBooks as book (book.id)}
+          <BookCard book={book} href={`/book/${encodeURIComponent(book.slug ?? book.id)}`} showStats={true} />
+        {/each}
+      </div>
+    {/if}
+  </div>
+
   <!-- Recently Viewed -->
   <div class="space-y-6">
     <div class="flex items-center justify-between">
@@ -171,7 +233,7 @@
         Recent Views
       </h2>
       <a
-        href="/search?query=explore"
+        href="/explore?popularWindow=90d"
         class="rounded-lg border border-canvas-400 px-6 py-2.5 text-sm font-medium text-canvas-600 transition-all duration-200 hover:bg-canvas-50 hover:text-canvas-700 dark:border-canvas-600 dark:text-canvas-400 dark:hover:bg-slate-700 dark:hover:text-canvas-300"
       >
         Explore More

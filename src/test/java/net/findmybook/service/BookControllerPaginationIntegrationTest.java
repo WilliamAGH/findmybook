@@ -1,6 +1,8 @@
 package net.findmybook.service;
 
 import net.findmybook.application.ai.BookAiContentService;
+import net.findmybook.application.book.BookDetailResponseUseCase;
+import net.findmybook.application.book.RecommendationCardResponseUseCase;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import net.findmybook.controller.BookController;
@@ -42,7 +44,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @WebMvcTest(BookController.class)
 @AutoConfigureMockMvc(addFilters = false)
-@Import(SearchPaginationService.class)
+@Import({SearchPaginationService.class, BookDetailResponseUseCase.class, RecommendationCardResponseUseCase.class})
 class BookControllerPaginationIntegrationTest {
 
     @Autowired
@@ -68,6 +70,9 @@ class BookControllerPaginationIntegrationTest {
 
     @MockitoBean
     private BookAiContentService bookAiContentService;
+
+    @MockitoBean
+    private RecentlyViewedService recentlyViewedService;
 
     private final List<UUID> bookIds = new ArrayList<>();
     private final List<BookSearchService.SearchResult> searchResults = new ArrayList<>();

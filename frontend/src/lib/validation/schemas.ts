@@ -54,15 +54,20 @@ export const DescriptionContentSchema = z.object({
 });
 
 export const BookAiContentSnapshotSchema = z.object({
-  summary: z.string(),
-  readerFit: z.string().nullable().optional(),
-  keyThemes: z.array(z.string()).optional().default([]),
-  takeaways: z.array(z.string()).nullable().optional(),
-  context: z.string().nullable().optional(),
+  summary: z.string().max(2000),
+  readerFit: z.string().max(1500).nullable().optional(),
+  keyThemes: z.array(z.string().max(300)).optional().default([]),
+  takeaways: z.array(z.string().max(300)).nullable().optional(),
+  context: z.string().max(1500).nullable().optional(),
   version: z.number().int().nullable().optional(),
   generatedAt: z.string().datetime().nullable().optional(),
   model: z.string().nullable().optional(),
   provider: z.string().nullable().optional(),
+});
+
+export const ViewMetricsSchema = z.object({
+  window: z.string(),
+  totalViews: z.number(),
 });
 
 export const BookSchema = z.object({
@@ -82,6 +87,7 @@ export const BookSchema = z.object({
   recommendationIds: z.array(z.string()).optional().default([]),
   extras: z.record(z.string(), z.unknown()).optional().default({}),
   aiContent: BookAiContentSnapshotSchema.nullable().optional(),
+  viewMetrics: ViewMetricsSchema.nullable().optional(),
 });
 
 export const SearchHitSchema = BookSchema.extend({
@@ -122,6 +128,8 @@ export const BookCardSchema = z.object({
 export const HomePayloadSchema = z.object({
   currentBestsellers: z.array(BookCardSchema),
   recentBooks: z.array(BookCardSchema),
+  popularBooks: z.array(BookCardSchema).optional().default([]),
+  popularWindow: z.enum(["30d", "90d", "all"]).optional().default("30d"),
 });
 
 export const CategoryFacetSchema = z.object({
@@ -263,6 +271,7 @@ export const BookAiErrorCodeSchema = z.enum([
   "queue_busy",
   "stream_timeout",
   "empty_generation",
+  "degenerate_content",
   "cache_serialization_failed",
   "description_too_short",
   "enrichment_failed",
@@ -321,6 +330,7 @@ export const RealtimeSearchHitCandidateSchema = z.object({
 });
 
 export type Book = z.infer<typeof BookSchema>;
+export type ViewMetrics = z.infer<typeof ViewMetricsSchema>;
 export type BookAiContentSnapshot = z.infer<typeof BookAiContentSnapshotSchema>;
 export type BookAiContentQueueStats = z.infer<typeof BookAiContentQueueStatsSchema>;
 export type BookAiContentQueueUpdate = z.infer<typeof BookAiContentQueueUpdateSchema>;

@@ -37,8 +37,8 @@
 </script>
 
 {#if sortedEntries().length > 0}
-  <div class="space-y-3">
-    <p class="text-sm font-medium text-anthracite-800 dark:text-slate-200">Buy or Preview</p>
+  <section class="space-y-3">
+    <h2 class="text-sm font-medium text-anthracite-800 dark:text-slate-200">Buy or Preview</h2>
     <div class="flex flex-wrap gap-2">
       {#each sortedEntries() as [label, url]}
         {@const config = affiliateConfig(label)}
@@ -55,10 +55,10 @@
         </a>
       {/each}
     </div>
-  </div>
+  </section>
 {:else if loadFailed}
-  <div class="space-y-3">
-    <p class="text-sm font-medium text-anthracite-800 dark:text-slate-200">Buy or Preview</p>
+  <section class="space-y-3">
+    <h2 class="text-sm font-medium text-anthracite-800 dark:text-slate-200">Buy or Preview</h2>
     <p class="text-sm text-anthracite-500 dark:text-slate-400">Unable to load purchase links.</p>
-  </div>
+  </section>
 {/if}

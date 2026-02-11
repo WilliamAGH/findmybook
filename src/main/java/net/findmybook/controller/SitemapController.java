@@ -1,6 +1,7 @@
 package net.findmybook.controller;
 
 import net.findmybook.config.SitemapProperties;
+import net.findmybook.domain.seo.SeoMetadata;
 import net.findmybook.service.BookSeoMetadataService;
 import net.findmybook.service.SitemapService;
 import net.findmybook.service.SitemapService.AuthorListingXmlItem;
@@ -73,7 +74,7 @@ public class SitemapController extends SpaShellController {
         }
 
         String canonicalPath = "/sitemap/" + normalizedView + "/" + bucket + "/" + safePage;
-        BookSeoMetadataService.SeoMetadata metadata = bookSeoMetadataService.sitemapMetadata(canonicalPath);
+        SeoMetadata metadata = bookSeoMetadataService.sitemapMetadata(canonicalPath);
         return spaResponse(metadata, HttpStatus.OK);
     }
 

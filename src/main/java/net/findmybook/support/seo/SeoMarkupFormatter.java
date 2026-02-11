@@ -2,6 +2,7 @@ package net.findmybook.support.seo;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -24,10 +25,19 @@ public class SeoMarkupFormatter {
      */
     public String pageTitle(String title, String titleSuffix, String fallbackTitle) {
         String baseTitle = fallbackText(title, fallbackTitle);
-        if (baseTitle.endsWith(titleSuffix)) {
+        if (baseTitle.endsWith(titleSuffix) || isExplicitSiteTitle(baseTitle, fallbackTitle)) {
             return baseTitle;
         }
         return baseTitle + titleSuffix;
+    }
+
+    private boolean isExplicitSiteTitle(String title, String fallbackTitle) {
+        if (!StringUtils.hasText(title) || !StringUtils.hasText(fallbackTitle)) {
+            return false;
+        }
+        String normalizedTitle = title.trim().toLowerCase(Locale.ROOT);
+        String normalizedFallbackTitle = fallbackTitle.trim().toLowerCase(Locale.ROOT);
+        return normalizedTitle.endsWith(" | " + normalizedFallbackTitle + ".net");
     }
 
     /**
@@ -82,4 +92,3 @@ public class SeoMarkupFormatter {
         return List.copyOf(normalized);
     }
 }
-

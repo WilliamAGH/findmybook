@@ -123,4 +123,10 @@ class S3BookCoverServiceValidationTest {
             })
             .verify();
     }
+
+    @Test
+    void should_AllowNytStaticCoverHost_When_ValidatingUploadUrlSafety() {
+        assertThat(coverUrlSafetyValidator.isAllowedImageUrl("https://static01.nyt.com/bestsellers/images/9780525509622.jpg"))
+            .isTrue();
+    }
 }

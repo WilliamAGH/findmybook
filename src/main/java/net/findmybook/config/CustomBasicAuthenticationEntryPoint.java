@@ -17,17 +17,18 @@ package net.findmybook.config;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import org.springframework.security.core.AuthenticationException;
-import org.springframework.security.web.authentication.www.BasicAuthenticationEntryPoint;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.web.authentication.www.BasicAuthenticationEntryPoint;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
-
-import java.io.IOException;
 
 /**
  * Customizes the response for unauthorized access to endpoints protected by HTTP Basic authentication
@@ -38,6 +39,8 @@ import java.io.IOException;
 @Component
 public class CustomBasicAuthenticationEntryPoint extends BasicAuthenticationEntryPoint {
 
+    private static final Logger log = LoggerFactory.getLogger(CustomBasicAuthenticationEntryPoint.class);
+
     private final ObjectMapper objectMapper;
 
     public CustomBasicAuthenticationEntryPoint(ObjectMapper objectMapper) {
@@ -46,6 +49,7 @@ public class CustomBasicAuthenticationEntryPoint extends BasicAuthenticationEntr
 
     @Override
     public void commence(HttpServletRequest request, HttpServletResponse response, AuthenticationException authEx) throws IOException {
+        log.warn("Authentication failed for {} from {}", request.getRequestURI(), request.getRemoteAddr());
         response.addHeader("WWW-Authenticate", "Basic realm=\"" + getRealmName() + "\"");
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);

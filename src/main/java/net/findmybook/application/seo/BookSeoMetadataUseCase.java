@@ -1,6 +1,11 @@
 package net.findmybook.application.seo;
 
 import java.util.List;
+import java.nio.charset.StandardCharsets;
+import java.util.Optional;
+import java.util.UUID;
+import net.findmybook.domain.seo.BookSeoMetadataSnapshot;
+import net.findmybook.domain.seo.BookSeoMetadataSnapshotReader;
 import net.findmybook.domain.seo.OpenGraphProperty;
 import net.findmybook.domain.seo.SeoMetadata;
 import net.findmybook.model.Book;
@@ -14,8 +19,12 @@ import net.findmybook.support.seo.RouteStructuredDataRenderer;
 import net.findmybook.support.seo.SeoMarkupFormatter;
 import net.findmybook.util.ApplicationConstants;
 import net.findmybook.util.SeoUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+import org.springframework.web.util.UriUtils;
 
 /**
  * Composes book-route SEO metadata and structured data payloads.
@@ -25,6 +34,7 @@ import org.springframework.util.StringUtils;
  */
 @Service
 public class BookSeoMetadataUseCase {
+    private static final Logger log = LoggerFactory.getLogger(BookSeoMetadataUseCase.class);
 
     private static final String BOOK_FALLBACK_TITLE = "Book Details";
     private static final String BOOK_FALLBACK_DESCRIPTION =
@@ -32,6 +42,7 @@ public class BookSeoMetadataUseCase {
     private static final String BOOK_FALLBACK_KEYWORDS =
         "findmybook book details, book metadata, book recommendations";
     private static final String BOOK_ROUTE_PREFIX = "/book/";
+    private static final String BOOK_OPEN_GRAPH_ROUTE_PREFIX = "/api/pages/og/book/";
     private static final String WEB_PAGE_SCHEMA_TYPE = "WebPage";
 
     private final BookStructuredDataRenderer bookStructuredDataRenderer;
@@ -40,6 +51,7 @@ public class BookSeoMetadataUseCase {
     private final CanonicalUrlResolver canonicalUrlResolver;
     private final SeoMarkupFormatter seoMarkupFormatter;
     private final RouteStructuredDataRenderer routeStructuredDataRenderer;
+    private final BookSeoMetadataSnapshotReader bookSeoMetadataSnapshotReader;
 
     /**
      * Creates the use case with required rendering collaborators.
@@ -49,13 +61,15 @@ public class BookSeoMetadataUseCase {
                                   BookOpenGraphImageResolver bookOpenGraphImageResolver,
                                   CanonicalUrlResolver canonicalUrlResolver,
                                   SeoMarkupFormatter seoMarkupFormatter,
-                                  RouteStructuredDataRenderer routeStructuredDataRenderer) {
+                                  RouteStructuredDataRenderer routeStructuredDataRenderer,
+                                  BookSeoMetadataSnapshotReader bookSeoMetadataSnapshotReader) {
         this.bookStructuredDataRenderer = bookStructuredDataRenderer;
         this.bookOpenGraphPropertyFactory = bookOpenGraphPropertyFactory;
         this.bookOpenGraphImageResolver = bookOpenGraphImageResolver;
         this.canonicalUrlResolver = canonicalUrlResolver;
         this.seoMarkupFormatter = seoMarkupFormatter;
         this.routeStructuredDataRenderer = routeStructuredDataRenderer;
+        this.bookSeoMetadataSnapshotReader = bookSeoMetadataSnapshotReader;
     }
 
     /**
@@ -72,7 +86,7 @@ public class BookSeoMetadataUseCase {
         String description = BOOK_FALLBACK_DESCRIPTION;
         String canonicalUrl = canonicalUrlResolver.normalizePublicUrl(BOOK_ROUTE_PREFIX + identifier);
         String keywords = BOOK_FALLBACK_KEYWORDS;
-        String ogImage = ApplicationConstants.Urls.OG_LOGO;
+        String ogImage = bookOpenGraphImageUrl(identifier);
         String robots = SeoPresentationDefaults.ROBOTS_INDEX_FOLLOW;
 
         String fullTitle = seoMarkupFormatter.pageTitle(
@@ -118,14 +132,26 @@ public class BookSeoMetadataUseCase {
             throw new IllegalArgumentException("Book must not be null when generating SEO metadata");
         }
 
-        String title = StringUtils.hasText(book.getTitle()) ? book.getTitle() : BOOK_FALLBACK_TITLE;
-        String description = SeoUtils.truncateDescription(book.getDescription(), maxDescriptionLength);
+        String fallbackTitle = StringUtils.hasText(book.getTitle()) ? book.getTitle().trim() : BOOK_FALLBACK_TITLE;
+        String fallbackDescription = SeoUtils.truncateDescription(book.getDescription(), maxDescriptionLength);
+        Optional<BookSeoMetadataSnapshot> persistedSnapshot = resolveSeoSnapshot(book);
+        String title = persistedSnapshot
+            .map(BookSeoMetadataSnapshot::seoTitle)
+            .filter(StringUtils::hasText)
+            .map(String::trim)
+            .orElse(fallbackTitle);
+        String description = persistedSnapshot
+            .map(BookSeoMetadataSnapshot::seoDescription)
+            .filter(StringUtils::hasText)
+            .map(String::trim)
+            .orElse(fallbackDescription);
         String canonicalIdentifier = StringUtils.hasText(book.getSlug()) ? book.getSlug() : book.getId();
         String canonicalUrl = canonicalUrlResolver.normalizePublicUrl(BOOK_ROUTE_PREFIX + canonicalIdentifier);
         String keywords = SeoUtils.generateKeywords(book);
-        String ogImage = canonicalUrlResolver.normalizePublicUrl(
+        String coverImage = canonicalUrlResolver.normalizePublicUrl(
             bookOpenGraphImageResolver.resolveBookImage(book, ApplicationConstants.Urls.OG_LOGO)
         );
+        String ogImage = bookOpenGraphImageUrl(canonicalIdentifier);
 
         String fullTitle = seoMarkupFormatter.pageTitle(
             title,
@@ -139,14 +165,12 @@ public class BookSeoMetadataUseCase {
                 fullTitle,
                 title,
                 description,
-                ogImage,
+                coverImage,
                 SeoPresentationDefaults.BRAND_NAME,
                 ApplicationConstants.Urls.BASE_URL
             )
         );
-        List<OpenGraphProperty> openGraphProperties = bookOpenGraphPropertyFactory.fromBook(book).stream()
-            .map(property -> new OpenGraphProperty(property.property(), property.content()))
-            .toList();
+        List<OpenGraphProperty> openGraphProperties = bookOpenGraphPropertyFactory.fromBook(book);
 
         return new SeoMetadata(
             title,
@@ -160,5 +184,55 @@ public class BookSeoMetadataUseCase {
             structuredDataJson
         );
     }
-}
 
+    /**
+     * Renders the dynamic OpenGraph PNG for a canonical book route.
+     *
+     * @param book canonical book metadata
+     * @param identifier route identifier for fallback labels
+     * @return encoded PNG bytes
+     */
+    public byte[] bookOpenGraphImage(Book book, String identifier) {
+        if (book == null) {
+            throw new IllegalArgumentException("Book must not be null when rendering OpenGraph image");
+        }
+        return bookOpenGraphImageResolver.renderBookOpenGraphImage(book, identifier);
+    }
+
+    /**
+     * Renders the fallback OpenGraph PNG for unresolved book routes.
+     *
+     * @param identifier unresolved route identifier
+     * @return encoded PNG bytes
+     */
+    public byte[] bookOpenGraphFallbackImage(String identifier) {
+        return bookOpenGraphImageResolver.renderFallbackOpenGraphImage(identifier);
+    }
+
+    private Optional<BookSeoMetadataSnapshot> resolveSeoSnapshot(Book book) {
+        if (book == null || !StringUtils.hasText(book.getId())) {
+            return Optional.empty();
+        }
+        try {
+            UUID bookId = UUID.fromString(book.getId().trim());
+            try {
+                return bookSeoMetadataSnapshotReader.fetchCurrent(bookId);
+            } catch (DataAccessException dataAccessException) {
+                log.error("Failed reading persisted book SEO metadata for {}. Falling back to legacy SEO metadata.",
+                    bookId,
+                    dataAccessException
+                );
+                return Optional.empty();
+            }
+        } catch (IllegalArgumentException invalidUuid) {
+            return Optional.empty();
+        }
+    }
+
+    private String bookOpenGraphImageUrl(String identifier) {
+        String safeIdentifier = StringUtils.hasText(identifier)
+            ? UriUtils.encodePathSegment(identifier.trim(), StandardCharsets.UTF_8)
+            : "book-details";
+        return canonicalUrlResolver.normalizePublicUrl(BOOK_OPEN_GRAPH_ROUTE_PREFIX + safeIdentifier);
+    }
+}

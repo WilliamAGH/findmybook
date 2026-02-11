@@ -1,7 +1,6 @@
 package net.findmybook.application.seo;
 
 import java.util.regex.Pattern;
-import net.findmybook.domain.seo.RouteDefinition;
 import net.findmybook.domain.seo.RouteManifest;
 import net.findmybook.support.seo.SeoRouteManifestProvider;
 import org.springframework.stereotype.Service;
@@ -9,8 +8,8 @@ import org.springframework.stereotype.Service;
 /**
  * Provides the canonical public route manifest contract to application and web layers.
  *
- * <p>This use case translates adapter-level manifest payloads into domain route
- * contracts while preserving route-pattern utilities needed by controllers.
+ * <p>This use case delegates to the support-layer route manifest provider
+ * while exposing route-pattern utilities needed by controllers.
  */
 @Service
 public class SeoRouteManifestUseCase {
@@ -27,12 +26,7 @@ public class SeoRouteManifestUseCase {
      * @return immutable domain route manifest
      */
     public RouteManifest routeManifest() {
-        net.findmybook.support.seo.RouteManifest manifest = seoRouteManifestProvider.routeManifest();
-        return new RouteManifest(
-            manifest.version(),
-            manifest.publicRoutes().stream().map(this::toDomainRouteDefinition).toList(),
-            manifest.passthroughPrefixes()
-        );
+        return seoRouteManifestProvider.routeManifest();
     }
 
     /**
@@ -69,18 +63,6 @@ public class SeoRouteManifestUseCase {
      */
     public Pattern sitemapRoutePattern() {
         return seoRouteManifestProvider.sitemapRoutePattern();
-    }
-
-    private RouteDefinition toDomainRouteDefinition(net.findmybook.support.seo.RouteDefinition routeDefinition) {
-        return new RouteDefinition(
-            routeDefinition.name(),
-            routeDefinition.matchType(),
-            routeDefinition.pattern(),
-            routeDefinition.paramNames(),
-            routeDefinition.defaults(),
-            routeDefinition.allowedQueryParams(),
-            routeDefinition.canonicalPathTemplate()
-        );
     }
 }
 

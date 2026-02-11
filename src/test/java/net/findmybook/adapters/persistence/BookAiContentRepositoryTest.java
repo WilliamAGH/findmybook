@@ -83,6 +83,15 @@ class BookAiContentRepositoryTest {
         assertThat(repository.fetchCurrent(bookId)).isPresent();
     }
 
+    @Test
+    void fetchCurrentPromptHash_ReturnsCurrentPromptHash() {
+        UUID bookId = createBook();
+        BookAiContent aiContent = new BookAiContent("Summary", "Fit", List.of("Theme1"), List.of("Point1"), "Context.");
+        repository.insertNewCurrentVersion(bookId, aiContent, "m1", "p1", "prompt-hash");
+
+        assertThat(repository.fetchCurrentPromptHash(bookId)).contains("prompt-hash");
+    }
+
     private UUID createBook() {
         UUID id = UUID.randomUUID();
         // Minimal book insert to satisfy FK

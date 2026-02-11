@@ -7,6 +7,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import net.findmybook.application.book.BookDetailResponseUseCase;
+import net.findmybook.application.book.RecommendationCardResponseUseCase;
 import net.findmybook.application.ai.BookAiContentService;
 import net.findmybook.dto.BookDetail;
 import net.findmybook.dto.EditionSummary;
@@ -16,6 +18,7 @@ import net.findmybook.model.image.CoverImages;
 import net.findmybook.service.BookDataOrchestrator;
 import net.findmybook.service.BookIdentifierResolver;
 import net.findmybook.service.BookSearchService;
+import net.findmybook.service.RecentlyViewedService;
 import net.findmybook.service.SearchPaginationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -56,16 +59,24 @@ abstract class AbstractBookControllerMvcTest {
     @Mock
     protected BookAiContentService bookAiContentService;
 
+    @Mock
+    protected RecentlyViewedService recentlyViewedService;
+
     protected MockMvc mockMvc;
     protected Book fixtureBook;
 
     @BeforeEach
     void setUpBookControllerSlice() {
+        BookDetailResponseUseCase bookDetailResponseUseCase =
+            new BookDetailResponseUseCase(bookAiContentService, recentlyViewedService);
+        RecommendationCardResponseUseCase recommendationCardResponseUseCase =
+            new RecommendationCardResponseUseCase();
         BookController bookController = new BookController(
             bookSearchService,
             bookIdentifierResolver,
             searchPaginationService,
-            bookAiContentService,
+            bookDetailResponseUseCase,
+            recommendationCardResponseUseCase,
             bookDataOrchestrator
         );
         BookCoverController bookCoverController = new BookCoverController(

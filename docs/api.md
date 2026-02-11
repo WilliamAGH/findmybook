@@ -10,9 +10,10 @@
   - `POST /api/books/{identifier}/ai/content/stream?refresh={true|false}`
   - `GET /api/books/authors/search?query={author}`
 - **Page API (Svelte SPA):**
-  - `GET /api/pages/home`
+  - `GET /api/pages/home?popularWindow={30d|90d|all}&popularLimit={n}`
   - `GET /api/pages/routes`
   - `GET /api/pages/meta?path={routePath}`
+  - `GET /api/pages/og/book/{identifier}`
   - `GET /api/pages/sitemap?view={authors|books}&letter={A-Z|0-9}&page={n}`
   - `GET /api/pages/book/{identifier}/affiliate-links`
   - `GET /api/pages/categories/facets?limit={n}&minBooks={n}`
@@ -52,8 +53,15 @@
   - `publishedYear` (optional integer year filter)
   - `coverSource` (default `ANY`)
   - `resolution` (default `ANY`)
+- `GET /api/books/{identifier}` and `GET /api/books/slug/{slug}` support:
+  - `viewWindow` (optional, one of `30d`, `90d`, `all`)
+  - Invalid `viewWindow` returns `400 Bad Request`.
 - Unsupported `orderBy` values return `400 Bad Request`.
 - Response includes deterministic pagination metadata plus `queryHash` for realtime routing.
+- Search result ordering always applies cover tier first:
+  - color covers first,
+  - grayscale covers after color,
+  - no-cover entries last.
 - `GET /api/books/{identifier}` and search hit payloads include canonical description fields:
   - `description` (legacy string; retained for backward compatibility)
   - `descriptionContent` (backend-formatted source of truth):
@@ -72,15 +80,24 @@
     - `provider: string | null`
 - Unknown `GET /api/books/{identifier}` lookups return `404 application/problem+json`
   (RFC 9457 Problem Details).
+- Successful `GET /api/books/{identifier}` and `GET /api/books/slug/{slug}` responses append a
+  `recent_book_views` event used by recently viewed and rolling view analytics.
+- When `viewWindow` is requested, detail payloads include:
+  - `viewMetrics` (nullable object)
+    - `window: "30d" | "90d" | "all"`
+    - `totalViews: number`
 
 ## Book AI Content Streaming Contract
 - `GET /api/books/ai/content/queue`
   - Response fields:
     - `running: number`
-    - `pending: number`
+    - `pending: number` (foreground + background combined)
     - `maxParallel: number`
     - `available: boolean`
     - `environmentMode: string` (`development`, `production`, or `test`)
+  - Queue semantics:
+    - Foreground (interactive Svelte) tasks are always dequeued ahead of background ingestion tasks.
+    - Background enqueue is capped by `APP_AI_QUEUE_BACKGROUND_MAX_PENDING` (default `100000`).
 - `POST /api/books/{identifier}/ai/content/stream`
   - Query params:
     - `refresh` (`false` by default; when `false`, cached Postgres AI snapshot is returned when present)
@@ -99,7 +116,6 @@
         - `identifier_required`
         - `book_not_found`
         - `service_unavailable`
-        - `queue_busy`
         - `stream_timeout`
         - `empty_generation`
         - `cache_serialization_failed`
@@ -119,12 +135,20 @@
 
 ## SPA Page Payload Contracts
 - `GET /api/pages/home`
+  - Query params:
+    - `popularWindow` (optional; `30d`, `90d`, `all`; default `30d`)
+    - `popularLimit` (optional; defaults `8`, maximum `24`)
   - Response fields:
     - `currentBestsellers: BookCard[]`
     - `recentBooks: BookCard[]`
+    - `popularBooks: BookCard[]`
+    - `popularWindow: string`
+  - Side effect:
+    - Each request appends a `page_view_events` row with `page_key = "homepage"`.
   - Home payload enforces cover-bearing cards only:
-    - Placeholder/null-equivalent cover values are excluded from both arrays.
-    - Entries with real cover images are returned first, preserving section order among valid covers.
+    - Placeholder/null-equivalent cover values are excluded.
+    - Grayscale covers are excluded.
+    - All home sections (`currentBestsellers`, `recentBooks`, `popularBooks`) emit color covers only.
 - `GET /api/pages/meta?path={routePath}`
   - Query params:
     - `path` (required route path, for example `/`, `/search`, `/book/the-hobbit`)
@@ -135,6 +159,14 @@
     - `openGraphProperties: Array<{ property, content }>` (route-specific OG extensions such as `book:*`)
     - `structuredDataJson` (JSON-LD payload for route rich-result metadata)
     - `statusCode` (semantic route status for head/error handling in SPA)
+  - Book routes return an absolute dynamic `ogImage` URL:
+    - `https://findmybook.net/api/pages/og/book/{identifier}`
+    - The image endpoint returns `image/png` at `1200x630`.
+  - Book metadata title/description behavior:
+    - Prefer current `book_seo_metadata` row values when present.
+    - Otherwise fallback to existing route metadata logic:
+      - title generated from canonical book title
+      - description generated from canonical description text and truncated by `app.seo.max-description-length` (default `160`).
   - Special routes:
     - `path=/error` returns error metadata with `statusCode=500`.
 - `GET /api/pages/routes`
@@ -145,6 +177,15 @@
   - Contract purpose:
     - Defines route matching/canonical behavior once on the backend.
     - The SPA router consumes the same manifest (embedded at shell render time and available from this endpoint).
+- `GET /api/pages/og/book/{identifier}`
+  - Purpose:
+    - Returns crawler-safe dynamic OpenGraph image bytes for book detail routes.
+  - Response:
+    - `200 image/png`
+    - `Cache-Control: public, max-age=86400, s-maxage=86400, stale-while-revalidate=3600`
+    - Body is a branded `1200x630` PNG using the canonical book cover + route text overlays.
+  - Fallback behavior:
+    - Unknown identifiers return a branded fallback PNG (still `200 image/png`) to avoid broken social previews.
 - `GET /api/pages/sitemap`
   - Query params:
     - `view` (`authors` or `books`, default `authors`)
@@ -207,6 +248,36 @@
 Admin endpoints require HTTP Basic Authentication.
 - **Username:** `admin`
 - **Password:** Set via `APP_ADMIN_PASSWORD`
+
+- `POST /admin/backfill/covers`
+  - Query params:
+    - `mode` (`missing`, `grayscale`, `rejected`; default `missing`)
+    - `limit` (default `100`, clamped to `1..10000`)
+  - Response:
+    - `202 Accepted` text acknowledgement when backfill starts
+    - `409 Conflict` when a run is already active
+- `GET /admin/backfill/covers/status`
+  - Response fields:
+    - `totalCandidates`, `processed`, `coverFound`, `noCoverFound`, `running`
+    - `currentBookId`, `currentBookTitle`, `currentBookIsbn`
+    - `currentBookAttempts: Array<{ source, outcome, detail, attemptedAt }>`
+    - `lastCompletedBookId`, `lastCompletedBookTitle`, `lastCompletedBookIsbn`
+    - `lastCompletedBookFound`
+    - `lastCompletedBookAttempts: Array<{ source, outcome, detail, attemptedAt }>`
+  - Notes:
+    - `outcome` values are `SUCCESS`, `NOT_FOUND`, `FAILURE`, `SKIPPED`.
+    - `currentBookId` is retained for compatibility with existing polling clients.
+- `POST /admin/trigger-nyt-bestsellers`
+  - Triggers NYT ingest processing.
+  - Query params:
+    - `publishedDate` (optional, format `yyyy-MM-dd`): force ingest for one historical NYT publication date.
+    - `rerunAll` (optional, default `false`): rerun all historical NYT publication dates currently present in `book_collections`.
+  - Notes:
+    - `rerunAll=true` cannot be combined with `publishedDate`.
+    - `rerunAll=true` is intended for metadata backfills/upserts on existing canonical NYT books and related join/tag/external-id rows.
+  - Response:
+    - `200 OK` with plain-text acknowledgement when the ingest trigger succeeds.
+    - `400 Bad Request` when NYT processing is disabled/rejected.
 
 ### Example Request
 ```bash

@@ -152,7 +152,7 @@ public class CoverS3UploadCoordinator {
             .publishOn(Schedulers.boundedElastic())
             .subscribe(
                 details -> handleUploadSuccess(details, bookId, bookUuid, sample),
-                error -> handleUploadError(error, bookId, sample)
+                error -> handleUploadError(error, bookId, bookUuid, sample)
             );
     }
 
@@ -240,6 +240,7 @@ public class CoverS3UploadCoordinator {
                 details.getUrlOrPath(),
                 details.getWidth(),
                 details.getHeight(),
+                details.getGrayscale(),
                 details.getCoverImageSource() != null ? details.getCoverImageSource() : CoverImageSource.UNDEFINED
             )
         );
@@ -257,7 +258,7 @@ public class CoverS3UploadCoordinator {
         s3UploadSuccesses.increment();
     }
 
-    private void handleUploadError(Throwable error, String bookId, Timer.Sample sample) {
+    private void handleUploadError(Throwable error, String bookId, UUID bookUuid, Timer.Sample sample) {
         sample.stop(s3UploadDuration);
         s3UploadFailures.increment();
 
@@ -303,6 +304,40 @@ public class CoverS3UploadCoordinator {
                     s3UploadFailures.count(),
                     error);
         }
+
+        // Record error in database so failure isn't silent
+        String recordableError = resolveRecordableErrorMessage(error);
+        if (recordableError != null) {
+            try {
+                coverPersistenceService.recordDownloadError(bookUuid, recordableError);
+            } catch (IllegalStateException persistenceFailure) {
+                logger.error("Failed to persist download error for book {} (secondary failure): {}", bookId, persistenceFailure.getMessage(), persistenceFailure);
+            }
+        }
+    }
+
+    /**
+     * Maps an upload error to the message that should be recorded in the database,
+     * or {@code null} when the error should not be persisted (e.g. runtime config skips).
+     */
+    @jakarta.annotation.Nullable
+    private String resolveRecordableErrorMessage(Throwable error) {
+        return switch (error) {
+            case CoverDownloadException downloadException -> {
+                String causeMessage = downloadException.getCause() != null
+                    ? downloadException.getCause().getMessage()
+                    : "Unknown cause";
+                yield "DownloadFailed: " + causeMessage;
+            }
+            case CoverProcessingException processingException ->
+                processingException.getRejectionReason() != null
+                    ? processingException.getRejectionReason().name()
+                    : resolveFailureReason(processingException);
+            case CoverTooLargeException ignored -> "TooLarge";
+            case UnsafeUrlException ignored -> "UnsafeUrl";
+            case S3UploadException ignored -> null;
+            default -> resolveFailureReason(error);
+        };
     }
 
     String classifyS3FailureCode(Throwable error) {
