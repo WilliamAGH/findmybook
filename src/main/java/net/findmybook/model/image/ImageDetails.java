@@ -27,6 +27,12 @@ public class ImageDetails {
     private Integer height;
     
     /**
+     * Whether the image is predominantly grayscale/B&W.
+     * Null means not yet analyzed (treated as color).
+     */
+    private Boolean grayscale;
+
+    /**
      * Storage location for cached images. Separate from data source.
      * - "S3" = Stored in Amazon S3 bucket
      * - "LOCAL" = Stored on local filesystem
@@ -220,6 +226,24 @@ public class ImageDetails {
     }
 
     /**
+     * Gets whether the image is predominantly grayscale/B&W.
+     *
+     * @return {@code true} if grayscale, {@code null} if not yet analyzed
+     */
+    public Boolean getGrayscale() {
+        return grayscale;
+    }
+
+    /**
+     * Sets whether the image is predominantly grayscale/B&W.
+     *
+     * @param grayscale {@code true} if grayscale, {@code null} if unknown
+     */
+    public void setGrayscale(Boolean grayscale) {
+        this.grayscale = grayscale;
+    }
+
+    /**
      * Gets the storage location for cached images
      * 
      * @return Storage location ("S3", "LOCAL", "DATABASE") or null if not cached
@@ -294,6 +318,7 @@ public class ImageDetails {
                ", resolutionPreference=" + resolutionPreference +
                ", width=" + width +
                ", height=" + height +
+               ", grayscale=" + grayscale +
                ", storageLocation='" + storageLocation + "'" +
                ", storageKey='" + storageKey + "'" +
                '}';

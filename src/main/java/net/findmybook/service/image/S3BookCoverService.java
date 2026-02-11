@@ -269,6 +269,7 @@ public class S3BookCoverService implements ExternalCoverService {
             request.mimeType(),
             request.width(),
             request.height(),
+            false,
             true,
             null
         );

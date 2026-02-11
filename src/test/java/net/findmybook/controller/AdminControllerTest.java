@@ -1,5 +1,6 @@
 package net.findmybook.controller;
 
+import net.findmybook.application.cover.CoverBackfillService;
 import net.findmybook.scheduler.BookCacheWarmingScheduler;
 import net.findmybook.scheduler.NewYorkTimesBestsellerScheduler;
 import net.findmybook.service.ApiCircuitBreakerService;
@@ -13,6 +14,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
+
+import java.time.Instant;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -52,6 +56,9 @@ class AdminControllerTest {
     @Mock
     private ApiCircuitBreakerService apiCircuitBreakerService;
 
+    @Mock
+    private CoverBackfillService coverBackfillService;
+
     private AdminController adminController;
 
     @BeforeEach
@@ -64,6 +71,7 @@ class AdminControllerTest {
             backfillCoordinatorProvider,
             bookCacheWarmingScheduler,
             apiCircuitBreakerService,
+            coverBackfillService,
             TEST_S3_PREFIX,
             TEST_BATCH_LIMIT,
             TEST_QUARANTINE_PREFIX
@@ -125,5 +133,39 @@ class AdminControllerTest {
             () -> adminController.triggerS3CoverMoveAction(null, 10, TEST_QUARANTINE_PREFIX)
         );
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, exception.getStatusCode());
+    }
+
+    @Test
+    void getCoverBackfillStatus_shouldReturnCurrentAndLastAttemptDiagnostics_WhenAvailable() {
+        CoverBackfillService.SourceAttemptStatus openLibraryAttempt = new CoverBackfillService.SourceAttemptStatus(
+            "OPEN_LIBRARY",
+            "NOT_FOUND",
+            "no usable cover content from OPEN_LIBRARY (404 Not Found)",
+            Instant.parse("2026-02-10T00:00:00Z")
+        );
+        CoverBackfillService.BackfillProgress expectedProgress = new CoverBackfillService.BackfillProgress(
+            20,
+            3,
+            1,
+            2,
+            true,
+            "book-current",
+            "Current Book",
+            "9780316769488",
+            List.of(openLibraryAttempt),
+            "book-last",
+            "Last Book",
+            "9780140177398",
+            Boolean.FALSE,
+            List.of(openLibraryAttempt)
+        );
+        when(coverBackfillService.getProgress()).thenReturn(expectedProgress);
+
+        CoverBackfillService.BackfillProgress responseBody = adminController.getCoverBackfillStatus().getBody();
+
+        assertEquals(expectedProgress, responseBody);
+        assertNotNull(responseBody);
+        assertEquals("NOT_FOUND", responseBody.currentBookAttempts().get(0).outcome());
+        assertEquals("book-current", responseBody.currentBookId());
     }
 }

@@ -75,6 +75,7 @@ public final class BookDomainMapper {
         );
         setCoverImages(book, resolved, fallback);
         applyCoverMetadata(book, resolved.width(), resolved.height(), resolved.highResolution(), false);
+        book.setIsCoverGrayscale(detail.coverGrayscale());
         book.setDataSource(detail.dataSource());
         book.setRetrievedFrom("POSTGRES");
         book.setInPostgres(true);
@@ -101,6 +102,7 @@ public final class BookDomainMapper {
         );
         setCoverImages(book, resolved, fallback);
         applyCoverMetadata(book, resolved.width(), resolved.height(), resolved.highResolution(), true);
+        book.setIsCoverGrayscale(card.coverGrayscale());
         book.setRetrievedFrom("POSTGRES");
         book.setInPostgres(true);
         return book;
@@ -142,6 +144,7 @@ public final class BookDomainMapper {
         );
         setCoverImages(book, resolved, fallback);
         applyCoverMetadata(book, resolved.width(), resolved.height(), resolved.highResolution(), true);
+        book.setIsCoverGrayscale(item.coverGrayscale());
         book.setRetrievedFrom("POSTGRES");
         book.setInPostgres(true);
         return book;

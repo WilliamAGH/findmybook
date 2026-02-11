@@ -54,11 +54,14 @@ public record BookCard(
     /**
      * Tags/qualifiers for rendering badges like "NYT Bestseller", "Award Winner", etc.
      * Key is tag type (e.g., "nyt_bestseller"), value is metadata object
-     * 
+     *
      * Bug #9 Fix: Single canonical representation - NO duplication with extras field.
      * This is the ONLY place qualifiers are stored in DTOs.
      */
-    Map<String, Object> tags
+    Map<String, Object> tags,
+
+    @JsonProperty("cover_grayscale")
+    Boolean coverGrayscale
 ) {
     /**
      * Compact constructor ensuring defensive copies for immutability
@@ -70,8 +73,24 @@ public record BookCard(
         // Do NOT default to coverUrl - that breaks the fallback chain
         fallbackCoverUrl = StringUtils.hasText(fallbackCoverUrl) ? fallbackCoverUrl : null;
         tags = tags == null ? Map.of() : Map.copyOf(tags);
+        coverGrayscale = Boolean.TRUE.equals(coverGrayscale) ? Boolean.TRUE : null;
     }
 
+    /** Backward-compatible constructor without coverGrayscale (defaults null). */
+    public BookCard(String id,
+                    String slug,
+                    String title,
+                    List<String> authors,
+                    String coverUrl,
+                    String coverS3Key,
+                    String fallbackCoverUrl,
+                    Double averageRating,
+                    Integer ratingsCount,
+                    Map<String, Object> tags) {
+        this(id, slug, title, authors, coverUrl, coverS3Key, fallbackCoverUrl, averageRating, ratingsCount, tags, null);
+    }
+
+    /** Convenience constructor for external sources (no S3, no fallback, no grayscale). */
     public BookCard(String id,
                     String slug,
                     String title,
@@ -80,7 +99,7 @@ public record BookCard(
                     Double averageRating,
                     Integer ratingsCount,
                     Map<String, Object> tags) {
-        this(id, slug, title, authors, coverUrl, null, coverUrl, averageRating, ratingsCount, tags);
+        this(id, slug, title, authors, coverUrl, null, coverUrl, averageRating, ratingsCount, tags, null);
     }
     
     /**

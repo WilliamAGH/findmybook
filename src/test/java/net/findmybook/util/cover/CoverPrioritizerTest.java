@@ -4,6 +4,7 @@ import net.findmybook.dto.BookCard;
 import net.findmybook.model.Book;
 import net.findmybook.util.ApplicationConstants;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,6 +25,52 @@ class CoverPrioritizerTest {
     @AfterEach
     void tearDown() {
         CoverUrlResolver.setCdnBase(null);
+    }
+
+    @Test
+    @DisplayName("hasColorCover rejects grayscale and placeholder cards")
+    void hasColorCoverRejectsGrayscaleAndPlaceholderCards() {
+        BookCard grayscale = new BookCard(
+            "gray",
+            "gray",
+            "Gray Cover",
+            List.of("Author"),
+            "https://cdn.test/gray.jpg",
+            null,
+            "https://cdn.test/gray-fallback.jpg",
+            4.0,
+            20,
+            Map.of(),
+            Boolean.TRUE
+        );
+        BookCard placeholder = new BookCard(
+            "placeholder",
+            "placeholder",
+            "Placeholder",
+            List.of("Author"),
+            ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH,
+            null,
+            ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH,
+            3.0,
+            1,
+            Map.of()
+        );
+        BookCard color = new BookCard(
+            "color",
+            "color",
+            "Color Cover",
+            List.of("Author"),
+            "https://cdn.test/color.jpg",
+            null,
+            "https://cdn.test/color-fallback.jpg",
+            4.3,
+            33,
+            Map.of()
+        );
+
+        assertThat(CoverPrioritizer.hasColorCover(grayscale)).isFalse();
+        assertThat(CoverPrioritizer.hasColorCover(placeholder)).isFalse();
+        assertThat(CoverPrioritizer.hasColorCover(color)).isTrue();
     }
 
     @Test
@@ -143,6 +190,32 @@ class CoverPrioritizerTest {
         assertThat(resolved.url()).isEqualTo("https://example.test/fallback.jpg");
         assertThat(resolved.s3Key()).isNull();
         assertThat(resolved.fromS3()).isFalse();
+    }
+
+    @Test
+    @DisplayName("bookComparatorWithPrimarySort keeps no-cover rows behind color covers")
+    void bookComparatorWithPrimarySortDemotesNoCoverRows() {
+        Book noCoverHighRelevance = book("1", null, null, null, null, false);
+        noCoverHighRelevance.addQualifier("search.relevanceScore", 0.99d);
+        Book colorLowerRelevance = book("2", "https://cdn.test/covers/color.jpg", null, 900, 1400, true);
+        colorLowerRelevance.addQualifier("search.relevanceScore", 0.50d);
+
+        List<Book> books = new ArrayList<>(List.of(noCoverHighRelevance, colorLowerRelevance));
+        Map<String, Integer> insertionOrder = new LinkedHashMap<>();
+        for (int index = 0; index < books.size(); index++) {
+            insertionOrder.put(books.get(index).getId(), index);
+        }
+
+        Comparator<Book> relevanceSort = Comparator.<Book>comparingDouble(b -> {
+            Object raw = b.getQualifiers().get("search.relevanceScore");
+            return raw instanceof Number number ? number.doubleValue() : 0.0d;
+        }).reversed();
+
+        books.sort(CoverPrioritizer.bookComparatorWithPrimarySort(insertionOrder, relevanceSort));
+
+        assertThat(books)
+            .extracting(Book::getId)
+            .containsExactly("2", "1");
     }
 
     @Test

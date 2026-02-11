@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Optional;
@@ -29,6 +30,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
+import org.springframework.http.HttpHeaders;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
 class CoverS3UploadCoordinatorTest {
@@ -89,7 +92,7 @@ class CoverS3UploadCoordinatorTest {
 
         coordinator.triggerUpload(event);
 
-        verify(s3BookCoverService, times(1)).uploadCoverToS3Async(
+        verify(s3BookCoverService, timeout(1000).times(1)).uploadCoverToS3Async(
             "https://covers.example.com/thumb.jpg",
             bookIdString,
             "UNKNOWN"
@@ -97,7 +100,7 @@ class CoverS3UploadCoordinatorTest {
 
         ArgumentCaptor<CoverPersistenceService.S3UploadResult> uploadResultCaptor =
             ArgumentCaptor.forClass(CoverPersistenceService.S3UploadResult.class);
-        verify(coverPersistenceService, times(1)).updateAfterS3Upload(eq(bookId), uploadResultCaptor.capture());
+        verify(coverPersistenceService, timeout(1000).times(1)).updateAfterS3Upload(eq(bookId), uploadResultCaptor.capture());
 
         CoverPersistenceService.S3UploadResult uploadResult = uploadResultCaptor.getValue();
         assertThat(uploadResult.s3Key()).isEqualTo("covers/legacy-code.webp");
@@ -289,6 +292,31 @@ class CoverS3UploadCoordinatorTest {
     void should_ClassifyUnexpectedS3FailureCode_When_ExceptionTypeIsUnknown() {
         assertThat(coordinator.classifyS3FailureCode(new IllegalStateException("unexpected")))
             .isEqualTo("S3_UPLOAD_UNEXPECTED_FAILURE");
+    }
+
+    @Test
+    void should_DetectNotFoundResponse_When_NestedWebClientExceptionContains404() {
+        WebClientResponseException notFound = WebClientResponseException.create(
+            404, "Not Found", HttpHeaders.EMPTY, new byte[0], StandardCharsets.UTF_8
+        );
+        CoverDownloadException wrapped = new CoverDownloadException("book-1", "https://example.com/a.jpg", notFound);
+
+        assertThat(CoverBackfillService.isNotFoundResponse(wrapped)).isTrue();
+    }
+
+    @Test
+    void should_ClassifyPlaceholderProcessingFailureAsLikelyNoCover() {
+        CoverProcessingException processingException =
+            new CoverProcessingException("book-2", "https://example.com/b.jpg", "PlaceholderImage_TooSmall");
+
+        assertThat(CoverBackfillService.isLikelyNoCoverImageFailure(processingException)).isTrue();
+    }
+
+    @Test
+    void should_UseFirstNonBlankCauseMessage_When_SummarizingThrowable() {
+        RuntimeException exception = new RuntimeException(" ", new IllegalStateException("inner-cause-message"));
+
+        assertThat(CoverBackfillService.summarizeThrowable(exception)).isEqualTo("inner-cause-message");
     }
 
     private void assertCounterEventuallyEquals(String metricName, double expectedValue) {

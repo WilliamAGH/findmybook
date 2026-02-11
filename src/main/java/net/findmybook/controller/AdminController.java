@@ -13,6 +13,7 @@
  */
 package net.findmybook.controller;
 
+import net.findmybook.application.cover.CoverBackfillService;
 import net.findmybook.scheduler.BookCacheWarmingScheduler;
 import net.findmybook.scheduler.NewYorkTimesBestsellerScheduler;
 import net.findmybook.service.ApiCircuitBreakerService;
@@ -54,6 +55,7 @@ public class AdminController {
     private final BookCacheWarmingScheduler bookCacheWarmingScheduler;
     private final ApiCircuitBreakerService apiCircuitBreakerService;
     private final BackfillCoordinator backfillCoordinator;
+    private final CoverBackfillService coverBackfillService;
 
     /**
      * Constructs AdminController with optional services that may be null when disabled.
@@ -72,6 +74,7 @@ public class AdminController {
                            ObjectProvider<BackfillCoordinator> backfillCoordinatorProvider,
                            BookCacheWarmingScheduler bookCacheWarmingScheduler,
                            ApiCircuitBreakerService apiCircuitBreakerService,
+                           CoverBackfillService coverBackfillService,
                            @Value("${app.s3.cleanup.prefix:images/book-covers/}") String configuredS3Prefix,
                            @Value("${app.s3.cleanup.default-batch-limit:100}") int defaultBatchLimit,
                            @Value("${app.s3.cleanup.quarantine-prefix:images/non-covers-pages/}") String configuredQuarantinePrefix) {
@@ -79,6 +82,7 @@ public class AdminController {
         this.newYorkTimesBestsellerScheduler = newYorkTimesBestsellerScheduler;
         this.bookCacheWarmingScheduler = bookCacheWarmingScheduler;
         this.apiCircuitBreakerService = apiCircuitBreakerService;
+        this.coverBackfillService = coverBackfillService;
         this.s3CleanupConfig = new S3CleanupConfig(configuredS3Prefix, defaultBatchLimit, configuredQuarantinePrefix);
         this.backfillCoordinator = backfillCoordinatorProvider.getIfAvailable();
     }
@@ -355,5 +359,60 @@ public class AdminController {
                 ex
             );
         }
+    }
+
+    // ── Cover backfill endpoints ────────────────────────────────────────
+
+    /**
+     * Starts an asynchronous cover backfill run.
+     *
+     * @param mode  {@code missing} (default), {@code grayscale}, or {@code rejected}
+     * @param limit maximum number of books to process (default 100)
+     * @return acknowledgement message
+     */
+    @PostMapping(value = "/backfill/covers", produces = MediaType.TEXT_PLAIN_VALUE)
+    public ResponseEntity<String> startCoverBackfill(
+            @RequestParam(name = "mode", defaultValue = "missing") String mode,
+            @RequestParam(name = "limit", defaultValue = "100") int limit) {
+
+        CoverBackfillService.BackfillProgress current = coverBackfillService.getProgress();
+        if (current.running()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                "A cover backfill is already running (" + current.processed() + "/" + current.totalCandidates() + ")");
+        }
+
+        CoverBackfillService.BackfillMode backfillMode = switch (mode.toLowerCase()) {
+            case "grayscale" -> CoverBackfillService.BackfillMode.GRAYSCALE;
+            case "rejected" -> CoverBackfillService.BackfillMode.REJECTED;
+            default -> CoverBackfillService.BackfillMode.MISSING;
+        };
+
+        int clampedLimit = Math.clamp(limit, 1, 10_000);
+        coverBackfillService.runBackfill(backfillMode, clampedLimit);
+
+        String message = String.format("Cover backfill started: mode=%s, limit=%d", backfillMode, clampedLimit);
+        log.info(message);
+        return ResponseEntity.accepted().body(message);
+    }
+
+    /**
+     * Returns the current progress of a running (or last completed) cover backfill.
+     *
+     * @return progress snapshot as JSON
+     */
+    @GetMapping(value = "/backfill/covers/status", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<CoverBackfillService.BackfillProgress> getCoverBackfillStatus() {
+        return ResponseEntity.ok(coverBackfillService.getProgress());
+    }
+
+    /**
+     * Requests cancellation of the running cover backfill.
+     *
+     * @return acknowledgement message
+     */
+    @PostMapping(value = "/backfill/covers/cancel", produces = MediaType.TEXT_PLAIN_VALUE)
+    public ResponseEntity<String> cancelCoverBackfill() {
+        coverBackfillService.cancel();
+        return ResponseEntity.ok("Cover backfill cancellation requested");
     }
 }

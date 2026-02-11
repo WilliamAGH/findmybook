@@ -240,6 +240,7 @@ public class CoverS3UploadCoordinator {
                 details.getUrlOrPath(),
                 details.getWidth(),
                 details.getHeight(),
+                details.getGrayscale(),
                 details.getCoverImageSource() != null ? details.getCoverImageSource() : CoverImageSource.UNDEFINED
             )
         );

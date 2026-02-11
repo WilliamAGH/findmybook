@@ -53,6 +53,7 @@ final class BookQueryRowMapperFactory {
         );
         String preferredUrl = resolved.url();
         String effectiveFallback = StringUtils.hasText(fallbackUrl) ? fallbackUrl : preferredUrl;
+        Boolean grayscale = resultSetSupport.getBooleanOrNull(rs, "cover_is_grayscale");
         log.trace("BookCard row: id={}, title={}, authors={}, s3Key={}, fallback={}, resolved={}",
             rs.getString("id"), rs.getString("title"), authors, s3Key, fallbackUrl, preferredUrl);
         return new BookCard(
@@ -65,7 +66,8 @@ final class BookQueryRowMapperFactory {
             effectiveFallback,
             resultSetSupport.getDoubleOrNull(rs, "average_rating"),
             resultSetSupport.getIntOrNull(rs, "ratings_count"),
-            resultSetSupport.parseJsonb(rs.getString("tags"))
+            resultSetSupport.parseJsonb(rs.getString("tags")),
+            grayscale
         );
     }
 
@@ -73,6 +75,7 @@ final class BookQueryRowMapperFactory {
         Integer width = resultSetSupport.getIntOrNull(rs, "cover_width");
         Integer height = resultSetSupport.getIntOrNull(rs, "cover_height");
         Boolean highRes = resultSetSupport.getBooleanOrNull(rs, "cover_is_high_resolution");
+        Boolean grayscale = resultSetSupport.getBooleanOrNull(rs, "cover_is_grayscale");
         CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
             resultSetSupport.getStringOrNull(rs, "cover_s3_key"),
             resultSetSupport.getStringOrNull(rs, "cover_fallback_url"),
@@ -98,7 +101,8 @@ final class BookQueryRowMapperFactory {
             resultSetSupport.getDoubleOrNull(rs, "average_rating"),
             resultSetSupport.getIntOrNull(rs, "ratings_count"),
             resultSetSupport.parseJsonb(rs.getString("tags")),
-            resultSetSupport.getLocalDateOrNull(rs, "published_date")
+            resultSetSupport.getLocalDateOrNull(rs, "published_date"),
+            grayscale
         );
     }
 
@@ -106,6 +110,7 @@ final class BookQueryRowMapperFactory {
         Integer width = resultSetSupport.getIntOrNull(rs, "cover_width");
         Integer height = resultSetSupport.getIntOrNull(rs, "cover_height");
         Boolean highRes = resultSetSupport.getBooleanOrNull(rs, "cover_is_high_resolution");
+        Boolean grayscale = resultSetSupport.getBooleanOrNull(rs, "cover_is_grayscale");
         CoverUrlResolver.ResolvedCover cover = CoverUrlResolver.resolve(
             resultSetSupport.getStringOrNull(rs, "cover_s3_key"),
             resultSetSupport.getStringOrNull(rs, "cover_fallback_url"),
@@ -149,6 +154,7 @@ final class BookQueryRowMapperFactory {
             resultSetSupport.getStringOrNull(rs, "preview_link"),
             resultSetSupport.getStringOrNull(rs, "info_link"),
             resultSetSupport.parseJsonb(rs.getString("tags")),
+            grayscale,
             List.of()
         );
     }

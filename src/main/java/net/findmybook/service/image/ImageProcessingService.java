@@ -1,6 +1,7 @@
 package net.findmybook.service.image;
 
 import net.findmybook.model.image.ProcessedImage;
+import net.findmybook.util.cover.GrayscaleAnalyzer;
 import net.findmybook.util.cover.ImageDimensionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -84,6 +85,11 @@ public class ImageProcessingService {
             g.drawImage(rawOriginalImage, 0, 0, null);
             g.dispose();
 
+            boolean isGrayscale = GrayscaleAnalyzer.isEffectivelyGrayscale(originalImage);
+            if (isGrayscale) {
+                logger.info("Book ID {}: Image detected as grayscale/B&W.", bookIdForLog);
+            }
+
             int originalWidth = originalImage.getWidth();
             int originalHeight = originalImage.getHeight();
             double aspectRatio = originalWidth == 0 ? 0.0 : (double) originalHeight / originalWidth;
@@ -112,7 +118,7 @@ public class ImageProcessingService {
                     bookIdForLog, originalWidth, originalHeight, MIN_ACCEPTABLE_DIMENSION, MIN_ACCEPTABLE_DIMENSION);
                 // Still attempt to compress it, but don't resize.
                 // Note: originalImage is already in TYPE_INT_RGB here
-                return CompletableFuture.completedFuture(compressOriginal(originalImage, bookIdForLog, originalWidth, originalHeight));
+                return CompletableFuture.completedFuture(compressOriginal(originalImage, bookIdForLog, originalWidth, originalHeight, isGrayscale));
             }
 
             int newWidth;
@@ -146,7 +152,7 @@ public class ImageProcessingService {
                  g2d.dispose();
             }
 
-            return CompletableFuture.completedFuture(compressImageToJpeg(outputImage, bookIdForLog, newWidth, newHeight));
+            return CompletableFuture.completedFuture(compressImageToJpeg(outputImage, bookIdForLog, newWidth, newHeight, isGrayscale));
 
         } catch (IOException e) {
             logger.error("Book ID {}: IOException during image processing: {}", bookIdForLog, e.getMessage(), e);
@@ -167,9 +173,9 @@ public class ImageProcessingService {
      * @return ProcessedImage containing the compressed image data
      * @throws IOException If compression fails
      */
-    private ProcessedImage compressOriginal(BufferedImage imageToCompress, String bookIdForLog, int width, int height) throws IOException {
+    private ProcessedImage compressOriginal(BufferedImage imageToCompress, String bookIdForLog, int width, int height, boolean isGrayscale) throws IOException {
         logger.debug("Book ID {}: Compressing original small image ({}x{}) as JPEG.", bookIdForLog, width, height);
-        return compressImageToJpeg(imageToCompress, bookIdForLog, width, height);
+        return compressImageToJpeg(imageToCompress, bookIdForLog, width, height, isGrayscale);
     }
 
     /**
@@ -182,7 +188,7 @@ public class ImageProcessingService {
      * @return ProcessedImage containing the compressed JPEG data
      * @throws IOException If compression fails
      */
-    private ProcessedImage compressImageToJpeg(BufferedImage imageToCompress, String bookIdForLog, int finalWidth, int finalHeight) throws IOException {
+    private ProcessedImage compressImageToJpeg(BufferedImage imageToCompress, String bookIdForLog, int finalWidth, int finalHeight, boolean isGrayscale) throws IOException {
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
             Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName("jpeg");
             if (!writers.hasNext()) {
@@ -203,7 +209,7 @@ public class ImageProcessingService {
             byte[] processedBytes = baos.toByteArray();
             logger.info("Book ID {}: Successfully processed image to JPEG. Original size (approx if read): N/A, Processed size: {} bytes, Dimensions: {}x{}", 
                 bookIdForLog, processedBytes.length, finalWidth, finalHeight);
-            return ProcessedImage.success(processedBytes, ".jpg", "image/jpeg", finalWidth, finalHeight);
+            return ProcessedImage.success(processedBytes, ".jpg", "image/jpeg", finalWidth, finalHeight, isGrayscale);
         }
     }
 

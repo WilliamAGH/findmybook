@@ -21,6 +21,11 @@ import java.sql.Array;
 import java.sql.Connection;
 import java.sql.SQLException;
 
+/**
+ * Replaces placeholder or broken cover URLs with the best available fallback
+ * from {@code book_image_links}, using the centralized {@code cover_image_priority()}
+ * SQL function for consistent ordering across all surfaces.
+ */
 final class BookQueryCoverNormalizer {
     private static final Logger log = LoggerFactory.getLogger(BookQueryCoverNormalizer.class);
 
@@ -32,50 +37,64 @@ final class BookQueryCoverNormalizer {
         this.resultSetSupport = resultSetSupport;
     }
 
+    /**
+     * Carries a resolved fallback cover together with its grayscale status
+     * so normalization lambdas can propagate both to the reconstructed DTO.
+     */
+    record CoverFallback(CoverUrlResolver.ResolvedCover resolved, Boolean grayscale) {}
+
     List<BookCard> normalizeBookCardCovers(List<BookCard> cards) {
         return normalizeCovers(cards, BookCard::id, BookCard::coverUrl, (card, fallback) -> {
-            String coverUrl = fallback != null ? fallback.url() : card.coverUrl();
+            CoverUrlResolver.ResolvedCover resolved = fallback != null ? fallback.resolved() : null;
+            String coverUrl = resolved != null ? resolved.url() : card.coverUrl();
             String fallbackUrl = StringUtils.hasText(card.fallbackCoverUrl())
                 ? card.fallbackCoverUrl()
-                : (fallback != null ? fallback.url() : coverUrl);
-            String s3Key = resolveS3Key(fallback, card.coverS3Key());
+                : (resolved != null ? resolved.url() : coverUrl);
+            String s3Key = resolveS3Key(resolved, card.coverS3Key());
+            Boolean grayscale = fallback != null ? fallback.grayscale() : card.coverGrayscale();
             return new BookCard(
                 card.id(), card.slug(), card.title(), card.authors(),
                 coverUrl, s3Key, fallbackUrl,
-                card.averageRating(), card.ratingsCount(), card.tags()
+                card.averageRating(), card.ratingsCount(), card.tags(),
+                grayscale
             );
         });
     }
 
     List<BookListItem> normalizeBookListItemCovers(List<BookListItem> items) {
         return normalizeCovers(items, BookListItem::id, BookListItem::coverUrl, (item, fallback) -> {
-            String coverUrl = fallback != null ? fallback.url() : item.coverUrl();
-            Integer width = fallback != null ? fallback.width() : item.coverWidth();
-            Integer height = fallback != null ? fallback.height() : item.coverHeight();
-            Boolean highRes = fallback != null ? fallback.highResolution() : item.coverHighResolution();
+            CoverUrlResolver.ResolvedCover resolved = fallback != null ? fallback.resolved() : null;
+            String coverUrl = resolved != null ? resolved.url() : item.coverUrl();
+            Integer width = resolved != null ? resolved.width() : item.coverWidth();
+            Integer height = resolved != null ? resolved.height() : item.coverHeight();
+            Boolean highRes = resolved != null ? resolved.highResolution() : item.coverHighResolution();
             String fallbackUrl = StringUtils.hasText(item.coverFallbackUrl())
                 ? item.coverFallbackUrl()
-                : (fallback != null ? fallback.url() : coverUrl);
-            String s3Key = resolveS3Key(fallback, item.coverS3Key());
+                : (resolved != null ? resolved.url() : coverUrl);
+            String s3Key = resolveS3Key(resolved, item.coverS3Key());
+            Boolean grayscale = fallback != null ? fallback.grayscale() : item.coverGrayscale();
             return new BookListItem(
                 item.id(), item.slug(), item.title(), item.description(),
                 item.authors(), item.categories(),
                 coverUrl, s3Key, fallbackUrl, width, height, highRes,
-                item.averageRating(), item.ratingsCount(), item.tags()
+                item.averageRating(), item.ratingsCount(), item.tags(),
+                item.publishedDate(), grayscale
             );
         });
     }
 
     List<BookDetail> normalizeBookDetailCovers(List<BookDetail> details) {
         return normalizeCovers(details, BookDetail::id, BookDetail::coverUrl, (detail, fallback) -> {
-            String coverUrl = fallback != null ? fallback.url() : detail.coverUrl();
-            Integer width = fallback != null ? fallback.width() : detail.coverWidth();
-            Integer height = fallback != null ? fallback.height() : detail.coverHeight();
-            Boolean highRes = fallback != null ? fallback.highResolution() : detail.coverHighResolution();
-            String s3Key = resolveS3Key(fallback, detail.coverS3Key());
+            CoverUrlResolver.ResolvedCover resolved = fallback != null ? fallback.resolved() : null;
+            String coverUrl = resolved != null ? resolved.url() : detail.coverUrl();
+            Integer width = resolved != null ? resolved.width() : detail.coverWidth();
+            Integer height = resolved != null ? resolved.height() : detail.coverHeight();
+            Boolean highRes = resolved != null ? resolved.highResolution() : detail.coverHighResolution();
+            String s3Key = resolveS3Key(resolved, detail.coverS3Key());
             String fallbackUrl = StringUtils.hasText(detail.coverFallbackUrl())
                 ? detail.coverFallbackUrl()
                 : detail.thumbnailUrl();
+            Boolean grayscale = fallback != null ? fallback.grayscale() : detail.coverGrayscale();
             return new BookDetail(
                 detail.id(), detail.slug(), detail.title(), detail.description(),
                 detail.publisher(), detail.publishedDate(), detail.language(), detail.pageCount(),
@@ -83,7 +102,7 @@ final class BookQueryCoverNormalizer {
                 coverUrl, s3Key, fallbackUrl, detail.thumbnailUrl(), width, height, highRes,
                 detail.dataSource(), detail.averageRating(), detail.ratingsCount(),
                 detail.isbn10(), detail.isbn13(), detail.previewLink(), detail.infoLink(),
-                detail.tags(), detail.editions()
+                detail.tags(), grayscale, detail.editions()
             );
         });
     }
@@ -95,7 +114,7 @@ final class BookQueryCoverNormalizer {
     private <T> List<T> normalizeCovers(List<T> items,
                                          Function<T, String> idExtractor,
                                          Function<T, String> coverUrlExtractor,
-                                         BiFunction<T, CoverUrlResolver.ResolvedCover, T> applyCover) {
+                                         BiFunction<T, CoverFallback, T> applyCover) {
         if (items == null || items.isEmpty()) {
             return items;
         }
@@ -108,12 +127,12 @@ final class BookQueryCoverNormalizer {
             .distinct()
             .toList();
 
-        Map<UUID, CoverUrlResolver.ResolvedCover> fallbacks = fetchFallbackCovers(fallbackIds);
+        Map<UUID, CoverFallback> fallbacks = fetchFallbackCovers(fallbackIds);
 
         return items.stream()
             .map(item -> {
                 UUID id = UuidUtils.parseUuidOrNull(idExtractor.apply(item));
-                CoverUrlResolver.ResolvedCover fallback = id != null ? fallbacks.get(id) : null;
+                CoverFallback fallback = id != null ? fallbacks.get(id) : null;
                 return applyCover.apply(item, fallback);
             })
             .toList();
@@ -125,7 +144,7 @@ final class BookQueryCoverNormalizer {
             : existingS3Key;
     }
 
-    private Map<UUID, CoverUrlResolver.ResolvedCover> fetchFallbackCovers(List<UUID> bookIds) {
+    private Map<UUID, CoverFallback> fetchFallbackCovers(List<UUID> bookIds) {
         if (bookIds == null || bookIds.isEmpty()) {
             return Map.of();
         }
@@ -138,7 +157,8 @@ final class BookQueryCoverNormalizer {
                        bil.s3_image_path,
                        bil.width,
                        bil.height,
-                       bil.is_high_resolution
+                       bil.is_high_resolution,
+                       bil.is_grayscale
                 FROM book_image_links bil
                 WHERE bil.book_id = ANY(?::UUID[])
                   AND (
@@ -148,16 +168,10 @@ final class BookQueryCoverNormalizer {
                   AND (bil.url IS NULL OR bil.url NOT LIKE '%placeholder-book-cover.svg%')
                   AND (bil.s3_image_path IS NULL OR bil.s3_image_path NOT LIKE '%placeholder-book-cover.svg%')
                 ORDER BY bil.book_id,
-                         CASE
-                             WHEN bil.image_type = 'canonical' THEN 0
-                             WHEN bil.image_type = 'extraLarge' THEN 1
-                             WHEN bil.image_type = 'large' THEN 2
-                             WHEN bil.image_type = 'medium' THEN 3
-                             WHEN bil.image_type = 'small' THEN 4
-                             WHEN bil.image_type = 'thumbnail' THEN 5
-                             WHEN bil.image_type = 'smallThumbnail' THEN 6
-                             ELSE 7
-                         END,
+                         cover_image_priority(
+                             bil.s3_image_path, bil.is_high_resolution, bil.url,
+                             bil.width, bil.height, bil.image_type, bil.is_grayscale
+                         ),
                          bil.created_at DESC
                 """;
 
@@ -167,7 +181,7 @@ final class BookQueryCoverNormalizer {
                 Array uuidArray = createUuidArray(ps.getConnection(), idsArray);
                 ps.setArray(1, uuidArray);
             }, rs -> {
-                Map<UUID, CoverUrlResolver.ResolvedCover> resolved = new java.util.HashMap<>();
+                Map<UUID, CoverFallback> resolved = new java.util.HashMap<>();
                 while (rs.next()) {
                     UUID id = (UUID) rs.getObject("book_id");
                     String url = rs.getString("url");
@@ -175,16 +189,20 @@ final class BookQueryCoverNormalizer {
                     Integer width = resultSetSupport.getIntOrNull(rs, "width");
                     Integer height = resultSetSupport.getIntOrNull(rs, "height");
                     Boolean highRes = resultSetSupport.getBooleanOrNull(rs, "is_high_resolution");
+                    Boolean grayscale = resultSetSupport.getBooleanOrNull(rs, "is_grayscale");
 
                     if (StringUtils.hasText(url) || StringUtils.hasText(s3Key)) {
                         resolved.put(
                             id,
-                            CoverUrlResolver.resolve(
-                                StringUtils.hasText(s3Key) ? s3Key : url,
-                                StringUtils.hasText(url) ? url : null,
-                                width,
-                                height,
-                                highRes
+                            new CoverFallback(
+                                CoverUrlResolver.resolve(
+                                    StringUtils.hasText(s3Key) ? s3Key : url,
+                                    StringUtils.hasText(url) ? url : null,
+                                    width,
+                                    height,
+                                    highRes
+                                ),
+                                grayscale
                             )
                         );
                     }

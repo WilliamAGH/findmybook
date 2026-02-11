@@ -173,6 +173,7 @@ public class CoverPersistenceService {
             @Nullable String s3CdnUrl,
             @Nullable Integer width,
             @Nullable Integer height,
+            @Nullable Boolean isGrayscale,
             CoverImageSource source) {
 
         public S3UploadResult {
@@ -180,6 +181,15 @@ public class CoverPersistenceService {
                 throw new IllegalArgumentException("S3UploadResult requires a non-blank s3Key");
             }
             java.util.Objects.requireNonNull(source, "S3UploadResult requires a non-null source");
+        }
+
+        /** Backward-compatible constructor without grayscale parameter. */
+        public S3UploadResult(String s3Key,
+                              @Nullable String s3CdnUrl,
+                              @Nullable Integer width,
+                              @Nullable Integer height,
+                              CoverImageSource source) {
+            this(s3Key, s3CdnUrl, width, height, null, source);
         }
     }
 
@@ -215,7 +225,12 @@ public class CoverPersistenceService {
 
         try {
             // Upsert canonical S3 row as authoritative cover
-            upsertImageLink(new ImageLinkParams(bookId, "canonical", canonicalUrl, source.name(), width, height, highRes, s3Key));
+            upsertImageLink(new ImageLinkParams(bookId, "canonical", canonicalUrl, source.name(), width, height, highRes, s3Key, upload.isGrayscale()));
+
+            // Propagate grayscale status to sibling rows for the same book.
+            // All image_links rows for a book originate from the same source image
+            // at different zoom levels; if one is grayscale, they all are.
+            propagateGrayscaleToSiblings(bookId, upload.isGrayscale());
 
             log.info("Updated cover metadata for book {} after S3 upload: {} ({}x{}, highRes={})",
                 bookId, s3Key, width, height, highRes);
@@ -290,6 +305,34 @@ public class CoverPersistenceService {
     }
     
     /**
+     * Propagates a non-null grayscale flag to all sibling rows for the same book
+     * that have not yet been independently analyzed ({@code is_grayscale IS NULL}).
+     *
+     * <p>All {@code book_image_links} rows for a given book originate from the same
+     * source image at different zoom levels, so grayscale status is inherently shared.
+     * Without propagation, unanalyzed external-URL rows retain {@code NULL} which the
+     * priority function treats as "color," creating a priority inversion against the
+     * explicitly-grayscale S3 row.</p>
+     */
+    private void propagateGrayscaleToSiblings(UUID bookId, @Nullable Boolean isGrayscale) {
+        if (isGrayscale == null) {
+            return;
+        }
+        int updated = jdbcTemplate.update("""
+            UPDATE book_image_links
+            SET is_grayscale = ?, updated_at = NOW()
+            WHERE book_id = ?
+              AND is_grayscale IS NULL
+            """,
+            isGrayscale, bookId
+        );
+        if (updated > 0) {
+            log.info("Propagated is_grayscale={} to {} sibling rows for book {}",
+                isGrayscale, updated, bookId);
+        }
+    }
+
+    /**
      * Internal method to upsert a row in book_image_links with optional S3 path.
      * Handles conflict resolution with ON CONFLICT DO UPDATE.
      */
@@ -301,9 +344,10 @@ public class CoverPersistenceService {
         jdbcTemplate.update("""
             INSERT INTO book_image_links (
                 id, book_id, image_type, url, source,
-                width, height, is_high_resolution, s3_image_path, created_at, updated_at, s3_uploaded_at
+                width, height, is_high_resolution, s3_image_path, is_grayscale,
+                created_at, updated_at, s3_uploaded_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), CASE WHEN ? THEN NOW() ELSE NULL END)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), CASE WHEN ? THEN NOW() ELSE NULL END)
             ON CONFLICT (book_id, image_type) DO UPDATE SET
                 url = EXCLUDED.url,
                 source = EXCLUDED.source,
@@ -311,6 +355,7 @@ public class CoverPersistenceService {
                 height = EXCLUDED.height,
                 is_high_resolution = EXCLUDED.is_high_resolution,
                 s3_image_path = COALESCE(EXCLUDED.s3_image_path, book_image_links.s3_image_path),
+                is_grayscale = COALESCE(EXCLUDED.is_grayscale, book_image_links.is_grayscale),
                 s3_uploaded_at = CASE
                     WHEN EXCLUDED.s3_image_path IS NOT NULL THEN NOW()
                     ELSE book_image_links.s3_uploaded_at
@@ -326,6 +371,7 @@ public class CoverPersistenceService {
             params.height(),
             params.highRes(),
             normalizedS3Path,
+            params.isGrayscale(),
             normalizedS3Path != null
         );
     }
@@ -382,7 +428,8 @@ public class CoverPersistenceService {
         Integer width,
         Integer height,
         Boolean highRes,
-        String s3ImagePath
+        String s3ImagePath,
+        @Nullable Boolean isGrayscale
     ) {
         ImageLinkParams {
             java.util.Objects.requireNonNull(bookId, "bookId cannot be null");
@@ -391,7 +438,12 @@ public class CoverPersistenceService {
 
         ImageLinkParams(UUID bookId, String imageType, String url, String source,
                         Integer width, Integer height, Boolean highRes) {
-            this(bookId, imageType, url, source, width, height, highRes, null);
+            this(bookId, imageType, url, source, width, height, highRes, null, null);
+        }
+
+        ImageLinkParams(UUID bookId, String imageType, String url, String source,
+                        Integer width, Integer height, Boolean highRes, String s3ImagePath) {
+            this(bookId, imageType, url, source, width, height, highRes, s3ImagePath, null);
         }
     }
 }

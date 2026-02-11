@@ -112,7 +112,10 @@ public record BookDetail(
     String infoLink,
     
     Map<String, Object> tags,
-    
+
+    @JsonProperty("cover_grayscale")
+    Boolean coverGrayscale,
+
     /**
      * Other editions - can be loaded separately (lazy) or eagerly depending on use case
      */
@@ -127,10 +130,29 @@ public record BookDetail(
         coverS3Key = coverS3Key != null && !coverS3Key.isBlank() ? coverS3Key : null;
         coverFallbackUrl = coverFallbackUrl == null ? coverUrl : coverFallbackUrl;
         tags = tags == null ? Map.of() : Map.copyOf(tags);
+        coverGrayscale = Boolean.TRUE.equals(coverGrayscale) ? Boolean.TRUE : null;
         editions = editions == null ? List.of() : List.copyOf(editions);
     }
 
     
+    /** Backward-compatible constructor without coverGrayscale (defaults null). */
+    public BookDetail(
+        String id, String slug, String title, String description,
+        String publisher, LocalDate publishedDate, String language, Integer pageCount,
+        List<String> authors, List<String> categories,
+        String coverUrl, String coverS3Key, String coverFallbackUrl, String thumbnailUrl,
+        Integer coverWidth, Integer coverHeight, Boolean coverHighResolution,
+        String dataSource, Double averageRating, Integer ratingsCount,
+        String isbn10, String isbn13, String previewLink, String infoLink,
+        Map<String, Object> tags, List<EditionSummary> editions
+    ) {
+        this(id, slug, title, description, publisher, publishedDate, language, pageCount,
+            authors, categories, coverUrl, coverS3Key, coverFallbackUrl, thumbnailUrl,
+            coverWidth, coverHeight, coverHighResolution,
+            dataSource, averageRating, ratingsCount,
+            isbn10, isbn13, previewLink, infoLink, tags, null, editions);
+    }
+
     /**
      * Create a copy with editions populated
      */
@@ -139,7 +161,7 @@ public record BookDetail(
             id, slug, title, description, publisher, publishedDate, language, pageCount,
             authors, categories, coverUrl, coverS3Key, coverFallbackUrl, thumbnailUrl, coverWidth, coverHeight,
             coverHighResolution, dataSource, averageRating, ratingsCount,
-            isbn10, isbn13, previewLink, infoLink, tags, newEditions
+            isbn10, isbn13, previewLink, infoLink, tags, coverGrayscale, newEditions
         );
     }
     

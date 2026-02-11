@@ -67,7 +67,10 @@ public record BookListItem(
     
     Map<String, Object> tags,
     @JsonProperty("published_date")
-    LocalDate publishedDate
+    LocalDate publishedDate,
+
+    @JsonProperty("cover_grayscale")
+    Boolean coverGrayscale
 ) {
     /**
      * Compact constructor ensuring defensive copies for immutability
@@ -78,8 +81,10 @@ public record BookListItem(
         coverS3Key = StringUtils.hasText(coverS3Key) ? coverS3Key : null;
         coverFallbackUrl = coverFallbackUrl == null ? coverUrl : coverFallbackUrl;
         tags = tags == null ? Map.of() : Map.copyOf(tags);
+        coverGrayscale = Boolean.TRUE.equals(coverGrayscale) ? Boolean.TRUE : null;
     }
 
+    /** Convenience constructor without S3 key, fallback, published date, or grayscale. */
     public BookListItem(String id,
                         String slug,
                         String title,
@@ -93,26 +98,12 @@ public record BookListItem(
                         Double averageRating,
                         Integer ratingsCount,
                         Map<String, Object> tags) {
-        this(
-            id,
-            slug,
-            title,
-            description,
-            authors,
-            categories,
-            coverUrl,
-            null,
-            coverUrl,
-            coverWidth,
-            coverHeight,
-            coverHighResolution,
-            averageRating,
-            ratingsCount,
-            tags,
-            null
-        );
+        this(id, slug, title, description, authors, categories,
+            coverUrl, null, coverUrl, coverWidth, coverHeight, coverHighResolution,
+            averageRating, ratingsCount, tags, null, null);
     }
 
+    /** Convenience constructor without published date or grayscale. */
     public BookListItem(String id,
                         String slug,
                         String title,
@@ -128,24 +119,31 @@ public record BookListItem(
                         Double averageRating,
                         Integer ratingsCount,
                         Map<String, Object> tags) {
-        this(
-            id,
-            slug,
-            title,
-            description,
-            authors,
-            categories,
-            coverUrl,
-            coverS3Key,
-            coverFallbackUrl,
-            coverWidth,
-            coverHeight,
-            coverHighResolution,
-            averageRating,
-            ratingsCount,
-            tags,
-            null
-        );
+        this(id, slug, title, description, authors, categories,
+            coverUrl, coverS3Key, coverFallbackUrl, coverWidth, coverHeight, coverHighResolution,
+            averageRating, ratingsCount, tags, null, null);
+    }
+
+    /** Convenience constructor without grayscale. */
+    public BookListItem(String id,
+                        String slug,
+                        String title,
+                        String description,
+                        List<String> authors,
+                        List<String> categories,
+                        String coverUrl,
+                        String coverS3Key,
+                        String coverFallbackUrl,
+                        Integer coverWidth,
+                        Integer coverHeight,
+                        Boolean coverHighResolution,
+                        Double averageRating,
+                        Integer ratingsCount,
+                        Map<String, Object> tags,
+                        LocalDate publishedDate) {
+        this(id, slug, title, description, authors, categories,
+            coverUrl, coverS3Key, coverFallbackUrl, coverWidth, coverHeight, coverHighResolution,
+            averageRating, ratingsCount, tags, publishedDate, null);
     }
     
     /**
