@@ -104,6 +104,18 @@ describe("isDegenerateText", () => {
     expect(isDegenerateText(japanese)).toBe(false);
   });
 
+  it("should_UseCodePointLengthForLetterRatio_WithSupplementaryCharacters", () => {
+    // 5 letters + 5 emoji = 50% letters by code point, should pass boundary.
+    const mixed = "Hello🙂🙂🙂🙂🙂";
+    expect(isDegenerateText(mixed)).toBe(false);
+  });
+
+  it("should_UseCodePointLengthForRepetitionRatio_WithSupplementaryCharacters", () => {
+    // 6 emoji + 5 letters = 54.5% single-char domination by code point.
+    const dominated = "🙂".repeat(6) + "abcde";
+    expect(isDegenerateText(dominated)).toBe(true);
+  });
+
   // -- Threshold boundary tests --------------------------------------------
 
   it("should_ReturnFalse_When_CharRatioIsExactlyAtBoundary", () => {

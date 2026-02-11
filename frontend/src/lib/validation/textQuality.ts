@@ -19,17 +19,23 @@ const MIN_RENDERABLE_LENGTH = 10;
  * - Insufficient letter characters (< 50% Unicode letters)
  */
 export function isDegenerateText(text: string): boolean {
-  if (!text || text.length < MIN_RENDERABLE_LENGTH) {
+  if (!text) {
     return false;
   }
 
   const charCounts = new Map<string, number>();
   let letterCount = 0;
+  let totalChars = 0;
   for (const char of text) {
+    totalChars++;
     charCounts.set(char, (charCounts.get(char) ?? 0) + 1);
     if (/\p{L}/u.test(char)) {
       letterCount++;
     }
+  }
+
+  if (totalChars < MIN_RENDERABLE_LENGTH) {
+    return false;
   }
 
   let maxCharCount = 0;
@@ -39,11 +45,11 @@ export function isDegenerateText(text: string): boolean {
     }
   }
 
-  if (maxCharCount / text.length > MAX_SINGLE_CHAR_RATIO) {
+  if (maxCharCount / totalChars > MAX_SINGLE_CHAR_RATIO) {
     return true;
   }
 
-  if (letterCount / text.length < MIN_LETTER_RATIO) {
+  if (letterCount / totalChars < MIN_LETTER_RATIO) {
     return true;
   }
 
