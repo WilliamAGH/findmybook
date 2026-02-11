@@ -4,11 +4,9 @@ import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
 import com.openai.core.RequestOptions;
 import com.openai.core.Timeout;
-import com.openai.core.http.StreamResponse;
 import com.openai.errors.OpenAIException;
 import com.openai.models.ChatModel;
 import com.openai.models.chat.completions.ChatCompletion;
-import com.openai.models.chat.completions.ChatCompletionChunk;
 import com.openai.models.chat.completions.ChatCompletionCreateParams;
 import com.openai.models.chat.completions.ChatCompletionMessageParam;
 import com.openai.models.chat.completions.ChatCompletionSystemMessageParam;
@@ -250,29 +248,25 @@ public class BookSeoMetadataGenerationService {
                 .build())
             .build();
 
-        StringBuilder responseBuilder = new StringBuilder();
-        try (StreamResponse<ChatCompletionChunk> stream = openAiClient.chat().completions().createStreaming(params, options)) {
-            stream.stream().forEach(chunk -> {
-                if (chunk.choices().isEmpty()) {
-                    return;
-                }
-                String delta = chunk.choices().get(0).delta().content().orElse("");
-                if (!delta.isEmpty()) {
-                    responseBuilder.append(delta);
-                }
-            });
+        try {
+            ChatCompletion completion = openAiClient.chat().completions().create(params, options);
+            if (completion.choices().isEmpty()) {
+                throw new IllegalStateException("SEO metadata response contained no choices");
+            }
+            String response = completion.choices().get(0).message().content().orElse("");
+            if (!StringUtils.hasText(response)) {
+                throw new IllegalStateException("SEO metadata response was empty");
+            }
+            return response;
         } catch (OpenAIException openAiException) {
-            log.error("Book SEO metadata generation failed (model={})", configuredModel, openAiException);
+            log.error("Book SEO metadata generation API call failed (model={})", configuredModel, openAiException);
             throw new IllegalStateException("SEO metadata generation failed", openAiException);
+        } catch (IllegalStateException parseException) {
+            throw parseException;
         } catch (Exception unexpectedException) {
-            log.error("Book SEO metadata streaming failed with unexpected error (model={})", configuredModel, unexpectedException);
-            throw new IllegalStateException("SEO metadata streaming failed: " + unexpectedException.getMessage(), unexpectedException);
+            log.error("Book SEO metadata generation failed with unexpected error (model={})", configuredModel, unexpectedException);
+            throw new IllegalStateException("SEO metadata generation failed: " + unexpectedException.getMessage(), unexpectedException);
         }
-        String response = responseBuilder.toString();
-        if (!StringUtils.hasText(response)) {
-            log.warn("Book SEO metadata stream response was empty; streaming may not be supported by the configured endpoint");
-        }
-        return response;
     }
 
     private PromptContext loadPromptContext(UUID bookId) {
