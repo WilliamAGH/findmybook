@@ -108,7 +108,7 @@ abstract class AbstractBookControllerMvcTest {
         BookCoverResolutionService bookCoverResolutionService = new BookCoverResolutionService(
             bookSearchService,
             bookIdentifierResolver,
-            bookDataOrchestrator
+            Optional.of(bookDataOrchestrator)
         );
         BrowserCoverIngestUseCase browserCoverIngestUseCase = new BrowserCoverIngestUseCase(
             bookCoverResolutionService,
