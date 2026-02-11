@@ -51,7 +51,7 @@
     errorMessage = null;
 
     try {
-      const payload = await getHomePagePayload({ popularWindow: window, popularLimit: 8 });
+      const payload = await getHomePagePayload({ popularWindow: window, popularLimit: 8, recordView: true });
       if (requestId !== loadRequestId) return;
       bestsellers = payload.currentBestsellers.map(toDisplayCard);
       recentBooks = payload.recentBooks.map(toDisplayCard);

@@ -5,7 +5,7 @@
  * Includes normalizers for realtime search hits received via WebSocket.
  */
 import { getJson } from "$lib/services/http";
-import type { SortOption } from "$lib/services/searchConfig";
+import type { SortOption, TimeWindow } from "$lib/services/searchConfig";
 import { validateWithSchema } from "$lib/validation/validate";
 import {
   type Book,
@@ -72,7 +72,7 @@ export function searchBooks(params: SearchParams): Promise<SearchResponse> {
   return request;
 }
 
-export type ViewWindow = "30d" | "90d" | "all";
+export type ViewWindow = TimeWindow;
 
 export function getBook(identifier: string, viewWindow?: ViewWindow): Promise<Book> {
   const params = viewWindow ? `?viewWindow=${viewWindow}` : "";

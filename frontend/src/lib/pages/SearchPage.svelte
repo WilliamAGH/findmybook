@@ -58,6 +58,7 @@
       const payload = await getHomePagePayload({
         popularWindow: explorePopularWindow,
         popularLimit: EXPLORE_POPULAR_LIMIT,
+        recordView: false,
       });
       if (sequence !== searchLoadSequence) return;
       searchResult = buildExplorePopularSearchResponse(
@@ -105,6 +106,24 @@
     }
   }
 
+  async function setupRealtimeSubscription(queryHash: string): Promise<(() => void) | null> {
+    try {
+      return await subscribeToSearchTopics(
+        queryHash,
+        (message) => { realtimeMessage = message; },
+        (results) => { mergeRealtimeHits(results); },
+        (error) => {
+          console.error("Realtime search subscription error:", error.message);
+          realtimeMessage = null;
+        },
+      );
+    } catch (realtimeError) {
+      console.error("Realtime search subscription failed:", realtimeError);
+      realtimeMessage = null;
+      return null;
+    }
+  }
+
   async function loadSearch(): Promise<void> {
     const sequence = ++searchLoadSequence;
 
@@ -148,21 +167,8 @@
       searchCache.set(key, response);
       searchResult = response;
 
-      try {
-        unsubscribeRealtime = await subscribeToSearchTopics(
-          response.queryHash,
-          (message) => { realtimeMessage = message; },
-          (results) => { mergeRealtimeHits(results); },
-          (error) => {
-            console.error("Realtime search subscription error:", error.message);
-            realtimeMessage = null;
-          },
-        );
-      } catch (realtimeError) {
-        console.error("Realtime search subscription failed:", realtimeError);
-        realtimeMessage = null;
-        unsubscribeRealtime = null;
-      }
+      unsubscribeRealtime = await setupRealtimeSubscription(response.queryHash);
+
       if (sequence !== searchLoadSequence && unsubscribeRealtime) {
         unsubscribeRealtime();
         unsubscribeRealtime = null;

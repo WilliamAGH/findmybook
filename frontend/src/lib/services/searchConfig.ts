@@ -22,6 +22,7 @@ export const SORT_LABELS: Record<SortOption, string> = {
 export type CoverOption = (typeof COVER_OPTIONS)[number];
 export type ResolutionOption = (typeof RESOLUTION_OPTIONS)[number];
 export type SortOption = (typeof SORT_OPTIONS)[number];
+export type TimeWindow = "30d" | "90d" | "all";
 
 export function parsePositiveNumber(value: string | null, fallback: number): number {
   if (!value) return fallback;

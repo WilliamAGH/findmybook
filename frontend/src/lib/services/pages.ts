@@ -1,4 +1,5 @@
 import { getJson } from "$lib/services/http";
+import type { TimeWindow } from "$lib/services/searchConfig";
 import {
   type HomePayload,
   type SitemapPayload,
@@ -12,11 +13,12 @@ import {
   RouteManifestSchema,
 } from "$lib/validation/schemas";
 
-export type PopularWindow = "30d" | "90d" | "all";
+export type PopularWindow = TimeWindow;
 
 export interface HomePayloadRequestOptions {
   popularWindow?: PopularWindow;
   popularLimit?: number;
+  recordView?: boolean;
 }
 
 export function getHomePagePayload(options: HomePayloadRequestOptions = {}): Promise<HomePayload> {
@@ -26,6 +28,9 @@ export function getHomePagePayload(options: HomePayloadRequestOptions = {}): Pro
   }
   if (typeof options.popularLimit === "number") {
     url.searchParams.set("popularLimit", String(options.popularLimit));
+  }
+  if (typeof options.recordView === "boolean") {
+    url.searchParams.set("recordView", String(options.recordView));
   }
   return getJson(`${url.pathname}${url.search}`, HomePayloadSchema, "getHomePagePayload");
 }
