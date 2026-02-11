@@ -143,10 +143,10 @@ public class BookAiContentService {
         String promptHash = sha256(prompt);
         Optional<String> existingPromptHash = repository.fetchCurrentPromptHash(bookId);
         if (existingPromptHash.isPresent() && existingPromptHash.get().equals(promptHash)) {
-            return GenerationOutcome.skipped(bookId, promptHash, findCurrent(bookId).orElse(null));
+            return GenerationOutcome.skipped(bookId, promptHash, findCurrent(bookId));
         }
         GeneratedContent generated = generateAndPersistFromPrompt(bookId, prompt, promptHash, onDelta);
-        return GenerationOutcome.generated(bookId, promptHash, generated.snapshot());
+        return GenerationOutcome.generated(bookId, promptHash, Optional.of(generated.snapshot()));
     }
 
     private GeneratedContent generateAndPersistFromPrompt(UUID bookId, String prompt, String promptHash, Consumer<String> onDelta) {
@@ -329,12 +329,12 @@ public class BookAiContentService {
     public record GenerationOutcome(UUID bookId,
                                     boolean generated,
                                     String promptHash,
-                                    BookAiContentSnapshot snapshot) {
-        private static GenerationOutcome skipped(UUID bookId, String promptHash, BookAiContentSnapshot snapshot) {
+                                    Optional<BookAiContentSnapshot> snapshot) {
+        private static GenerationOutcome skipped(UUID bookId, String promptHash, Optional<BookAiContentSnapshot> snapshot) {
             return new GenerationOutcome(bookId, false, promptHash, snapshot);
         }
 
-        private static GenerationOutcome generated(UUID bookId, String promptHash, BookAiContentSnapshot snapshot) {
+        private static GenerationOutcome generated(UUID bookId, String promptHash, Optional<BookAiContentSnapshot> snapshot) {
             return new GenerationOutcome(bookId, true, promptHash, snapshot);
         }
     }

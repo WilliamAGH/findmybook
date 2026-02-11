@@ -79,7 +79,7 @@ public class BookSeoMetadataGenerationService {
      * Generates and persists SEO metadata only when the current prompt hash has changed.
      *
      * @param bookId canonical book UUID
-     * @return generation outcome details
+     * @return generation outcome details; snapshot is empty when skipped
      */
     public GenerationOutcome generateAndPersistIfPromptChanged(UUID bookId) {
         ensureAvailable();
@@ -196,13 +196,13 @@ public class BookSeoMetadataGenerationService {
     public record GenerationOutcome(UUID bookId,
                                     boolean generated,
                                     String promptHash,
-                                    BookSeoMetadataSnapshot snapshot) {
+                                    Optional<BookSeoMetadataSnapshot> snapshot) {
         private static GenerationOutcome skipped(UUID bookId, String promptHash) {
-            return new GenerationOutcome(bookId, false, promptHash, null);
+            return new GenerationOutcome(bookId, false, promptHash, Optional.empty());
         }
 
         private static GenerationOutcome generated(UUID bookId, String promptHash, BookSeoMetadataSnapshot snapshot) {
-            return new GenerationOutcome(bookId, true, promptHash, snapshot);
+            return new GenerationOutcome(bookId, true, promptHash, Optional.of(snapshot));
         }
     }
 

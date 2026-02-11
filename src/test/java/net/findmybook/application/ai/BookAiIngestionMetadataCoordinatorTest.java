@@ -9,6 +9,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
@@ -60,9 +61,9 @@ class BookAiIngestionMetadataCoordinatorTest {
                 );
             });
         when(bookAiContentService.generateAndPersistIfPromptChanged(eq(bookId), any()))
-            .thenReturn(new BookAiContentService.GenerationOutcome(bookId, true, "hash-ai", null));
+            .thenReturn(new BookAiContentService.GenerationOutcome(bookId, true, "hash-ai", Optional.empty()));
         when(bookSeoMetadataGenerationService.generateAndPersistIfPromptChanged(bookId))
-            .thenReturn(new BookSeoMetadataGenerationService.GenerationOutcome(bookId, true, "hash-seo", null));
+            .thenReturn(new BookSeoMetadataGenerationService.GenerationOutcome(bookId, true, "hash-seo", Optional.empty()));
 
         coordinator.handleBookUpsert(event);
 
@@ -135,9 +136,9 @@ class BookAiIngestionMetadataCoordinatorTest {
                 );
             });
         when(bookAiContentService.generateAndPersistIfPromptChanged(eq(firstBookId), any()))
-            .thenReturn(new BookAiContentService.GenerationOutcome(firstBookId, true, "hash-ai-1", null));
+            .thenReturn(new BookAiContentService.GenerationOutcome(firstBookId, true, "hash-ai-1", Optional.empty()));
         when(bookAiContentService.generateAndPersistIfPromptChanged(eq(secondBookId), any()))
-            .thenReturn(new BookAiContentService.GenerationOutcome(secondBookId, true, "hash-ai-2", null));
+            .thenReturn(new BookAiContentService.GenerationOutcome(secondBookId, true, "hash-ai-2", Optional.empty()));
 
         DataAccessResourceFailureException missingRelation = new DataAccessResourceFailureException(
             "PreparedStatementCallback; bad SQL grammar",
