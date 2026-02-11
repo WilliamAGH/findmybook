@@ -9,7 +9,8 @@ function normalizeCoverUrl(candidateUrl: string): string | null {
   }
 
   try {
-    const parsed = new URL(candidateUrl, window.location.origin);
+    const baseOrigin = typeof location !== "undefined" ? location.origin : undefined;
+    const parsed = baseOrigin ? new URL(candidateUrl, baseOrigin) : new URL(candidateUrl);
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
       return null;
     }
@@ -31,7 +32,8 @@ function isPersistedCoverUrl(candidateUrl: string): boolean {
 
 function isPlaceholderCoverUrl(candidateUrl: string, placeholderCoverUrl: string): boolean {
   const normalized = candidateUrl.toLowerCase();
-  return normalized === placeholderCoverUrl
+  const normalizedPlaceholder = placeholderCoverUrl.toLowerCase();
+  return normalized === normalizedPlaceholder
     || normalized.includes("placeholder-book-cover.svg");
 }
 
@@ -72,6 +74,24 @@ export function reserveCoverRelayCandidate(
 
   attemptedCoverPersistKeys.add(attemptKey);
   return normalizedRenderedUrl;
+}
+
+/**
+ * Releases a previously reserved persistence attempt key.
+ */
+export function releaseCoverRelayCandidate(
+  bookId: string,
+  renderedCoverUrl: string,
+  attemptedCoverPersistKeys: Set<string>,
+): void {
+  if (!bookId || bookId.trim().length === 0) {
+    return;
+  }
+  const normalizedRenderedUrl = normalizeCoverUrl(renderedCoverUrl);
+  if (!normalizedRenderedUrl) {
+    return;
+  }
+  attemptedCoverPersistKeys.delete(coverPersistKey(bookId, normalizedRenderedUrl));
 }
 
 /**

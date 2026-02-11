@@ -24,6 +24,9 @@ public class RecommendationCacheRefreshUseCase {
     public RecommendationCacheRefreshUseCase(RecommendationMaintenanceRepository recommendationMaintenanceRepository,
                                              @Value("${app.recommendations.refresh.ttl-days:30}") int ttlDays) {
         this.recommendationMaintenanceRepository = recommendationMaintenanceRepository;
+        if (ttlDays < 1) {
+            throw new IllegalArgumentException("app.recommendations.refresh.ttl-days must be >= 1");
+        }
         this.ttlDays = ttlDays;
     }
 

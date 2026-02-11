@@ -1,4 +1,4 @@
-package net.findmybook.repository;
+package net.findmybook.support.sitemap;
 
 /**
  * Package-private SQL builder for sitemap book last-modified projections.
@@ -6,12 +6,12 @@ package net.findmybook.repository;
  * <p>This helper centralizes the joined-data timestamp logic so sitemap repository
  * methods reuse one canonical definition for book-level {@code lastmod} values.</p>
  */
-final class SitemapBookLastModifiedSqlSupport {
+public final class SitemapBookLastModifiedSqlSupport {
 
     private SitemapBookLastModifiedSqlSupport() {
     }
 
-    static String globalBookLastModifiedCte(String bookUpdatedAtAlias) {
+    public static String globalBookLastModifiedCte(String bookUpdatedAtAlias) {
         return """
                 WITH change_events AS (
                     SELECT b.id AS book_id,
@@ -107,7 +107,7 @@ final class SitemapBookLastModifiedSqlSupport {
                 """.formatted(bookUpdatedAtAlias);
     }
 
-    static String scopedAuthorBookLastModifiedQuery(String authorPlaceholders, String bookUpdatedAtAlias) {
+    public static String scopedAuthorBookLastModifiedQuery(String authorPlaceholders, String bookUpdatedAtAlias) {
         return """
                 WITH requested_authors AS (
                     SELECT baj.author_id

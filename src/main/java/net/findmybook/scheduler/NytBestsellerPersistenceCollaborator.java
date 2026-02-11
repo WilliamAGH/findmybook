@@ -126,8 +126,8 @@ public class NytBestsellerPersistenceCollaborator {
             VALUES (?, ?, 'NEW_YORK_TIMES', ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
             ON CONFLICT (source, external_id) DO UPDATE
             SET book_id = EXCLUDED.book_id,
-                provider_isbn13 = COALESCE(book_external_ids.provider_isbn13, EXCLUDED.provider_isbn13),
-                provider_isbn10 = COALESCE(book_external_ids.provider_isbn10, EXCLUDED.provider_isbn10),
+                provider_isbn13 = COALESCE(NULLIF(book_external_ids.provider_isbn13, ''), EXCLUDED.provider_isbn13),
+                provider_isbn10 = COALESCE(NULLIF(book_external_ids.provider_isbn10, ''), EXCLUDED.provider_isbn10),
                 info_link = COALESCE(NULLIF(book_external_ids.info_link, ''), EXCLUDED.info_link),
                 preview_link = COALESCE(NULLIF(book_external_ids.preview_link, ''), EXCLUDED.preview_link),
                 web_reader_link = COALESCE(NULLIF(book_external_ids.web_reader_link, ''), EXCLUDED.web_reader_link),

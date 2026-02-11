@@ -182,7 +182,7 @@ class AdminControllerTest {
     }
 
     @Test
-    void triggerRecommendationRefresh_shouldReturnSummary_WhenRefreshSucceeds() {
+    void should_ReturnSummary_When_RecommendationRefreshSucceeds() {
         when(recommendationCacheRefreshUseCase.refreshAllRecommendations())
             .thenReturn(new RecommendationCacheRefreshUseCase.RefreshSummary(
                 100L,
@@ -201,7 +201,7 @@ class AdminControllerTest {
     }
 
     @Test
-    void triggerRecommendationRefresh_shouldReturnInternalServerError_WhenRefreshFails() {
+    void should_ReturnInternalServerError_When_RecommendationRefreshFails() {
         when(recommendationCacheRefreshUseCase.refreshAllRecommendations())
             .thenThrow(new IllegalStateException("refresh failed"));
 
@@ -215,12 +215,12 @@ class AdminControllerTest {
     }
 
     @Test
-    void triggerWeeklyRefresh_shouldReturnSummary_WhenRefreshSucceeds() {
+    void should_ReturnSummary_When_WeeklyRefreshSucceeds() {
         WeeklyCatalogRefreshScheduler.WeeklyRefreshSummary summary =
             new WeeklyCatalogRefreshScheduler.WeeklyRefreshSummary(
                 true,
                 true,
-                new RecommendationCacheRefreshUseCase.RefreshSummary(200L, 0L, 200, 200L, 30),
+                java.util.Optional.of(new RecommendationCacheRefreshUseCase.RefreshSummary(200L, 0L, 200, 200L, 30)),
                 List.of()
             );
         when(weeklyCatalogRefreshScheduler.forceRunWeeklyRefreshCycle()).thenReturn(summary);
@@ -235,7 +235,7 @@ class AdminControllerTest {
     }
 
     @Test
-    void triggerWeeklyRefresh_shouldReturnInternalServerError_WhenRefreshFails() {
+    void should_ReturnInternalServerError_When_WeeklyRefreshFails() {
         when(weeklyCatalogRefreshScheduler.forceRunWeeklyRefreshCycle())
             .thenThrow(new IllegalStateException("weekly failed"));
 

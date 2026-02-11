@@ -338,12 +338,9 @@ public class AdminController {
                 "Weekly refresh completed. nytTriggered=%s, recommendationTriggered=%s%s",
                 summary.nytTriggered(),
                 summary.recommendationTriggered(),
-                summary.recommendationSummary() == null
-                    ? ""
-                    : String.format(
-                        ", recommendationRefreshedRows=%d",
-                        summary.recommendationSummary().refreshedRows()
-                    )
+                summary.recommendationSummary()
+                    .map(recommendation -> String.format(", recommendationRefreshedRows=%d", recommendation.refreshedRows()))
+                    .orElse("")
             );
             log.info(successMessage);
             return ResponseEntity.ok(successMessage);

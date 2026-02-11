@@ -1,5 +1,6 @@
 package net.findmybook.repository;
 
+import net.findmybook.support.sitemap.SitemapBookLastModifiedSqlSupport;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

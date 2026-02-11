@@ -22,6 +22,8 @@
 
   let failedCoverBookIds = $state(new Set<string>());
   let fallbackAttemptedBookIds = $state(new Set<string>());
+  let activeCoverUrlsByBookId = $state(new Map<string, string>());
+  let coverStateSignature = $state("");
 
   /**
    * Resolves the best available cover URL for a book.
@@ -60,7 +62,7 @@
    * Combines: renderable URL + non-placeholder + valid aspect ratio + no runtime failure.
    */
   function hasDisplayableCover(book: Book): boolean {
-    const url = resolveCoverUrl(book);
+    const url = activeCoverUrlsByBookId.get(book.id) ?? resolveCoverUrl(book);
     if (!url || url.trim().length === 0) {
       return false;
     }
@@ -109,12 +111,37 @@
     const fallback = resolveFallbackUrl(book);
     if (fallback && !fallbackAttemptedBookIds.has(bookId)) {
       fallbackAttemptedBookIds = new Set([...fallbackAttemptedBookIds, bookId]);
+      const nextCoverUrlsByBookId = new Map(activeCoverUrlsByBookId);
+      nextCoverUrlsByBookId.set(bookId, fallback);
+      activeCoverUrlsByBookId = nextCoverUrlsByBookId;
       img.src = fallback;
       return;
     }
 
     failedCoverBookIds = new Set([...failedCoverBookIds, bookId]);
   }
+
+  $effect(() => {
+    const nextSignature = books
+      .map((book) => `${book.id}:${resolveCoverUrl(book) ?? ""}`)
+      .join("|");
+    if (nextSignature === coverStateSignature) {
+      return;
+    }
+
+    coverStateSignature = nextSignature;
+    failedCoverBookIds = new Set();
+    fallbackAttemptedBookIds = new Set();
+
+    const nextCoverUrlsByBookId = new Map<string, string>();
+    for (const book of books) {
+      const url = resolveCoverUrl(book);
+      if (url && url.trim().length > 0) {
+        nextCoverUrlsByBookId.set(book.id, url);
+      }
+    }
+    activeCoverUrlsByBookId = nextCoverUrlsByBookId;
+  });
 </script>
 
 {#if displayableBooks.length > 0}
@@ -133,7 +160,7 @@
             class="flex aspect-[2/3] items-center justify-center overflow-hidden rounded-lg bg-linen-100 p-3 transition-all duration-300 group-hover:-translate-y-0.5 group-hover:shadow-book dark:bg-slate-800/60"
           >
             <img
-              src={resolveCoverUrl(book)}
+              src={activeCoverUrlsByBookId.get(book.id) ?? resolveCoverUrl(book)}
               alt={`${book.title ?? "Book"} cover`}
               class="max-h-full w-auto rounded-book object-contain transition-transform duration-300 group-hover:scale-[1.03]"
               loading="lazy"

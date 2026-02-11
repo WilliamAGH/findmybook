@@ -19,8 +19,6 @@
   let descriptionExpanded = $state(false);
   let descriptionMeasured = $state(false);
   let descriptionOverflows = $state(false);
-  let descriptionMaxHeightPx = $state(DESCRIPTION_FALLBACK_HEIGHT_PX);
-  let descriptionNaturalHeightPx = $state(DESCRIPTION_FALLBACK_HEIGHT_PX);
   let descriptionResizeObserver: ResizeObserver | null = null;
   let previousBookId = $state<string | null>(null);
 
@@ -54,8 +52,6 @@
         return;
       }
       const maxHeightPx = resolveDescriptionMaxHeightPx(descriptionContainer);
-      descriptionMaxHeightPx = maxHeightPx;
-      descriptionNaturalHeightPx = descriptionContainer.scrollHeight;
       descriptionOverflows = descriptionContainer.scrollHeight > maxHeightPx + 1;
       descriptionMeasured = true;
     });
@@ -135,9 +131,8 @@
           class="book-description-expandable break-words text-sm leading-relaxed text-anthracite-700 dark:text-slate-300 overflow-hidden transition-[max-height] duration-300 ease-in-out"
           class:book-description-content={sanitizedDescriptionHtml.length > 0}
           class:whitespace-pre-wrap={sanitizedDescriptionHtml.length === 0}
-          style:--book-description-max-height={descriptionCollapsed
-            ? `${descriptionMaxHeightPx}px`
-            : `${descriptionNaturalHeightPx}px`}
+          class:book-description-collapsed={descriptionCollapsed}
+          class:book-description-expanded={!descriptionCollapsed}
         >
           {#if sanitizedDescriptionHtml.length > 0}
             {@html sanitizedDescriptionHtml}
@@ -167,8 +162,12 @@
 {/if}
 
 <style>
-  .book-description-expandable {
-    max-height: var(--book-description-max-height);
+  .book-description-expandable.book-description-collapsed {
+    max-height: 13lh;
+  }
+
+  .book-description-expandable.book-description-expanded {
+    max-height: 9999px;
   }
 
   .book-description-content :global(p),

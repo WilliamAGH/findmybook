@@ -76,6 +76,10 @@ public class NewYorkTimesBestsellerScheduler {
         processNewYorkTimesBestsellers(requestedDate, false);
     }
 
+    public void forceProcessNewYorkTimesBestsellers() {
+        processNewYorkTimesBestsellers(null, true);
+    }
+
     public void forceProcessNewYorkTimesBestsellers(@Nullable LocalDate requestedDate) {
         processNewYorkTimesBestsellers(requestedDate, true);
     }
@@ -94,7 +98,7 @@ public class NewYorkTimesBestsellerScheduler {
         List<LocalDate> publishedDates = loadHistoricalPublishedDates();
         if (publishedDates.isEmpty()) {
             log.info("No historical NYT published dates found in Postgres. Running latest overview once instead.");
-            forceProcessNewYorkTimesBestsellers(null);
+            forceProcessNewYorkTimesBestsellers();
             return new HistoricalRerunSummary(0, 1, 0, List.of());
         }
 

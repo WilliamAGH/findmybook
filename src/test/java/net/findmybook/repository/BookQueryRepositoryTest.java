@@ -207,7 +207,7 @@ class BookQueryRepositoryTest {
     }
 
     @Test
-    void testFetchRecommendationCards_usesPersistedRowsEvenWhenExpired() {
+    void should_ReturnPersistedRecommendationCards_When_RecommendationRowsAreExpired() {
         if (bookQueryRepository == null || jdbcTemplate == null) {
             return;
         }
@@ -237,7 +237,7 @@ class BookQueryRepositoryTest {
     }
 
     @Test
-    void testFetchBookEditions_returnsRelatedEditions() {
+    void should_ReturnRelatedEditions_When_BookBelongsToWorkCluster() {
         if (bookQueryRepository == null || jdbcTemplate == null) {
             return;
         }

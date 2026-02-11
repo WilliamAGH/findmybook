@@ -12,6 +12,7 @@
   } from "$lib/services/books";
   import {
     mergePersistedCoverIntoBook,
+    releaseCoverRelayCandidate,
     reserveCoverRelayCandidate,
   } from "$lib/services/coverRelayPersistence";
   import { subscribeToBookCoverUpdates } from "$lib/services/realtime";
@@ -204,6 +205,7 @@
   }
 
   async function handleDetailCoverLoad(): Promise<void> {
+    const sequence = loadSequence;
     const currentBook = book;
     const normalizedRenderedUrl = reserveCoverRelayCandidate(
       currentBook,
@@ -222,6 +224,11 @@
         source: currentBook.cover?.source ?? null,
       });
 
+      if (sequence !== loadSequence || !book || book.id !== currentBook.id || detailCoverUrl !== normalizedRenderedUrl) {
+        releaseCoverRelayCandidate(currentBook.id, normalizedRenderedUrl, attemptedCoverPersistKeys);
+        return;
+      }
+
       liveCoverUrl = persistedCover.storedCoverUrl;
       detailCoverUrl = persistedCover.storedCoverUrl;
       book = mergePersistedCoverIntoBook(currentBook, persistedCover, normalizedRenderedUrl);
@@ -231,6 +238,7 @@
         `[BookPage] Failed to persist rendered cover for "${currentBook.title}" from ${normalizedRenderedUrl}`,
         persistError,
       );
+      releaseCoverRelayCandidate(currentBook.id, normalizedRenderedUrl, attemptedCoverPersistKeys);
     }
   }
 

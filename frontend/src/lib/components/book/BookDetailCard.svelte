@@ -65,6 +65,22 @@
     return date.toLocaleDateString();
   }
 
+  function averageRatingText(): string | null {
+    const averageRating = book.extras?.averageRating;
+    if (averageRating === undefined || averageRating === null) {
+      return null;
+    }
+    const numericRating = typeof averageRating === "number"
+      ? averageRating
+      : Number.parseFloat(String(averageRating));
+    if (!Number.isFinite(numericRating)) {
+      return null;
+    }
+    return numericRating.toFixed(1);
+  }
+
+  let averageRatingDisplay = $derived(averageRatingText());
+
   function hasClampOverflow(element: HTMLElement, maxLines: number): boolean {
     const scrollDelta = element.scrollHeight - element.clientHeight;
     if (scrollDelta <= CLAMP_OVERFLOW_EPSILON_PX) {
@@ -178,10 +194,10 @@
         onload={onCoverLoad}
         onerror={onCoverError}
       />
-      {#if book.extras?.averageRating !== undefined && book.extras?.averageRating !== null}
+      {#if averageRatingDisplay}
         <div class="absolute right-3 top-3 flex items-center gap-1 rounded-lg bg-canvas-400 px-2.5 py-1 text-sm font-medium text-white shadow-sm">
           <Star size={12} class="fill-current" />
-          <span>{Number(book.extras.averageRating).toFixed(1)}</span>
+          <span>{averageRatingDisplay}</span>
         </div>
       {/if}
     </div>

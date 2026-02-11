@@ -29,7 +29,7 @@ public class BookCoverResolutionService {
 
     private final BookSearchService bookSearchService;
     private final BookIdentifierResolver bookIdentifierResolver;
-    private final BookDataOrchestrator bookDataOrchestrator;
+    private final Optional<BookDataOrchestrator> bookDataOrchestrator;
 
     /**
      * Creates a canonical cover resolver for controller and application workflows.
@@ -43,7 +43,7 @@ public class BookCoverResolutionService {
                                       BookDataOrchestrator bookDataOrchestrator) {
         this.bookSearchService = bookSearchService;
         this.bookIdentifierResolver = bookIdentifierResolver;
-        this.bookDataOrchestrator = bookDataOrchestrator;
+        this.bookDataOrchestrator = Optional.ofNullable(bookDataOrchestrator);
     }
 
     /**
@@ -72,11 +72,11 @@ public class BookCoverResolutionService {
             }
         }
 
-        if (bookDataOrchestrator == null) {
+        if (bookDataOrchestrator.isEmpty()) {
             return Optional.empty();
         }
 
-        return bookDataOrchestrator.fetchCanonicalBookReactive(identifier)
+        return bookDataOrchestrator.get().fetchCanonicalBookReactive(identifier)
             .timeout(Duration.ofSeconds(5))
             .onErrorMap(exception -> {
                 log.warn("Cover orchestrator lookup failed for '{}': {}", identifier, exception.getMessage());
@@ -101,25 +101,12 @@ public class BookCoverResolutionService {
      * @return canonical UUID when resolvable
      */
     public Optional<UUID> resolveBookUuid(String identifier, String resolvedBookId) {
-        UUID fromResolvedId = parseUuidOrNull(resolvedBookId);
-        if (fromResolvedId != null) {
-            return Optional.of(fromResolvedId);
-        }
-
-        UUID fromIdentifier = parseUuidOrNull(identifier);
-        if (fromIdentifier != null) {
-            return Optional.of(fromIdentifier);
-        }
-
-        Optional<UUID> resolvedUuid = bookIdentifierResolver.resolveToUuid(identifier);
-        if (resolvedUuid.isPresent()) {
-            return resolvedUuid;
-        }
-
-        if (!StringUtils.hasText(resolvedBookId)) {
-            return Optional.empty();
-        }
-        return bookIdentifierResolver.resolveToUuid(resolvedBookId);
+        return parseUuid(resolvedBookId)
+            .or(() -> parseUuid(identifier))
+            .or(() -> bookIdentifierResolver.resolveToUuid(identifier))
+            .or(() -> StringUtils.hasText(resolvedBookId)
+                ? bookIdentifierResolver.resolveToUuid(resolvedBookId)
+                : Optional.empty());
     }
 
     private ResolvedCoverPayload toPayload(String bookId,
@@ -150,15 +137,15 @@ public class BookCoverResolutionService {
         return new ResolvedCoverPayload(bookId, resolved, fallbackUrl, sourceLabel);
     }
 
-    private UUID parseUuidOrNull(String value) {
+    private Optional<UUID> parseUuid(String value) {
         if (!StringUtils.hasText(value)) {
-            return null;
+            return Optional.empty();
         }
         try {
-            return UUID.fromString(value.trim());
+            return Optional.of(UUID.fromString(value.trim()));
         } catch (IllegalArgumentException nonUuidIdentifier) {
             log.trace("Identifier '{}' is not a UUID; falling back to slug-based resolution", value, nonUuidIdentifier);
-            return null;
+            return Optional.empty();
         }
     }
 

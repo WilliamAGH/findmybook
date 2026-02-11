@@ -137,11 +137,8 @@ public class RecommendationService {
         final int effectiveCount = (finalCount <= 0) ? DEFAULT_RECOMMENDATION_COUNT : finalCount;
 
         return fetchCanonicalBook(bookId)
+            .switchIfEmpty(Mono.error(new IllegalStateException("No canonical book found for " + bookId)))
             .flatMap(sourceBook -> fetchRecommendationsFromApiAndUpdateCache(sourceBook, effectiveCount))
-            .switchIfEmpty(Mono.defer(() -> {
-                log.warn("Recommendation regeneration for '{}' produced no results; canonical book lookup or API pipeline returned empty", bookId);
-                return Mono.just(Collections.emptyList());
-            }))
             .onErrorMap(ex -> {
                 LoggingUtils.error(log, ex, "Failed to regenerate recommendations for {}", bookId);
                 return new IllegalStateException("Failed to regenerate recommendations for " + bookId, ex);

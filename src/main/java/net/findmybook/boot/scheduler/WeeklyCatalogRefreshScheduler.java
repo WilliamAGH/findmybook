@@ -2,6 +2,7 @@ package net.findmybook.boot.scheduler;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import net.findmybook.application.book.RecommendationCacheRefreshUseCase;
 import net.findmybook.scheduler.NewYorkTimesBestsellerScheduler;
 import org.slf4j.Logger;
@@ -62,17 +63,17 @@ public class WeeklyCatalogRefreshScheduler {
     private WeeklyRefreshSummary runWeeklyRefreshCycle(boolean forceExecution) {
         if (!forceExecution && !schedulerEnabled) {
             log.info("Weekly catalog refresh scheduler is disabled via configuration.");
-            return new WeeklyRefreshSummary(false, false, null, List.of());
+            return new WeeklyRefreshSummary(false, false, Optional.empty(), List.of());
         }
 
         boolean nytTriggered = false;
         boolean recommendationTriggered = false;
-        RecommendationCacheRefreshUseCase.RefreshSummary recommendationSummary = null;
+        Optional<RecommendationCacheRefreshUseCase.RefreshSummary> recommendationSummary = Optional.empty();
         List<String> failures = new ArrayList<>();
 
         if (nytPhaseEnabled) {
             try {
-                newYorkTimesBestsellerScheduler.forceProcessNewYorkTimesBestsellers(null);
+                newYorkTimesBestsellerScheduler.forceProcessNewYorkTimesBestsellers();
                 nytTriggered = true;
                 log.info("Weekly catalog refresh completed NYT phase successfully.");
             } catch (RuntimeException exception) {
@@ -85,11 +86,13 @@ public class WeeklyCatalogRefreshScheduler {
 
         if (recommendationPhaseEnabled) {
             try {
-                recommendationSummary = recommendationCacheRefreshUseCase.refreshAllRecommendations();
+                RecommendationCacheRefreshUseCase.RefreshSummary refreshedSummary =
+                    recommendationCacheRefreshUseCase.refreshAllRecommendations();
+                recommendationSummary = Optional.of(refreshedSummary);
                 recommendationTriggered = true;
                 log.info(
                     "Weekly catalog refresh completed recommendation phase successfully (refreshedRows={}).",
-                    recommendationSummary.refreshedRows()
+                    refreshedSummary.refreshedRows()
                 );
             } catch (RuntimeException exception) {
                 log.error("Weekly catalog refresh recommendation phase failed.", exception);
@@ -129,7 +132,7 @@ public class WeeklyCatalogRefreshScheduler {
      */
     public record WeeklyRefreshSummary(boolean nytTriggered,
                                        boolean recommendationTriggered,
-                                       RecommendationCacheRefreshUseCase.RefreshSummary recommendationSummary,
+                                       Optional<RecommendationCacheRefreshUseCase.RefreshSummary> recommendationSummary,
                                        List<String> failures) {
     }
 }

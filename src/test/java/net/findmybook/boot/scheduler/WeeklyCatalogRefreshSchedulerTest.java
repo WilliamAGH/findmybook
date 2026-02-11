@@ -9,7 +9,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -40,9 +39,9 @@ class WeeklyCatalogRefreshSchedulerTest {
 
         assertThat(summary.nytTriggered()).isTrue();
         assertThat(summary.recommendationTriggered()).isTrue();
-        assertThat(summary.recommendationSummary()).isEqualTo(refreshSummary);
+        assertThat(summary.recommendationSummary()).contains(refreshSummary);
         assertThat(summary.failures()).isEmpty();
-        verify(newYorkTimesBestsellerScheduler).forceProcessNewYorkTimesBestsellers(nullable(java.time.LocalDate.class));
+        verify(newYorkTimesBestsellerScheduler).forceProcessNewYorkTimesBestsellers();
         verify(recommendationCacheRefreshUseCase).refreshAllRecommendations();
     }
 
@@ -59,7 +58,7 @@ class WeeklyCatalogRefreshSchedulerTest {
             .thenReturn(new RecommendationCacheRefreshUseCase.RefreshSummary(10L, 1L, 9, 10L, 30));
         org.mockito.Mockito.doThrow(new IllegalStateException("nyt failure"))
             .when(newYorkTimesBestsellerScheduler)
-            .forceProcessNewYorkTimesBestsellers(nullable(java.time.LocalDate.class));
+            .forceProcessNewYorkTimesBestsellers();
 
         assertThatThrownBy(scheduler::forceRunWeeklyRefreshCycle)
             .isInstanceOf(IllegalStateException.class)

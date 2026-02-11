@@ -91,17 +91,30 @@ public class BrowserCoverIngestUseCase {
         ImageDetails uploadedImage = uploadProcessedCover(bookUuid, uploadSource, processedImage);
         String storageKey = requireStorageKey(uploadedImage, bookUuid);
 
-        CoverPersistenceService.PersistenceResult persistenceResult = coverPersistenceService.updateAfterS3Upload(
-            bookUuid,
-            new CoverPersistenceService.S3UploadResult(
+        CoverPersistenceService.PersistenceResult persistenceResult;
+        try {
+            persistenceResult = coverPersistenceService.updateAfterS3Upload(
+                bookUuid,
+                new CoverPersistenceService.S3UploadResult(
+                    storageKey,
+                    uploadedImage.getUrlOrPath(),
+                    uploadedImage.getWidth(),
+                    uploadedImage.getHeight(),
+                    uploadedImage.getGrayscale(),
+                    uploadSource
+                )
+            );
+        } catch (RuntimeException persistenceFailure) {
+            log.error(
+                "Failed to persist S3 cover metadata for book {} (storageKey={}, source={}): {}",
+                bookUuid,
                 storageKey,
-                uploadedImage.getUrlOrPath(),
-                uploadedImage.getWidth(),
-                uploadedImage.getHeight(),
-                uploadedImage.getGrayscale(),
-                uploadSource
-            )
-        );
+                uploadSource,
+                persistenceFailure.getMessage(),
+                persistenceFailure
+            );
+            throw persistenceFailure;
+        }
 
         if (!persistenceResult.success() || !StringUtils.hasText(persistenceResult.canonicalUrl())) {
             log.error("Cover persistence reported unsuccessful status for book {} after browser ingest", bookUuid);

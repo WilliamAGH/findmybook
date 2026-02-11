@@ -118,17 +118,23 @@ public class BookCoverController {
                 result.highResolution()
             ));
         } catch (NoSuchElementException exception) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, exception.getMessage(), exception);
+            log.warn("Cover ingest target not found for identifier '{}' (sourceUrl='{}')", identifier, sourceUrl, exception);
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Book cover target not found.", exception);
         } catch (CoverImageRejectedException exception) {
-            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, exception.getMessage(), exception);
+            log.warn("Cover ingest rejected for identifier '{}' (sourceUrl='{}'): {}", identifier, sourceUrl, exception.getMessage());
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "Uploaded cover image failed validation.", exception);
         } catch (IllegalArgumentException exception) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
+            log.warn("Invalid cover ingest request for identifier '{}' (sourceUrl='{}'): {}", identifier, sourceUrl, exception.getMessage());
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid cover ingest request.", exception);
         } catch (CoverTooLargeException exception) {
-            throw new ResponseStatusException(HttpStatus.CONTENT_TOO_LARGE, exception.getMessage(), exception);
+            log.warn("Cover ingest payload too large for identifier '{}' (sourceUrl='{}')", identifier, sourceUrl, exception);
+            throw new ResponseStatusException(HttpStatus.CONTENT_TOO_LARGE, "Uploaded cover image exceeds size limits.", exception);
         } catch (S3UploadException exception) {
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage(), exception);
+            log.error("Cover ingest storage failure for identifier '{}' (sourceUrl='{}')", identifier, sourceUrl, exception);
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Cover storage service is temporarily unavailable.", exception);
         } catch (IllegalStateException exception) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, exception.getMessage(), exception);
+            log.error("Cover ingest internal failure for identifier '{}' (sourceUrl='{}')", identifier, sourceUrl, exception);
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Cover ingest failed unexpectedly.", exception);
         }
     }
 

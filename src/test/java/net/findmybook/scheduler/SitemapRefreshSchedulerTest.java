@@ -138,7 +138,7 @@ class NewYorkTimesBestsellerSchedulerTest {
     }
 
     @Test
-    void upsertNytExternalIdentifiers_shouldUseAtomicUpsertStatement() throws Exception {
+    void should_UseAtomicUpsertStatement_When_UpsertingNytExternalIdentifiers() throws Exception {
         JsonNode bookNode = objectMapper.readTree(
             """
             {
@@ -158,7 +158,7 @@ class NewYorkTimesBestsellerSchedulerTest {
         );
 
         verify(jdbcTemplate, times(1)).update(
-            org.mockito.ArgumentMatchers.contains("ON CONFLICT (book_id, source) DO UPDATE"),
+            org.mockito.ArgumentMatchers.contains("ON CONFLICT (source, external_id) DO UPDATE"),
             any(),
             any(),
             any(),
@@ -173,7 +173,7 @@ class NewYorkTimesBestsellerSchedulerTest {
     }
 
     @Test
-    void processNewYorkTimesBestsellers_shouldIgnoreMissingOptionalListFields_WhenOverviewContainsPartialData() throws Exception {
+    void should_IgnoreMissingOptionalListFields_When_OverviewContainsPartialData() throws Exception {
         JsonNode overview = objectMapper.readTree(
             """
             {
@@ -693,7 +693,7 @@ class NewYorkTimesBestsellerSchedulerTest {
         assertDoesNotThrow(() -> scheduler.processNewYorkTimesBestsellers());
 
         verify(jdbcTemplate, times(1)).update(
-            org.mockito.ArgumentMatchers.contains("ON CONFLICT (book_id, source) DO UPDATE"),
+            org.mockito.ArgumentMatchers.contains("ON CONFLICT (source, external_id) DO UPDATE"),
             any(),
             eq(existingBookId),
             any(),
