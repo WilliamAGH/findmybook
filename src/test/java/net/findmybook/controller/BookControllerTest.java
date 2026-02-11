@@ -199,6 +199,29 @@ class BookControllerTest extends AbstractBookControllerMvcTest {
     }
 
     @Test
+    @DisplayName("GET /api/books/{identifier} returns view metrics for all-time window")
+    void should_IncludeAllTimeViewMetrics_When_ViewWindowIsAll() throws Exception {
+        var detail = buildDetailFromBook(fixtureBook);
+        when(bookSearchService.fetchBookDetailBySlug(fixtureBook.getSlug()))
+            .thenReturn(Optional.of(detail));
+        when(recentlyViewedService.fetchViewCount(
+            fixtureBook.getId(),
+            RecentBookViewRepository.ViewWindow.ALL_TIME
+        )).thenReturn(1000L);
+
+        performAsync(get("/api/books/" + fixtureBook.getSlug())
+            .param("viewWindow", "all"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.viewMetrics.window", equalTo("all")))
+            .andExpect(jsonPath("$.viewMetrics.totalViews", equalTo(1000)));
+
+        verify(recentlyViewedService).fetchViewCount(
+            fixtureBook.getId(),
+            RecentBookViewRepository.ViewWindow.ALL_TIME
+        );
+    }
+
+    @Test
     @DisplayName("GET /api/books/{identifier} prefers canonical Postgres detail when present")
     void getBookByIdentifier_prefersCanonicalPostgresDetail() throws Exception {
         Book canonical = buildBook(fixtureBook.getId(), fixtureBook.getSlug());

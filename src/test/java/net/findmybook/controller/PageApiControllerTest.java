@@ -107,7 +107,7 @@ class PageApiControllerTest {
     }
 
     @Test
-    void shouldReturnPopularBooksWhenWindowRequested() throws Exception {
+    void should_ReturnPopularBooks_When_WindowRequested() throws Exception {
         BookCard bestseller = new BookCard(
             "book-best",
             "book-best-slug",
@@ -151,7 +151,7 @@ class PageApiControllerTest {
     }
 
     @Test
-    void shouldRejectInvalidPopularWindow() throws Exception {
+    void should_RejectInvalidPopularWindow_When_WindowUnsupported() throws Exception {
         mockMvc.perform(get("/api/pages/home")
                 .param("popularWindow", "7d")
                 .accept(MediaType.APPLICATION_PROBLEM_JSON))
@@ -162,7 +162,7 @@ class PageApiControllerTest {
     }
 
     @Test
-    void shouldApplyDefaultPopularityArgumentsWhenNotProvided() throws Exception {
+    void should_ApplyDefaultPopularityArguments_When_NotProvided() throws Exception {
         when(homePageSectionsService.loadCurrentBestsellers(anyInt())).thenReturn(Mono.just(List.of()));
         when(homePageSectionsService.loadRecentBooks(anyInt())).thenReturn(Mono.just(List.of()));
 
@@ -181,7 +181,7 @@ class PageApiControllerTest {
     }
 
     @Test
-    void shouldClampPopularityLimitWhenAboveMaximum() throws Exception {
+    void should_ClampPopularityLimit_When_AboveMaximum() throws Exception {
         when(homePageSectionsService.loadCurrentBestsellers(anyInt())).thenReturn(Mono.just(List.of()));
         when(homePageSectionsService.loadRecentBooks(anyInt())).thenReturn(Mono.just(List.of()));
 

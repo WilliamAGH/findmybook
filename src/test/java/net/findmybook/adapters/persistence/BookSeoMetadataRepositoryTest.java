@@ -38,7 +38,7 @@ class BookSeoMetadataRepositoryTest {
     private JdbcTemplate jdbcTemplate;
 
     @Test
-    void insertNewCurrentVersion_IncrementsVersion_AndDemotesPreviousCurrentRow() {
+    void should_IncrementVersionAndDemotePrevious_When_InsertingNewCurrentVersion() {
         UUID bookId = createBook();
         repository.insertNewCurrentVersion(bookId, "Title v1 - Book Details | findmybook.net", "Description v1", "m1", "openai", "h1");
         BookSeoMetadataSnapshot snapshot = repository.insertNewCurrentVersion(
@@ -61,7 +61,7 @@ class BookSeoMetadataRepositoryTest {
     }
 
     @Test
-    void fetchCurrentPromptHash_ReturnsCurrentPromptHash() {
+    void should_ReturnCurrentPromptHash_When_CurrentVersionExists() {
         UUID bookId = createBook();
         repository.insertNewCurrentVersion(
             bookId,

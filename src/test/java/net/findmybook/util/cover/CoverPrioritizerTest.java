@@ -29,7 +29,7 @@ class CoverPrioritizerTest {
 
     @Test
     @DisplayName("hasColorCover rejects grayscale and placeholder cards")
-    void hasColorCoverRejectsGrayscaleAndPlaceholderCards() {
+    void should_RejectGrayscaleAndPlaceholder_When_CheckingHasColorCover() {
         BookCard grayscale = new BookCard(
             "gray",
             "gray",
@@ -194,7 +194,7 @@ class CoverPrioritizerTest {
 
     @Test
     @DisplayName("bookComparatorWithPrimarySort keeps no-cover rows behind color covers")
-    void bookComparatorWithPrimarySortDemotesNoCoverRows() {
+    void should_DemoteNoCoverRows_When_PrimarySortIsProvided() {
         Book noCoverHighRelevance = book("1", null, null, null, null, false);
         noCoverHighRelevance.addQualifier("search.relevanceScore", 0.99d);
         Book colorLowerRelevance = book("2", "https://cdn.test/covers/color.jpg", null, 900, 1400, true);

@@ -180,7 +180,7 @@ class BookAiContentRequestQueueTest {
     }
 
     @Test
-    void should_RejectBackgroundAfterPendingCapButStillAcceptForeground() throws Exception {
+    void should_RejectBackgroundButAcceptForeground_When_BackgroundAtPendingCap() throws Exception {
         BookAiContentRequestQueue queue = new BookAiContentRequestQueue(1, 1);
         CountDownLatch releaseRunningBackground = new CountDownLatch(1);
 

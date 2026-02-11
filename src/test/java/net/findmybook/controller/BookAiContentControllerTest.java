@@ -143,7 +143,7 @@ class BookAiContentControllerTest {
 
     @Test
     @DisplayName("POST stream continues to enqueue foreground task even when pending queue is high")
-    void streamAiContent_enqueuesForegroundTask_WhenQueueIsBusyWithBackgroundWork() throws Exception {
+    void should_EnqueueForegroundTask_When_QueueBusyWithBackgroundWork() throws Exception {
         UUID bookId = UUID.randomUUID();
         when(aiContentService.resolveBookId("busy-slug")).thenReturn(Optional.of(bookId));
         when(aiContentService.findCurrent(bookId)).thenReturn(Optional.empty());
