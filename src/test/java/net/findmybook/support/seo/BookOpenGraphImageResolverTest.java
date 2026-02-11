@@ -3,10 +3,17 @@ package net.findmybook.support.seo;
 import net.findmybook.model.Book;
 import net.findmybook.model.image.CoverImages;
 import net.findmybook.model.image.CoverImageSource;
+import net.findmybook.service.image.CoverUrlSafetyValidator;
 import net.findmybook.service.image.LocalDiskCoverCacheService;
 import org.junit.jupiter.api.Test;
+import org.springframework.web.reactive.function.client.ExchangeFunction;
+import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
+
+import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -77,5 +84,22 @@ class BookOpenGraphImageResolverTest {
         assertEquals((byte) 0x50, imageBytes[1]);
         assertEquals((byte) 0x4E, imageBytes[2]);
         assertEquals((byte) 0x47, imageBytes[3]);
+    }
+}
+
+class BookOpenGraphCoverImageLoaderTest {
+
+    @Test
+    void should_ReturnNull_When_RemoteCoverFetchTimesOut() {
+        ExchangeFunction neverRespondingExchange = request -> Mono.never();
+        WebClient.Builder webClientBuilder = WebClient.builder().exchangeFunction(neverRespondingExchange);
+        BookOpenGraphCoverImageLoader loader = new BookOpenGraphCoverImageLoader(
+            webClientBuilder,
+            new CanonicalUrlResolver(),
+            new CoverUrlSafetyValidator(),
+            Duration.ofMillis(10)
+        );
+
+        assertNull(loader.load("https://findmybook.net/images/non-existent-cover.png"));
     }
 }

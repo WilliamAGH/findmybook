@@ -17,23 +17,27 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 import net.findmybook.application.page.PublicPagePayloadUseCase;
+import net.findmybook.adapters.persistence.PageViewEventRepository;
 import net.findmybook.config.SitemapProperties;
 import net.findmybook.dto.BookCard;
 import net.findmybook.service.AffiliateLinkService;
 import net.findmybook.service.BookSeoMetadataService;
 import net.findmybook.service.HomePageSectionsService;
-import net.findmybook.adapters.persistence.PageViewEventRepository;
 import net.findmybook.service.RecentBookViewRepository;
 import net.findmybook.service.SitemapService;
 import net.findmybook.util.ApplicationConstants;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.CacheManager;
 import org.springframework.http.MediaType;
 import org.springframework.context.annotation.Import;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import reactor.core.publisher.Mono;
@@ -288,4 +292,26 @@ class PageApiControllerTest {
             .andExpect(jsonPath("$.detail").value("Homepage payload load failed"));
     }
 
+}
+
+@ExtendWith(MockitoExtension.class)
+class PageViewEventRepositoryTest {
+
+    @Mock
+    private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
+    @Test
+    void should_NotThrow_When_RecordViewInsertFails() {
+        PageViewEventRepository repository = new PageViewEventRepository(jdbcTemplate);
+        org.mockito.Mockito.doThrow(new DataAccessResourceFailureException("db down"))
+            .when(jdbcTemplate)
+            .update(
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(org.springframework.jdbc.core.PreparedStatementSetter.class)
+            );
+
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(
+            () -> repository.recordView("homepage", Instant.parse("2026-02-11T00:00:00Z"), "api")
+        );
+    }
 }

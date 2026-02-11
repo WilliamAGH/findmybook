@@ -9,6 +9,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.time.Duration;
 import java.util.Locale;
+import java.util.concurrent.TimeoutException;
 import javax.imageio.ImageIO;
 import net.findmybook.service.image.CoverUrlSafetyValidator;
 import net.findmybook.util.ApplicationConstants;
@@ -41,22 +42,37 @@ public class BookOpenGraphCoverImageLoader {
     private static final long MAX_INPUT_PIXELS = 40_000_000L;
     private static final String HTTP_SCHEME = "http";
     private static final String HTTPS_SCHEME = "https";
+    private static final Duration DEFAULT_REMOTE_FETCH_TIMEOUT = Duration.ofSeconds(5);
 
     private final WebClient webClient;
     private final CanonicalUrlResolver canonicalUrlResolver;
     private final CoverUrlSafetyValidator coverUrlSafetyValidator;
+    private final Duration remoteFetchTimeout;
 
     public BookOpenGraphCoverImageLoader() {
-        this(WebClient.builder(), new CanonicalUrlResolver(), new CoverUrlSafetyValidator());
+        this(
+            WebClient.builder(),
+            new CanonicalUrlResolver(),
+            new CoverUrlSafetyValidator(),
+            DEFAULT_REMOTE_FETCH_TIMEOUT
+        );
     }
 
     @Autowired
     public BookOpenGraphCoverImageLoader(WebClient.Builder webClientBuilder,
                                          CanonicalUrlResolver canonicalUrlResolver,
                                          CoverUrlSafetyValidator coverUrlSafetyValidator) {
+        this(webClientBuilder, canonicalUrlResolver, coverUrlSafetyValidator, DEFAULT_REMOTE_FETCH_TIMEOUT);
+    }
+
+    BookOpenGraphCoverImageLoader(WebClient.Builder webClientBuilder,
+                                  CanonicalUrlResolver canonicalUrlResolver,
+                                  CoverUrlSafetyValidator coverUrlSafetyValidator,
+                                  Duration remoteFetchTimeout) {
         this.webClient = webClientBuilder.build();
         this.canonicalUrlResolver = canonicalUrlResolver;
         this.coverUrlSafetyValidator = coverUrlSafetyValidator;
+        this.remoteFetchTimeout = remoteFetchTimeout != null ? remoteFetchTimeout : DEFAULT_REMOTE_FETCH_TIMEOUT;
     }
 
     /**
@@ -149,13 +165,17 @@ public class BookOpenGraphCoverImageLoader {
                 }
                 return response.bodyToMono(byte[].class);
             })
-            .timeout(Duration.ofSeconds(5))
+            .timeout(remoteFetchTimeout)
             .onErrorResume(WebClientRequestException.class, error -> {
                 log.warn("OpenGraph cover request failed for {}", imageUri, error);
                 return Mono.empty();
             })
             .onErrorResume(WebClientResponseException.class, error -> {
                 log.warn("OpenGraph cover response failed for {}", imageUri, error);
+                return Mono.empty();
+            })
+            .onErrorResume(TimeoutException.class, error -> {
+                log.warn("OpenGraph cover request timed out for {}", imageUri, error);
                 return Mono.empty();
             });
 
