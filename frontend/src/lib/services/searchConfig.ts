@@ -12,14 +12,6 @@ export const COVER_OPTIONS = ["ANY", "GOOGLE_BOOKS", "OPEN_LIBRARY", "LONGITOOD"
 export const RESOLUTION_OPTIONS = ["ANY", "HIGH_ONLY", "HIGH_FIRST"] as const;
 export const SORT_OPTIONS = ["relevance", "title", "author", "newest"] as const;
 
-export const EXPLORE_DEFAULT_QUERIES = [
-  "Classic literature", "Modern thrillers", "Space opera adventures", "Historical fiction bestsellers",
-  "Award-winning science fiction", "Inspiring biographies", "Mind-bending philosophy", "Beginner's cookbooks",
-  "Epic fantasy sagas", "Cyberpunk futures", "Cozy mysteries", "Environmental science",
-  "Artificial intelligence ethics", "World mythology", "Travel memoirs",
-  "New York Times bestseller",
-] as const;
-
 export const SORT_LABELS: Record<SortOption, string> = {
   relevance: "Most Relevant",
   title: "Title A–Z",
@@ -73,10 +65,6 @@ export function dedupeGenres(rawGenres: string[]): string[] {
 
 export function categoryQueryFromGenres(genres: string[]): string {
   return genres.join(" OR ");
-}
-
-export function pickRandomExploreQuery(): string {
-  return EXPLORE_DEFAULT_QUERIES[Math.floor(Math.random() * EXPLORE_DEFAULT_QUERIES.length)];
 }
 
 export function computeTotalPages(
