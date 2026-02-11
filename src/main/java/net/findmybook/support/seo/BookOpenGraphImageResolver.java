@@ -2,6 +2,7 @@ package net.findmybook.support.seo;
 
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import net.findmybook.model.Book;
@@ -107,10 +108,10 @@ public class BookOpenGraphImageResolver {
      * @return encoded PNG bytes
      */
     public byte[] renderFallbackOpenGraphImage(String identifier) {
-        String normalizedIdentifier = StringUtils.hasText(identifier) ? identifier.trim() : DEFAULT_CARD_TITLE;
+        String normalizedIdentifier = StringUtils.hasText(identifier) ? identifier.trim() : "";
         return bookOpenGraphPngRenderer.render(
             DEFAULT_CARD_TITLE,
-            "findmybook route: " + normalizedIdentifier,
+            normalizedIdentifier,
             List.of("Book"),
             null
         );
@@ -137,17 +138,27 @@ public class BookOpenGraphImageResolver {
 
     private String resolveSubtitle(Book book) {
         if (book != null && book.getAuthors() != null && !book.getAuthors().isEmpty()) {
-            String authorLine = book.getAuthors().stream()
-                .filter(StringUtils::hasText)
-                .map(String::trim)
-                .limit(2)
-                .reduce((left, right) -> left + ", " + right)
-                .orElse("");
+            LinkedHashMap<String, String> uniqueAuthors = new LinkedHashMap<>();
+            for (String rawAuthor : book.getAuthors()) {
+                if (!StringUtils.hasText(rawAuthor)) {
+                    continue;
+                }
+                String normalizedAuthor = rawAuthor.trim().replaceFirst("^(?i)by\\s+", "");
+                if (!StringUtils.hasText(normalizedAuthor)) {
+                    continue;
+                }
+                String dedupeKey = normalizedAuthor.toLowerCase(Locale.ROOT);
+                uniqueAuthors.putIfAbsent(dedupeKey, normalizedAuthor);
+                if (uniqueAuthors.size() >= 2) {
+                    break;
+                }
+            }
+            String authorLine = String.join(", ", uniqueAuthors.values());
             if (StringUtils.hasText(authorLine)) {
                 return "by " + authorLine;
             }
         }
-        return "Detailed metadata, editions, and recommendations.";
+        return "";
     }
 
     private List<String> resolveBadges(Book book) {
@@ -175,7 +186,7 @@ public class BookOpenGraphImageResolver {
         if (badges.isEmpty()) {
             badges.add("Book");
         }
-        return badges.stream().limit(3).toList();
+        return badges.stream().distinct().limit(3).toList();
     }
 
     private String truncate(String value, int maxLength) {

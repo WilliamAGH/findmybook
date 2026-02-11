@@ -12,10 +12,13 @@ import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import javax.imageio.ImageIO;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -29,19 +32,24 @@ import org.springframework.util.StringUtils;
 @Component
 public class BookOpenGraphPngRenderer {
 
+    private static final Logger log = LoggerFactory.getLogger(BookOpenGraphPngRenderer.class);
     private static final int CANVAS_WIDTH = 1200;
     private static final int CANVAS_HEIGHT = 630;
-    private static final int CANVAS_PADDING = 56;
-    private static final int COVER_WIDTH = 320;
-    private static final int COVER_HEIGHT = 420;
-    private static final int COVER_RADIUS = 18;
-    private static final int TITLE_FONT_SIZE = 56;
-    private static final int SUBTITLE_FONT_SIZE = 30;
-    private static final int BADGE_FONT_SIZE = 22;
-    private static final int BRAND_FONT_SIZE = 28;
-    private static final int CONTENT_GAP = 48;
+    private static final int OUTER_PADDING = 34;
+    private static final int CONTENT_PADDING = 42;
+    private static final int COVER_WIDTH = 372;
+    private static final int COVER_HEIGHT = 548;
+    private static final int COVER_RADIUS = 24;
+    private static final int TITLE_FONT_SIZE = 62;
+    private static final int SUBTITLE_FONT_SIZE = 32;
+    private static final int BRAND_FONT_SIZE = 26;
+    private static final int CONTENT_GAP = 54;
+    private static final int TEXT_RIGHT_BUFFER = 48;
+    private static final int LOGO_TARGET_WIDTH = 322;
     private static final String DEFAULT_CARD_TITLE = "Book Details";
     private static final String BRAND_LABEL = "findmybook.net";
+    private static final String BRAND_LOGO_RESOURCE = "static/images/findmybook-logo.png";
+    private volatile BufferedImage brandLogo;
 
     /**
      * Renders a full 1200x630 PNG card from prepared metadata and cover image.
@@ -87,28 +95,47 @@ public class BookOpenGraphPngRenderer {
     }
 
     private void paintBackground(Graphics2D graphics) {
-        graphics.setPaint(new GradientPaint(0, 0, new Color(10, 15, 26), CANVAS_WIDTH, CANVAS_HEIGHT, new Color(26, 31, 58)));
+        graphics.setColor(new Color(8, 13, 22));
         graphics.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-        graphics.setComposite(AlphaComposite.SrcOver.derive(0.24f));
+        graphics.setPaint(new GradientPaint(0, 0, new Color(13, 20, 33), CANVAS_WIDTH, CANVAS_HEIGHT, new Color(20, 27, 41)));
+        graphics.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        graphics.setComposite(AlphaComposite.SrcOver.derive(0.16f));
         graphics.setColor(new Color(59, 130, 246));
-        graphics.fillOval(760, -120, 520, 520);
-        graphics.setColor(new Color(16, 185, 129));
-        graphics.fillOval(-180, 330, 520, 420);
+        graphics.fillOval(770, -130, 500, 500);
+        graphics.setColor(new Color(56, 189, 248));
+        graphics.fillOval(-240, 420, 460, 360);
+        graphics.setComposite(AlphaComposite.SrcOver.derive(0.08f));
+        graphics.setColor(new Color(255, 255, 255));
+        for (int x = 0; x < CANVAS_WIDTH; x += 8) {
+            graphics.drawLine(x, 0, x, CANVAS_HEIGHT);
+        }
         graphics.setComposite(AlphaComposite.SrcOver);
+        RoundRectangle2D shell = new RoundRectangle2D.Float(
+            OUTER_PADDING,
+            OUTER_PADDING,
+            CANVAS_WIDTH - (OUTER_PADDING * 2f),
+            CANVAS_HEIGHT - (OUTER_PADDING * 2f),
+            36,
+            36
+        );
+        graphics.setColor(new Color(13, 19, 31, 230));
+        graphics.fill(shell);
+        graphics.setColor(new Color(255, 255, 255, 26));
+        graphics.setStroke(new BasicStroke(2f));
+        graphics.draw(shell);
     }
 
     private void drawCover(Graphics2D graphics, BufferedImage coverImage) {
-        int x = CANVAS_PADDING;
-        int y = CANVAS_PADDING;
+        int x = OUTER_PADDING + CONTENT_PADDING;
+        int y = (CANVAS_HEIGHT - COVER_HEIGHT) / 2;
         graphics.setColor(new Color(0, 0, 0, 120));
-        graphics.fillRoundRect(x + 10, y + 18, COVER_WIDTH, COVER_HEIGHT, COVER_RADIUS, COVER_RADIUS);
-
+        graphics.fillRoundRect(x - 6, y - 6, COVER_WIDTH + 12, COVER_HEIGHT + 12, COVER_RADIUS + 8, COVER_RADIUS + 8);
+        graphics.setColor(new Color(0, 0, 0, 120));
+        graphics.fillRoundRect(x + 14, y + 20, COVER_WIDTH, COVER_HEIGHT, COVER_RADIUS, COVER_RADIUS);
         if (coverImage == null) {
             drawCoverPlaceholder(graphics, x, y);
             return;
         }
-
         graphics.setClip(new RoundRectangle2D.Float(x, y, COVER_WIDTH, COVER_HEIGHT, COVER_RADIUS, COVER_RADIUS));
         double scale = Math.max((double) COVER_WIDTH / coverImage.getWidth(), (double) COVER_HEIGHT / coverImage.getHeight());
         int drawWidth = (int) Math.round(coverImage.getWidth() * scale);
@@ -128,97 +155,152 @@ public class BookOpenGraphPngRenderer {
     }
 
     private void drawCoverPlaceholder(Graphics2D graphics, int x, int y) {
-        graphics.setColor(new Color(35, 41, 74));
+        graphics.setColor(new Color(24, 33, 52));
         graphics.fillRoundRect(x, y, COVER_WIDTH, COVER_HEIGHT, COVER_RADIUS, COVER_RADIUS);
-        graphics.setColor(new Color(148, 163, 184));
+        graphics.setColor(new Color(99, 118, 148));
         graphics.setStroke(new BasicStroke(4f));
-        graphics.drawRoundRect(x + 96, y + 118, 128, 168, 10, 10);
-        graphics.drawLine(x + 160, y + 132, x + 160, y + 272);
+        int placeholderX = x + ((COVER_WIDTH - 150) / 2);
+        int placeholderY = y + ((COVER_HEIGHT - 200) / 2);
+        graphics.drawRoundRect(placeholderX, placeholderY, 150, 200, 10, 10);
+        graphics.drawLine(placeholderX + 75, placeholderY + 16, placeholderX + 75, placeholderY + 184);
+        graphics.setColor(new Color(177, 191, 214));
+        graphics.setFont(new Font("SansSerif", Font.PLAIN, 24));
+        graphics.drawString("No cover image", x + 98, y + COVER_HEIGHT - 68);
     }
 
     private void drawText(Graphics2D graphics, String title, String subtitle, List<String> badges) {
-        int textX = CANVAS_PADDING + COVER_WIDTH + CONTENT_GAP;
-        int maxTextWidth = CANVAS_WIDTH - textX - CANVAS_PADDING;
-
+        int coverX = OUTER_PADDING + CONTENT_PADDING;
+        int textX = coverX + COVER_WIDTH + CONTENT_GAP;
+        int maxTextWidth = Math.max(
+            200,
+            CANVAS_WIDTH - OUTER_PADDING - CONTENT_PADDING - textX - TEXT_RIGHT_BUFFER
+        );
         graphics.setColor(Color.WHITE);
         graphics.setFont(new Font("SansSerif", Font.BOLD, TITLE_FONT_SIZE));
         FontMetrics titleMetrics = graphics.getFontMetrics();
         List<String> titleLines = wrapTitle(titleMetrics, title, maxTextWidth, 2);
-        int y = CANVAS_PADDING + 76;
+        int y = OUTER_PADDING + CONTENT_PADDING + 94;
         for (String line : titleLines) {
             graphics.drawString(line, textX, y);
             y += titleMetrics.getHeight() + 8;
         }
-
-        graphics.setColor(new Color(148, 163, 184));
+        graphics.setColor(new Color(173, 188, 210));
         graphics.setFont(new Font("SansSerif", Font.PLAIN, SUBTITLE_FONT_SIZE));
-        graphics.drawString(truncate(subtitle, 80), textX, y + 56);
-
-        graphics.setFont(new Font("SansSerif", Font.BOLD, BADGE_FONT_SIZE));
-        FontMetrics badgeMetrics = graphics.getFontMetrics();
-        int badgeX = textX;
-        int badgeY = y + 84;
-        for (String badge : badges) {
-            String normalizedBadge = truncate(badge.toUpperCase(Locale.ROOT), 18);
-            int badgeWidth = badgeMetrics.stringWidth(normalizedBadge) + 44;
-            if (badgeX + badgeWidth > textX + maxTextWidth) {
-                break;
+        FontMetrics subtitleMetrics = graphics.getFontMetrics();
+        List<String> subtitleLines = wrapText(subtitleMetrics, subtitle, maxTextWidth, 2, "");
+        int subtitleY = y + 30;
+        for (String line : subtitleLines) {
+            if (!StringUtils.hasText(line)) {
+                continue;
             }
-            graphics.setColor(resolveBadgeColor(normalizedBadge));
-            graphics.fillRoundRect(badgeX, badgeY, badgeWidth, 44, 999, 999);
-            graphics.setColor(Color.WHITE);
-            graphics.drawString(normalizedBadge, badgeX + 22, badgeY + 30);
-            badgeX += badgeWidth + 12;
+            graphics.drawString(line, textX, subtitleY);
+            subtitleY += subtitleMetrics.getHeight() + 4;
         }
     }
 
     private void drawBrand(Graphics2D graphics) {
+        BufferedImage logoImage = loadBrandLogo();
+        int rightInset = OUTER_PADDING + CONTENT_PADDING;
+        int bottomInset = OUTER_PADDING + CONTENT_PADDING;
+        if (logoImage != null && logoImage.getWidth() > 0 && logoImage.getHeight() > 0) {
+            int drawWidth = LOGO_TARGET_WIDTH;
+            int drawHeight = Math.max(1, (int) Math.round((double) logoImage.getHeight() * drawWidth / logoImage.getWidth()));
+            int x = CANVAS_WIDTH - rightInset - drawWidth;
+            int y = CANVAS_HEIGHT - bottomInset - drawHeight;
+            graphics.setComposite(AlphaComposite.SrcOver.derive(0.92f));
+            graphics.drawImage(logoImage, x, y, drawWidth, drawHeight, null);
+            graphics.setComposite(AlphaComposite.SrcOver);
+            return;
+        }
         graphics.setColor(new Color(203, 213, 225));
         graphics.setFont(new Font("SansSerif", Font.PLAIN, BRAND_FONT_SIZE));
-        int y = CANVAS_HEIGHT - CANVAS_PADDING;
+        int y = CANVAS_HEIGHT - bottomInset;
         int textWidth = graphics.getFontMetrics().stringWidth(BRAND_LABEL);
-        int x = CANVAS_WIDTH - CANVAS_PADDING - textWidth;
+        int x = CANVAS_WIDTH - rightInset - textWidth;
         graphics.drawString(BRAND_LABEL, x, y);
     }
 
     private List<String> wrapTitle(FontMetrics metrics, String title, int maxWidth, int maxLines) {
-        String normalizedTitle = StringUtils.hasText(title) ? title.trim() : DEFAULT_CARD_TITLE;
-        String[] words = normalizedTitle.split("\\s+");
+        return wrapText(metrics, title, maxWidth, maxLines, DEFAULT_CARD_TITLE);
+    }
+
+    private List<String> wrapText(FontMetrics metrics,
+                                  String text,
+                                  int maxWidth,
+                                  int maxLines,
+                                  String fallbackValue) {
+        int safeMaxWidth = Math.max(120, maxWidth);
+        int safeMaxLines = Math.max(1, maxLines);
+        String normalizedValue = StringUtils.hasText(text) ? text.trim() : fallbackValue;
+        if (!StringUtils.hasText(normalizedValue)) {
+            return List.of("");
+        }
+        String[] words = normalizedValue.split("\\s+");
         List<String> lines = new ArrayList<>();
         StringBuilder currentLine = new StringBuilder();
-        for (String word : words) {
+        int index = 0;
+        for (; index < words.length; index++) {
+            String word = words[index];
             String candidate = currentLine.isEmpty() ? word : currentLine + " " + word;
-            if (metrics.stringWidth(candidate) <= maxWidth) {
+            if (metrics.stringWidth(candidate) <= safeMaxWidth) {
                 currentLine.setLength(0);
                 currentLine.append(candidate);
                 continue;
             }
-            boolean lineWasEmpty = currentLine.isEmpty();
-            lines.add(lineWasEmpty ? word : currentLine.toString());
-            currentLine.setLength(0);
-            if (!lineWasEmpty) {
-                currentLine.append(word);
+            if (currentLine.isEmpty()) {
+                lines.add(trimToWidth(metrics, word, safeMaxWidth));
+                if (lines.size() >= safeMaxLines) {
+                    index++;
+                    break;
+                }
+                continue;
             }
-            if (lines.size() >= maxLines) {
+            lines.add(currentLine.toString());
+            currentLine.setLength(0);
+            currentLine.append(word);
+            if (lines.size() >= safeMaxLines) {
                 break;
             }
         }
-        if (!currentLine.isEmpty() && lines.size() < maxLines) {
+        if (!currentLine.isEmpty() && lines.size() < safeMaxLines) {
             lines.add(currentLine.toString());
         }
         if (lines.isEmpty()) {
-            lines.add(DEFAULT_CARD_TITLE);
+            lines.add(trimToWidth(metrics, normalizedValue, safeMaxWidth));
         }
-        if (lines.size() > maxLines) {
-            lines = lines.subList(0, maxLines);
+        if (lines.size() > safeMaxLines) {
+            lines = lines.subList(0, safeMaxLines);
         }
+        boolean hasOverflow = index < words.length;
         int lastIndex = lines.size() - 1;
-        lines.set(lastIndex, trimToWidth(metrics, lines.get(lastIndex), maxWidth));
+        String normalizedLastLine = trimToWidth(metrics, lines.get(lastIndex), safeMaxWidth);
+        lines.set(
+            lastIndex,
+            hasOverflow ? forceEllipsis(metrics, normalizedLastLine, safeMaxWidth) : normalizedLastLine
+        );
         return lines;
     }
 
+    private String forceEllipsis(FontMetrics metrics, String value, int maxWidth) {
+        String base = StringUtils.hasText(value) ? value.trim() : "";
+        String ellipsis = "...";
+        if (base.endsWith(ellipsis)) {
+            return trimToWidth(metrics, base, maxWidth);
+        }
+        while (base.length() > 1 && metrics.stringWidth(base + ellipsis) > maxWidth) {
+            base = base.substring(0, base.length() - 1);
+        }
+        if (!StringUtils.hasText(base)) {
+            return ellipsis;
+        }
+        return base + ellipsis;
+    }
+
     private String trimToWidth(FontMetrics metrics, String value, int maxWidth) {
-        String trimmed = truncate(value, 96);
+        String trimmed = StringUtils.hasText(value) ? value.trim() : "";
+        if (!StringUtils.hasText(trimmed)) {
+            return "";
+        }
         if (metrics.stringWidth(trimmed) <= maxWidth) {
             return trimmed;
         }
@@ -226,27 +308,34 @@ public class BookOpenGraphPngRenderer {
         while (trimmed.length() > 1 && metrics.stringWidth(trimmed + ellipsis) > maxWidth) {
             trimmed = trimmed.substring(0, trimmed.length() - 1);
         }
-        return trimmed + ellipsis;
+        return StringUtils.hasText(trimmed) ? trimmed + ellipsis : ellipsis;
     }
 
-    private Color resolveBadgeColor(String badge) {
-        if ("PDF".equals(badge)) {
-            return new Color(139, 92, 246);
+    private BufferedImage loadBrandLogo() {
+        BufferedImage cachedLogo = brandLogo;
+        if (cachedLogo != null) {
+            return cachedLogo;
         }
-        if ("EPUB".equals(badge)) {
-            return new Color(16, 185, 129);
+        synchronized (this) {
+            if (brandLogo != null) {
+                return brandLogo;
+            }
+            try (InputStream logoStream = Thread.currentThread()
+                .getContextClassLoader()
+                .getResourceAsStream(BRAND_LOGO_RESOURCE)) {
+                if (logoStream == null) {
+                    log.warn("OpenGraph logo resource not found: {}", BRAND_LOGO_RESOURCE);
+                    return null;
+                }
+                brandLogo = ImageIO.read(logoStream);
+                if (brandLogo == null) {
+                    log.warn("OpenGraph logo resource could not be decoded: {}", BRAND_LOGO_RESOURCE);
+                }
+                return brandLogo;
+            } catch (IOException exception) {
+                log.warn("Failed to load OpenGraph logo resource {}", BRAND_LOGO_RESOURCE, exception);
+                return null;
+            }
         }
-        return new Color(245, 158, 11);
-    }
-
-    private String truncate(String value, int maxLength) {
-        if (!StringUtils.hasText(value)) {
-            return "";
-        }
-        String trimmed = value.trim();
-        if (trimmed.length() <= maxLength) {
-            return trimmed;
-        }
-        return trimmed.substring(0, Math.max(1, maxLength - 3)) + "...";
     }
 }

@@ -63,4 +63,19 @@ class BookOpenGraphImageResolverTest {
         assertEquals((byte) 0x4E, imageBytes[2]);
         assertEquals((byte) 0x47, imageBytes[3]);
     }
+
+    @Test
+    void should_RenderFallbackOpenGraphImage_When_IdentifierIsUnresolved() {
+        LocalDiskCoverCacheService cacheService = mock(LocalDiskCoverCacheService.class);
+        when(cacheService.getLocalPlaceholderPath()).thenReturn("/assets/placeholder-book-cover.png");
+
+        BookOpenGraphImageResolver resolver = new BookOpenGraphImageResolver(cacheService);
+        byte[] imageBytes = resolver.renderFallbackOpenGraphImage("missing-book");
+
+        assertTrue(imageBytes.length > 32);
+        assertEquals((byte) 0x89, imageBytes[0]);
+        assertEquals((byte) 0x50, imageBytes[1]);
+        assertEquals((byte) 0x4E, imageBytes[2]);
+        assertEquals((byte) 0x47, imageBytes[3]);
+    }
 }
