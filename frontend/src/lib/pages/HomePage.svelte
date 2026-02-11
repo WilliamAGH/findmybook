@@ -43,23 +43,30 @@
     };
   }
 
+  let loadRequestId = 0;
+
   async function loadHome(window: PopularWindow = selectedPopularWindow): Promise<void> {
+    const requestId = ++loadRequestId;
     loading = true;
     errorMessage = null;
 
     try {
       const payload = await getHomePagePayload({ popularWindow: window, popularLimit: 8 });
+      if (requestId !== loadRequestId) return;
       bestsellers = payload.currentBestsellers.map(toDisplayCard);
       recentBooks = payload.recentBooks.map(toDisplayCard);
       popularBooks = payload.popularBooks.map(toDisplayCard);
       selectedPopularWindow = payload.popularWindow;
     } catch (error) {
+      if (requestId !== loadRequestId) return;
       errorMessage = error instanceof Error ? error.message : "Unable to load homepage content";
       bestsellers = [];
       recentBooks = [];
       popularBooks = [];
     } finally {
-      loading = false;
+      if (requestId === loadRequestId) {
+        loading = false;
+      }
     }
   }
 

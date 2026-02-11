@@ -22,7 +22,13 @@ export function popularWindowLabel(window: PopularWindow): string {
   return "last 90 days";
 }
 
-function mapPopularCardToSearchHit(card: ApiBookCard): SearchHit {
+function popularMatchType(window: PopularWindow): string {
+  if (window === "30d") return "POPULAR_30D";
+  if (window === "all") return "POPULAR_ALL";
+  return "POPULAR_90D";
+}
+
+function mapPopularCardToSearchHit(card: ApiBookCard, window: PopularWindow): SearchHit {
   const authors = (card.authors ?? []).map((name) => ({ id: null, name }));
   return {
     id: card.id,
@@ -50,7 +56,7 @@ function mapPopularCardToSearchHit(card: ApiBookCard): SearchHit {
     extras: {},
     aiContent: null,
     viewMetrics: null,
-    matchType: "POPULAR_90D",
+    matchType: popularMatchType(window),
     relevanceScore: card.ratings_count ?? null,
   };
 }
@@ -61,7 +67,7 @@ export function buildExplorePopularSearchResponse(
   page: number,
   pageSize: number,
 ): SearchResponse {
-  const allPopularHits = popularCards.map(mapPopularCardToSearchHit);
+  const allPopularHits = popularCards.map((card) => mapPopularCardToSearchHit(card, window));
   const startIndex = startIndexFromPage(page, pageSize);
   const results = allPopularHits.slice(startIndex, startIndex + pageSize);
   const hasMore = startIndex + pageSize < allPopularHits.length;

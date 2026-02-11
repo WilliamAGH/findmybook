@@ -17,7 +17,7 @@ export const EXPLORE_DEFAULT_QUERIES = [
   "Award-winning science fiction", "Inspiring biographies", "Mind-bending philosophy", "Beginner's cookbooks",
   "Epic fantasy sagas", "Cyberpunk futures", "Cozy mysteries", "Environmental science",
   "Artificial intelligence ethics", "World mythology", "Travel memoirs",
-  "New york times bestseller",
+  "New York Times bestseller",
 ] as const;
 
 export const SORT_LABELS: Record<SortOption, string> = {
