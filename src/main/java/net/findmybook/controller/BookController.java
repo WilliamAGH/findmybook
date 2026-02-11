@@ -7,7 +7,6 @@ import jakarta.annotation.Nullable;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import lombok.extern.slf4j.Slf4j;
 import net.findmybook.application.book.BookDetailResponseUseCase;
 import net.findmybook.application.book.RecommendationCardResponseUseCase;
 import net.findmybook.controller.dto.BookDto;
@@ -16,6 +15,8 @@ import net.findmybook.controller.dto.search.AuthorSearchResponse;
 import net.findmybook.controller.dto.search.SearchContractMapper;
 import net.findmybook.controller.dto.search.SearchFilters;
 import net.findmybook.controller.dto.search.SearchResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.server.ResponseStatusException;
 import net.findmybook.dto.BookDetail;
 import net.findmybook.model.Book;
@@ -45,8 +46,8 @@ import reactor.core.scheduler.Schedulers;
 
 @RestController
 @RequestMapping("/api/books")
-@Slf4j
 public class BookController {
+    private static final Logger log = LoggerFactory.getLogger(BookController.class);
     private final BookSearchService bookSearchService;
     private final BookIdentifierResolver bookIdentifierResolver;
     private final SearchPaginationService searchPaginationService;

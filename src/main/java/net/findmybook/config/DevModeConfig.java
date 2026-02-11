@@ -75,7 +75,14 @@ public class DevModeConfig {
                 .recordStats()
                 .expireAfterWrite(Duration.ofMinutes(searchResultsCacheTtlMinutes))
                 .build());
-        
+
+        cacheManager.registerCustomCache("bookOgImages", Caffeine.newBuilder()
+                .initialCapacity(100)
+                .maximumSize(1000)
+                .recordStats()
+                .expireAfterWrite(Duration.ofHours(24))
+                .build());
+
         logger.info("Dev mode cache initialized: 'books' TTL {} mins, 'bookSearchResults' TTL {} mins. Request limit: {}/min",
                 googleBooksCacheTtlMinutes, searchResultsCacheTtlMinutes, googleBooksRequestLimitPerMinute);
         

@@ -7,6 +7,8 @@ See [UML README](../src/main/resources/uml/README.md).
 - Public HTML routes (`/`, `/search`, `/explore`, `/categories`, `/book/*`, `/sitemap`, `/sitemap/*`, `/404`, `/error`) are server-owned and render a server-generated SPA shell.
 - The shell includes server-side SEO metadata (title, description, canonical, OpenGraph, Twitter) and hydrates the Svelte frontend.
 - Book detail routes (`/book/{slug}`) emit route-specific Book JSON-LD (`@type: Book`) and OpenGraph `book:*` properties (`book:isbn`, `book:release_date`, `book:tag`) when source data is available.
+- Book detail title/description metadata resolves from versioned `book_seo_metadata` rows first; when no current row exists, metadata falls back to legacy title generation and truncated book-description logic.
+- Book detail routes now publish dynamic OpenGraph image URLs (`/api/pages/og/book/{identifier}`) that render branded 1200x630 PNG cards with the canonical cover image + route text overlays.
 - `GET /api/pages/meta` returns full route metadata for SPA transitions, including `robots`, `openGraphType`, `openGraphProperties`, and `structuredDataJson` so client-side navigation preserves crawler-facing tags.
 - The shell also embeds the backend route manifest (`window.__FMB_ROUTE_MANIFEST__`), and the same contract is exposed by `GET /api/pages/routes` for SPA bootstrap.
 - SPA navigation now writes typed history state for each in-app transition so the book detail back action returns to the exact prior route state (including active filters/pagination) instead of reconstructing a generic search URL.
@@ -15,6 +17,17 @@ See [UML README](../src/main/resources/uml/README.md).
 - Trailing-slash variants of page routes permanently redirect (`308`) to the canonical non-slash path with query strings preserved.
 - Non-HTML crawler endpoints remain explicit and unchanged (`/book/isbn*`, `/sitemap.xml`, `/sitemap-xml/*`, `/robots.txt`).
 - Static fallback HTML at `/frontend/index.html` is not served; only backend controllers provide public HTML entrypoints.
+
+## Book SEO Metadata Pipeline
+
+- Canonical book upserts enqueue background AI work on the central AI queue for:
+  - Reader's Guide (`book_ai_content`)
+  - SEO title/description (`book_seo_metadata`)
+- SEO rows are versioned per book (`version_number`) with a single `is_current=true` row.
+- Prompt-hash checks skip regeneration when effective model prompt inputs are unchanged.
+- Manual backfill script:
+  - `scripts/BackfillBookAiSeoMetadata.java <bookIdentifier> [--force]`
+  - Identifier supports UUID, slug, or ISBN.
 
 ## Sitemap Generation
 Trigger manual sitemap update:
@@ -29,7 +42,7 @@ CLI migration flags were removed from application startup. The runtime now fails
 Use manual SQL migration scripts and controlled data-loading steps instead of boot-time flags.
 
 - SQL migration assets: `frontend/scripts/backfill_cover_metadata.sql`, `migrations/`, and `src/main/resources/schema.sql`.
-- Schema module layout: `src/main/resources/schema.sql` is the orchestrator entrypoint and includes the ordered canonical modules under `migrations/` (`00_extensions.sql` through `40_book_ai_content.sql`).
+- Schema module layout: `src/main/resources/schema.sql` is the orchestrator entrypoint and includes the ordered canonical modules under `migrations/` (`00_extensions.sql` through `47_book_seo_metadata.sql`).
 - Data hygiene guardrails are consolidated into canonical table migrations: `migrations/10_books.sql` (book title cleanup + constraints), `migrations/14_book_authors_join.sql` (author cleanup + join dedupe + constraints), `migrations/20_book_tag_assignments.sql` (tag/assignment canonicalization), and `migrations/38_work_clustering_data_hygiene.sql` (Google clustering hygiene rebuild).
 - Controlled data load: run the explicit migration tool directly:
   `node frontend/scripts/migrate-s3-to-db-v2.js --prefix books/v1/ --limit 1000`

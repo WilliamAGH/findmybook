@@ -42,7 +42,7 @@ spring:
   # Cache configuration - can be disabled with SPRING_CACHE_TYPE=none
   cache:
     type: ${SPRING_CACHE_TYPE:caffeine} # Defaulting to Caffeine for L1 in-memory cache
-    cache-names: books,bookCovers,searchResults,bookRequests,searchRequests,bookSearchResults,nytBestsellersCurrent
+    cache-names: books,bookCovers,searchResults,bookRequests,searchRequests,bookSearchResults,nytBestsellersCurrent,bookOgImages
     caffeine:
       spec: "maximumSize=1000,expireAfterWrite=240m,recordStats" # Default spec for all caches
   
@@ -73,6 +73,11 @@ app:
     persist-search-results: ${APP_FEATURE_PERSIST_SEARCH_RESULTS:true} # Persist external API search results to Postgres for click availability
     async-backfill:
       enabled: ${APP_FEATURE_ASYNC_BACKFILL_ENABLED:false} # Disabled by default. Uses BackfillQueueService (in-memory queue) instead of database table
+  seo:
+    max-description-length: ${APP_SEO_MAX_DESCRIPTION_LENGTH:160}
+  ai:
+    queue:
+      background-max-pending: ${APP_AI_QUEUE_BACKGROUND_MAX_PENDING:100000}
   security:
     admin:
       password: ${APP_ADMIN_PASSWORD}
@@ -264,7 +269,7 @@ spring:
   
   # Production-specific cache configuration with optimized settings
   cache:
-    cache-names: books,bookSearchResults,nytBestsellersCurrent
+    cache-names: books,bookSearchResults,nytBestsellersCurrent,bookOgImages
     caffeine:
       spec: "maximumSize=2000,expireAfterWrite=12h,recordStats" # Optimized for production load
 

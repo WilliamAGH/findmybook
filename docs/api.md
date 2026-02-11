@@ -13,6 +13,7 @@
   - `GET /api/pages/home?popularWindow={30d|90d|all}&popularLimit={n}`
   - `GET /api/pages/routes`
   - `GET /api/pages/meta?path={routePath}`
+  - `GET /api/pages/og/book/{identifier}`
   - `GET /api/pages/sitemap?view={authors|books}&letter={A-Z|0-9}&page={n}`
   - `GET /api/pages/book/{identifier}/affiliate-links`
   - `GET /api/pages/categories/facets?limit={n}&minBooks={n}`
@@ -90,10 +91,13 @@
 - `GET /api/books/ai/content/queue`
   - Response fields:
     - `running: number`
-    - `pending: number`
+    - `pending: number` (foreground + background combined)
     - `maxParallel: number`
     - `available: boolean`
     - `environmentMode: string` (`development`, `production`, or `test`)
+  - Queue semantics:
+    - Foreground (interactive Svelte) tasks are always dequeued ahead of background ingestion tasks.
+    - Background enqueue is capped by `APP_AI_QUEUE_BACKGROUND_MAX_PENDING` (default `100000`).
 - `POST /api/books/{identifier}/ai/content/stream`
   - Query params:
     - `refresh` (`false` by default; when `false`, cached Postgres AI snapshot is returned when present)
@@ -112,7 +116,6 @@
         - `identifier_required`
         - `book_not_found`
         - `service_unavailable`
-        - `queue_busy`
         - `stream_timeout`
         - `empty_generation`
         - `cache_serialization_failed`
@@ -156,6 +159,14 @@
     - `openGraphProperties: Array<{ property, content }>` (route-specific OG extensions such as `book:*`)
     - `structuredDataJson` (JSON-LD payload for route rich-result metadata)
     - `statusCode` (semantic route status for head/error handling in SPA)
+  - Book routes return an absolute dynamic `ogImage` URL:
+    - `https://findmybook.net/api/pages/og/book/{identifier}`
+    - The image endpoint returns `image/png` at `1200x630`.
+  - Book metadata title/description behavior:
+    - Prefer current `book_seo_metadata` row values when present.
+    - Otherwise fallback to existing route metadata logic:
+      - title generated from canonical book title
+      - description generated from canonical description text and truncated by `app.seo.max-description-length` (default `160`).
   - Special routes:
     - `path=/error` returns error metadata with `statusCode=500`.
 - `GET /api/pages/routes`
@@ -166,6 +177,15 @@
   - Contract purpose:
     - Defines route matching/canonical behavior once on the backend.
     - The SPA router consumes the same manifest (embedded at shell render time and available from this endpoint).
+- `GET /api/pages/og/book/{identifier}`
+  - Purpose:
+    - Returns crawler-safe dynamic OpenGraph image bytes for book detail routes.
+  - Response:
+    - `200 image/png`
+    - `Cache-Control: public, max-age=86400, s-maxage=86400, stale-while-revalidate=3600`
+    - Body is a branded `1200x630` PNG using the canonical book cover + route text overlays.
+  - Fallback behavior:
+    - Unknown identifiers return a branded fallback PNG (still `200 image/png`) to avoid broken social previews.
 - `GET /api/pages/sitemap`
   - Query params:
     - `view` (`authors` or `books`, default `authors`)

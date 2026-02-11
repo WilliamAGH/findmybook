@@ -13,8 +13,11 @@ import org.springframework.util.StringUtils;
 public class SpaShellDocumentRenderer {
 
     private static final String OPEN_GRAPH_IMAGE_TYPE = "image/png";
-    private static final String OPEN_GRAPH_IMAGE_WIDTH = "1200";
-    private static final String OPEN_GRAPH_IMAGE_HEIGHT = "630";
+    private static final int OPEN_GRAPH_IMAGE_WIDTH = 1200;
+    private static final int OPEN_GRAPH_IMAGE_HEIGHT = 630;
+    private static final String OPEN_GRAPH_IMAGE_WIDTH_VALUE = Integer.toString(OPEN_GRAPH_IMAGE_WIDTH);
+    private static final String OPEN_GRAPH_IMAGE_HEIGHT_VALUE = Integer.toString(OPEN_GRAPH_IMAGE_HEIGHT);
+    private static final String TWITTER_CARD_TYPE = "summary_large_image";
     private static final boolean DEFAULT_SIMPLE_ANALYTICS_ENABLED = true;
     private static final String DEFAULT_SIMPLE_ANALYTICS_SCRIPT_URL =
         "https://scripts.simpleanalyticscdn.com/latest.js";
@@ -22,6 +25,7 @@ public class SpaShellDocumentRenderer {
     private final SeoMarkupFormatter seoMarkupFormatter;
     private final OpenGraphHeadTagRenderer openGraphHeadTagRenderer;
     private final CanonicalUrlResolver canonicalUrlResolver;
+    private final SeoMetadataDevValidator seoMetadataDevValidator;
     private final boolean simpleAnalyticsEnabled;
     private final String simpleAnalyticsScriptUrl;
 
@@ -39,6 +43,7 @@ public class SpaShellDocumentRenderer {
             seoMarkupFormatter,
             openGraphHeadTagRenderer,
             canonicalUrlResolver,
+            SeoMetadataDevValidator.disabled(),
             DEFAULT_SIMPLE_ANALYTICS_ENABLED,
             DEFAULT_SIMPLE_ANALYTICS_SCRIPT_URL
         );
@@ -48,11 +53,13 @@ public class SpaShellDocumentRenderer {
     public SpaShellDocumentRenderer(SeoMarkupFormatter seoMarkupFormatter,
                                     OpenGraphHeadTagRenderer openGraphHeadTagRenderer,
                                     CanonicalUrlResolver canonicalUrlResolver,
+                                    SeoMetadataDevValidator seoMetadataDevValidator,
                                     @Value("${app.simple-analytics.enabled:true}") boolean simpleAnalyticsEnabled,
                                     @Value("${app.simple-analytics.script-url:https://scripts.simpleanalyticscdn.com/latest.js}") String simpleAnalyticsScriptUrl) {
         this.seoMarkupFormatter = seoMarkupFormatter;
         this.openGraphHeadTagRenderer = openGraphHeadTagRenderer;
         this.canonicalUrlResolver = canonicalUrlResolver;
+        this.seoMetadataDevValidator = seoMetadataDevValidator;
         this.simpleAnalyticsEnabled = simpleAnalyticsEnabled;
         this.simpleAnalyticsScriptUrl = simpleAnalyticsScriptUrl;
     }
@@ -78,13 +85,25 @@ public class SpaShellDocumentRenderer {
         String escapedCanonicalUrl = seoMarkupFormatter.escapeHtml(normalizedCanonical);
         String escapedOgImage = seoMarkupFormatter.escapeHtml(absoluteOgImage);
         String escapedOgImageAlt = seoMarkupFormatter.escapeHtml(ctx.openGraphImageAlt());
-        String escapedOpenGraphType = seoMarkupFormatter.escapeHtml(
-            seoMarkupFormatter.fallbackText(effectiveMetadata.openGraphType(), ctx.defaultOpenGraphType())
-        );
+        String resolvedOpenGraphType = seoMarkupFormatter.fallbackText(effectiveMetadata.openGraphType(), ctx.defaultOpenGraphType());
+        String escapedOpenGraphType = seoMarkupFormatter.escapeHtml(resolvedOpenGraphType);
         String openGraphExtensionTags = openGraphHeadTagRenderer.renderMetaTags(effectiveMetadata.openGraphProperties());
         String escapedThemeColor = seoMarkupFormatter.escapeHtml(ctx.themeColor());
         String escapedBrandName = seoMarkupFormatter.escapeHtml(ctx.brandName());
         String escapedRouteManifestJson = seoMarkupFormatter.escapeInlineScriptJson(ctx.routeManifestJson());
+
+        seoMetadataDevValidator.validateSpaHead(
+            fullTitle,
+            normalizedDescription,
+            normalizedCanonical,
+            absoluteOgImage,
+            resolvedOpenGraphType,
+            ctx.brandName(),
+            OPEN_GRAPH_IMAGE_TYPE,
+            OPEN_GRAPH_IMAGE_WIDTH,
+            OPEN_GRAPH_IMAGE_HEIGHT,
+            TWITTER_CARD_TYPE
+        );
 
         String structuredDataJson = effectiveMetadata.structuredDataJson();
         String escapedStructuredData = seoMarkupFormatter.escapeInlineScriptJson(structuredDataJson);
@@ -123,7 +142,7 @@ public class SpaShellDocumentRenderer {
               <meta property="og:image:height" content="%s">
               <meta property="og:image:alt" content="%s">
               %s
-              <meta name="twitter:card" content="summary_large_image">
+              <meta name="twitter:card" content="%s">
               <meta name="twitter:domain" content="findmybook.net">
               <meta name="twitter:url" content="%s">
               <meta name="twitter:title" content="%s">
@@ -183,10 +202,11 @@ public class SpaShellDocumentRenderer {
             escapedOgImage,
             escapedOgImage,
             OPEN_GRAPH_IMAGE_TYPE,
-            OPEN_GRAPH_IMAGE_WIDTH,
-            OPEN_GRAPH_IMAGE_HEIGHT,
+            OPEN_GRAPH_IMAGE_WIDTH_VALUE,
+            OPEN_GRAPH_IMAGE_HEIGHT_VALUE,
             escapedOgImageAlt,
             openGraphExtensionTags,
+            TWITTER_CARD_TYPE,
             escapedCanonicalUrl,
             escapedTitle,
             escapedDescription,
