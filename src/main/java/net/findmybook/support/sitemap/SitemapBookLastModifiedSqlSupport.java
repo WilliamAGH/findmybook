@@ -1,7 +1,7 @@
 package net.findmybook.support.sitemap;
 
 /**
- * Package-private SQL builder for sitemap book last-modified projections.
+ * SQL builder for sitemap book last-modified projections.
  *
  * <p>This helper centralizes the joined-data timestamp logic so sitemap repository
  * methods reuse one canonical definition for book-level {@code lastmod} values.</p>
@@ -11,6 +11,12 @@ public final class SitemapBookLastModifiedSqlSupport {
     private SitemapBookLastModifiedSqlSupport() {
     }
 
+    /**
+     * Builds the global {@code book_last_modified} CTE for sitemap projections.
+     *
+     * @param bookUpdatedAtAlias SQL alias for the aggregated last-modified timestamp column
+     * @return formatted SQL containing {@code change_events} and {@code book_last_modified} CTEs
+     */
     public static String globalBookLastModifiedCte(String bookUpdatedAtAlias) {
         return """
                 WITH change_events AS (
@@ -107,6 +113,13 @@ public final class SitemapBookLastModifiedSqlSupport {
                 """.formatted(bookUpdatedAtAlias);
     }
 
+    /**
+     * Builds an author-scoped sitemap query with canonical book-level last-modified timestamps.
+     *
+     * @param authorPlaceholders SQL placeholders for the author-id {@code IN (...)} filter
+     * @param bookUpdatedAtAlias SQL alias for the aggregated last-modified timestamp column
+     * @return formatted SQL string for author-scoped sitemap rows
+     */
     public static String scopedAuthorBookLastModifiedQuery(String authorPlaceholders, String bookUpdatedAtAlias) {
         return """
                 WITH requested_authors AS (
