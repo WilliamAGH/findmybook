@@ -239,7 +239,19 @@ public class BookController {
                     .flatMap(generatedBooks -> Mono
                         .fromCallable(() -> bookSearchService.fetchRecommendationCards(sourceUuid, safeLimit))
                         .subscribeOn(Schedulers.boundedElastic())
-                        .map(refreshedCards -> toSimilarBookDtos(new SimilarBookRefreshContext(safeLimit, cachedDtos, generatedBooks, refreshedCards))));
+                        .map(refreshedCards -> toSimilarBookDtos(new SimilarBookRefreshContext(safeLimit, cachedDtos, generatedBooks, refreshedCards))))
+                    .onErrorResume(regenerationFailure -> {
+                        if (!cachedDtos.isEmpty()) {
+                            log.warn(
+                                "Recommendation regeneration failed for '{}'; serving {} stale cached recommendation cards.",
+                                identifier,
+                                cachedDtos.size(),
+                                regenerationFailure
+                            );
+                            return Mono.just(cachedDtos);
+                        }
+                        return Mono.error(regenerationFailure);
+                    });
             });
     }
 
