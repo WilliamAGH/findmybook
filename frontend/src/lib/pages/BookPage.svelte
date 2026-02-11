@@ -521,7 +521,7 @@
           <h1
             id="book-page-title"
             bind:this={titleElement}
-            class="text-3xl font-semibold text-balance text-anthracite-900 dark:text-slate-100"
+            class="break-words text-3xl font-semibold text-balance text-anthracite-900 dark:text-slate-100"
             class:line-clamp-3={!titleExpanded}
             title={book.title ?? undefined}
           >
@@ -538,7 +538,7 @@
           {/if}
           <p
             bind:this={authorElement}
-            class="text-base text-anthracite-700 dark:text-slate-300"
+            class="break-words text-base text-anthracite-700 dark:text-slate-300"
             class:line-clamp-3={!authorExpanded}
             title={authorNames()}
           >
@@ -633,7 +633,7 @@
                 <div class="relative">
                   <div
                     bind:this={descriptionContainer}
-                    class="book-description-expandable text-sm leading-relaxed text-anthracite-700 dark:text-slate-300 overflow-hidden transition-[max-height] duration-300 ease-in-out"
+                    class="book-description-expandable break-words text-sm leading-relaxed text-anthracite-700 dark:text-slate-300 overflow-hidden transition-[max-height] duration-300 ease-in-out"
                     class:book-description-content={sanitizedDescriptionHtml.length > 0}
                     class:whitespace-pre-wrap={sanitizedDescriptionHtml.length === 0}
                     style:--book-description-max-height={descriptionCollapsed

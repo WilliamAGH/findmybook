@@ -212,7 +212,11 @@ public class BookAiContentService {
         } catch (IllegalStateException parseFailure) {
             log.error("AI content parsing failed for bookId={} model={}: {}", bookId, configuredModel, parseFailure.getMessage());
             String parseMessage = StringUtils.hasText(parseFailure.getMessage()) ? parseFailure.getMessage() : "invalid JSON response";
-            throw new BookAiGenerationException(BookAiGenerationException.ErrorCode.GENERATION_FAILED,
+            boolean isQualityFailure = parseMessage.contains("quality check failed");
+            BookAiGenerationException.ErrorCode errorCode = isQualityFailure
+                ? BookAiGenerationException.ErrorCode.DEGENERATE_CONTENT
+                : BookAiGenerationException.ErrorCode.GENERATION_FAILED;
+            throw new BookAiGenerationException(errorCode,
                 "AI content generation failed (%s): %s".formatted(configuredModel, parseMessage), parseFailure);
         }
         BookAiContentSnapshot snapshot = repository.insertNewCurrentVersion(bookId, aiContent, configuredModel, DEFAULT_PROVIDER, promptHash);
@@ -220,6 +224,9 @@ public class BookAiContentService {
     }
 
     private boolean isRetryableGenerationFailure(BookAiGenerationException generationFailure) {
+        if (generationFailure.errorCode() == BookAiGenerationException.ErrorCode.DEGENERATE_CONTENT) {
+            return true;
+        }
         if (generationFailure.errorCode() != BookAiGenerationException.ErrorCode.GENERATION_FAILED) {
             return false;
         }

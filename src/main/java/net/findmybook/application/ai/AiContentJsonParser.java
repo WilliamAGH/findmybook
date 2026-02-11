@@ -71,9 +71,11 @@ class AiContentJsonParser {
         }
 
         // orElse(null) at record boundary: BookAiContent uses @Nullable fields for JSON serialization
-        return new BookAiContent(
+        BookAiContent content = new BookAiContent(
             summary, readerFit.orElse(null), themes,
             takeaways.isEmpty() ? null : takeaways, context.orElse(null));
+        AiContentQualityValidator.validate(content);
+        return content;
     }
 
     private JsonNode parseJsonPayload(String responseText) {
@@ -209,7 +211,7 @@ class AiContentJsonParser {
             keyThemes,
             takeaways.isEmpty() ? null : takeaways,
             context.orElse(null)
-        ));
+        )).filter(AiContentQualityValidator::isValid);
     }
 
     private Optional<String> chooseSummary(List<String> summaryLines, List<String> unscopedLines) {

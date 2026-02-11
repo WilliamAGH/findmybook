@@ -40,3 +40,4 @@
 \ir ../../../migrations/45_page_view_events.sql
 \ir ../../../migrations/46_propagate_grayscale_to_siblings.sql
 \ir ../../../migrations/47_book_seo_metadata.sql
+\ir ../../../migrations/48_book_ai_content_quality_guards.sql

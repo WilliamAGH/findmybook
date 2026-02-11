@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ChevronDown, RefreshCw } from "@lucide/svelte";
   import type { Book } from "$lib/validation/schemas";
+  import { isDegenerateText } from "$lib/validation/textQuality";
 
   interface Props {
     book: Book;
@@ -65,11 +66,11 @@
 
   {#if !collapsed}
     <div class="border-t border-linen-200 px-4 pb-4 pt-3 dark:border-slate-700">
-      {#if book.aiContent}
+      {#if book.aiContent && !isDegenerateText(book.aiContent.summary)}
         {#if aiErrorMessage}
           <p class="mb-2 text-xs text-red-700 dark:text-red-300">{aiErrorMessage}</p>
         {/if}
-        <p class="text-sm leading-relaxed text-anthracite-800 dark:text-slate-200">
+        <p class="break-words text-sm leading-relaxed text-anthracite-800 dark:text-slate-200">
           {book.aiContent.summary}
         </p>
 
@@ -80,7 +81,7 @@
             </h3>
             <ul class="space-y-1 pl-4">
               {#each book.aiContent.takeaways as point}
-                <li class="list-disc text-sm text-anthracite-700 dark:text-slate-300">{point}</li>
+                <li class="list-disc break-words text-sm text-anthracite-700 dark:text-slate-300">{point}</li>
               {/each}
             </ul>
           </div>
@@ -91,7 +92,7 @@
             <h3 class="mb-1 text-xs font-semibold uppercase tracking-wide text-anthracite-500 dark:text-slate-400">
               Audience
             </h3>
-            <p class="text-sm text-anthracite-700 dark:text-slate-300">{book.aiContent.readerFit}</p>
+            <p class="break-words text-sm text-anthracite-700 dark:text-slate-300">{book.aiContent.readerFit}</p>
           </div>
         {/if}
 
@@ -100,14 +101,14 @@
             <h3 class="mb-1 text-xs font-semibold uppercase tracking-wide text-anthracite-500 dark:text-slate-400">
               Context
             </h3>
-            <p class="text-sm text-anthracite-700 dark:text-slate-300">{book.aiContent.context}</p>
+            <p class="break-words text-sm text-anthracite-700 dark:text-slate-300">{book.aiContent.context}</p>
           </div>
         {/if}
 
         {#if book.aiContent.keyThemes.length > 0}
           <div class="mt-3 flex flex-wrap gap-1.5">
             {#each book.aiContent.keyThemes as theme}
-              <span class="rounded-full border border-linen-300 px-2 py-0.5 text-[11px] text-anthracite-700 dark:border-slate-600 dark:text-slate-300">
+              <span class="max-w-full truncate rounded-full border border-linen-300 px-2 py-0.5 text-[11px] text-anthracite-700 dark:border-slate-600 dark:text-slate-300">
                 {theme}
               </span>
             {/each}

@@ -54,11 +54,11 @@ export const DescriptionContentSchema = z.object({
 });
 
 export const BookAiContentSnapshotSchema = z.object({
-  summary: z.string(),
-  readerFit: z.string().nullable().optional(),
-  keyThemes: z.array(z.string()).optional().default([]),
-  takeaways: z.array(z.string()).nullable().optional(),
-  context: z.string().nullable().optional(),
+  summary: z.string().max(2000),
+  readerFit: z.string().max(1500).nullable().optional(),
+  keyThemes: z.array(z.string().max(300)).optional().default([]),
+  takeaways: z.array(z.string().max(300)).nullable().optional(),
+  context: z.string().max(1500).nullable().optional(),
   version: z.number().int().nullable().optional(),
   generatedAt: z.string().datetime().nullable().optional(),
   model: z.string().nullable().optional(),
@@ -72,14 +72,14 @@ export const ViewMetricsSchema = z.object({
 
 export const BookSchema = z.object({
   id: z.string(),
-  slug: z.string().nullable().optional(),
-  title: z.string().nullable().optional(),
+  slug: z.string().max(500).nullable().optional(),
+  title: z.string().max(1000).nullable().optional(),
   source: z.string().nullable().optional(),
-  description: z.string().nullable().optional(),
+  description: z.string().max(50000).nullable().optional(),
   descriptionContent: DescriptionContentSchema.nullable().optional(),
   publication: PublicationSchema.nullable().optional(),
   authors: z.array(AuthorSchema).optional().default([]),
-  categories: z.array(z.string()).optional().default([]),
+  categories: z.array(z.string().max(200)).optional().default([]),
   collections: z.array(CollectionSchema).optional().default([]),
   tags: z.array(TagSchema).optional().default([]),
   cover: CoverSchema.nullable().optional(),
@@ -271,6 +271,7 @@ export const BookAiErrorCodeSchema = z.enum([
   "queue_busy",
   "stream_timeout",
   "empty_generation",
+  "degenerate_content",
   "cache_serialization_failed",
   "description_too_short",
   "enrichment_failed",
