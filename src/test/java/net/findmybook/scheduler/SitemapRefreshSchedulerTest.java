@@ -117,14 +117,20 @@ class NewYorkTimesBestsellerSchedulerTest {
     @BeforeEach
     void setUp() {
         objectMapper = new ObjectMapper();
+        NytBestsellerPayloadMapper payloadMapper = new NytBestsellerPayloadMapper(objectMapper);
+        NytBestsellerPersistenceCollaborator persistenceCollaborator = new NytBestsellerPersistenceCollaborator(
+            jdbcTemplate,
+            supplementalPersistenceService,
+            payloadMapper
+        );
         scheduler = new NewYorkTimesBestsellerScheduler(
             newYorkTimesService,
             bookLookupService,
-            objectMapper,
             jdbcTemplate,
             collectionPersistenceService,
-            supplementalPersistenceService,
             bookUpsertService,
+            payloadMapper,
+            persistenceCollaborator,
             true,
             true
         );
