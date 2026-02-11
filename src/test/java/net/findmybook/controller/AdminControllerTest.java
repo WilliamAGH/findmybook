@@ -94,24 +94,23 @@ class AdminControllerTest {
     }
 
     @Test
-    void triggerNytBestsellerProcessing_shouldReturnInternalServerError_WhenSchedulerFailsUnexpectedly() {
+    void triggerNytBestsellerProcessing_shouldPropagateUnexpectedFailure_WhenSchedulerFailsUnexpectedly() {
         doThrow(new RuntimeException("NYT upstream failed"))
             .when(newYorkTimesBestsellerScheduler)
             .processNewYorkTimesBestsellers();
 
-        ResponseStatusException exception = assertThrows(
-            ResponseStatusException.class,
+        RuntimeException exception = assertThrows(
+            RuntimeException.class,
             () -> adminController.triggerNytBestsellerProcessing()
         );
 
-        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, exception.getStatusCode());
-        assertEquals("Failed to trigger New York Times Bestseller processing job.", exception.getReason());
+        assertEquals("NYT upstream failed", exception.getMessage());
     }
 
     @Test
     void triggerS3CoverCleanupDryRun_shouldReturnInternalServerError_WhenUnexpectedFailureOccurs() {
         when(s3CoverCleanupService.performDryRun(anyString(), anyInt()))
-            .thenThrow(new RuntimeException("S3 list failed"));
+            .thenThrow(new IllegalStateException("S3 list failed"));
 
         ResponseStatusException exception = assertThrows(
             ResponseStatusException.class,
@@ -126,13 +125,25 @@ class AdminControllerTest {
     @Test
     void triggerS3CoverMoveAction_shouldReturnInternalServerError_WhenUnexpectedFailureOccurs() {
         when(s3CoverCleanupService.performMoveAction(nullable(String.class), anyInt(), anyString()))
-            .thenThrow(new RuntimeException("S3 move failed"));
+            .thenThrow(new IllegalStateException("S3 move failed"));
 
         ResponseStatusException exception = assertThrows(
             ResponseStatusException.class,
             () -> adminController.triggerS3CoverMoveAction(null, 10, TEST_QUARANTINE_PREFIX)
         );
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, exception.getStatusCode());
+    }
+
+    @Test
+    void triggerS3CoverMoveAction_shouldReturnBadRequest_WhenMoveActionRejectsArguments() {
+        when(s3CoverCleanupService.performMoveAction(nullable(String.class), anyInt(), anyString()))
+            .thenThrow(new IllegalArgumentException("invalid prefix"));
+
+        ResponseStatusException exception = assertThrows(
+            ResponseStatusException.class,
+            () -> adminController.triggerS3CoverMoveAction(null, 10, TEST_QUARANTINE_PREFIX)
+        );
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
     }
 
     @Test

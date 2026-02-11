@@ -185,7 +185,7 @@ public class AdminController {
             log.info("S3 Cover Cleanup Dry Run response prepared for prefix: '{}', limit: {}. Summary: {} flagged out of {} scanned.", 
                         prefixToUse, batchLimitToUse, summary.getTotalFlagged(), summary.getTotalScanned());
             return ResponseEntity.ok(responseBody);
-        } catch (RuntimeException ex) {
+        } catch (IllegalStateException ex) {
             String errorMessage = String.format(
                 "Failed to complete S3 Cover Cleanup Dry Run with prefix: '%s', limit: %d.",
                 prefixToUse,
@@ -243,7 +243,14 @@ public class AdminController {
             
             log.info("S3 Cover Cleanup Move Action completed. Summary: {}", summary.toString());
             return ResponseEntity.ok(summary);
-        } catch (RuntimeException ex) {
+        } catch (IllegalArgumentException ex) {
+            String errorMessage = String.format(
+                "Invalid move action parameters. Source Prefix: '%s', Limit: %d, Quarantine Prefix: '%s'.",
+                sourcePrefixToUse, batchLimitToUse, quarantinePrefixToUse
+            );
+            log.warn(errorMessage, ex);
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, errorMessage, ex);
+        } catch (IllegalStateException ex) {
             String errorMessage = String.format(
                 "Failed to complete S3 Cover Cleanup Move Action. Source Prefix: '%s', Limit: %d, Quarantine Prefix: '%s'.",
                 sourcePrefixToUse, batchLimitToUse, quarantinePrefixToUse
@@ -281,13 +288,6 @@ public class AdminController {
             throw new ResponseStatusException(
                 HttpStatus.BAD_REQUEST,
                 ex.getMessage() != null ? ex.getMessage() : "Failed to trigger New York Times Bestseller processing job.",
-                ex
-            );
-        } catch (RuntimeException ex) {
-            log.error("Failed to trigger New York Times Bestseller processing job.", ex);
-            throw new ResponseStatusException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
-                "Failed to trigger New York Times Bestseller processing job.",
                 ex
             );
         }
