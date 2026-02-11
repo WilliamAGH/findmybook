@@ -92,6 +92,12 @@ public class NytBestsellerPersistenceCollaborator {
 
         UUID canonicalUuid = UUID.fromString(canonicalId);
         String externalId = payloadMapper.nullIfBlank(isbn13 != null ? isbn13 : isbn10);
+        if (!StringUtils.hasText(externalId)) {
+            externalId = payloadMapper.nullIfBlank(payloadMapper.firstNonEmptyText(bookNode, "book_uri"));
+        }
+        if (!StringUtils.hasText(externalId)) {
+            externalId = canonicalId;
+        }
         String infoLink = payloadMapper.nullIfBlank(
             payloadMapper.firstNonEmptyText(bookNode, "book_review_link", "sunday_review_link", "article_chapter_link")
         );
@@ -118,8 +124,8 @@ public class NytBestsellerPersistenceCollaborator {
                 created_at
             )
             VALUES (?, ?, 'NEW_YORK_TIMES', ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
-            ON CONFLICT (book_id, source) DO UPDATE
-            SET external_id = COALESCE(book_external_ids.external_id, EXCLUDED.external_id),
+            ON CONFLICT (source, external_id) DO UPDATE
+            SET book_id = EXCLUDED.book_id,
                 provider_isbn13 = COALESCE(book_external_ids.provider_isbn13, EXCLUDED.provider_isbn13),
                 provider_isbn10 = COALESCE(book_external_ids.provider_isbn10, EXCLUDED.provider_isbn10),
                 info_link = COALESCE(NULLIF(book_external_ids.info_link, ''), EXCLUDED.info_link),
