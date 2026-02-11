@@ -164,7 +164,7 @@ describe("BookPage fallback lookup", () => {
 
     expect(getBookMock).toHaveBeenNthCalledWith(1, "northern-algoma-dan-douglas", "30d");
     expect(getBookMock).toHaveBeenNthCalledWith(2, "OL13535055W", "30d");
-    expect(getSimilarBooksMock).toHaveBeenCalledWith("OL13535055W", 6);
+    expect(getSimilarBooksMock).toHaveBeenCalledWith("OL13535055W", 8);
     expect(getAffiliateLinksMock).toHaveBeenCalledWith("OL13535055W");
   });
 

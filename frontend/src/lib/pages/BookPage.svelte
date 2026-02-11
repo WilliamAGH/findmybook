@@ -95,7 +95,7 @@
         : fallbackIdentifierFromUrl() ?? identifier;
 
       const [similarResult, linksResult] = await Promise.allSettled([
-        getSimilarBooks(relatedIdentifier, 6),
+        getSimilarBooks(relatedIdentifier, 8),
         getAffiliateLinks(relatedIdentifier),
       ]);
       if (sequence !== loadSequence) {

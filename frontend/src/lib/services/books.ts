@@ -24,7 +24,7 @@ import {
   CoverIngestResponseSchema,
 } from "$lib/validation/coverSchemas";
 
-const DEFAULT_SIMILAR_BOOKS_LIMIT = 6;
+const DEFAULT_SIMILAR_BOOKS_LIMIT = 8;
 const inFlightSearchRequests = new Map<string, Promise<SearchResponse>>();
 
 export interface SearchParams {

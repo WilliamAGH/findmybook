@@ -153,7 +153,7 @@
       You might also like
     </h2>
 
-    <div class="grid grid-cols-2 gap-x-5 gap-y-6 sm:grid-cols-3 xl:grid-cols-6">
+    <div class="grid grid-cols-2 gap-x-5 gap-y-6 sm:grid-cols-3 lg:grid-cols-4">
       {#each displayableBooks as book (book.id)}
         <a href={bookHref(book)} class="group block">
           <div
