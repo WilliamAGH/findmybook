@@ -25,6 +25,9 @@
   } from "@lucide/svelte";
 
   const MIN_VIEW_COUNT_DISPLAY_THRESHOLD = 10;
+  const TITLE_MAX_LINES = 3;
+  const AUTHOR_MAX_LINES = 3;
+  const CLAMP_OVERFLOW_EPSILON_PX = 2;
 
   let {
     currentUrl,
@@ -326,15 +329,32 @@
   });
 
   function measureTitleOverflow(): void {
-    if (titleElement && !titleExpanded) {
-      titleOverflows = titleElement.scrollHeight > titleElement.clientHeight;
+    if (!titleElement || titleExpanded) {
+      return;
     }
+    titleOverflows = hasClampOverflow(titleElement, TITLE_MAX_LINES);
+  }
+
+  function hasClampOverflow(element: HTMLElement, maxLines: number): boolean {
+    const scrollDelta = element.scrollHeight - element.clientHeight;
+    if (scrollDelta <= CLAMP_OVERFLOW_EPSILON_PX) {
+      return false;
+    }
+
+    const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight);
+    if (!Number.isFinite(lineHeight) || lineHeight <= 0) {
+      return scrollDelta > CLAMP_OVERFLOW_EPSILON_PX;
+    }
+
+    const clampThresholdPx = Math.ceil(lineHeight * maxLines) + CLAMP_OVERFLOW_EPSILON_PX;
+    return element.scrollHeight > clampThresholdPx;
   }
 
   function measureAuthorOverflow(): void {
-    if (authorElement && !authorExpanded) {
-      authorOverflows = authorElement.scrollHeight > authorElement.clientHeight;
+    if (!authorElement || authorExpanded) {
+      return;
     }
+    authorOverflows = hasClampOverflow(authorElement, AUTHOR_MAX_LINES);
   }
 
   let previousBookId = $state<string | null>(null);

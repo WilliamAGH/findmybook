@@ -109,6 +109,56 @@ function createDeferred<T>() {
   return { promise, resolvePromise, rejectPromise };
 }
 
+function setNumericGetter(
+  prototype: object,
+  property: "scrollHeight" | "clientHeight",
+  value: number,
+): () => void {
+  const originalDescriptor = Object.getOwnPropertyDescriptor(prototype, property);
+  Object.defineProperty(prototype, property, {
+    configurable: true,
+    get: () => value,
+  });
+  return () => {
+    if (originalDescriptor) {
+      Object.defineProperty(prototype, property, originalDescriptor);
+      return;
+    }
+    Reflect.deleteProperty(prototype, property);
+  };
+}
+
+function createBookPayload(overrides: Record<string, unknown>) {
+  return {
+    id: "book-1",
+    slug: "book-1",
+    title: "Book",
+    description: null,
+    descriptionContent: { raw: null, format: "UNKNOWN", html: "", text: "" },
+    publication: { publishedDate: null, language: null, pageCount: null, publisher: null },
+    authors: [{ id: null, name: "Author Name" }],
+    categories: [],
+    collections: [],
+    tags: [],
+    cover: null,
+    editions: [],
+    recommendationIds: [],
+    extras: {},
+    aiContent: {
+      summary: "Cached summary",
+      readerFit: null,
+      keyThemes: [],
+      takeaways: null,
+      context: null,
+      version: null,
+      generatedAt: null,
+      model: null,
+      provider: null,
+    },
+    ...overrides,
+  };
+}
+
 describe("SearchPage loading state", () => {
   it("shouldClearLoadingWhenQueryIsRemovedDuringInFlightSearch", async () => {
     const pendingSearch = createDeferred<never>();
@@ -169,7 +219,11 @@ describe("SearchPage loading state", () => {
     expect(resultLink.getAttribute("href")).toContain("/book/popular-book-1?");
     expect(resultLink.getAttribute("href")).toContain("popularWindow=90d");
     expect(searchBooksMock).not.toHaveBeenCalled();
-    expect(getHomePagePayloadMock).toHaveBeenCalledWith({ popularWindow: "90d", popularLimit: 24 });
+    expect(getHomePagePayloadMock).toHaveBeenCalledWith({
+      popularWindow: "90d",
+      popularLimit: 24,
+      recordView: false,
+    });
   });
 
   it("shouldIncludeFallbackBookIdOnSearchResultLinks", async () => {
@@ -275,5 +329,82 @@ describe("BookPage fallback lookup", () => {
     expect(getBookMock).toHaveBeenNthCalledWith(2, "OL13535055W", "30d");
     expect(getSimilarBooksMock).toHaveBeenCalledWith("OL13535055W", 6);
     expect(getAffiliateLinksMock).toHaveBeenCalledWith("OL13535055W");
+  });
+
+  it("shouldHideTitleAndAuthorExpandButtonsWhenContentIsNotActuallyTruncated", async () => {
+    getBookMock.mockResolvedValueOnce(
+      createBookPayload({
+        title: "Short title",
+        authors: [{ id: null, name: "Ada Lovelace" }],
+      }),
+    );
+
+    const restoreGetters = [
+      setNumericGetter(HTMLHeadingElement.prototype, "scrollHeight", 145),
+      setNumericGetter(HTMLHeadingElement.prototype, "clientHeight", 144),
+      setNumericGetter(HTMLParagraphElement.prototype, "scrollHeight", 73),
+      setNumericGetter(HTMLParagraphElement.prototype, "clientHeight", 72),
+    ];
+
+    try {
+      const currentUrl = new URL("https://findmybook.net/book/book-1");
+      render(BookPage, {
+        props: {
+          currentUrl,
+          identifier: "book-1",
+        },
+      });
+
+      await waitFor(() => {
+        expect(screen.getByRole("heading", { name: "Short title" })).toBeInTheDocument();
+      });
+
+      await waitFor(() => {
+        expect(screen.queryByRole("button", { name: "Show full title" })).not.toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "Show full author" })).not.toBeInTheDocument();
+      });
+    } finally {
+      for (const restoreGetter of restoreGetters) {
+        restoreGetter();
+      }
+    }
+  });
+
+  it("shouldShowTitleAndAuthorExpandButtonsWhenContentIsTruncated", async () => {
+    getBookMock.mockResolvedValueOnce(
+      createBookPayload({
+        title: "Extremely long title that should be considered clamped by the detail layout and therefore expose the full title control",
+        authors: [{
+          id: null,
+          name: "Author Name With A Very Long Formatting String For Overflow Behavior",
+        }],
+      }),
+    );
+
+    const restoreGetters = [
+      setNumericGetter(HTMLHeadingElement.prototype, "scrollHeight", 260),
+      setNumericGetter(HTMLHeadingElement.prototype, "clientHeight", 144),
+      setNumericGetter(HTMLParagraphElement.prototype, "scrollHeight", 120),
+      setNumericGetter(HTMLParagraphElement.prototype, "clientHeight", 72),
+    ];
+
+    try {
+      const currentUrl = new URL("https://findmybook.net/book/book-1");
+      render(BookPage, {
+        props: {
+          currentUrl,
+          identifier: "book-1",
+        },
+      });
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: "Show full title" })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Show full author" })).toBeInTheDocument();
+      });
+    } finally {
+      for (const restoreGetter of restoreGetters) {
+        restoreGetter();
+      }
+    }
   });
 });
