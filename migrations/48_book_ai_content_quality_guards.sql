@@ -15,12 +15,12 @@
 -- PHASE 1: Delete degenerate / poisoned records
 -- ---------------------------------------------------------------------------
 
--- Delete summaries that are pure character-repetition spam (e.g. 999 '@' chars).
--- Condition: any single ASCII character makes up > 50% of the summary.
--- Uses regexp_replace to strip one character class at a time and compare lengths.
+-- Delete summaries that fail the letter-ratio safety threshold.
+-- [[:alpha:]] preserves locale-aware alphabetic characters so non-Latin
+-- scripts are treated as valid letters instead of junk characters.
 delete from book_ai_content
 where char_length(summary) > 0
-  and char_length(regexp_replace(summary, '[a-zA-Z]', '', 'g')) * 2 > char_length(summary);
+  and char_length(regexp_replace(summary, '[[:alpha:]]', '', 'g')) * 2 > char_length(summary);
 
 -- Delete records with leaked prompt / control tokens in summary.
 delete from book_ai_content
@@ -65,7 +65,7 @@ alter table book_ai_content
     check (char_length(summary) <= 2000);
 
 -- Reject summaries where letters make up less than half the content.
--- regexp_replace strips all ASCII letters; the remaining length ratio
+-- regexp_replace strips all locale-aware letters; the remaining length ratio
 -- tells us how much of the original is non-letter junk.
 -- Formula: (original - non_letter) / original >= 0.5
 -- Rewritten to avoid division: non_letter_length * 2 <= original_length.
@@ -73,7 +73,7 @@ alter table book_ai_content
   add constraint book_ai_content_summary_letter_ratio
     check (
       char_length(summary) = 0
-      or char_length(regexp_replace(summary, '[a-zA-Z]', '', 'g')) * 2 <= char_length(summary)
+      or char_length(regexp_replace(summary, '[[:alpha:]]', '', 'g')) * 2 <= char_length(summary)
     );
 
 -- Block prompt-injection control tokens from being persisted.
