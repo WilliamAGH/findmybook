@@ -70,6 +70,10 @@ public class RecommendationCardResponseUseCase {
         if (card == null || card.card() == null) {
             return null;
         }
+        return BookDtoMapper.fromCard(card.card(), buildRecommendationExtras(card));
+    }
+
+    private static Map<String, Object> buildRecommendationExtras(RecommendationCard card) {
         Map<String, Object> extras = new LinkedHashMap<>();
         if (card.score() != null) {
             extras.put("recommendation.score", card.score());
@@ -80,6 +84,6 @@ public class RecommendationCardResponseUseCase {
         if (StringUtils.hasText(card.source())) {
             extras.put("recommendation.source", card.source());
         }
-        return BookDtoMapper.fromCard(card.card(), extras);
+        return extras;
     }
 }
