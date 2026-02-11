@@ -11,6 +11,7 @@ import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Supplier;
@@ -198,7 +199,7 @@ public class BookAiContentRequestQueue {
             runningCount += 1;
             runningById.put(next.id, next);
             next.started.complete(null);
-            executorService.submit(() -> executeTask(next));
+            executeTask(next);
         }
     }
 
@@ -236,18 +237,26 @@ public class BookAiContentRequestQueue {
     }
 
     private <T> void executeTask(QueuedTask<T> task) {
-        try {
-            T supplierResult = task.supplier.get();
-            task.result.complete(supplierResult);
-        } catch (RuntimeException exception) {
-            task.result.completeExceptionally(exception);
-        } finally {
-            synchronized (this) {
-                runningById.remove(task.id);
-                runningCount -= 1;
-                drain();
-            }
+        CompletableFuture.supplyAsync(task.supplier, executorService)
+            .whenComplete((supplierResult, throwable) -> {
+                if (throwable == null) {
+                    task.result.complete(supplierResult);
+                } else {
+                    task.result.completeExceptionally(unwrapCompletionFailure(throwable));
+                }
+                synchronized (this) {
+                    runningById.remove(task.id);
+                    runningCount = Math.max(0, runningCount - 1);
+                    drain();
+                }
+            });
+    }
+
+    private Throwable unwrapCompletionFailure(Throwable failure) {
+        if (failure instanceof CompletionException completionException && completionException.getCause() != null) {
+            return completionException.getCause();
         }
+        return failure;
     }
 
     private static int coerceParallelism(int configuredParallelism) {
