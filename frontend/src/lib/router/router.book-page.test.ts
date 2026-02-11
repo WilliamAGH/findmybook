@@ -222,6 +222,52 @@ describe("BookPage fallback lookup", () => {
     expect(screen.queryByRole("heading", { name: "You might also like" })).not.toBeInTheDocument();
   });
 
+  it("shouldHideRecommendationCardWhenPrimaryAndFallbackCoversFailToLoad", async () => {
+    getSimilarBooksMock.mockResolvedValueOnce([
+      createBookPayload({
+        id: "broken-cover-1",
+        slug: "broken-cover-1",
+        title: "Broken Cover",
+        cover: {
+          s3ImagePath: null,
+          externalImageUrl: null,
+          width: 300,
+          height: 450,
+          highResolution: false,
+          preferredUrl: "https://cdn.example.com/broken-primary.jpg",
+          fallbackUrl: "/images/book-covers/broken-cover-fallback.jpg",
+          source: "GOOGLE_BOOKS",
+        },
+      }),
+    ]);
+
+    const currentUrl = new URL("https://findmybook.net/book/book-1");
+    render(BookPage, {
+      props: {
+        currentUrl,
+        identifier: "book-1",
+      },
+    });
+
+    const sectionHeading = await screen.findByRole("heading", { name: "You might also like" });
+    expect(sectionHeading).toBeInTheDocument();
+
+    const recommendationSection = sectionHeading.closest("section");
+    expect(recommendationSection).not.toBeNull();
+    const recommendationCover = recommendationSection?.querySelector("img");
+    expect(recommendationCover).not.toBeNull();
+    expect(recommendationCover).toBeInstanceOf(HTMLImageElement);
+
+    const coverImage = recommendationCover as HTMLImageElement;
+    await fireEvent.error(coverImage);
+    expect(coverImage.src).toContain("/images/book-covers/broken-cover-fallback.jpg");
+
+    await fireEvent.error(coverImage);
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "You might also like" })).not.toBeInTheDocument();
+    });
+  });
+
   it("shouldBuildExploreBackLinkFromPopularWindowWhenSpaHistoryIsMissing", async () => {
     const currentUrl = new URL(
       "https://findmybook.net/book/book-1?bookId=book-1&popularWindow=90d&page=2&orderBy=newest&view=grid",
