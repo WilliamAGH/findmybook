@@ -3,7 +3,10 @@ package net.findmybook.util.cover;
 import net.findmybook.dto.BookCard;
 import net.findmybook.model.Book;
 import org.springframework.util.StringUtils;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Comparator;
+import java.util.Date;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -85,6 +88,7 @@ public final class CoverPrioritizer {
             .thenComparingInt(CoverPrioritizer::sourceRank)
             .thenComparingInt(CoverPrioritizer::matchTypeRank)
             .thenComparing(Comparator.<Book>comparingDouble(CoverPrioritizer::relevanceScore).reversed())
+            .thenComparing(Comparator.<Book>comparingLong(CoverPrioritizer::publishedDateEpochDay).reversed())
             .thenComparing(Comparator.<Book>comparingInt(CoverPrioritizer::score).reversed())
             .thenComparing(Comparator.<Book>comparingLong(book -> ImageDimensionUtils.totalPixels(
                 book.getCoverImageWidth(),
@@ -112,6 +116,7 @@ public final class CoverPrioritizer {
         }
 
         comparator = comparator
+            .thenComparing(Comparator.<Book>comparingLong(CoverPrioritizer::publishedDateEpochDay).reversed())
             .thenComparing(Comparator.<Book>comparingInt(CoverPrioritizer::score).reversed())
             .thenComparing(Comparator.<Book>comparingLong(book -> ImageDimensionUtils.totalPixels(
                 book.getCoverImageWidth(),
@@ -130,7 +135,8 @@ public final class CoverPrioritizer {
         Comparator<BookCard> comparator = Comparator
             .comparingInt((BookCard card) -> CoverPrioritizer.score(card))
             .reversed()
-            .thenComparing(card -> CoverUrlResolver.isCdnUrl(card.coverUrl()), Comparator.reverseOrder());
+            .thenComparing(card -> CoverUrlResolver.isCdnUrl(card.coverUrl()), Comparator.reverseOrder())
+            .thenComparing(Comparator.<BookCard>comparingLong(CoverPrioritizer::cardPublishedDateEpochDay).reversed());
 
         comparator = comparator.thenComparing(cardOrderComparator(originalOrder));
 
@@ -238,5 +244,34 @@ public final class CoverPrioritizer {
             return null;
         }
         return qualifiers.get(key);
+    }
+
+    /**
+     * Converts a book's published date to epoch day for recency comparison.
+     * Returns {@code Long.MIN_VALUE} when no date is available so null dates
+     * sort after all dated books.
+     */
+    private static long publishedDateEpochDay(Book book) {
+        Date published = book == null ? null : book.getPublishedDate();
+        if (published == null) {
+            return Long.MIN_VALUE;
+        }
+        return published.toInstant()
+            .atZone(ZoneId.systemDefault())
+            .toLocalDate()
+            .toEpochDay();
+    }
+
+    /**
+     * Converts a card's published date to epoch day for recency comparison.
+     * Returns {@code Long.MIN_VALUE} when no date is available so null dates
+     * sort after all dated cards.
+     */
+    private static long cardPublishedDateEpochDay(BookCard card) {
+        LocalDate published = card == null ? null : card.publishedDate();
+        if (published == null) {
+            return Long.MIN_VALUE;
+        }
+        return published.toEpochDay();
     }
 }

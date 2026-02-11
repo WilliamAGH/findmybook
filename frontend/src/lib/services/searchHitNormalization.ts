@@ -140,6 +140,14 @@ function sortSearchHits(hits: SearchHit[], orderBy: SortOption): SearchHit[] {
         return sourceRankDelta;
       }
 
+      // Recency bias: prefer more recently published books as tiebreaker
+      if (orderBy !== "newest") {
+        const recencyDelta = publishedTimestamp(right.hit) - publishedTimestamp(left.hit);
+        if (recencyDelta !== 0) {
+          return recencyDelta;
+        }
+      }
+
       if (orderBy !== "relevance") {
         const relevanceDelta = relevanceScore(right.hit) - relevanceScore(left.hit);
         if (relevanceDelta !== 0) {
