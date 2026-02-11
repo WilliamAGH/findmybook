@@ -6,6 +6,7 @@ import java.util.regex.Matcher;
 import net.findmybook.domain.seo.SeoMetadata;
 import net.findmybook.support.seo.CanonicalUrlResolver;
 import net.findmybook.support.seo.RouteGraphRenderRequest;
+import net.findmybook.support.seo.RouteOpenGraphPngRenderer;
 import net.findmybook.support.seo.RouteStructuredDataRenderer;
 import net.findmybook.support.seo.SeoMarkupFormatter;
 import net.findmybook.util.ApplicationConstants;
@@ -28,6 +29,7 @@ public class RouteSeoMetadataUseCase {
     private final SeoRouteManifestUseCase seoRouteManifestUseCase;
     private final RouteStructuredDataRenderer routeStructuredDataRenderer;
     private final SeoMarkupFormatter seoMarkupFormatter;
+    private final RouteOpenGraphPngRenderer routeOpenGraphPngRenderer;
 
     /**
      * Creates the use case with required rendering collaborators.
@@ -35,11 +37,13 @@ public class RouteSeoMetadataUseCase {
     public RouteSeoMetadataUseCase(CanonicalUrlResolver canonicalUrlResolver,
                                    SeoRouteManifestUseCase seoRouteManifestUseCase,
                                    RouteStructuredDataRenderer routeStructuredDataRenderer,
-                                   SeoMarkupFormatter seoMarkupFormatter) {
+                                   SeoMarkupFormatter seoMarkupFormatter,
+                                   RouteOpenGraphPngRenderer routeOpenGraphPngRenderer) {
         this.canonicalUrlResolver = canonicalUrlResolver;
         this.seoRouteManifestUseCase = seoRouteManifestUseCase;
         this.routeStructuredDataRenderer = routeStructuredDataRenderer;
         this.seoMarkupFormatter = seoMarkupFormatter;
+        this.routeOpenGraphPngRenderer = routeOpenGraphPngRenderer;
     }
 
     /** Builds SEO metadata for the homepage route. */
@@ -140,6 +144,15 @@ public class RouteSeoMetadataUseCase {
     }
 
     /**
+     * Renders the branded 1200x630 OpenGraph PNG for non-book routes.
+     *
+     * @return encoded PNG bytes
+     */
+    public byte[] renderRouteOpenGraphImage() {
+        return routeOpenGraphPngRenderer.render();
+    }
+
+    /**
      * Assembles a complete route-level SEO metadata record from the provided
      * route-specific parameters and shared presentation defaults.
      *
@@ -158,7 +171,7 @@ public class RouteSeoMetadataUseCase {
                                            String robots,
                                            String schemaOrgType) {
         String canonicalUrl = canonicalUrlResolver.normalizePublicUrl(canonicalPath);
-        String ogImage = ApplicationConstants.Urls.OG_LOGO;
+        String ogImage = canonicalUrlResolver.normalizePublicUrl(ApplicationConstants.Urls.ROUTE_OG_IMAGE_PATH);
         String fullTitle = seoMarkupFormatter.pageTitle(
             title, SeoPresentationDefaults.PAGE_TITLE_SUFFIX, SeoPresentationDefaults.BRAND_NAME);
         String structuredDataJson = routeStructuredDataRenderer.renderRouteGraph(

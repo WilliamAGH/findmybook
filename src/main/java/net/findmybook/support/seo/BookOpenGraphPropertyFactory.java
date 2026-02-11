@@ -49,6 +49,8 @@ public class BookOpenGraphPropertyFactory {
             properties.add(new OpenGraphProperty("book:tag", tag));
         }
 
+        // TODO: add book:author property (profile URL array per ogp.me spec) once author profile pages exist
+
         return List.copyOf(properties);
     }
 

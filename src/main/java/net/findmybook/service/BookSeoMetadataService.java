@@ -54,7 +54,8 @@ public class BookSeoMetadataService {
         RouteStructuredDataRenderer routeStructuredDataRenderer = new RouteStructuredDataRenderer();
 
         this.routeSeoMetadataUseCase = new RouteSeoMetadataUseCase(
-            canonicalUrlResolver, manifestUseCase, routeStructuredDataRenderer, seoMarkupFormatter);
+            canonicalUrlResolver, manifestUseCase, routeStructuredDataRenderer, seoMarkupFormatter,
+            new net.findmybook.support.seo.RouteOpenGraphPngRenderer());
         this.bookSeoMetadataUseCase = new BookSeoMetadataUseCase(
             new BookStructuredDataRenderer(new ObjectMapper(), seoMarkupFormatter),
             new BookOpenGraphPropertyFactory(seoMarkupFormatter),
@@ -132,6 +133,18 @@ public class BookSeoMetadataService {
     @Cacheable(value = "bookOgImages", key = "'missing:' + #identifier", sync = true)
     public byte[] renderFallbackBookOpenGraphImage(String identifier) {
         return bookSeoMetadataUseCase.bookOpenGraphFallbackImage(identifier);
+    }
+
+    /**
+     * Renders the branded OpenGraph PNG for non-book routes (homepage, search, explore, etc.).
+     *
+     * <p>The rendered image is deterministic and cached after the first call via
+     * the underlying {@link RouteOpenGraphPngRenderer} in-process cache.
+     *
+     * @return encoded 1200x630 PNG bytes
+     */
+    public byte[] renderRouteOpenGraphImage() {
+        return routeSeoMetadataUseCase.renderRouteOpenGraphImage();
     }
 
     public SeoMetadata sitemapMetadata(String canonicalPath) {

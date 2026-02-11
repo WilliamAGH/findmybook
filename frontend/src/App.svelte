@@ -19,7 +19,7 @@
   const DEFAULT_DESCRIPTION =
     "Discover your next favorite read with findmybook recommendations, search, and curated collections.";
   const DEFAULT_KEYWORDS = "findmybook, book recommendations, book discovery, book search";
-  const DEFAULT_OG_IMAGE = "https://findmybook.net/images/og-logo.png";
+  const DEFAULT_OG_IMAGE = "https://findmybook.net/api/pages/og/route";
   const DEFAULT_OG_IMAGE_TYPE = "image/png";
   const DEFAULT_OG_IMAGE_WIDTH = "1200";
   const DEFAULT_OG_IMAGE_HEIGHT = "630";

@@ -3,6 +3,7 @@ package net.findmybook.application.seo;
 import net.findmybook.domain.seo.SeoMetadata;
 import net.findmybook.support.seo.CanonicalUrlResolver;
 import net.findmybook.support.seo.RouteGraphRenderRequest;
+import net.findmybook.support.seo.RouteOpenGraphPngRenderer;
 import net.findmybook.support.seo.RouteStructuredDataRenderer;
 import net.findmybook.support.seo.SeoMarkupFormatter;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,6 +34,8 @@ class RouteSeoMetadataUseCaseTest {
     private RouteStructuredDataRenderer routeStructuredDataRenderer;
     @Mock
     private SeoMarkupFormatter seoMarkupFormatter;
+    @Mock
+    private RouteOpenGraphPngRenderer routeOpenGraphPngRenderer;
 
     private RouteSeoMetadataUseCase useCase;
 
@@ -42,7 +45,8 @@ class RouteSeoMetadataUseCaseTest {
             canonicalUrlResolver,
             seoRouteManifestUseCase,
             routeStructuredDataRenderer,
-            seoMarkupFormatter
+            seoMarkupFormatter,
+            routeOpenGraphPngRenderer
         );
     }
 

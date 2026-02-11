@@ -70,7 +70,8 @@ public final class ApplicationConstants {
 
     public static final class Urls {
         public static final String BASE_URL = "https://findmybook.net";
-        public static final String OG_LOGO = BASE_URL + "/images/og-logo.png";
+        public static final String ROUTE_OG_IMAGE_PATH = "/api/pages/og/route";
+        public static final String OG_LOGO = BASE_URL + ROUTE_OG_IMAGE_PATH;
         public static final String DEFAULT_SOCIAL_IMAGE = BASE_URL + "/images/default-social-image.png";
         public static final String SITEMAP_PATH = BASE_URL + "/sitemap.xml";
         public static final String ROBOTS_PATH = BASE_URL + "/robots.txt";
