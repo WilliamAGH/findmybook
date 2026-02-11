@@ -1,18 +1,26 @@
 ///usr/bin/env java --enable-preview --source 25 "$0" "$@"; exit $?
 
-// Backfill AI summary content + SEO metadata for an existing book.
+// Backfill AI summary content + SEO metadata for existing books.
 //
 // Usage:
-//   CP=$(./gradlew -q --no-configuration-cache --init-script /tmp/print-cp.gradle printCp 2>/dev/null | tr -d '\n')
+//   ./gradlew -q compileJava
+//   CP="$(./gradlew -q --no-configuration-cache --init-script /tmp/print-cp.gradle printCp):$(pwd)/build/classes/java/main:$(pwd)/src/main/resources"
 //   java --enable-preview --source 25 -cp "$CP" scripts/BackfillBookAiSeoMetadata.java <bookIdentifier>
+//   java --enable-preview --source 25 -cp "$CP" scripts/BackfillBookAiSeoMetadata.java --id-file=/tmp/book-ids.txt
 //   java --enable-preview --source 25 -cp "$CP" scripts/BackfillBookAiSeoMetadata.java <bookIdentifier> --force
+//   java --enable-preview --source 25 -cp "$CP" scripts/BackfillBookAiSeoMetadata.java <bookIdentifier> --model=<model> --base-url=<url> --api-key=<key>
 //
 // Notes:
 // - <bookIdentifier> can be UUID, slug, or ISBN.
 // - Default mode generates only when prompt hash has changed.
 // - --force always regenerates AI summary + SEO metadata versions.
+// - --id-file accepts newline-delimited identifiers.
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import net.findmybook.FindmybookApplication;
@@ -21,17 +29,20 @@ import net.findmybook.application.seo.BookSeoMetadataGenerationService;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.util.StringUtils;
 
-static final int SEO_MAX_ATTEMPTS = 3;
-static final long SEO_RETRY_BASE_DELAY_MILLIS = 1500L;
+static final String OPENAI_BASE_URL_PROPERTY = "AI_DEFAULT_OPENAI_BASE_URL";
+static final String OPENAI_MODEL_PROPERTY = "AI_DEFAULT_LLM_MODEL";
+static final String OPENAI_SEO_MODEL_PROPERTY = "AI_DEFAULT_SEO_LLM_MODEL";
+static final String OPENAI_API_KEY_PROPERTY = "AI_DEFAULT_OPENAI_API_KEY";
 
 void main(String[] args) {
-    if (args.length < 1 || args[0].isBlank()) {
+    if (args.length < 1) {
         printUsageAndExit();
     }
 
-    String identifier = args[0].trim();
-    boolean force = Arrays.stream(args).anyMatch("--force"::equals);
+    ParsedOptions options = parseOptions(args);
+    applyRuntimeOverrides(options);
 
     try (ConfigurableApplicationContext context = new SpringApplicationBuilder(FindmybookApplication.class)
         .web(WebApplicationType.NONE)
@@ -41,26 +52,60 @@ void main(String[] args) {
         BookAiContentService aiContentService = context.getBean(BookAiContentService.class);
         BookSeoMetadataGenerationService seoMetadataGenerationService =
             context.getBean(BookSeoMetadataGenerationService.class);
+        List<String> identifiers = resolveIdentifiers(options);
+        if (identifiers.isEmpty()) {
+            System.out.println("No identifiers were provided for backfill.");
+            return;
+        }
 
-        UUID bookId = resolveBookIdOrExit(aiContentService, identifier);
-        System.out.printf("Resolved identifier '%s' to bookId=%s%n", identifier, bookId);
-
-        runAiContentBackfill(aiContentService, bookId, force);
-        runSeoMetadataBackfill(seoMetadataGenerationService, bookId, force);
-
-        System.out.println("Backfill complete.");
+        int failures = 0;
+        int processed = 0;
+        for (String identifier : identifiers) {
+            processed += 1;
+            try {
+                System.out.printf("Backfilling %s (%d)...%n", identifier, processed);
+                UUID bookId = resolveBookId(aiContentService, identifier);
+                System.out.printf("Resolved identifier '%s' to bookId=%s%n", identifier, bookId);
+                runAiContentBackfill(aiContentService, bookId, options.force());
+                runSeoMetadataBackfill(seoMetadataGenerationService, bookId, options.force());
+            } catch (RuntimeException runtimeException) {
+                failures += 1;
+                System.err.printf("Backfill failed for identifier '%s': %s%n", identifier, runtimeException.getMessage());
+                runtimeException.printStackTrace(System.err);
+            }
+        }
+        System.out.printf("Backfill complete. processed=%d failures=%d%n", processed, failures);
+        if (failures > 0) {
+            System.exit(1);
+        }
     } catch (RuntimeException runtimeException) {
         System.err.printf("Backfill failed: %s%n", runtimeException.getMessage());
-        runtimeException.printStackTrace(System.err);
         System.exit(1);
     }
 }
 
-UUID resolveBookIdOrExit(BookAiContentService aiContentService, String identifier) {
+List<String> resolveIdentifiers(ParsedOptions options) {
+    if (StringUtils.hasText(options.identifier())) {
+        return List.of(options.identifier().trim());
+    }
+    if (!StringUtils.hasText(options.idFilePath())) {
+        return List.of();
+    }
+    Path path = Path.of(options.idFilePath().trim());
+    try {
+        return Files.readAllLines(path).stream()
+            .map(String::trim)
+            .filter(StringUtils::hasText)
+            .toList();
+    } catch (IOException ioException) {
+        throw new IllegalStateException("Could not read id file: " + path, ioException);
+    }
+}
+
+UUID resolveBookId(BookAiContentService aiContentService, String identifier) {
     Optional<UUID> resolvedBookId = aiContentService.resolveBookId(identifier);
     if (resolvedBookId.isEmpty()) {
-        System.err.printf("Could not resolve identifier '%s' to a canonical book UUID.%n", identifier);
-        System.exit(1);
+        throw new IllegalArgumentException("Could not resolve identifier '%s' to a canonical book UUID.".formatted(identifier));
     }
     return resolvedBookId.get();
 }
@@ -102,11 +147,9 @@ void runSeoMetadataBackfill(BookSeoMetadataGenerationService seoMetadataGenerati
         return;
     }
 
-    BookSeoMetadataGenerationService.GenerationOutcome outcome = generateSeoOutcomeWithRetries(
-        seoMetadataGenerationService,
-        bookId,
-        force
-    );
+    BookSeoMetadataGenerationService.GenerationOutcome outcome = force
+        ? seoMetadataGenerationService.generateAndPersist(bookId)
+        : seoMetadataGenerationService.generateAndPersistIfPromptChanged(bookId);
 
     if (outcome.generated()) {
         int version = outcome.snapshot() != null ? outcome.snapshot().version() : -1;
@@ -116,61 +159,119 @@ void runSeoMetadataBackfill(BookSeoMetadataGenerationService seoMetadataGenerati
     }
 }
 
-BookSeoMetadataGenerationService.GenerationOutcome generateSeoOutcomeWithRetries(
-    BookSeoMetadataGenerationService seoMetadataGenerationService,
-    UUID bookId,
-    boolean force
-) {
-    int attempt = 1;
-    while (attempt <= SEO_MAX_ATTEMPTS) {
-        try {
-            return force
-                ? seoMetadataGenerationService.generateAndPersist(bookId)
-                : seoMetadataGenerationService.generateAndPersistIfPromptChanged(bookId);
-        } catch (IllegalStateException exception) {
-            boolean retryableFailure = isRetryableSeoFailure(exception);
-            if (!retryableFailure || attempt == SEO_MAX_ATTEMPTS) {
-                throw exception;
+ParsedOptions parseOptions(String[] args) {
+    String identifier = null;
+    String idFilePath = null;
+    boolean force = Arrays.stream(args).anyMatch("--force"::equals);
+    String baseUrl = null;
+    String model = null;
+    String apiKey = null;
+
+    for (String rawArg : args) {
+        String arg = rawArg.trim();
+        if (!arg.startsWith("--")) {
+            if (identifier != null) {
+                System.err.println("Only one positional identifier is allowed.");
+                printUsageAndExit();
             }
-            System.err.printf(
-                "SEO metadata generation attempt %d/%d failed for bookId=%s: %s%n",
-                attempt,
-                SEO_MAX_ATTEMPTS,
-                bookId,
-                exception.getMessage()
-            );
-            sleepBeforeRetry(attempt);
-            attempt++;
+            identifier = firstArg(arg);
+            continue;
         }
+        if (arg.equals("--force")) {
+            continue;
+        }
+        if (arg.startsWith("--id-file=")) {
+            idFilePath = requiredOptionValue(arg, "--id-file");
+            continue;
+        }
+        if (arg.startsWith("--base-url=")) {
+            baseUrl = requiredOptionValue(arg, "--base-url");
+            continue;
+        }
+        if (arg.startsWith("--model=")) {
+            model = requiredOptionValue(arg, "--model");
+            continue;
+        }
+        if (arg.startsWith("--api-key=")) {
+            apiKey = requiredOptionValue(arg, "--api-key");
+            continue;
+        }
+        System.err.printf("Unknown option: %s%n", arg);
+        printUsageAndExit();
     }
-    throw new IllegalStateException("SEO metadata generation exhausted retries unexpectedly");
+    if (!StringUtils.hasText(identifier) && !StringUtils.hasText(idFilePath)) {
+        System.err.println("Provide either a positional <bookIdentifier> or --id-file=<path>.");
+        printUsageAndExit();
+    }
+    if (StringUtils.hasText(identifier) && StringUtils.hasText(idFilePath)) {
+        System.err.println("Use either positional <bookIdentifier> or --id-file=<path>, not both.");
+        printUsageAndExit();
+    }
+    return new ParsedOptions(identifier, idFilePath, force, baseUrl, model, apiKey);
 }
 
-boolean isRetryableSeoFailure(IllegalStateException exception) {
-    if (exception.getCause() != null) {
-        return true;
+String firstArg(String value) {
+    String first = value == null ? "" : value.trim();
+    if (first.isBlank()) {
+        printUsageAndExit();
     }
-    String message = exception.getMessage();
-    if (message == null || message.isBlank()) {
-        return false;
-    }
-    return message.contains("response was empty")
-        || message.contains("did not include a valid JSON object")
-        || message.contains("JSON parsing failed")
-        || message.contains("generation failed");
+    return first;
 }
 
-void sleepBeforeRetry(int attempt) {
-    long delayMillis = SEO_RETRY_BASE_DELAY_MILLIS * Math.max(1, attempt);
-    try {
-        Thread.sleep(delayMillis);
-    } catch (InterruptedException interruptedException) {
-        Thread.currentThread().interrupt();
+String requiredOptionValue(String rawOption, String optionName) {
+    int equalsIndex = rawOption.indexOf('=');
+    if (equalsIndex < 0 || equalsIndex == rawOption.length() - 1) {
+        System.err.printf("Option %s requires a non-empty value.%n", optionName);
+        printUsageAndExit();
     }
+    String value = rawOption.substring(equalsIndex + 1).trim();
+    if (!StringUtils.hasText(value)) {
+        System.err.printf("Option %s requires a non-empty value.%n", optionName);
+        printUsageAndExit();
+    }
+    return value;
+}
+
+void applyRuntimeOverrides(ParsedOptions options) {
+    if (StringUtils.hasText(options.baseUrl())) {
+        System.setProperty(OPENAI_BASE_URL_PROPERTY, options.baseUrl().trim());
+        System.out.printf("Applied runtime override %s=%s%n", OPENAI_BASE_URL_PROPERTY, options.baseUrl().trim());
+    }
+
+    if (StringUtils.hasText(options.model())) {
+        String model = options.model().trim();
+        System.setProperty(OPENAI_MODEL_PROPERTY, model);
+        System.setProperty(OPENAI_SEO_MODEL_PROPERTY, model);
+        System.out.printf("Applied runtime override %s=%s%n", OPENAI_MODEL_PROPERTY, model);
+        System.out.printf("Applied runtime override %s=%s%n", OPENAI_SEO_MODEL_PROPERTY, model);
+    }
+
+    if (StringUtils.hasText(options.apiKey())) {
+        String apiKey = options.apiKey().trim();
+        System.setProperty(OPENAI_API_KEY_PROPERTY, apiKey);
+        System.out.printf(
+            "Applied runtime override %s=%s%n",
+            OPENAI_API_KEY_PROPERTY,
+            redactSecret(apiKey)
+        );
+    }
+}
+
+String redactSecret(String value) {
+    if (!StringUtils.hasText(value) || value.length() <= 8) {
+        return "****";
+    }
+    return value.substring(0, 4) + "...(redacted)..."
+        + value.substring(value.length() - 4);
 }
 
 void printUsageAndExit() {
-    System.err.println("Usage: BackfillBookAiSeoMetadata.java <bookIdentifier> [--force]");
+    System.err.println(
+        "Usage: BackfillBookAiSeoMetadata.java (<bookIdentifier> | --id-file=<path>) [--force] [--base-url=<url>] [--model=<model>] [--api-key=<key>]"
+    );
     System.err.println("  <bookIdentifier>: UUID, slug, or ISBN");
+    System.err.println("  --id-file: newline-delimited identifiers (UUID, slug, or ISBN)");
     System.exit(1);
 }
+
+record ParsedOptions(String identifier, String idFilePath, boolean force, String baseUrl, String model, String apiKey) {}

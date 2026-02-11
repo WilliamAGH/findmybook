@@ -21,22 +21,25 @@ backfill-ai-seo:
 		exit 1; \
 	fi
 	@set -a && . ./.env && set +a; \
-	if [ -n "$(BACKFILL_BASE_URL)" ]; then \
-		export AI_DEFAULT_OPENAI_BASE_URL="$(BACKFILL_BASE_URL)"; \
-	fi; \
-	if [ -n "$(BACKFILL_MODEL)" ]; then \
-		export AI_DEFAULT_LLM_MODEL="$(BACKFILL_MODEL)"; \
-		export AI_DEFAULT_SEO_LLM_MODEL="$(BACKFILL_MODEL)"; \
-	fi; \
-	if [ -n "$(BACKFILL_API_KEY)" ]; then \
-		export AI_DEFAULT_OPENAI_API_KEY="$(BACKFILL_API_KEY)"; \
-	fi; \
 	if [ -z "$$SPRING_DATASOURCE_URL" ]; then \
 		echo "Error: SPRING_DATASOURCE_URL not found in .env."; \
 		exit 1; \
 	fi; \
+	PGURL="$$SPRING_DATASOURCE_URL"; \
+	case "$$PGURL" in \
+		postgres://*) PGURL="postgresql://$${PGURL#postgres://}" ;; \
+	esac; \
 	if [ -n "$(BACKFILL_BASE_URL)" ] || [ -n "$(BACKFILL_MODEL)" ] || [ -n "$(BACKFILL_API_KEY)" ]; then \
 		echo "Applying runtime AI overrides for backfill."; \
+	fi; \
+	if [ -n "$(BACKFILL_BASE_URL)" ]; then \
+		echo "  BACKFILL_BASE_URL=$(BACKFILL_BASE_URL)"; \
+	fi; \
+	if [ -n "$(BACKFILL_MODEL)" ]; then \
+		echo "  BACKFILL_MODEL=$(BACKFILL_MODEL)"; \
+	fi; \
+	if [ -n "$(BACKFILL_API_KEY)" ]; then \
+		echo "  BACKFILL_API_KEY=<redacted>"; \
 	fi; \
 	if [ ! -f "$(BACKFILL_CP_INIT_SCRIPT)" ]; then \
 		printf '%s\n' \
@@ -49,8 +52,8 @@ backfill-ai-seo:
 			'}' > "$(BACKFILL_CP_INIT_SCRIPT)"; \
 	fi; \
 	echo "Compiling Java classes..."; \
-	$(GRADLEW) -q compileJava >/dev/null; \
-	DEP_CP=$$($(GRADLEW) -q --no-configuration-cache --init-script "$(BACKFILL_CP_INIT_SCRIPT)" printCp); \
+	$(GRADLEW) -q compileJava --rerun-tasks >/dev/null; \
+	DEP_CP=$$($(GRADLEW) -q --no-configuration-cache --console=plain --init-script "$(BACKFILL_CP_INIT_SCRIPT)" printCp); \
 	CP="$$DEP_CP:$(PWD)/build/classes/java/main:$(PWD)/src/main/resources"; \
 	LIMIT_VALUE="$(BACKFILL_LIMIT)"; \
 	LIMIT_CLAUSE=""; \
@@ -65,34 +68,34 @@ backfill-ai-seo:
 	trap 'rm -f "$$ID_FILE"' EXIT INT TERM; \
 	if [ -n "$(BACKFILL_IDENTIFIER)" ]; then \
 		ESCAPED_IDENTIFIER=$$(printf "%s" "$(BACKFILL_IDENTIFIER)" | sed "s/'/''/g"); \
-		psql "$$SPRING_DATASOURCE_URL" -At -c "SELECT b.id FROM books b WHERE (b.id::text = '$$ESCAPED_IDENTIFIER' OR b.slug = '$$ESCAPED_IDENTIFIER' OR b.isbn10 = '$$ESCAPED_IDENTIFIER' OR b.isbn13 = '$$ESCAPED_IDENTIFIER') AND length(btrim(COALESCE(b.description, ''))) >= $(AI_MIN_DESCRIPTION_LENGTH) LIMIT 1;" > "$$ID_FILE"; \
+		psql "$$PGURL" -At -c "SELECT b.id FROM books b WHERE (b.id::text = '$$ESCAPED_IDENTIFIER' OR b.slug = '$$ESCAPED_IDENTIFIER' OR b.isbn10 = '$$ESCAPED_IDENTIFIER' OR b.isbn13 = '$$ESCAPED_IDENTIFIER') AND length(btrim(COALESCE(b.description, ''))) >= $(AI_MIN_DESCRIPTION_LENGTH) LIMIT 1;" > "$$ID_FILE"; \
 	else \
 		if [ "$(BACKFILL_MISSING_ONLY)" = "true" ]; then \
-			psql "$$SPRING_DATASOURCE_URL" -At -c "SELECT b.id FROM books b WHERE length(btrim(COALESCE(b.description, ''))) >= $(AI_MIN_DESCRIPTION_LENGTH) AND NOT EXISTS (SELECT 1 FROM book_seo_metadata s WHERE s.book_id = b.id AND s.is_current = TRUE) ORDER BY b.created_at DESC$$LIMIT_CLAUSE;" > "$$ID_FILE"; \
+			psql "$$PGURL" -At -c "SELECT b.id FROM books b WHERE length(btrim(COALESCE(b.description, ''))) >= $(AI_MIN_DESCRIPTION_LENGTH) AND NOT EXISTS (SELECT 1 FROM book_seo_metadata s WHERE s.book_id = b.id AND s.is_current = TRUE) ORDER BY b.created_at DESC$$LIMIT_CLAUSE;" > "$$ID_FILE"; \
 		else \
-			psql "$$SPRING_DATASOURCE_URL" -At -c "SELECT b.id FROM books b WHERE length(btrim(COALESCE(b.description, ''))) >= $(AI_MIN_DESCRIPTION_LENGTH) ORDER BY b.created_at DESC$$LIMIT_CLAUSE;" > "$$ID_FILE"; \
+			psql "$$PGURL" -At -c "SELECT b.id FROM books b WHERE length(btrim(COALESCE(b.description, ''))) >= $(AI_MIN_DESCRIPTION_LENGTH) ORDER BY b.created_at DESC$$LIMIT_CLAUSE;" > "$$ID_FILE"; \
 		fi; \
 	fi; \
 	echo "Eligibility filter: description length >= $(AI_MIN_DESCRIPTION_LENGTH)"; \
-	processed=0; \
-	failures=0; \
-	while IFS= read -r book_id; do \
-		[ -z "$$book_id" ] && continue; \
-		processed=$$((processed + 1)); \
-		echo "Backfilling $$book_id ($$processed)..."; \
-		if [ "$(BACKFILL_FORCE)" = "true" ]; then \
-			java --enable-preview --source 25 -cp "$$CP" scripts/BackfillBookAiSeoMetadata.java "$$book_id" --force || failures=$$((failures + 1)); \
-		else \
-			java --enable-preview --source 25 -cp "$$CP" scripts/BackfillBookAiSeoMetadata.java "$$book_id" || failures=$$((failures + 1)); \
-		fi; \
-	done < "$$ID_FILE"; \
-	echo "Backfill complete. processed=$$processed failures=$$failures"; \
-	if [ "$$processed" -eq 0 ]; then \
-		echo "No books matched the current selection."; \
+	MATCHED_COUNT=$$(grep -cve '^[[:space:]]*$$' "$$ID_FILE" || true); \
+	if [ "$$MATCHED_COUNT" -eq 0 ]; then \
+		echo "No books matched the current selection (must satisfy description length >= $(AI_MIN_DESCRIPTION_LENGTH))."; \
+		exit 0; \
 	fi; \
-	if [ "$$failures" -gt 0 ]; then \
-		exit 1; \
-	fi
+	set -- "--id-file=$$ID_FILE"; \
+	if [ "$(BACKFILL_FORCE)" = "true" ]; then \
+		set -- "$$@" "--force"; \
+	fi; \
+	if [ -n "$(BACKFILL_BASE_URL)" ]; then \
+		set -- "$$@" "--base-url=$(BACKFILL_BASE_URL)"; \
+	fi; \
+	if [ -n "$(BACKFILL_MODEL)" ]; then \
+		set -- "$$@" "--model=$(BACKFILL_MODEL)"; \
+	fi; \
+	if [ -n "$(BACKFILL_API_KEY)" ]; then \
+		set -- "$$@" "--api-key=$(BACKFILL_API_KEY)"; \
+	fi; \
+	java --enable-preview --source 25 -cp "$$CP" scripts/BackfillBookAiSeoMetadata.java "$$@"
 
 backfill-ai-seo-force:
 	@$(MAKE) backfill-ai-seo REGENERATE=true
