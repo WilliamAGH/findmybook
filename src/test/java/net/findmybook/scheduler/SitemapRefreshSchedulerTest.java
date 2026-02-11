@@ -33,6 +33,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
@@ -177,7 +178,7 @@ class NewYorkTimesBestsellerSchedulerTest {
     }
 
     @Test
-    void processNewYorkTimesBestsellers_shouldContinueWhenOneListFails_WhenAnotherListCanBePersisted() throws Exception {
+    void processNewYorkTimesBestsellers_shouldProcessAllListsThenThrow_WhenOneListFails() throws Exception {
         JsonNode overview = objectMapper.readTree(
             """
             {
@@ -215,7 +216,9 @@ class NewYorkTimesBestsellerSchedulerTest {
             any(JsonNode.class)
         )).thenReturn(Optional.of("collection-2"));
 
-        assertDoesNotThrow(() -> scheduler.processNewYorkTimesBestsellers());
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+            () -> scheduler.processNewYorkTimesBestsellers());
+        assertThat(thrown.getMessage()).contains("1 of 2 list(s) failed");
 
         verify(collectionPersistenceService).upsertBestsellerCollection(
             nullable(String.class),
@@ -242,7 +245,7 @@ class NewYorkTimesBestsellerSchedulerTest {
     }
 
     @Test
-    void processNewYorkTimesBestsellers_shouldContinueWithRemainingBooks_WhenSingleBookProcessingFails() throws Exception {
+    void processNewYorkTimesBestsellers_shouldProcessAllBooksThenThrow_WhenSingleBookProcessingFails() throws Exception {
         UUID existingBookId = UUID.randomUUID();
         JsonNode overview = objectMapper.readTree(
             """
@@ -296,7 +299,9 @@ class NewYorkTimesBestsellerSchedulerTest {
         when(bookUpsertService.upsert(any(BookAggregate.class)))
             .thenThrow(new IllegalStateException("book upsert failure"));
 
-        assertDoesNotThrow(() -> scheduler.processNewYorkTimesBestsellers());
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+            () -> scheduler.processNewYorkTimesBestsellers());
+        assertThat(thrown.getMessage()).contains("1 of 1 list(s) failed");
 
         verify(collectionPersistenceService, times(1)).upsertBestsellerMembership(
             eq("collection-1"),

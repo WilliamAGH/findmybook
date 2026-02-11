@@ -202,6 +202,7 @@ public class NewYorkTimesBestsellerScheduler {
         }
 
         int failedLists = 0;
+        int totalLists = lists.size();
         for (JsonNode listNode : lists) {
             try {
                 persistList(listNode, bestsellersDate, publishedDate);
@@ -214,7 +215,9 @@ public class NewYorkTimesBestsellerScheduler {
             }
         }
         if (failedLists > 0) {
-            log.warn("NYT ingest completed with {} failed list(s). Review prior errors for details.", failedLists);
+            throw new IllegalStateException(
+                "NYT ingest completed with %d of %d list(s) failed. Review prior logged errors for details."
+                    .formatted(failedLists, totalLists));
         }
         log.info("NYT bestseller ingest completed successfully{}.",
             requestedDate != null ? " for " + requestedDate : "");
@@ -276,6 +279,7 @@ public class NewYorkTimesBestsellerScheduler {
         );
 
         int failedEntries = 0;
+        int totalEntries = booksNode.size();
         for (JsonNode bookNode : booksNode) {
             try {
                 persistListEntry(listContext, bookNode);
@@ -289,10 +293,9 @@ public class NewYorkTimesBestsellerScheduler {
             }
         }
         if (failedEntries > 0) {
-            log.warn("NYT list '{}' completed with {} failed entr{}.",
-                listCode,
-                failedEntries,
-                failedEntries == 1 ? "y" : "ies");
+            throw new IllegalStateException(
+                "NYT list '%s' completed with %d of %d failed entr%s."
+                    .formatted(listCode, failedEntries, totalEntries, failedEntries == 1 ? "y" : "ies"));
         }
     }
 
