@@ -35,6 +35,8 @@ public class CoverUrlSafetyValidator {
         "syndetics.com",
         "cdn.penguin.com",
         "images.penguinrandomhouse.com",
+        "static.nytimes.com",
+        "static01.nyt.com",
         "longitood.com"
     );
 
