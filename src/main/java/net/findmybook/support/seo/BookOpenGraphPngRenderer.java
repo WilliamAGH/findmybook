@@ -15,7 +15,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import javax.imageio.ImageIO;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,17 +56,21 @@ public class BookOpenGraphPngRenderer {
      * @param title primary card title
      * @param subtitle secondary author/description line
      * @param badges visual badges displayed under subtitle
-     * @param coverImage decoded cover image; when {@code null}, a placeholder is rendered
+     * @param coverImage decoded cover image; when {@code null}, the cover area is omitted
+     *                   and the text region expands to fill the card
      * @return encoded PNG bytes
      */
     public byte[] render(String title, String subtitle, List<String> badges, BufferedImage coverImage) {
         BufferedImage canvas = new BufferedImage(CANVAS_WIDTH, CANVAS_HEIGHT, BufferedImage.TYPE_INT_RGB);
         Graphics2D graphics = canvas.createGraphics();
+        boolean hasCover = coverImage != null;
         try {
             applyQualityHints(graphics);
             paintBackground(graphics);
-            drawCover(graphics, coverImage);
-            drawText(graphics, title, subtitle, badges);
+            if (hasCover) {
+                drawCover(graphics, coverImage);
+            }
+            drawText(graphics, title, subtitle, badges, hasCover);
             drawBrand(graphics);
         } finally {
             graphics.dispose();
@@ -132,10 +135,6 @@ public class BookOpenGraphPngRenderer {
         graphics.fillRoundRect(x - 6, y - 6, COVER_WIDTH + 12, COVER_HEIGHT + 12, COVER_RADIUS + 8, COVER_RADIUS + 8);
         graphics.setColor(new Color(0, 0, 0, 120));
         graphics.fillRoundRect(x + 14, y + 20, COVER_WIDTH, COVER_HEIGHT, COVER_RADIUS, COVER_RADIUS);
-        if (coverImage == null) {
-            drawCoverPlaceholder(graphics, x, y);
-            return;
-        }
         graphics.setClip(new RoundRectangle2D.Float(x, y, COVER_WIDTH, COVER_HEIGHT, COVER_RADIUS, COVER_RADIUS));
         double scale = Math.max((double) COVER_WIDTH / coverImage.getWidth(), (double) COVER_HEIGHT / coverImage.getHeight());
         int drawWidth = (int) Math.round(coverImage.getWidth() * scale);
@@ -154,23 +153,9 @@ public class BookOpenGraphPngRenderer {
         graphics.drawRoundRect(x, y, COVER_WIDTH, COVER_HEIGHT, COVER_RADIUS, COVER_RADIUS);
     }
 
-    private void drawCoverPlaceholder(Graphics2D graphics, int x, int y) {
-        graphics.setColor(new Color(24, 33, 52));
-        graphics.fillRoundRect(x, y, COVER_WIDTH, COVER_HEIGHT, COVER_RADIUS, COVER_RADIUS);
-        graphics.setColor(new Color(99, 118, 148));
-        graphics.setStroke(new BasicStroke(4f));
-        int placeholderX = x + ((COVER_WIDTH - 150) / 2);
-        int placeholderY = y + ((COVER_HEIGHT - 200) / 2);
-        graphics.drawRoundRect(placeholderX, placeholderY, 150, 200, 10, 10);
-        graphics.drawLine(placeholderX + 75, placeholderY + 16, placeholderX + 75, placeholderY + 184);
-        graphics.setColor(new Color(177, 191, 214));
-        graphics.setFont(new Font("SansSerif", Font.PLAIN, 24));
-        graphics.drawString("No cover image", x + 98, y + COVER_HEIGHT - 68);
-    }
-
-    private void drawText(Graphics2D graphics, String title, String subtitle, List<String> badges) {
-        int coverX = OUTER_PADDING + CONTENT_PADDING;
-        int textX = coverX + COVER_WIDTH + CONTENT_GAP;
+    private void drawText(Graphics2D graphics, String title, String subtitle, List<String> badges, boolean hasCover) {
+        int contentLeft = OUTER_PADDING + CONTENT_PADDING;
+        int textX = hasCover ? contentLeft + COVER_WIDTH + CONTENT_GAP : contentLeft;
         int maxTextWidth = Math.max(
             200,
             CANVAS_WIDTH - OUTER_PADDING - CONTENT_PADDING - textX - TEXT_RIGHT_BUFFER
