@@ -16,6 +16,7 @@ import net.findmybook.application.seo.BookSeoMetadataGenerationService;
 import net.findmybook.service.event.BookUpsertEvent;
 import net.findmybook.support.ai.BookAiContentRequestQueue;
 import net.findmybook.support.ai.BookAiQueueCapacityExceededException;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -138,7 +139,7 @@ class BookAiIngestionMetadataCoordinatorTest {
         when(bookAiContentService.generateAndPersistIfPromptChanged(eq(secondBookId), any()))
             .thenReturn(new BookAiContentService.GenerationOutcome(secondBookId, true, "hash-ai-2", null));
 
-        RuntimeException missingRelation = new RuntimeException(
+        DataAccessResourceFailureException missingRelation = new DataAccessResourceFailureException(
             "PreparedStatementCallback; bad SQL grammar",
             new RuntimeException("ERROR: relation \"book_seo_metadata\" does not exist")
         );

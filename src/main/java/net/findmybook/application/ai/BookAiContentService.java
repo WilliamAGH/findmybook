@@ -177,13 +177,21 @@ public class BookAiContentService {
                 }
             });
         } catch (OpenAIException ex) {
-            log.error("Book AI streaming failed for bookId={} model={}", bookId, configuredModel, ex);
+            String detail = BookAiGenerationException.describeApiError(ex);
+            log.error("AI streaming failed for bookId={} model={}: {}", bookId, configuredModel, detail);
             throw new BookAiGenerationException(BookAiGenerationException.ErrorCode.GENERATION_FAILED,
-                "AI streaming failed for book: " + bookId, ex);
+                "AI content generation failed (%s): %s".formatted(configuredModel, detail), ex);
         }
 
         String rawMessage = fullResponseBuilder.toString();
-        BookAiContent aiContent = jsonParser.parse(rawMessage);
+        BookAiContent aiContent;
+        try {
+            aiContent = jsonParser.parse(rawMessage);
+        } catch (IllegalStateException parseFailure) {
+            log.error("AI content parsing failed for bookId={} model={}: {}", bookId, configuredModel, parseFailure.getMessage());
+            throw new BookAiGenerationException(BookAiGenerationException.ErrorCode.GENERATION_FAILED,
+                "AI content generation failed (%s): model returned empty response".formatted(configuredModel), parseFailure);
+        }
         BookAiContentSnapshot snapshot = repository.insertNewCurrentVersion(bookId, aiContent, configuredModel, DEFAULT_PROVIDER, promptHash);
         return new GeneratedContent(rawMessage, snapshot);
     }
