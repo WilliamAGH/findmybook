@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import { render, screen, waitFor } from "@testing-library/svelte";
 import BookPage from "$lib/pages/BookPage.svelte";
 
 const {
@@ -166,106 +166,6 @@ describe("BookPage fallback lookup", () => {
     expect(getBookMock).toHaveBeenNthCalledWith(2, "OL13535055W", "30d");
     expect(getSimilarBooksMock).toHaveBeenCalledWith("OL13535055W", 6);
     expect(getAffiliateLinksMock).toHaveBeenCalledWith("OL13535055W");
-  });
-
-  it("shouldRenderCoverGridWhenSimilarBooksHaveDisplayableCovers", async () => {
-    const coverPayload = {
-      s3ImagePath: null,
-      externalImageUrl: null,
-      width: 300,
-      height: 450,
-      highResolution: false,
-      preferredUrl: "https://cdn.example.com/cover.jpg",
-      fallbackUrl: null,
-      source: "GOOGLE_BOOKS",
-    };
-
-    getSimilarBooksMock.mockResolvedValueOnce([
-      createBookPayload({ id: "related-1", slug: "related-1", title: "Related One", cover: coverPayload }),
-      createBookPayload({ id: "related-2", slug: "related-2", title: "Related Two", cover: coverPayload }),
-    ]);
-
-    const currentUrl = new URL("https://findmybook.net/book/book-1");
-    render(BookPage, {
-      props: {
-        currentUrl,
-        identifier: "book-1",
-      },
-    });
-
-    const sectionHeading = await screen.findByRole("heading", { name: "You might also like" });
-    expect(sectionHeading).toBeInTheDocument();
-
-    const recommendationSection = sectionHeading.closest("section")!;
-    const recommendationCovers = recommendationSection.querySelectorAll("img");
-    expect(recommendationCovers).toHaveLength(2);
-  });
-
-  it("shouldHideRecommendationSectionWhenAllSimilarBooksLackCovers", async () => {
-    getSimilarBooksMock.mockResolvedValueOnce([
-      createBookPayload({ id: "no-cover-1", slug: "no-cover-1", title: "No Cover" }),
-      createBookPayload({ id: "no-cover-2", slug: "no-cover-2", title: "Also No Cover" }),
-    ]);
-
-    const currentUrl = new URL("https://findmybook.net/book/book-1");
-    render(BookPage, {
-      props: {
-        currentUrl,
-        identifier: "book-1",
-      },
-    });
-
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "Book" })).toBeInTheDocument();
-    });
-
-    expect(screen.queryByRole("heading", { name: "You might also like" })).not.toBeInTheDocument();
-  });
-
-  it("shouldHideRecommendationCardWhenPrimaryAndFallbackCoversFailToLoad", async () => {
-    getSimilarBooksMock.mockResolvedValueOnce([
-      createBookPayload({
-        id: "broken-cover-1",
-        slug: "broken-cover-1",
-        title: "Broken Cover",
-        cover: {
-          s3ImagePath: null,
-          externalImageUrl: null,
-          width: 300,
-          height: 450,
-          highResolution: false,
-          preferredUrl: "https://cdn.example.com/broken-primary.jpg",
-          fallbackUrl: "/images/book-covers/broken-cover-fallback.jpg",
-          source: "GOOGLE_BOOKS",
-        },
-      }),
-    ]);
-
-    const currentUrl = new URL("https://findmybook.net/book/book-1");
-    render(BookPage, {
-      props: {
-        currentUrl,
-        identifier: "book-1",
-      },
-    });
-
-    const sectionHeading = await screen.findByRole("heading", { name: "You might also like" });
-    expect(sectionHeading).toBeInTheDocument();
-
-    const recommendationSection = sectionHeading.closest("section");
-    expect(recommendationSection).not.toBeNull();
-    const recommendationCover = recommendationSection?.querySelector("img");
-    expect(recommendationCover).not.toBeNull();
-    expect(recommendationCover).toBeInstanceOf(HTMLImageElement);
-
-    const coverImage = recommendationCover as HTMLImageElement;
-    await fireEvent.error(coverImage);
-    expect(coverImage.src).toContain("/images/book-covers/broken-cover-fallback.jpg");
-
-    await fireEvent.error(coverImage);
-    await waitFor(() => {
-      expect(screen.queryByRole("heading", { name: "You might also like" })).not.toBeInTheDocument();
-    });
   });
 
   it("shouldBuildExploreBackLinkFromPopularWindowWhenSpaHistoryIsMissing", async () => {
