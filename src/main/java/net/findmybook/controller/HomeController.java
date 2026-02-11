@@ -8,7 +8,8 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.util.UriComponentsBuilder;
 import org.springframework.util.StringUtils;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Mono;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
@@ -24,8 +25,9 @@ import org.springframework.http.HttpStatus;
  * free-text queries into an explicit {@code year} query parameter via 303 redirect.
  */
 @Controller
-@Slf4j
 public class HomeController extends SpaShellController {
+
+    private static final Logger log = LoggerFactory.getLogger(HomeController.class);
 
     private final boolean isYearFilteringEnabled;
     private static final Pattern YEAR_PATTERN = Pattern.compile("\\b(19\\d{2}|20\\d{2})\\b");

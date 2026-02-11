@@ -65,7 +65,7 @@ public class PageApiController {
                              SitemapProperties sitemapProperties,
                              HomePageSectionsService homePageSectionsService,
                              BookSeoMetadataService bookSeoMetadataService,
-                             @Value("${app.seo.max-description-length:170}") int maxDescriptionLength) {
+                             @Value("${app.seo.max-description-length:160}") int maxDescriptionLength) {
         this.publicPagePayloadUseCase = publicPagePayloadUseCase;
         this.sitemapService = sitemapService;
         this.sitemapProperties = sitemapProperties;

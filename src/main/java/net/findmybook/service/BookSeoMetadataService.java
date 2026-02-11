@@ -1,6 +1,7 @@
 package net.findmybook.service;
 
 import java.util.regex.Pattern;
+import java.util.Optional;
 import net.findmybook.application.seo.BookSeoMetadataUseCase;
 import net.findmybook.application.seo.RouteSeoMetadataUseCase;
 import net.findmybook.application.seo.SeoPresentationDefaults;
@@ -21,6 +22,7 @@ import net.findmybook.support.seo.SpaShellDocumentRenderer;
 import net.findmybook.support.seo.SpaShellRenderContext;
 import net.findmybook.util.ApplicationConstants;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.ObjectMapper;
 
@@ -59,7 +61,8 @@ public class BookSeoMetadataService {
             new BookOpenGraphImageResolver(localDiskCoverCacheService),
             canonicalUrlResolver,
             seoMarkupFormatter,
-            routeStructuredDataRenderer
+            routeStructuredDataRenderer,
+            bookId -> Optional.empty()
         );
         this.seoRouteManifestUseCase = manifestUseCase;
         this.spaShellDocumentRenderer = new SpaShellDocumentRenderer(
@@ -102,6 +105,33 @@ public class BookSeoMetadataService {
 
     public SeoMetadata bookMetadata(Book book, int maxDescriptionLength) {
         return bookSeoMetadataUseCase.bookMetadata(book, maxDescriptionLength);
+    }
+
+    /**
+     * Renders the dynamic OpenGraph image bytes for a resolved book route.
+     *
+     * @param book canonical book metadata
+     * @param identifier route identifier used in cache keying and fallback labels
+     * @return encoded PNG bytes for {@code og:image}
+     */
+    @Cacheable(
+        value = "bookOgImages",
+        key = "#identifier + ':' + (#book != null && #book.getId() != null ? #book.getId() : 'unknown')",
+        sync = true
+    )
+    public byte[] renderBookOpenGraphImage(Book book, String identifier) {
+        return bookSeoMetadataUseCase.bookOpenGraphImage(book, identifier);
+    }
+
+    /**
+     * Renders fallback OpenGraph image bytes when the book route cannot be resolved.
+     *
+     * @param identifier unresolved route identifier
+     * @return encoded fallback PNG bytes
+     */
+    @Cacheable(value = "bookOgImages", key = "'missing:' + #identifier", sync = true)
+    public byte[] renderFallbackBookOpenGraphImage(String identifier) {
+        return bookSeoMetadataUseCase.bookOpenGraphFallbackImage(identifier);
     }
 
     public SeoMetadata sitemapMetadata(String canonicalPath) {

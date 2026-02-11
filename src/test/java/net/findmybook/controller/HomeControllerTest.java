@@ -38,6 +38,9 @@ import java.util.Date;
 @TestPropertySource(properties = "app.feature.year-filtering.enabled=true")
 class HomeControllerTest {
 
+    private static final String OPEN_GRAPH_CACHE_CONTROL =
+        "public, max-age=86400, s-maxage=86400, stale-while-revalidate=3600";
+
     @Autowired
     private WebTestClient webTestClient;
 
@@ -275,5 +278,42 @@ class HomeControllerTest {
             .exchange()
             .expectStatus().isEqualTo(HttpStatus.SEE_OTHER)
             .expectHeader().valueEquals("Location", "/book/canonical-slug");
+    }
+
+    @Test
+    void should_ReturnDynamicOpenGraphPng_When_BookOpenGraphRouteRequested() {
+        Book book = new Book();
+        book.setId("book-id");
+        book.setSlug("the-hobbit");
+        book.setTitle("The Hobbit");
+        book.setAuthors(java.util.List.of("J.R.R. Tolkien"));
+        when(homePageSectionsService.locateBook("the-hobbit")).thenReturn(Mono.just(book));
+
+        webTestClient.get().uri("/api/pages/og/book/the-hobbit")
+            .exchange()
+            .expectStatus().isOk()
+            .expectHeader().contentTypeCompatibleWith(MediaType.IMAGE_PNG)
+            .expectHeader().valueEquals("Cache-Control", OPEN_GRAPH_CACHE_CONTROL)
+            .expectBody(byte[].class)
+            .value(imageBytes -> {
+                assertTrue(imageBytes.length > 64);
+                assertEquals((byte) 0x89, imageBytes[0]);
+                assertEquals((byte) 0x50, imageBytes[1]);
+                assertEquals((byte) 0x4E, imageBytes[2]);
+                assertEquals((byte) 0x47, imageBytes[3]);
+            });
+    }
+
+    @Test
+    void should_ReturnFallbackOpenGraphPng_When_BookOpenGraphIdentifierIsMissing() {
+        when(homePageSectionsService.locateBook("missing-book")).thenReturn(Mono.empty());
+
+        webTestClient.get().uri("/api/pages/og/book/missing-book")
+            .exchange()
+            .expectStatus().isOk()
+            .expectHeader().contentTypeCompatibleWith(MediaType.IMAGE_PNG)
+            .expectHeader().valueEquals("Cache-Control", OPEN_GRAPH_CACHE_CONTROL)
+            .expectBody(byte[].class)
+            .value(imageBytes -> assertTrue(imageBytes.length > 64));
     }
 }
