@@ -81,6 +81,14 @@ public final class CoverQuality {
             return 0;
         }
 
+        if (!CoverUrlValidator.isLikelyCoverImage(url)) {
+            return 0;
+        }
+
+        if (hasKnownBadAspectRatio(width, height)) {
+            return 0;
+        }
+
         if (Boolean.TRUE.equals(grayscale)) {
             return 1;
         }
@@ -105,6 +113,19 @@ public final class CoverQuality {
                                   Integer height,
                                   Boolean highResolution) {
         return rankFromUrl(url, width, height, highResolution, null);
+    }
+
+    /**
+     * Returns {@code true} when dimensions are known and the aspect ratio
+     * falls outside the acceptable range for book covers.
+     * Unknown (null) dimensions are treated as acceptable to avoid rejecting
+     * covers where the database simply lacks dimension metadata.
+     */
+    private static boolean hasKnownBadAspectRatio(Integer width, Integer height) {
+        if (width == null || height == null || width <= 0 || height <= 0) {
+            return false;
+        }
+        return !ImageDimensionUtils.hasValidAspectRatio(width, height);
     }
 
     private static boolean isRenderable(String url) {

@@ -161,12 +161,26 @@ final class BookQueryCoverNormalizer {
                        bil.is_grayscale
                 FROM book_image_links bil
                 WHERE bil.book_id = ANY(?::UUID[])
+                  AND bil.download_error IS NULL
                   AND (
                       (bil.url IS NOT NULL AND bil.url <> '')
                       OR (bil.s3_image_path IS NOT NULL AND bil.s3_image_path <> '')
                   )
                   AND (bil.url IS NULL OR bil.url NOT LIKE '%placeholder-book-cover.svg%')
                   AND (bil.s3_image_path IS NULL OR bil.s3_image_path NOT LIKE '%placeholder-book-cover.svg%')
+                  AND (bil.url IS NULL OR (
+                      bil.url NOT LIKE '%printsec=titlepage%'
+                      AND bil.url NOT LIKE '%printsec=copyright%'
+                      AND bil.url NOT LIKE '%printsec=toc%'
+                  ))
+                  AND (
+                      bil.width IS NULL OR bil.height IS NULL
+                      OR (
+                          bil.width >= 180
+                          AND bil.height >= 280
+                          AND (bil.height::float / NULLIF(bil.width, 0)) BETWEEN 1.2 AND 2.0
+                      )
+                  )
                 ORDER BY bil.book_id,
                          cover_image_priority(
                              bil.s3_image_path, bil.is_high_resolution, bil.url,
