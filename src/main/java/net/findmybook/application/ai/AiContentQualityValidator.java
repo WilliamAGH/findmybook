@@ -149,28 +149,13 @@ class AiContentQualityValidator {
         if (text.length() < 10) {
             return false;
         }
-        int[] charCounts = new int[128];
-        int nonAsciiMax = 0;
+        var charCounts = new java.util.HashMap<Character, Integer>();
         for (int i = 0; i < text.length(); i++) {
             char ch = text.charAt(i);
-            if (ch < 128) {
-                charCounts[ch]++;
-            } else {
-                // For non-ASCII, track the most frequent code point simply
-                // by scanning — sufficient for degeneration detection.
-                int count = 0;
-                for (int j = 0; j < text.length(); j++) {
-                    if (text.charAt(j) == ch) {
-                        count++;
-                    }
-                }
-                if (count > nonAsciiMax) {
-                    nonAsciiMax = count;
-                }
-            }
+            charCounts.merge(ch, 1, Integer::sum);
         }
-        int maxCount = nonAsciiMax;
-        for (int count : charCounts) {
+        int maxCount = 0;
+        for (int count : charCounts.values()) {
             if (count > maxCount) {
                 maxCount = count;
             }
