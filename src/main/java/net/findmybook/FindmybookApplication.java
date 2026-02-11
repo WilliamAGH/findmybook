@@ -49,6 +49,9 @@ public class FindmybookApplication implements ApplicationRunner {
     private static final int APPLICATION_SCHEDULER_POOL_SIZE = 4;
     private static final int APPLICATION_SCHEDULER_SHUTDOWN_TIMEOUT_SECONDS = 30;
     private static final String APPLICATION_SCHEDULER_THREAD_PREFIX = "AppScheduler-";
+    private static final boolean APPLICATION_SCHEDULER_WAIT_FOR_TASKS_ON_SHUTDOWN = false;
+    private static final boolean APPLICATION_SCHEDULER_CONTINUE_PERIODIC_AFTER_SHUTDOWN = false;
+    private static final boolean APPLICATION_SCHEDULER_EXECUTE_DELAYED_AFTER_SHUTDOWN = false;
     private static final String NO_DATABASE_PROFILE = "nodb";
     private static final String TEST_PROFILE = "test";
 
@@ -101,7 +104,13 @@ public class FindmybookApplication implements ApplicationRunner {
         scheduler.setThreadNamePrefix(APPLICATION_SCHEDULER_THREAD_PREFIX);
         scheduler.setPoolSize(APPLICATION_SCHEDULER_POOL_SIZE);
         scheduler.setRemoveOnCancelPolicy(true);
-        scheduler.setWaitForTasksToCompleteOnShutdown(true);
+        scheduler.setContinueExistingPeriodicTasksAfterShutdownPolicy(
+            APPLICATION_SCHEDULER_CONTINUE_PERIODIC_AFTER_SHUTDOWN
+        );
+        scheduler.setExecuteExistingDelayedTasksAfterShutdownPolicy(
+            APPLICATION_SCHEDULER_EXECUTE_DELAYED_AFTER_SHUTDOWN
+        );
+        scheduler.setWaitForTasksToCompleteOnShutdown(APPLICATION_SCHEDULER_WAIT_FOR_TASKS_ON_SHUTDOWN);
         scheduler.setAwaitTerminationSeconds(APPLICATION_SCHEDULER_SHUTDOWN_TIMEOUT_SECONDS);
         return scheduler;
     }

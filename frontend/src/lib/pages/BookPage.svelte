@@ -21,8 +21,10 @@
     Globe,
     BookOpen,
     Calendar,
-    Info,
+    Eye,
   } from "@lucide/svelte";
+
+  const MIN_VIEW_COUNT_DISPLAY_THRESHOLD = 10;
 
   let {
     currentUrl,
@@ -79,7 +81,7 @@
 
   async function loadBookWithFallback(identifierFromRoute: string): Promise<Book> {
     try {
-      return await getBook(identifierFromRoute);
+      return await getBook(identifierFromRoute, "30d");
     } catch (primaryError) {
       const fallbackIdentifier = fallbackIdentifierFromUrl();
       if (!isHttpNotFoundError(primaryError) || !fallbackIdentifier || fallbackIdentifier === identifierFromRoute) {
@@ -88,7 +90,7 @@
       console.warn(
         `[BookPage] Book lookup by route identifier '${identifierFromRoute}' returned 404; retrying with fallback '${fallbackIdentifier}'`,
       );
-      return getBook(fallbackIdentifier);
+      return getBook(fallbackIdentifier, "30d");
     }
   }
 
@@ -469,36 +471,51 @@
           {/if}
           <p class="text-base text-anthracite-700 dark:text-slate-300">{authorNames()}</p>
 
+          {#if (book.viewMetrics?.totalViews ?? 0) > MIN_VIEW_COUNT_DISPLAY_THRESHOLD}
+            <p class="flex items-center gap-1.5 text-xs text-sage-500 dark:text-sage-400">
+              <Eye size={14} class="shrink-0" />
+              <span>{book.viewMetrics!.totalViews.toLocaleString()} views</span>
+            </p>
+          {/if}
+
           <!-- Metadata Grid -->
           <dl class="grid gap-3 text-sm text-anthracite-700 dark:text-slate-300 sm:grid-cols-2">
-            <div class="flex items-start gap-2">
-              <Calendar size={16} class="mt-0.5 shrink-0 text-canvas-500" />
-              <div>
-                <dt class="font-medium text-anthracite-800 dark:text-slate-200">Published</dt>
-                <dd>{publishedDateText()}</dd>
+            {#if book.publication?.publishedDate}
+              <div class="flex items-start gap-2">
+                <Calendar size={16} class="mt-0.5 shrink-0 text-canvas-500" />
+                <div>
+                  <dt class="font-medium text-anthracite-800 dark:text-slate-200">Published</dt>
+                  <dd>{publishedDateText()}</dd>
+                </div>
               </div>
-            </div>
-            <div class="flex items-start gap-2">
-              <BookOpen size={16} class="mt-0.5 shrink-0 text-canvas-500" />
-              <div>
-                <dt class="font-medium text-anthracite-800 dark:text-slate-200">Publisher</dt>
-                <dd>{book.publication?.publisher ?? "Unknown"}</dd>
+            {/if}
+            {#if book.publication?.publisher}
+              <div class="flex items-start gap-2">
+                <BookOpen size={16} class="mt-0.5 shrink-0 text-canvas-500" />
+                <div>
+                  <dt class="font-medium text-anthracite-800 dark:text-slate-200">Publisher</dt>
+                  <dd>{book.publication.publisher}</dd>
+                </div>
               </div>
-            </div>
-            <div class="flex items-start gap-2">
-              <Globe size={16} class="mt-0.5 shrink-0 text-canvas-500" />
-              <div>
-                <dt class="font-medium text-anthracite-800 dark:text-slate-200">Language</dt>
-                <dd>{book.publication?.language ?? "Unknown"}</dd>
+            {/if}
+            {#if book.publication?.language}
+              <div class="flex items-start gap-2">
+                <Globe size={16} class="mt-0.5 shrink-0 text-canvas-500" />
+                <div>
+                  <dt class="font-medium text-anthracite-800 dark:text-slate-200">Language</dt>
+                  <dd>{book.publication.language}</dd>
+                </div>
               </div>
-            </div>
-            <div class="flex items-start gap-2">
-              <Info size={16} class="mt-0.5 shrink-0 text-canvas-500" />
-              <div>
-                <dt class="font-medium text-anthracite-800 dark:text-slate-200">Pages</dt>
-                <dd>{book.publication?.pageCount ?? "Unknown"}</dd>
+            {/if}
+            {#if book.publication?.pageCount}
+              <div class="flex items-start gap-2">
+                <BookOpen size={16} class="mt-0.5 shrink-0 text-canvas-500" />
+                <div>
+                  <dt class="font-medium text-anthracite-800 dark:text-slate-200">Pages</dt>
+                  <dd>{book.publication.pageCount.toLocaleString()}</dd>
+                </div>
               </div>
-            </div>
+            {/if}
           </dl>
 
           <BookAffiliateLinks links={affiliateLinks} loadFailed={affiliateLinksFailed} />

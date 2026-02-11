@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -16,8 +17,8 @@ import static org.mockito.Mockito.when;
 class SearchPaginationServiceOrderingTest extends AbstractSearchPaginationServiceTest {
 
     @Test
-    @DisplayName("search() applies newest ordering ahead of cover quality when orderBy=newest")
-    void searchNewestOrderingWhenNewest() {
+    @DisplayName("search() keeps non-color results behind color covers even when orderBy=newest")
+    void searchNewestOrderingStillDemotesNonColorCovers() {
         UUID newerLowQualityId = UUID.randomUUID();
         UUID olderHighQualityId = UUID.randomUUID();
 
@@ -51,7 +52,7 @@ class SearchPaginationServiceOrderingTest extends AbstractSearchPaginationServic
         assertThat(page).isNotNull();
         assertThat(page.pageItems())
             .extracting(Book::getId)
-            .containsExactly(newerLowQualityId.toString(), olderHighQualityId.toString());
+            .containsExactly(olderHighQualityId.toString(), newerLowQualityId.toString());
     }
 
     @Test
@@ -81,7 +82,7 @@ class SearchPaginationServiceOrderingTest extends AbstractSearchPaginationServic
     }
 
     @Test
-    @DisplayName("search() treats null-equivalent cover values as no-cover but sorts by relevance")
+    @DisplayName("search() treats null-equivalent cover values as no-cover and ranks them last")
     void searchDemotesNullEquivalentCoverValues() {
         UUID nullEquivalentCoverId = UUID.randomUUID();
         UUID validCoverId = UUID.randomUUID();
@@ -100,7 +101,55 @@ class SearchPaginationServiceOrderingTest extends AbstractSearchPaginationServic
         assertThat(page).isNotNull();
         assertThat(page.pageItems())
             .extracting(Book::getId)
-            .containsExactly(nullEquivalentCoverId.toString(), validCoverId.toString());
+            .containsExactly(validCoverId.toString(), nullEquivalentCoverId.toString());
+    }
+
+    @Test
+    @DisplayName("search() ranks grayscale covers after color covers even when grayscale has higher relevance")
+    void searchDemotesGrayscaleBelowColor() {
+        UUID grayscaleId = UUID.randomUUID();
+        UUID colorId = UUID.randomUUID();
+
+        when(bookSearchService.searchBooks("grayscale-priority", 24)).thenReturn(List.of(
+            new BookSearchService.SearchResult(grayscaleId, 0.99, "TSVECTOR"),
+            new BookSearchService.SearchResult(colorId, 0.70, "TSVECTOR")
+        ));
+        when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(List.of(
+            new BookListItem(
+                grayscaleId.toString(),
+                "slug-" + grayscaleId,
+                "Grayscale Candidate",
+                "grayscale description",
+                List.of("Author Gray"),
+                List.of("Category"),
+                "https://example.test/grayscale.jpg",
+                "s3://covers/grayscale.jpg",
+                "https://example.test/grayscale.jpg",
+                640,
+                960,
+                true,
+                4.2,
+                30,
+                Map.of(),
+                null,
+                Boolean.TRUE
+            ),
+            buildListItem(
+                colorId,
+                "Color Candidate",
+                640,
+                960,
+                true,
+                "https://cdn.test/color.jpg"
+            )
+        ));
+
+        SearchPaginationService.SearchPage page = service.search(searchRequest("grayscale-priority", 0, 12, "relevance")).block();
+
+        assertThat(page).isNotNull();
+        assertThat(page.pageItems())
+            .extracting(Book::getId)
+            .containsExactly(colorId.toString(), grayscaleId.toString());
     }
 
     @Test

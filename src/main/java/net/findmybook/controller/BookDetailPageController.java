@@ -97,7 +97,6 @@ public class BookDetailPageController extends SpaShellController {
                         return spaResponse(bookSeoMetadataService.notFoundMetadata("/book/" + id), HttpStatus.NOT_FOUND);
                     }
                     String canonical = canonicalIdentifier(book);
-                    homePageSectionsService.recordRecentlyViewed(book);
                     BookSeoMetadataService.SeoMetadata metadata = bookSeoMetadataService.bookMetadata(book, maxDescriptionLength);
                     return spaResponse(metadata, HttpStatus.OK);
                 })

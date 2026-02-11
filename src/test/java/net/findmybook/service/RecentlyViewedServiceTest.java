@@ -8,7 +8,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -76,11 +75,8 @@ class RecentlyViewedServiceTest {
     }
 
     @Test
-    void addToRecentlyViewed_recordsViewAndAppliesStats() {
+    void addToRecentlyViewed_recordsViewWithoutSynchronousStatsRead() {
         when(recentBookViewRepository.isEnabled()).thenReturn(true);
-        Instant now = Instant.parse("2024-02-02T10:15:30Z");
-        when(recentBookViewRepository.fetchStatsForBook("uuid-2"))
-            .thenReturn(Optional.of(new RecentBookViewRepository.ViewStats("uuid-2", now, 5L, 12L, 20L)));
 
         Book book = sampleBook("uuid-2");
         book.setSlug("slug-uuid-2");
@@ -88,11 +84,11 @@ class RecentlyViewedServiceTest {
         recentlyViewedService.addToRecentlyViewed(book);
 
         verify(recentBookViewRepository).recordView(eq("uuid-2"), any(Instant.class), eq("web"));
-        verify(recentBookViewRepository).fetchStatsForBook("uuid-2");
-
-        assertNotNull(book.getQualifiers());
-        assertEquals(12L, book.getQualifiers().get("recent.views.7d"));
-        assertEquals(now, book.getQualifiers().get("recent.views.lastViewedAt"));
+        verify(recentBookViewRepository, never()).fetchStatsForBook(any());
+        assertTrue(
+            book.getQualifiers() == null
+                || book.getQualifiers().keySet().stream().noneMatch(key -> key.startsWith("recent.views."))
+        );
     }
 
     @Test
@@ -116,6 +112,26 @@ class RecentlyViewedServiceTest {
             anyString(),
             eq(String.class),
             any(UUID.class));
+    }
+
+    @Test
+    void fetchViewCount_delegatesToRepositoryForRequestedWindow() {
+        when(recentBookViewRepository.isEnabled()).thenReturn(true);
+        when(recentBookViewRepository.fetchViewCountForBook(
+            "uuid-30d",
+            RecentBookViewRepository.ViewWindow.LAST_30_DAYS
+        )).thenReturn(18L);
+
+        long count = recentlyViewedService.fetchViewCount(
+            "uuid-30d",
+            RecentBookViewRepository.ViewWindow.LAST_30_DAYS
+        );
+
+        assertEquals(18L, count);
+        verify(recentBookViewRepository).fetchViewCountForBook(
+            "uuid-30d",
+            RecentBookViewRepository.ViewWindow.LAST_30_DAYS
+        );
     }
 
     private Book sampleBook(String id) {

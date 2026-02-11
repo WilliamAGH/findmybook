@@ -72,8 +72,11 @@ export function searchBooks(params: SearchParams): Promise<SearchResponse> {
   return request;
 }
 
-export function getBook(identifier: string): Promise<Book> {
-  return getJson(`/api/books/${encodeURIComponent(identifier)}`, BookSchema, `getBook:${identifier}`);
+export type ViewWindow = "30d" | "90d" | "all";
+
+export function getBook(identifier: string, viewWindow?: ViewWindow): Promise<Book> {
+  const params = viewWindow ? `?viewWindow=${viewWindow}` : "";
+  return getJson(`/api/books/${encodeURIComponent(identifier)}${params}`, BookSchema, `getBook:${identifier}`);
 }
 
 export function getSimilarBooks(identifier: string, limit = DEFAULT_SIMILAR_BOOKS_LIMIT): Promise<Book[]> {

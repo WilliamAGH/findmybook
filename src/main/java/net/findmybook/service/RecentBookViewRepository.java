@@ -11,6 +11,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 import org.springframework.util.StringUtils;
@@ -161,6 +162,136 @@ public class RecentBookViewRepository {
     }
 
     /**
+     * Counts views for a single canonical book ID within the requested time window.
+     */
+    public long fetchViewCountForBook(String canonicalBookId, ViewWindow viewWindow) {
+        if (!isEnabled() || !StringUtils.hasText(canonicalBookId) || viewWindow == null) {
+            return 0L;
+        }
+
+        String sql = switch (viewWindow) {
+            case LAST_30_DAYS -> """
+                SELECT COUNT(*)
+                FROM recent_book_views
+                WHERE book_id = ?
+                  AND viewed_at >= now() - INTERVAL '30 days'
+                """;
+            case LAST_90_DAYS -> """
+                SELECT COUNT(*)
+                FROM recent_book_views
+                WHERE book_id = ?
+                  AND viewed_at >= now() - INTERVAL '90 days'
+                """;
+            case ALL_TIME -> """
+                SELECT COUNT(*)
+                FROM recent_book_views
+                WHERE book_id = ?
+                """;
+        };
+
+        try {
+            Long count = jdbcTemplate.queryForObject(sql, Long.class, canonicalBookId);
+            return count == null ? 0L : count;
+        } catch (DataAccessException ex) {
+            throw new IllegalStateException(
+                "Failed to fetch view count for book " + canonicalBookId + " and window " + viewWindow.queryValue(),
+                ex
+            );
+        }
+    }
+
+    /**
+     * Returns most-viewed books for the requested window.
+     */
+    public List<BookViewAggregate> fetchMostViewedBooks(ViewWindow viewWindow, int limit) {
+        if (!isEnabled() || viewWindow == null || limit <= 0) {
+            return Collections.emptyList();
+        }
+
+        String sql = switch (viewWindow) {
+            case LAST_30_DAYS -> """
+                SELECT book_id,
+                       COUNT(*) AS view_count,
+                       MAX(viewed_at) AS last_viewed_at
+                FROM recent_book_views
+                WHERE viewed_at >= now() - INTERVAL '30 days'
+                GROUP BY book_id
+                ORDER BY view_count DESC, last_viewed_at DESC
+                LIMIT ?
+                """;
+            case LAST_90_DAYS -> """
+                SELECT book_id,
+                       COUNT(*) AS view_count,
+                       MAX(viewed_at) AS last_viewed_at
+                FROM recent_book_views
+                WHERE viewed_at >= now() - INTERVAL '90 days'
+                GROUP BY book_id
+                ORDER BY view_count DESC, last_viewed_at DESC
+                LIMIT ?
+                """;
+            case ALL_TIME -> """
+                SELECT book_id,
+                       COUNT(*) AS view_count,
+                       MAX(viewed_at) AS last_viewed_at
+                FROM recent_book_views
+                GROUP BY book_id
+                ORDER BY view_count DESC, last_viewed_at DESC
+                LIMIT ?
+                """;
+        };
+
+        try {
+            return jdbcTemplate.query(sql, ps -> ps.setInt(1, limit), (rs, rowNum) -> {
+                Timestamp timestamp = rs.getTimestamp("last_viewed_at");
+                Instant lastViewed = timestamp != null ? timestamp.toInstant() : Instant.EPOCH;
+                return new BookViewAggregate(
+                    rs.getString("book_id"),
+                    rs.getLong("view_count"),
+                    lastViewed
+                );
+            });
+        } catch (DataAccessException ex) {
+            throw new IllegalStateException(
+                "Failed to fetch most-viewed books for window " + viewWindow.queryValue(),
+                ex
+            );
+        }
+    }
+
+    /**
+     * Supported rolling windows for view aggregation APIs.
+     */
+    public enum ViewWindow {
+        LAST_30_DAYS("30d"),
+        LAST_90_DAYS("90d"),
+        ALL_TIME("all");
+
+        private final String queryValue;
+
+        ViewWindow(String queryValue) {
+            this.queryValue = queryValue;
+        }
+
+        public String queryValue() {
+            return queryValue;
+        }
+
+        public static Optional<ViewWindow> fromQueryValue(String rawValue) {
+            if (!StringUtils.hasText(rawValue)) {
+                return Optional.empty();
+            }
+
+            String normalized = rawValue.trim().toLowerCase(Locale.US);
+            return switch (normalized) {
+                case "30d" -> Optional.of(LAST_30_DAYS);
+                case "90d" -> Optional.of(LAST_90_DAYS);
+                case "all" -> Optional.of(ALL_TIME);
+                default -> Optional.empty();
+            };
+        }
+    }
+
+    /**
      * Aggregated counters for a single book across different time windows.
      */
     public record ViewStats(String bookId,
@@ -168,5 +299,11 @@ public class RecentBookViewRepository {
                             long viewsLast24h,
                             long viewsLast7d,
                             long viewsLast30d) {
+    }
+
+    /**
+     * Ranked aggregate row used for popular-book lookups.
+     */
+    public record BookViewAggregate(String bookId, long viewCount, Instant lastViewedAt) {
     }
 }

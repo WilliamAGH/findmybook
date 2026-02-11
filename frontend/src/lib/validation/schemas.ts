@@ -65,6 +65,11 @@ export const BookAiContentSnapshotSchema = z.object({
   provider: z.string().nullable().optional(),
 });
 
+export const ViewMetricsSchema = z.object({
+  window: z.string(),
+  totalViews: z.number(),
+});
+
 export const BookSchema = z.object({
   id: z.string(),
   slug: z.string().nullable().optional(),
@@ -82,6 +87,7 @@ export const BookSchema = z.object({
   recommendationIds: z.array(z.string()).optional().default([]),
   extras: z.record(z.string(), z.unknown()).optional().default({}),
   aiContent: BookAiContentSnapshotSchema.nullable().optional(),
+  viewMetrics: ViewMetricsSchema.nullable().optional(),
 });
 
 export const SearchHitSchema = BookSchema.extend({
@@ -122,6 +128,8 @@ export const BookCardSchema = z.object({
 export const HomePayloadSchema = z.object({
   currentBestsellers: z.array(BookCardSchema),
   recentBooks: z.array(BookCardSchema),
+  popularBooks: z.array(BookCardSchema).optional().default([]),
+  popularWindow: z.enum(["30d", "90d", "all"]).optional().default("30d"),
 });
 
 export const CategoryFacetSchema = z.object({
@@ -321,6 +329,7 @@ export const RealtimeSearchHitCandidateSchema = z.object({
 });
 
 export type Book = z.infer<typeof BookSchema>;
+export type ViewMetrics = z.infer<typeof ViewMetricsSchema>;
 export type BookAiContentSnapshot = z.infer<typeof BookAiContentSnapshotSchema>;
 export type BookAiContentQueueStats = z.infer<typeof BookAiContentQueueStatsSchema>;
 export type BookAiContentQueueUpdate = z.infer<typeof BookAiContentQueueUpdateSchema>;

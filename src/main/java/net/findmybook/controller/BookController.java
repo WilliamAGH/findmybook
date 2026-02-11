@@ -3,8 +3,13 @@
  */
 package net.findmybook.controller;
 
-import net.findmybook.application.ai.BookAiContentService;
-import net.findmybook.controller.dto.BookAiContentSnapshotDto;
+import jakarta.annotation.Nullable;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import lombok.extern.slf4j.Slf4j;
+import net.findmybook.application.book.BookDetailResponseUseCase;
+import net.findmybook.application.book.RecommendationCardResponseUseCase;
 import net.findmybook.controller.dto.BookDto;
 import net.findmybook.controller.dto.BookDtoMapper;
 import net.findmybook.controller.dto.search.AuthorSearchResponse;
@@ -12,9 +17,7 @@ import net.findmybook.controller.dto.search.SearchContractMapper;
 import net.findmybook.controller.dto.search.SearchFilters;
 import net.findmybook.controller.dto.search.SearchResponse;
 import org.springframework.web.server.ResponseStatusException;
-import net.findmybook.dto.BookCard;
 import net.findmybook.dto.BookDetail;
-import net.findmybook.dto.RecommendationCard;
 import net.findmybook.model.Book;
 import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.model.image.ImageResolutionPreference;
@@ -23,16 +26,15 @@ import net.findmybook.service.BookIdentifierResolver;
 import net.findmybook.service.BookSearchService;
 import net.findmybook.service.SearchPaginationService;
 import net.findmybook.util.ApplicationConstants;
+import net.findmybook.util.EnumParsingUtils;
 import net.findmybook.util.PagingUtils;
 import net.findmybook.util.ReactiveControllerUtils;
 import net.findmybook.util.SearchExternalProviderUtils;
 import net.findmybook.util.SearchQueryUtils;
-import org.springframework.util.StringUtils;
-import net.findmybook.util.EnumParsingUtils;
-import net.findmybook.util.cover.CoverPrioritizer;
-import lombok.extern.slf4j.Slf4j;
+import net.findmybook.util.UuidUtils;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -41,15 +43,6 @@ import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.UUID;
-
-import net.findmybook.util.UuidUtils;
-
 @RestController
 @RequestMapping("/api/books")
 @Slf4j
@@ -57,7 +50,8 @@ public class BookController {
     private final BookSearchService bookSearchService;
     private final BookIdentifierResolver bookIdentifierResolver;
     private final SearchPaginationService searchPaginationService;
-    private final BookAiContentService bookAiContentService;
+    private final BookDetailResponseUseCase bookDetailResponseUseCase;
+    private final RecommendationCardResponseUseCase recommendationCardResponseUseCase;
     /**
      * The book data orchestrator, may be null when disabled.
      */
@@ -69,18 +63,21 @@ public class BookController {
      * @param bookSearchService the book search service
      * @param bookIdentifierResolver the identifier resolver
      * @param searchPaginationService the pagination service
-     * @param bookAiContentService service for cache-first AI reader-fit snapshots
+     * @param bookDetailResponseUseCase use case for detail response enrichment and side effects
+     * @param recommendationCardResponseUseCase use case for recommendation DTO ordering/mapping
      * @param bookDataOrchestrator the data orchestrator, or null when disabled
      */
     public BookController(BookSearchService bookSearchService,
                           BookIdentifierResolver bookIdentifierResolver,
                           SearchPaginationService searchPaginationService,
-                          BookAiContentService bookAiContentService,
+                          BookDetailResponseUseCase bookDetailResponseUseCase,
+                          RecommendationCardResponseUseCase recommendationCardResponseUseCase,
                           BookDataOrchestrator bookDataOrchestrator) {
         this.bookSearchService = bookSearchService;
         this.bookIdentifierResolver = bookIdentifierResolver;
         this.searchPaginationService = searchPaginationService;
-        this.bookAiContentService = bookAiContentService;
+        this.bookDetailResponseUseCase = bookDetailResponseUseCase;
+        this.recommendationCardResponseUseCase = recommendationCardResponseUseCase;
         this.bookDataOrchestrator = bookDataOrchestrator;
     }
 
@@ -167,11 +164,13 @@ public class BookController {
     }
 
     @GetMapping("/{identifier}")
-    public Mono<ResponseEntity<BookDto>> getBookByIdentifier(@PathVariable String identifier) {
+    public Mono<ResponseEntity<BookDto>> getBookByIdentifier(@PathVariable String identifier,
+                                                              @RequestParam(name = "viewWindow", required = false) String viewWindow) {
         return resolveBookRequest(
             identifier,
             String.format("No book found for identifier: %s", identifier),
-            String.format("Failed to fetch book '%s'", identifier)
+            String.format("Failed to fetch book '%s'", identifier),
+            viewWindow
         );
     }
 
@@ -180,11 +179,13 @@ public class BookController {
      * Delegates to the same fetchBook logic that handles slugs, IDs, ISBNs, etc.
      */
     @GetMapping("/slug/{slug}")
-    public Mono<ResponseEntity<BookDto>> getBookBySlug(@PathVariable String slug) {
+    public Mono<ResponseEntity<BookDto>> getBookBySlug(@PathVariable String slug,
+                                                        @RequestParam(name = "viewWindow", required = false) String viewWindow) {
         return resolveBookRequest(
             slug,
             String.format("No book found for slug: %s", slug),
-            String.format("Failed to fetch book by slug '%s'", slug)
+            String.format("Failed to fetch book by slug '%s'", slug),
+            viewWindow
         );
     }
 
@@ -204,7 +205,7 @@ public class BookController {
             }
             return Mono.fromCallable(() -> bookSearchService.fetchRecommendationCards(maybeUuid.get(), safeLimit))
                 .subscribeOn(Schedulers.boundedElastic())
-                .map(this::mapRecommendationCards);
+                .map(recommendationCardResponseUseCase::mapRecommendationCards);
         });
 
         return ReactiveControllerUtils.withErrorHandling(
@@ -215,8 +216,12 @@ public class BookController {
 
     private Mono<ResponseEntity<BookDto>> resolveBookRequest(String identifier,
                                                              String notFoundDetail,
-                                                             String failureDetail) {
+                                                             String failureDetail,
+                                                             @Nullable String rawViewWindow) {
+        bookDetailResponseUseCase.validateViewWindow(rawViewWindow);
         return findBookDto(identifier)
+            .flatMap(dto -> Mono.fromCallable(() -> bookDetailResponseUseCase.enrichDetailResponse(dto, rawViewWindow))
+                .subscribeOn(Schedulers.boundedElastic()))
             .map(ResponseEntity::ok)
             .switchIfEmpty(Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND, notFoundDetail)))
             .onErrorResume(ex -> {
@@ -254,8 +259,7 @@ public class BookController {
             .flatMap(Mono::justOrEmpty)
             .switchIfEmpty(fetchBookViaFallback(trimmed));
 
-        return resolvedBook.flatMap(dto -> Mono.fromCallable(() -> attachAiContentSnapshot(dto))
-            .subscribeOn(Schedulers.boundedElastic()));
+        return resolvedBook;
     }
 
     private Optional<BookDto> locateBookDto(String identifier) {
@@ -304,76 +308,6 @@ public class BookController {
         return bookDataOrchestrator.fetchCanonicalBookReactive(identifier)
             .map(BookDtoMapper::toDto)
             .doOnNext(bookDto -> log.debug("BookController fallback resolved '{}' via orchestrator", identifier));
-    }
-
-    private BookDto attachAiContentSnapshot(BookDto bookDto) {
-        if (bookDto == null || !StringUtils.hasText(bookDto.id())) {
-            return bookDto;
-        }
-
-        UUID bookId = UuidUtils.parseUuidOrNull(bookDto.id());
-        if (bookId == null) {
-            return bookDto;
-        }
-
-        return bookAiContentService.findCurrent(bookId)
-            .map(BookAiContentSnapshotDto::fromSnapshot)
-            .map(bookDto::withAiContent)
-            .orElse(bookDto);
-    }
-
-    private BookDto toRecommendationDto(RecommendationCard card) {
-        if (card == null || card.card() == null) {
-            return null;
-        }
-        Map<String, Object> extras = new LinkedHashMap<>();
-        if (card.score() != null) {
-            extras.put("recommendation.score", card.score());
-        }
-        if (StringUtils.hasText(card.reason())) {
-            extras.put("recommendation.reason", card.reason());
-        }
-        if (StringUtils.hasText(card.source())) {
-            extras.put("recommendation.source", card.source());
-        }
-        return BookDtoMapper.fromCard(card.card(), extras);
-    }
-
-    private List<BookDto> mapRecommendationCards(List<RecommendationCard> cards) {
-        if (cards == null || cards.isEmpty()) {
-            return List.of();
-        }
-
-        Map<String, RecommendationCard> cardsById = new LinkedHashMap<>();
-        Map<String, Integer> insertionOrder = new LinkedHashMap<>();
-        List<BookCard> sortableCards = new ArrayList<>();
-        int index = 0;
-
-        for (RecommendationCard card : cards) {
-            if (card == null || card.card() == null || !StringUtils.hasText(card.card().id())) {
-                continue;
-            }
-            String id = card.card().id();
-            cardsById.putIfAbsent(id, card);
-            sortableCards.add(card.card());
-            insertionOrder.putIfAbsent(id, index++);
-        }
-
-        if (sortableCards.isEmpty()) {
-            return List.of();
-        }
-
-        sortableCards.sort(CoverPrioritizer.cardComparator(insertionOrder));
-
-        List<BookDto> dtos = new ArrayList<>(sortableCards.size());
-        for (BookCard payload : sortableCards) {
-            RecommendationCard wrapper = cardsById.get(payload.id());
-            BookDto dto = toRecommendationDto(wrapper);
-            if (dto != null) {
-                dtos.add(dto);
-            }
-        }
-        return dtos;
     }
 
 }

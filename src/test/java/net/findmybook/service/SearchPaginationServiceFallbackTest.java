@@ -154,7 +154,7 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
     }
 
     @Test
-    @DisplayName("search() should merge Open Library candidates and sort by relevance score")
+    @DisplayName("search() should merge Open Library candidates while keeping non-color covers last")
     void should_MergeOpenLibraryCandidates_When_PostgresHasCoverGaps() {
         UUID postgresCoveredId = UUID.randomUUID();
         UUID postgresSuppressedId = UUID.randomUUID();
@@ -181,7 +181,7 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
 
         assertThat(page).isNotNull();
         assertThat(page.pageItems()).extracting(Book::getId)
-            .containsExactly(postgresSuppressedId.toString(), postgresCoveredId.toString(), "OL-OPEN-1");
+            .containsExactly(postgresCoveredId.toString(), "OL-OPEN-1", postgresSuppressedId.toString());
         verifyNoInteractions(googleApiFetcher);
     }
 
