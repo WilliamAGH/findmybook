@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 
 import net.findmybook.config.WebConfig;
 import net.findmybook.model.Book;
+import net.findmybook.domain.seo.SeoMetadata;
 import net.findmybook.service.BookSeoMetadataService;
 import net.findmybook.service.HomePageSectionsService;
 import net.findmybook.service.image.LocalDiskCoverCacheService;
@@ -232,7 +233,7 @@ class HomeControllerTest {
         book.setPageCount(214);
         book.setPublishedDate(Date.from(Instant.parse("1951-07-16T00:00:00Z")));
 
-        BookSeoMetadataService.SeoMetadata metadata = bookSeoMetadataService.bookMetadata(book, 170);
+        SeoMetadata metadata = bookSeoMetadataService.bookMetadata(book, 170);
         String html = bookSeoMetadataService.renderSpaShell(metadata);
 
         assertTrue(html.contains("<meta property=\"og:type\" content=\"book\">"));
@@ -248,7 +249,7 @@ class HomeControllerTest {
 
     @Test
     void should_GenerateRouteSpecificSitemapMetadata_When_CanonicalPathIncludesViewBucketAndPage() {
-        BookSeoMetadataService.SeoMetadata metadata = bookSeoMetadataService.sitemapMetadata("/sitemap/books/B/3");
+        SeoMetadata metadata = bookSeoMetadataService.sitemapMetadata("/sitemap/books/B/3");
 
         assertTrue(metadata.title().equals("Books Sitemap: B Page 3"));
         assertTrue(metadata.description().contains("books indexed under B on page 3"));
@@ -257,7 +258,7 @@ class HomeControllerTest {
 
     @Test
     void should_CanonicalizeNotFoundMetadataTo404Route_When_RequestPathIsUnknown() {
-        BookSeoMetadataService.SeoMetadata metadata = bookSeoMetadataService.notFoundMetadata("/book/missing-book");
+        SeoMetadata metadata = bookSeoMetadataService.notFoundMetadata("/book/missing-book");
 
         assertTrue(metadata.canonicalUrl().equals("https://findmybook.net/404"));
         assertTrue(metadata.robots().equals("noindex, nofollow, noarchive"));

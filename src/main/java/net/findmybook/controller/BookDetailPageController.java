@@ -4,6 +4,7 @@ import java.net.URI;
 import java.util.function.Predicate;
 import lombok.extern.slf4j.Slf4j;
 import net.findmybook.model.Book;
+import net.findmybook.domain.seo.SeoMetadata;
 import net.findmybook.service.BookSeoMetadataService;
 import net.findmybook.service.HomePageSectionsService;
 import net.findmybook.util.IsbnUtils;
@@ -97,7 +98,7 @@ public class BookDetailPageController extends SpaShellController {
                         return spaResponse(bookSeoMetadataService.notFoundMetadata("/book/" + id), HttpStatus.NOT_FOUND);
                     }
                     String canonical = canonicalIdentifier(book);
-                    BookSeoMetadataService.SeoMetadata metadata = bookSeoMetadataService.bookMetadata(book, maxDescriptionLength);
+                    SeoMetadata metadata = bookSeoMetadataService.bookMetadata(book, maxDescriptionLength);
                     return spaResponse(metadata, HttpStatus.OK);
                 })
                 .switchIfEmpty(Mono.just(spaResponse(

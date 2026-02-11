@@ -14,8 +14,9 @@ import java.util.List;
 import java.util.regex.Pattern;
 import net.findmybook.application.page.PublicPagePayloadUseCase;
 import net.findmybook.config.SitemapProperties;
-import net.findmybook.domain.seo.OpenGraphProperty;
 import net.findmybook.service.AffiliateLinkService;
+import net.findmybook.domain.seo.OpenGraphProperty;
+import net.findmybook.domain.seo.SeoMetadata;
 import net.findmybook.service.BookSeoMetadataService;
 import net.findmybook.service.HomePageSectionsService;
 import net.findmybook.service.PageViewEventRepository;
@@ -73,7 +74,7 @@ class PageApiControllerMetadataTest {
 
     @Test
     void should_ReturnMetadataPayload_When_HomePathRequested() throws Exception {
-        when(bookSeoMetadataService.homeMetadata()).thenReturn(new BookSeoMetadataService.SeoMetadata(
+        when(bookSeoMetadataService.homeMetadata()).thenReturn(new SeoMetadata(
             "Home",
             "Home description",
             "https://findmybook.net/",
@@ -115,7 +116,7 @@ class PageApiControllerMetadataTest {
     @Test
     void should_ReturnErrorMetadata_When_ErrorPathRequested() throws Exception {
         when(bookSeoMetadataService.errorMetadata(eq(500), eq("/error"))).thenReturn(
-            new BookSeoMetadataService.SeoMetadata(
+            new SeoMetadata(
                 "Error 500",
                 "Unexpected error",
                 "https://findmybook.net/error",
@@ -143,7 +144,7 @@ class PageApiControllerMetadataTest {
     @Test
     void should_ReturnMetadataWithOpenGraphExtensions_When_MetadataIncludesExtensions() throws Exception {
         when(bookSeoMetadataService.homeMetadata()).thenReturn(
-            new BookSeoMetadataService.SeoMetadata(
+            new SeoMetadata(
                 "Book Title",
                 "Book description",
                 "https://findmybook.net/",
@@ -176,7 +177,7 @@ class PageApiControllerMetadataTest {
     void should_ReturnNotFoundMetadata_When_BookPathCannotBeResolved() throws Exception {
         when(homePageSectionsService.locateBook(eq("missing-book"))).thenReturn(Mono.empty());
         when(bookSeoMetadataService.notFoundMetadata(eq("/book/missing-book"))).thenReturn(
-            new BookSeoMetadataService.SeoMetadata(
+            new SeoMetadata(
                 "Page Not Found",
                 "Missing page.",
                 "https://findmybook.net/book/missing-book",
@@ -204,7 +205,7 @@ class PageApiControllerMetadataTest {
         when(sitemapService.normalizeBucket(eq("A"))).thenReturn("A");
         String expectedPath = "/sitemap/books/A/" + Integer.MAX_VALUE;
         when(bookSeoMetadataService.sitemapMetadata(eq(expectedPath))).thenReturn(
-            new BookSeoMetadataService.SeoMetadata(
+            new SeoMetadata(
                 "Sitemap",
                 "Sitemap description",
                 "https://findmybook.net" + expectedPath,
@@ -232,7 +233,7 @@ class PageApiControllerMetadataTest {
         when(sitemapService.normalizeBucket(eq("A"))).thenReturn("A");
         String expectedPath = "/sitemap/books/A/1";
         when(bookSeoMetadataService.sitemapMetadata(eq(expectedPath))).thenReturn(
-            new BookSeoMetadataService.SeoMetadata(
+            new SeoMetadata(
                 "Sitemap",
                 "Sitemap description",
                 "https://findmybook.net" + expectedPath,

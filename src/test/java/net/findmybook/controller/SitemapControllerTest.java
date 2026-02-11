@@ -21,6 +21,8 @@ import net.findmybook.RequestLoggingFilter;
 import net.findmybook.config.WebConfig;
 import net.findmybook.config.SitemapProperties;
 import net.findmybook.repository.SitemapRepository.DatasetFingerprint;
+import net.findmybook.domain.seo.RouteManifest;
+import net.findmybook.domain.seo.SeoMetadata;
 import net.findmybook.service.BookSeoMetadataService;
 import net.findmybook.service.SitemapService;
 import net.findmybook.service.SitemapService.AuthorListingXmlItem;
@@ -86,7 +88,7 @@ class SitemapControllerTest {
         when(sitemapService.getBookSitemapPageMetadata()).thenReturn(List.of());
         when(sitemapService.getAuthorSitemapPageMetadata()).thenReturn(List.of());
 
-        BookSeoMetadataService.SeoMetadata sitemapMetadata = new BookSeoMetadataService.SeoMetadata(
+        SeoMetadata sitemapMetadata = new SeoMetadata(
             "Sitemap",
             "Browse all indexed author and book pages.",
             "https://findmybook.net/sitemap/books/A/1",
@@ -96,7 +98,7 @@ class SitemapControllerTest {
         );
         when(bookSeoMetadataService.sitemapMetadata(any())).thenReturn(sitemapMetadata);
         when(bookSeoMetadataService.routeManifest()).thenReturn(
-            new BookSeoMetadataService.RouteManifest(
+            new RouteManifest(
                 1,
                 List.of(),
                 List.of("/api", "/admin", "/actuator", "/ws", "/topic", "/sitemap.xml", "/sitemap-xml", "/r")

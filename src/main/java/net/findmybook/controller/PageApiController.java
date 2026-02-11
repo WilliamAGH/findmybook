@@ -14,6 +14,8 @@ import net.findmybook.controller.PageApiPayloads.PageMetadataPayload;
 import net.findmybook.controller.PageApiPayloads.SitemapAuthorPayload;
 import net.findmybook.controller.PageApiPayloads.SitemapBookPayload;
 import net.findmybook.controller.PageApiPayloads.SitemapPayload;
+import net.findmybook.domain.seo.RouteManifest;
+import net.findmybook.domain.seo.SeoMetadata;
 import net.findmybook.service.BookSeoMetadataService;
 import net.findmybook.service.HomePageSectionsService;
 import net.findmybook.service.SitemapService;
@@ -207,7 +209,7 @@ public class PageApiController {
                             toPageMetadataPayload(bookSeoMetadataService.notFoundMetadata(normalizedPath), HttpStatus.NOT_FOUND.value())
                         );
                     }
-                    BookSeoMetadataService.SeoMetadata metadata = bookSeoMetadataService.bookMetadata(book, maxDescriptionLength);
+                    SeoMetadata metadata = bookSeoMetadataService.bookMetadata(book, maxDescriptionLength);
                     return ResponseEntity.ok(toPageMetadataPayload(metadata, HttpStatus.OK.value()));
                 })
                 .switchIfEmpty(Mono.just(ResponseEntity.ok(
@@ -236,7 +238,7 @@ public class PageApiController {
      * Returns the backend-defined public route contract consumed by the SPA router.
      */
     @GetMapping("/routes")
-    public ResponseEntity<BookSeoMetadataService.RouteManifest> routes() {
+    public ResponseEntity<RouteManifest> routes() {
         return ResponseEntity.ok(bookSeoMetadataService.routeManifest());
     }
 
@@ -283,7 +285,7 @@ public class PageApiController {
         }
     }
 
-    private PageMetadataPayload toPageMetadataPayload(BookSeoMetadataService.SeoMetadata metadata, int statusCode) {
+    private PageMetadataPayload toPageMetadataPayload(SeoMetadata metadata, int statusCode) {
         List<OpenGraphMetaPayload> openGraphProperties = metadata.openGraphProperties().stream()
             .map(property -> new OpenGraphMetaPayload(property.property(), property.content()))
             .toList();

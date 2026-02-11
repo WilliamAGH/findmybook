@@ -18,6 +18,8 @@ import net.findmybook.application.page.PublicPagePayloadUseCase;
 import net.findmybook.config.SitemapProperties;
 import net.findmybook.model.Book;
 import net.findmybook.service.AffiliateLinkService;
+import net.findmybook.domain.seo.RouteDefinition;
+import net.findmybook.domain.seo.RouteManifest;
 import net.findmybook.service.BookSeoMetadataService;
 import net.findmybook.service.BookSearchService;
 import net.findmybook.service.HomePageSectionsService;
@@ -147,10 +149,10 @@ class PageApiControllerAuxiliaryEndpointsTest {
 
     @Test
     void should_ReturnRouteManifest_When_RoutesEndpointRequested() throws Exception {
-        BookSeoMetadataService.RouteManifest routeManifest = new BookSeoMetadataService.RouteManifest(
+        RouteManifest routeManifest = new RouteManifest(
             1,
             List.of(
-                new BookSeoMetadataService.RouteDefinition(
+                new RouteDefinition(
                     "home",
                     "exact",
                     "/",
