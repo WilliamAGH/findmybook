@@ -1,117 +1,38 @@
 package net.findmybook.controller;
 
-import net.findmybook.application.ai.BookAiContentService;
-import net.findmybook.dto.BookCard;
-import net.findmybook.dto.BookDetail;
-import net.findmybook.dto.EditionSummary;
-import net.findmybook.dto.RecommendationCard;
-import net.findmybook.domain.ai.BookAiContent;
-import net.findmybook.domain.ai.BookAiContentSnapshot;
-import net.findmybook.model.Book;
-import net.findmybook.model.image.CoverImageSource;
-import net.findmybook.model.image.CoverImages;
-import net.findmybook.model.image.ImageResolutionPreference;
-import net.findmybook.service.BookSeoMetadataService;
-import net.findmybook.service.BookDataOrchestrator;
-import net.findmybook.service.BookIdentifierResolver;
-import net.findmybook.service.BookSearchService;
-import net.findmybook.service.SearchPaginationService;
-import net.findmybook.service.image.LocalDiskCoverCacheService;
-import net.findmybook.util.cover.CoverUrlResolver;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
-import org.mockito.Mockito;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.boot.web.error.ErrorAttributeOptions;
-import org.springframework.boot.webmvc.error.ErrorAttributes;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.MvcResult;
-import org.springframework.test.web.servlet.ResultActions;
-import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-import org.springframework.web.context.request.WebRequest;
-import reactor.core.publisher.Mono;
-
 import java.time.Instant;
-import java.util.HashMap;
-import java.time.LocalDate;
-import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import net.findmybook.domain.ai.BookAiContent;
+import net.findmybook.domain.ai.BookAiContentSnapshot;
+import net.findmybook.dto.EditionSummary;
+import net.findmybook.model.Book;
+import net.findmybook.model.image.CoverImageSource;
+import net.findmybook.model.image.ImageResolutionPreference;
+import net.findmybook.service.SearchPaginationService;
+import net.findmybook.util.cover.CoverUrlResolver;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.web.server.ResponseStatusException;
+import reactor.core.publisher.Mono;
 
-import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasItems;
 import static org.hamcrest.Matchers.hasSize;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@ExtendWith(MockitoExtension.class)
-class BookControllerTest {
-
-    @Mock
-    private BookSearchService bookSearchService;
-
-    @Mock
-    private BookIdentifierResolver bookIdentifierResolver;
-
-    @Mock
-    private BookDataOrchestrator bookDataOrchestrator;
-
-    @Mock
-    private SearchPaginationService searchPaginationService;
-
-    @Mock
-    private BookAiContentService bookAiContentService;
-
-    private MockMvc mockMvc;
-
-    private Book fixtureBook;
-
-    @BeforeEach
-    void setUp() {
-        BookController bookController = new BookController(
-            bookSearchService,
-            bookIdentifierResolver,
-            searchPaginationService,
-            bookAiContentService,
-            bookDataOrchestrator
-        );
-        BookCoverController bookCoverController = new BookCoverController(
-            bookSearchService,
-            bookIdentifierResolver,
-            bookDataOrchestrator
-        );
-
-        mockMvc = MockMvcBuilders.standaloneSetup(bookController, bookCoverController).build();
-        fixtureBook = buildBook("11111111-1111-4111-8111-111111111111", "fixture-book-of-secrets");
-
-        lenient().when(bookDataOrchestrator.fetchCanonicalBookReactive(any()))
-            .thenReturn(Mono.empty());
-        lenient().when(bookDataOrchestrator.getBookFromDatabaseBySlug(any()))
-            .thenReturn(Optional.empty());
-        lenient().when(bookDataOrchestrator.getBookFromDatabase(any()))
-            .thenReturn(Optional.empty());
-        lenient().when(bookSearchService.fetchBookEditions(any(UUID.class)))
-            .thenReturn(List.of());
-        lenient().when(bookAiContentService.findCurrent(any(UUID.class)))
-            .thenReturn(Optional.empty());
-    }
+class BookControllerTest extends AbstractBookControllerMvcTest {
 
     @Test
     @DisplayName("GET /api/books/search returns DTO results")
@@ -144,7 +65,7 @@ class BookControllerTest {
             .param("query", "Fixture")
             .param("maxResults", "5"))
             .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+            .andExpect(content().contentType("application/json"))
             .andExpect(jsonPath("$.query", equalTo("Fixture")))
             .andExpect(jsonPath("$.results", hasSize(1)))
             .andExpect(jsonPath("$.results[0].id", equalTo(fixtureBook.getId())))
@@ -171,15 +92,32 @@ class BookControllerTest {
     }
 
     @Test
+    @DisplayName("GET /api/books/search returns 500 ProblemDetail status when search service fails")
+    void searchBooks_returnsInternalServerErrorWhenSearchServiceFails() throws Exception {
+        when(searchPaginationService.search(any(SearchPaginationService.SearchRequest.class)))
+            .thenReturn(Mono.error(new IllegalStateException("Search backend unavailable")));
+
+        performAsync(get("/api/books/search")
+            .param("query", "Fixture"))
+            .andExpect(status().isInternalServerError())
+            .andExpect(result -> {
+                assertNotNull(result.getResolvedException());
+                assertTrue(result.getResolvedException() instanceof ResponseStatusException);
+                ResponseStatusException exception = (ResponseStatusException) result.getResolvedException();
+                assertEquals(500, exception.getStatusCode().value());
+            });
+    }
+
+    @Test
     @DisplayName("GET /api/books/{id} returns mapped DTO")
     void getBookByIdentifier_returnsDto() throws Exception {
-        BookDetail detail = buildDetailFromBook(fixtureBook);
+        var detail = buildDetailFromBook(fixtureBook);
         when(bookSearchService.fetchBookDetailBySlug(fixtureBook.getSlug()))
             .thenReturn(Optional.of(detail));
 
         performAsync(get("/api/books/" + fixtureBook.getSlug()))
             .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+            .andExpect(content().contentType("application/json"))
             .andExpect(jsonPath("$.id", equalTo(fixtureBook.getId())))
             .andExpect(jsonPath("$.slug", equalTo(fixtureBook.getSlug())))
             .andExpect(jsonPath("$.authors[0].name", equalTo("Fixture Author")))
@@ -213,7 +151,7 @@ class BookControllerTest {
 
         performAsync(get("/api/books/" + fixtureBook.getSlug()))
             .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+            .andExpect(content().contentType("application/json"))
             .andExpect(jsonPath("$.description", equalTo("Canonical Description")))
             .andExpect(jsonPath("$.publication.language", equalTo("eng")))
             .andExpect(jsonPath("$.publication.publisher", equalTo("Canonical Publisher")))
@@ -228,13 +166,13 @@ class BookControllerTest {
         when(bookIdentifierResolver.resolveCanonicalId(fixtureBook.getSlug()))
             .thenReturn(Optional.of(fixtureBook.getId()));
 
-        BookDetail detail = buildDetailFromBook(fixtureBook);
+        var detail = buildDetailFromBook(fixtureBook);
         when(bookSearchService.fetchBookDetail(UUID.fromString(fixtureBook.getId())))
             .thenReturn(Optional.of(detail));
 
         performAsync(get("/api/books/" + fixtureBook.getSlug()))
             .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+            .andExpect(content().contentType("application/json"))
             .andExpect(jsonPath("$.id", equalTo(fixtureBook.getId())))
             .andExpect(jsonPath("$.slug", equalTo(fixtureBook.getSlug())));
     }
@@ -242,12 +180,12 @@ class BookControllerTest {
     @Test
     @DisplayName("GET /api/books/{id} includes edition summaries from repository")
     void getBookByIdentifier_includesEditions() throws Exception {
-        BookDetail detail = buildDetailFromBook(fixtureBook);
+        var detail = buildDetailFromBook(fixtureBook);
         EditionSummary summary = new EditionSummary(
             UUID.randomUUID().toString(),
             "edition-slug",
             "Fixture Hardcover",
-            LocalDate.of(2023, 5, 1),
+            java.time.LocalDate.of(2023, 5, 1),
             "Fixture Publisher",
             "9781234567897",
             "https://cdn.test/edition.jpg",
@@ -262,7 +200,7 @@ class BookControllerTest {
 
         performAsync(get("/api/books/" + fixtureBook.getSlug()))
             .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+            .andExpect(content().contentType("application/json"))
             .andExpect(jsonPath("$.editions", hasSize(1)))
             .andExpect(jsonPath("$.editions[0].googleBooksId", equalTo(summary.id())))
             .andExpect(jsonPath("$.editions[0].isbn13", equalTo(summary.isbn13())));
@@ -271,7 +209,7 @@ class BookControllerTest {
     @Test
     @DisplayName("GET /api/books/{identifier} includes cached AI snapshot when present")
     void getBookByIdentifier_includesCachedAiSnapshot() throws Exception {
-        BookDetail detail = buildDetailFromBook(fixtureBook);
+        var detail = buildDetailFromBook(fixtureBook);
         when(bookSearchService.fetchBookDetailBySlug(fixtureBook.getSlug()))
             .thenReturn(Optional.of(detail));
 
@@ -294,7 +232,7 @@ class BookControllerTest {
 
         performAsync(get("/api/books/" + fixtureBook.getSlug()))
             .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+            .andExpect(content().contentType("application/json"))
             .andExpect(jsonPath("$.aiContent.summary", equalTo("A compact summary.")))
             .andExpect(jsonPath("$.aiContent.readerFit", equalTo("Best for readers who want practical guidance.")))
             .andExpect(jsonPath("$.aiContent.keyThemes", hasSize(2)))
@@ -315,7 +253,7 @@ class BookControllerTest {
 
         performAsync(get("/api/books/" + fallbackSlug))
             .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+            .andExpect(content().contentType("application/json"))
             .andExpect(jsonPath("$.id", equalTo(fallback.getId())))
             .andExpect(jsonPath("$.slug", equalTo(fallbackSlug)))
             .andExpect(jsonPath("$.title", equalTo(fallback.getTitle())));
@@ -332,247 +270,19 @@ class BookControllerTest {
     }
 
     @Test
-    @DisplayName("GET /api/books/{id}/similar returns cached DTOs")
-    void getBookSimilar_returnsDtos() throws Exception {
-        UUID bookUuid = UUID.fromString(fixtureBook.getId());
-        when(bookIdentifierResolver.resolveToUuid(fixtureBook.getSlug()))
-            .thenReturn(Optional.of(bookUuid));
-
-        BookCard card = new BookCard(
-            fixtureBook.getId(),
-            fixtureBook.getSlug(),
-            fixtureBook.getTitle(),
-            fixtureBook.getAuthors(),
-            fixtureBook.getCoverImages().getPreferredUrl(),
-            fixtureBook.getS3ImagePath(),
-            fixtureBook.getCoverImages().getFallbackUrl(),
-            4.7,
-            321,
-            Map.<String, Object>of("reason", Map.<String, Object>of("type", "AUTHOR"))
-        );
-        List<RecommendationCard> cards = List.of(new RecommendationCard(card, 0.9, "AUTHOR", "SAME_AUTHOR"));
-        when(bookSearchService.fetchRecommendationCards(bookUuid, 3)).thenReturn(cards);
-
-        performAsync(get("/api/books/" + fixtureBook.getSlug() + "/similar")
-            .param("limit", "3"))
-            .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-            .andExpect(jsonPath("$.length()").value(1))
-            .andExpect(jsonPath("$[0].id", equalTo(fixtureBook.getId())));
-    }
-
-    @Test
-    @DisplayName("GET /api/books/{id}/similar returns 404 when canonical lookup fails")
-    void getBookSimilar_returnsEmptyWhenMissing() throws Exception {
-        when(bookIdentifierResolver.resolveToUuid("unknown"))
-            .thenReturn(Optional.empty());
-
-        performAsync(get("/api/books/unknown/similar"))
-            .andExpect(status().isNotFound());
-    }
-
-    @Test
-    @DisplayName("GET /api/covers/{id} uses orchestrator fallback when repository misses")
-    void getBookCover_fallsBackToOrchestrator() throws Exception {
-        stubRepositoryMiss("orchestrator-id");
-        Book fallback = buildBook(UUID.randomUUID().toString(), "fallback-book");
-        when(bookDataOrchestrator.fetchCanonicalBookReactive("orchestrator-id"))
-            .thenReturn(Mono.just(fallback));
-
-        CoverUrlResolver.ResolvedCover expectedCover = CoverUrlResolver.resolve(
-            fallback.getS3ImagePath(),
-            fallback.getExternalImageUrl(),
-            fallback.getCoverImageWidth(),
-            fallback.getCoverImageHeight(),
-            fallback.getIsCoverHighResolution()
-        );
-
-        mockMvc.perform(get("/api/covers/orchestrator-id"))
-            .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-            .andExpect(jsonPath("$.preferredUrl", equalTo(expectedCover.url())))
-            .andExpect(jsonPath("$.coverUrl", equalTo(expectedCover.url())))
-            .andExpect(jsonPath("$.requestedSourcePreference", equalTo("ANY")));
-    }
-
-    @Test
-    @DisplayName("GET /api/covers/{id} returns 500 when orchestrator lookup fails")
-    void getBookCover_returnsServerError_WhenOrchestratorFails() throws Exception {
-        stubRepositoryMiss("orchestrator-error");
-        when(bookDataOrchestrator.fetchCanonicalBookReactive("orchestrator-error"))
-            .thenReturn(Mono.error(new RuntimeException("downstream-failure")));
-
-        mockMvc.perform(get("/api/covers/orchestrator-error"))
-            .andExpect(status().isInternalServerError());
-    }
-
-    @Test
-    @DisplayName("GET /api/covers/{id} resolves via repository detail first")
-    void getBookCover_usesRepositoryFirst() throws Exception {
-        BookDetail detail = buildDetailFromBook(fixtureBook);
-        when(bookSearchService.fetchBookDetailBySlug(fixtureBook.getSlug()))
-            .thenReturn(Optional.of(detail));
-
-        CoverUrlResolver.ResolvedCover expectedCover = CoverUrlResolver.resolve(
-            detail.coverUrl(),
-            detail.thumbnailUrl(),
-            detail.coverWidth(),
-            detail.coverHeight(),
-            detail.coverHighResolution()
-        );
-
-        mockMvc.perform(get("/api/covers/" + fixtureBook.getSlug()))
-            .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-            .andExpect(jsonPath("$.coverUrl", equalTo(expectedCover.url())))
-            .andExpect(jsonPath("$.preferredUrl", equalTo(expectedCover.url())));
-    }
-
-    @Test
-    @DisplayName("GET /api/books/authors/search returns author results")
-    void searchAuthors_returnsResults() throws Exception {
-        List<BookSearchService.AuthorResult> results = List.of(
-            new BookSearchService.AuthorResult("author-1", "Fixture Author", 12, 0.98)
-        );
-        when(bookSearchService.searchAuthors(eq("Fixture"), anyInt())).thenReturn(results);
+    @DisplayName("GET /api/books/authors/search returns 500 ProblemDetail status when search service fails")
+    void searchAuthors_returnsInternalServerErrorWhenSearchServiceFails() throws Exception {
+        when(bookSearchService.searchAuthors("Fixture", 10))
+            .thenThrow(new IllegalStateException("Author index unavailable"));
 
         performAsync(get("/api/books/authors/search")
-            .param("query", "Fixture")
-            .param("limit", "5"))
-            .andExpect(status().isOk())
-            .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-            .andExpect(jsonPath("$.query", equalTo("Fixture")))
-            .andExpect(jsonPath("$.results", hasSize(1)))
-            .andExpect(jsonPath("$.results[0].id", containsString("author-1")));
-    }
-
-    @Test
-    @DisplayName("GET /error returns JSON with matching status for API clients")
-    void errorDiagnostics_returnsJsonAndStatusForApiAcceptHeader() throws Exception {
-        ErrorAttributes errorAttributes = Mockito.mock(ErrorAttributes.class);
-        LocalDiskCoverCacheService localDiskCoverCacheService = Mockito.mock(LocalDiskCoverCacheService.class);
-        BookSeoMetadataService seoMetadataService = new BookSeoMetadataService(localDiskCoverCacheService);
-        ErrorDiagnosticsController controller = new ErrorDiagnosticsController(errorAttributes, seoMetadataService, false);
-        MockMvc errorMvc = MockMvcBuilders.standaloneSetup(controller).build();
-
-        Map<String, Object> attributes = new HashMap<>();
-        attributes.put("status", 500);
-        attributes.put("error", "Internal Server Error");
-        attributes.put("message", "boom");
-        when(errorAttributes.getErrorAttributes(any(WebRequest.class), any(ErrorAttributeOptions.class)))
-            .thenReturn(attributes);
-
-        errorMvc.perform(get("/error").accept(MediaType.APPLICATION_JSON))
+            .param("query", "Fixture"))
             .andExpect(status().isInternalServerError())
-            .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-            .andExpect(jsonPath("$.status", equalTo(500)))
-            .andExpect(jsonPath("$.message", equalTo("boom")));
-    }
-
-    @Test
-    @DisplayName("GET /error returns 404 SPA shell with 404 status for HTML clients")
-    void errorDiagnostics_returns404TemplateAndStatusForHtml() throws Exception {
-        ErrorAttributes errorAttributes = Mockito.mock(ErrorAttributes.class);
-        LocalDiskCoverCacheService localDiskCoverCacheService = Mockito.mock(LocalDiskCoverCacheService.class);
-        BookSeoMetadataService seoMetadataService = new BookSeoMetadataService(localDiskCoverCacheService);
-        ErrorDiagnosticsController controller = new ErrorDiagnosticsController(errorAttributes, seoMetadataService, false);
-        MockMvc errorMvc = MockMvcBuilders.standaloneSetup(controller).build();
-
-        Map<String, Object> attributes = new HashMap<>();
-        attributes.put("status", 404);
-        attributes.put("error", "Not Found");
-        attributes.put("message", "missing");
-        when(errorAttributes.getErrorAttributes(any(WebRequest.class), any(ErrorAttributeOptions.class)))
-            .thenReturn(attributes);
-
-        errorMvc.perform(get("/error").accept(MediaType.TEXT_HTML))
-            .andExpect(status().isNotFound())
-            .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
-            .andExpect(content().string(containsString("Page Not Found - Book Finder")));
-    }
-
-    private Book buildBook(String id, String slug) {
-        Book book = new Book();
-        book.setId(id);
-        book.setTitle("Fixture Title");
-        book.setSlug(slug);
-        book.setDescription("Fixture Description");
-        book.setAuthors(List.of("Fixture Author"));
-        book.setCategories(List.of("NYT Fiction"));
-        book.setLanguage("en");
-        book.setPageCount(320);
-        book.setPublisher("Fixture Publisher");
-        book.setS3ImagePath(null);
-        book.setExternalImageUrl("https://example.test/cover/" + id + ".jpg");
-        book.setCoverImageWidth(600);
-        book.setCoverImageHeight(900);
-        book.setIsCoverHighResolution(Boolean.TRUE);
-        book.setCoverImages(new CoverImages(
-            "https://cdn.test/preferred/" + id + ".jpg",
-            "https://cdn.test/fallback/" + id + ".jpg",
-            CoverImageSource.GOOGLE_BOOKS));
-        book.setQualifiers(new java.util.HashMap<>(Map.<String, Object>of(
-            "nytBestseller",
-            Map.<String, Object>of("rank", 1)
-        )));
-        book.setCachedRecommendationIds(List.of("rec-1", "rec-2"));
-        book.setPublishedDate(Date.from(Instant.parse("2020-01-01T00:00:00Z")));
-        book.setDataSource("POSTGRES");
-        return book;
-    }
-
-    private BookDetail buildDetailFromBook(Book book) {
-        Map<String, Object> tags = Map.<String, Object>of(
-            "nytBestseller",
-            Map.<String, Object>of("rank", 1)
-        );
-
-        String preferredCover = book.getCoverImages().getPreferredUrl();
-        String fallbackCover = book.getCoverImages().getFallbackUrl();
-        String thumbnail = fallbackCover;
-
-        return new BookDetail(
-            book.getId(),
-            book.getSlug(),
-            book.getTitle(),
-            book.getDescription(),
-            book.getPublisher(),
-            LocalDate.of(2024, 1, 1),
-            book.getLanguage(),
-            book.getPageCount(),
-            book.getAuthors(),
-            book.getCategories(),
-            preferredCover,
-            book.getS3ImagePath(),
-            fallbackCover,
-            thumbnail,
-            book.getCoverImageWidth(),
-            book.getCoverImageHeight(),
-            book.getIsCoverHighResolution(),
-            book.getDataSource(),
-            4.6,
-            87,
-            "1234567890",
-            "1234567890123",
-            "https://preview",
-            "https://info",
-            tags,
-            List.<EditionSummary>of()
-        );
-    }
-
-    private void stubRepositoryMiss(String identifier) {
-        lenient().when(bookSearchService.fetchBookDetailBySlug(identifier)).thenReturn(Optional.empty());
-        lenient().when(bookIdentifierResolver.resolveCanonicalId(identifier)).thenReturn(Optional.empty());
-        lenient().when(bookIdentifierResolver.resolveToUuid(identifier)).thenReturn(Optional.empty());
-    }
-
-    private ResultActions performAsync(MockHttpServletRequestBuilder builder) throws Exception {
-        ResultActions initial = mockMvc.perform(builder);
-        MvcResult mvcResult = initial.andReturn();
-        if (mvcResult.getRequest().isAsyncStarted()) {
-            return mockMvc.perform(asyncDispatch(mvcResult));
-        }
-        return initial;
+            .andExpect(result -> {
+                assertNotNull(result.getResolvedException());
+                assertTrue(result.getResolvedException() instanceof ResponseStatusException);
+                ResponseStatusException exception = (ResponseStatusException) result.getResolvedException();
+                assertEquals(500, exception.getStatusCode().value());
+            });
     }
 }

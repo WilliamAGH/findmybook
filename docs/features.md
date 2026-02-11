@@ -4,11 +4,17 @@
 See [UML README](../src/main/resources/uml/README.md).
 
 ## Public Web Rendering
-- Public HTML routes (`/`, `/search`, `/explore`, `/categories`, `/book/*`, `/sitemap/*`, `/error`) now serve a server-generated SPA shell.
+- Public HTML routes (`/`, `/search`, `/explore`, `/categories`, `/book/*`, `/sitemap`, `/sitemap/*`, `/404`, `/error`) are server-owned and render a server-generated SPA shell.
 - The shell includes server-side SEO metadata (title, description, canonical, OpenGraph, Twitter) and hydrates the Svelte frontend.
+- Book detail routes (`/book/{slug}`) emit route-specific Book JSON-LD (`@type: Book`) and OpenGraph `book:*` properties (`book:isbn`, `book:release_date`, `book:tag`) when source data is available.
+- `GET /api/pages/meta` returns full route metadata for SPA transitions, including `robots`, `openGraphType`, `openGraphProperties`, and `structuredDataJson` so client-side navigation preserves crawler-facing tags.
 - The shell also embeds the backend route manifest (`window.__FMB_ROUTE_MANIFEST__`), and the same contract is exposed by `GET /api/pages/routes` for SPA bootstrap.
 - SPA navigation now writes typed history state for each in-app transition so the book detail back action returns to the exact prior route state (including active filters/pagination) instead of reconstructing a generic search URL.
-- Canonical redirects and non-HTML crawler endpoints remain server-owned (`/book/isbn*`, `/sitemap.xml`, `/sitemap-xml/*`, `/robots.txt`).
+- Search result links now include a `bookId` query hint (`/book/{slug}?bookId={id}`) so book detail pages can retry canonical API lookups by ID when slug-only lookups temporarily fail.
+- Reader's Guide generation attempts backend description enrichment (Open Library + Google Books) before returning a terminal `description_too_short` stream error.
+- Trailing-slash variants of page routes permanently redirect (`308`) to the canonical non-slash path with query strings preserved.
+- Non-HTML crawler endpoints remain explicit and unchanged (`/book/isbn*`, `/sitemap.xml`, `/sitemap-xml/*`, `/robots.txt`).
+- Static fallback HTML at `/frontend/index.html` is not served; only backend controllers provide public HTML entrypoints.
 
 ## Sitemap Generation
 Trigger manual sitemap update:

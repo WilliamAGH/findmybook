@@ -17,7 +17,7 @@ Key variables in `.env`:
 | `S3_WRITE_ENABLED` | Enables/disables S3 cover uploads at runtime (`false` skips upload attempts) |
 | `APP_ADMIN_PASSWORD` | Admin user password |
 | `APP_USER_PASSWORD` | Basic user password |
-| `APP_ERROR_DIAGNOSTICS_INCLUDE_STACKTRACE` | Include stack traces in HTML diagnostics (`false` by default) |
+| `SPRING_MVC_PROBLEMDETAILS_ENABLED` | Enables RFC 9457 Problem Details responses for MVC exception flows (`true` by default in this repo) |
 
 ## User Accounts
 
@@ -45,6 +45,8 @@ Startup now fails fast with a clear error when database-required profiles are ac
 
 ## SPA Shell Delivery
 
-- Public HTML routes are served through a server-generated SPA shell and no longer depend on Thymeleaf templates at runtime.
+- Public HTML routes are served through server-generated SPA shells only (`/`, `/search`, `/explore`, `/categories`, `/book/{identifier}`, `/sitemap`, `/sitemap/{view}/{letter}/{page}`, `/404`, `/error`).
 - Route SEO metadata is resolved server-side and is also available via `GET /api/pages/meta?path=...` for SPA navigation updates.
 - Route matching/canonicalization rules are delivered by the backend route manifest, embedded as `window.__FMB_ROUTE_MANIFEST__` and available at `GET /api/pages/routes`.
+- Trailing-slash page requests are permanently redirected (`308`) to canonical non-slash routes before security filtering; query strings are preserved.
+- `/frontend/index.html` is intentionally not part of runtime static assets. If generated during frontend build, Gradle fails packaging to prevent fallback HTML reintroduction.

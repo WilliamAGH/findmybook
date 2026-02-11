@@ -18,7 +18,7 @@ val toolchainJavaVersion = 25
 val targetRelease = 25
 
 springBoot {
-    mainClass.set("net.findmybook.BookRecommendationEngineApplication")
+    mainClass.set("net.findmybook.FindmybookApplication")
 }
 
 java {
@@ -164,8 +164,23 @@ val frontendBuild by tasks.registering(Exec::class) {
     enabled = !skipFrontend
 }
 
+val verifyNoFrontendFallbackHtml by tasks.registering {
+    if (!skipFrontend) {
+        dependsOn(frontendBuild)
+    }
+    val forbiddenFallbackHtml = layout.projectDirectory.file("src/main/resources/static/frontend/index.html")
+    doLast {
+        if (forbiddenFallbackHtml.asFile.exists()) {
+            throw GradleException(
+                "Forbidden fallback entrypoint detected at src/main/resources/static/frontend/index.html. " +
+                    "Public HTML must be served by backend controllers only."
+            )
+        }
+    }
+}
+
 tasks.named("processResources") {
-    dependsOn(frontendBuild)
+    dependsOn(verifyNoFrontendFallbackHtml)
 }
 
 tasks.named("check") {

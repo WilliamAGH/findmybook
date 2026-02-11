@@ -1,5 +1,7 @@
 package net.findmybook.controller;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -16,6 +18,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 import net.findmybook.RequestLoggingFilter;
+import net.findmybook.config.WebConfig;
 import net.findmybook.config.SitemapProperties;
 import net.findmybook.repository.SitemapRepository.DatasetFingerprint;
 import net.findmybook.service.BookSeoMetadataService;
@@ -32,13 +35,19 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.cache.CacheManager;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.FilterType;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockFilterChain;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.filter.UrlHandlerFilter;
 
 @WebMvcTest(value = SitemapController.class,
     excludeFilters = @ComponentScan.Filter(type = FilterType.ASSIGNABLE_TYPE, classes = RequestLoggingFilter.class))
 @AutoConfigureMockMvc(addFilters = false)
+@Import(ErrorDiagnosticsController.class)
 class SitemapControllerTest {
 
     @Autowired
@@ -81,12 +90,63 @@ class SitemapControllerTest {
             "Sitemap",
             "Browse all indexed author and book pages.",
             "https://findmybook.net/sitemap/books/A/1",
-            "book sitemap, author sitemap, find my book",
-            "https://findmybook.net/images/og-logo.png"
+            "findmybook sitemap, author sitemap, book sitemap",
+            "https://findmybook.net/images/og-logo.png",
+            "index, follow, max-image-preview:large"
         );
         when(bookSeoMetadataService.sitemapMetadata(any())).thenReturn(sitemapMetadata);
+        when(bookSeoMetadataService.routeManifest()).thenReturn(
+            new BookSeoMetadataService.RouteManifest(
+                1,
+                List.of(),
+                List.of("/api", "/admin", "/actuator", "/ws", "/topic", "/sitemap.xml", "/sitemap-xml", "/r")
+            )
+        );
         when(bookSeoMetadataService.renderSpaShell(any()))
-            .thenReturn("<!doctype html><html><head><title>Sitemap - Book Finder</title></head><body><div id=\"app\"></div></body></html>");
+            .thenReturn("<!doctype html><html><head><title>Sitemap | findmybook</title></head><body><div id=\"app\"></div></body></html>");
+    }
+
+    @Test
+    @DisplayName("Canonical filter redirects /sitemap/ to /sitemap with original query string")
+    void sitemapTrailingSlashRedirectPreservesQuery() throws Exception {
+        UrlHandlerFilter canonicalizationFilter = new WebConfig("book-covers")
+            .pageRouteTrailingSlashCanonicalizationFilter();
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/sitemap/");
+        request.setQueryString("view=books&letter=0-9&page=3");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        canonicalizationFilter.doFilter(request, response, new MockFilterChain());
+
+        assertEquals(308, response.getStatus());
+        assertEquals("/sitemap?view=books&letter=0-9&page=3", response.getHeader("Location"));
+    }
+
+    @Test
+    @DisplayName("Canonical filter redirects dynamic sitemap slash variant")
+    void sitemapDynamicTrailingSlashRedirectsToCanonicalPath() throws Exception {
+        UrlHandlerFilter canonicalizationFilter = new WebConfig("book-covers")
+            .pageRouteTrailingSlashCanonicalizationFilter();
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/sitemap/books/A/3/");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        canonicalizationFilter.doFilter(request, response, new MockFilterChain());
+
+        assertEquals(308, response.getStatus());
+        assertEquals("/sitemap/books/A/3", response.getHeader("Location"));
+    }
+
+    @Test
+    @DisplayName("Canonical filter does not rewrite sitemap.xml crawler endpoint")
+    void sitemapXmlEndpointRemainsUnchangedByCanonicalFilter() throws Exception {
+        UrlHandlerFilter canonicalizationFilter = new WebConfig("book-covers")
+            .pageRouteTrailingSlashCanonicalizationFilter();
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/sitemap.xml");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        canonicalizationFilter.doFilter(request, response, new MockFilterChain());
+
+        assertEquals(200, response.getStatus());
+        assertNull(response.getHeader("Location"));
     }
 
     @Test
@@ -104,7 +164,7 @@ class SitemapControllerTest {
         mockMvc.perform(get("/sitemap/authors/A/2"))
             .andExpect(status().isOk())
             .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
-            .andExpect(content().string(containsString("Sitemap - Book Finder")));
+            .andExpect(content().string(containsString("Sitemap | findmybook")));
     }
 
     @Test
@@ -116,6 +176,25 @@ class SitemapControllerTest {
                 .param("page", "3"))
             .andExpect(status().is3xxRedirection())
             .andExpect(redirectedUrl("/sitemap/books/B/3"));
+    }
+
+    @Test
+    @DisplayName("GET unknown page route with HTML accept returns SPA 404 shell")
+    void unknownPageRouteWithHtmlAcceptReturnsSpaShell() throws Exception {
+        mockMvc.perform(get("/route-does-not-exist")
+                .accept(MediaType.TEXT_HTML))
+            .andExpect(status().isNotFound())
+            .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+            .andExpect(content().string(containsString("<div id=\"app\"></div>")));
+    }
+
+    @Test
+    @DisplayName("GET unknown API route returns ProblemDetail JSON")
+    void unknownApiRouteReturnsProblemDetailJson() throws Exception {
+        mockMvc.perform(get("/api/does-not-exist")
+                .accept(MediaType.APPLICATION_JSON))
+            .andExpect(status().isNotFound())
+            .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
     }
 
     @Test
@@ -152,7 +231,9 @@ class SitemapControllerTest {
         when(sitemapService.getBooksXmlPageCount()).thenReturn(2);
 
         mockMvc.perform(get("/sitemap-xml/books/5.xml"))
-            .andExpect(status().isNotFound());
+            .andExpect(status().isNotFound())
+            .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+            .andExpect(content().string(containsString("Books sitemap page out of range")));
     }
 
     @Test
@@ -161,6 +242,8 @@ class SitemapControllerTest {
         when(sitemapService.getAuthorXmlPageCount()).thenReturn(2);
 
         mockMvc.perform(get("/sitemap-xml/authors/4.xml"))
-            .andExpect(status().isNotFound());
+            .andExpect(status().isNotFound())
+            .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+            .andExpect(content().string(containsString("Authors sitemap page out of range")));
     }
 }

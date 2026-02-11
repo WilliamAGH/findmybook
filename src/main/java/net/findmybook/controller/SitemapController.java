@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.util.UriUtils;
 
 import java.nio.charset.StandardCharsets;
@@ -127,7 +128,10 @@ public class SitemapController extends SpaShellController {
     public ResponseEntity<String> booksSitemap(@PathVariable("page") int page) {
         int totalPages = sitemapService.getBooksXmlPageCount();
         if (totalPages == 0 || page < 1 || page > totalPages) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+            throw new ResponseStatusException(
+                HttpStatus.NOT_FOUND,
+                "Books sitemap page out of range: " + page
+            );
         }
         List<BookSitemapItem> items = sitemapService.getBooksForXmlPage(page);
         String xml = buildBookUrlSet(items);
@@ -139,7 +143,10 @@ public class SitemapController extends SpaShellController {
     public ResponseEntity<String> authorsSitemap(@PathVariable("page") int page) {
         int totalPages = sitemapService.getAuthorXmlPageCount();
         if (totalPages == 0 || page < 1 || page > totalPages) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+            throw new ResponseStatusException(
+                HttpStatus.NOT_FOUND,
+                "Authors sitemap page out of range: " + page
+            );
         }
         List<AuthorListingXmlItem> listings = sitemapService.getAuthorListingsForXmlPage(page);
         String xml = buildAuthorUrlSet(listings);

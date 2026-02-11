@@ -1,4 +1,4 @@
-# Contributing to FindMyBook
+# Contributing to findmybook
 
 Feedback and contributions are welcome. If you find a bug or want a feature, please open an issue in this repository.
 

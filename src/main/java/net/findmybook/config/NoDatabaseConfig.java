@@ -1,5 +1,5 @@
 /**
- * Configuration for operating in database-less mode within the book recommendation engine
+ * Configuration for operating in database-less mode within findmybook
  * 
  * This configuration provides fallback capabilities when a database is not available 
  * or not configured. It automatically detects the absence of a database URL and:

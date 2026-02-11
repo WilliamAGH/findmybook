@@ -43,7 +43,11 @@ class PostgresBookReaderDedupeTest {
         orchestrator = new BookDataOrchestrator(
                 search,
                 repo,
-                batchPersistenceService
+                batchPersistenceService,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.of(googleBooksMapper),
+                bookUpsertService
         );
         stubDatabaseQueries();
     }

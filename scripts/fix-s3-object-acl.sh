@@ -209,7 +209,7 @@ main() {
   local acl_stderr put_stderr
   acl_stderr="$(mktemp)"
   put_stderr="$(mktemp)"
-  trap 'rm -f "$acl_stderr" "$put_stderr"' EXIT
+  trap '[[ -n "${acl_stderr:-}" ]] && rm -f "$acl_stderr"; [[ -n "${put_stderr:-}" ]] && rm -f "$put_stderr"' EXIT
 
   echo "Repairing S3 object ACLs to public-read..."
   echo "Scope=$scope Prefix=$prefix DryRun=$dry_run Verbose=$verbose ProgressEvery=$progress_every Bucket=$S3_BUCKET"

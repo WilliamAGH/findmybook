@@ -460,6 +460,18 @@
       "defaultValue": "strict-origin-when-cross-origin"
     },
     {
+      "name": "app.simple-analytics.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Enable Simple Analytics integration",
+      "defaultValue": true
+    },
+    {
+      "name": "app.simple-analytics.script-url",
+      "type": "java.lang.String",
+      "description": "Script URL for Simple Analytics",
+      "defaultValue": "https://scripts.simpleanalyticscdn.com/latest.js"
+    },
+    {
       "name": "app.clicky.enabled",
       "type": "java.lang.Boolean",
       "description": "Enable Clicky analytics integration",

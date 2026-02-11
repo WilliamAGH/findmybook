@@ -56,9 +56,41 @@
   let descriptionMaxHeightPx = $state(DESCRIPTION_FALLBACK_HEIGHT_PX);
   let descriptionNaturalHeightPx = $state(DESCRIPTION_FALLBACK_HEIGHT_PX);
   let descriptionResizeObserver: ResizeObserver | null = null;
+  let titleResizeObserver: ResizeObserver | null = null;
 
   let unsubscribeRealtime: (() => void) | null = null;
   let loadSequence = 0;
+
+  function fallbackIdentifierFromUrl(): string | null {
+    const fallbackIdentifier = currentUrl.searchParams.get("bookId") ?? currentUrl.searchParams.get("id");
+    if (!fallbackIdentifier) {
+      return null;
+    }
+    const trimmedIdentifier = fallbackIdentifier.trim();
+    return trimmedIdentifier.length > 0 ? trimmedIdentifier : null;
+  }
+
+  function isHttpNotFoundError(error: unknown): boolean {
+    if (!(error instanceof Error)) {
+      return false;
+    }
+    return error.message.startsWith("HTTP 404");
+  }
+
+  async function loadBookWithFallback(identifierFromRoute: string): Promise<Book> {
+    try {
+      return await getBook(identifierFromRoute);
+    } catch (primaryError) {
+      const fallbackIdentifier = fallbackIdentifierFromUrl();
+      if (!isHttpNotFoundError(primaryError) || !fallbackIdentifier || fallbackIdentifier === identifierFromRoute) {
+        throw primaryError;
+      }
+      console.warn(
+        `[BookPage] Book lookup by route identifier '${identifierFromRoute}' returned 404; retrying with fallback '${fallbackIdentifier}'`,
+      );
+      return getBook(fallbackIdentifier);
+    }
+  }
 
   async function loadPage(): Promise<void> {
     const sequence = ++loadSequence;
@@ -71,18 +103,23 @@
     }
 
     try {
-      const loadedBook = await getBook(identifier);
+      const loadedBook = await loadBookWithFallback(identifier);
       if (sequence !== loadSequence) return;
 
+      const relatedIdentifier = loadedBook.id.trim().length > 0
+        ? loadedBook.id
+        : fallbackIdentifierFromUrl() ?? identifier;
+
       const [similarResult, linksResult] = await Promise.allSettled([
-        getSimilarBooks(identifier, 6),
-        getAffiliateLinks(identifier),
+        getSimilarBooks(relatedIdentifier, 6),
+        getAffiliateLinks(relatedIdentifier),
       ]);
       if (sequence !== loadSequence) return;
 
       book = loadedBook;
+      // Supplemental data uses visible degradation: child components render
+      // error states via the loadFailed prop, so failures are never hidden.
       if (similarResult.status === "rejected") {
-        console.error("Failed to load similar books for", identifier, similarResult.reason);
         similarBooks = [];
         similarBooksFailed = true;
       } else {
@@ -90,7 +127,6 @@
         similarBooksFailed = false;
       }
       if (linksResult.status === "rejected") {
-        console.error("Failed to load affiliate links for", identifier, linksResult.reason);
         affiliateLinks = {};
         affiliateLinksFailed = true;
       } else {
@@ -283,11 +319,9 @@
   });
 
   function measureTitleOverflow(): void {
-    requestAnimationFrame(() => {
-      if (titleElement) {
-        titleOverflows = titleElement.scrollHeight > titleElement.clientHeight;
-      }
-    });
+    if (titleElement && !titleExpanded) {
+      titleOverflows = titleElement.scrollHeight > titleElement.clientHeight;
+    }
   }
 
   let previousBookId = $state<string | null>(null);
@@ -298,13 +332,42 @@
       previousBookId = currentId;
       titleExpanded = false;
       titleOverflows = false;
-      measureTitleOverflow();
 
       descriptionExpanded = false;
       descriptionMeasured = false;
       descriptionOverflows = false;
       measureDescriptionOverflow();
     }
+  });
+
+  $effect(() => {
+    if (!titleElement) {
+      if (titleResizeObserver) {
+        titleResizeObserver.disconnect();
+        titleResizeObserver = null;
+      }
+      return;
+    }
+
+    const currentTitle = book?.title;
+    if (currentTitle) {
+      measureTitleOverflow();
+    }
+
+    if (titleResizeObserver) {
+      titleResizeObserver.disconnect();
+    }
+    titleResizeObserver = new ResizeObserver(() => {
+      measureTitleOverflow();
+    });
+    titleResizeObserver.observe(titleElement);
+
+    return () => {
+      if (titleResizeObserver) {
+        titleResizeObserver.disconnect();
+        titleResizeObserver = null;
+      }
+    };
   });
 
   $effect(() => {
@@ -316,9 +379,11 @@
       return;
     }
 
-    sanitizedDescriptionHtml;
-    book?.description;
-    measureDescriptionOverflow();
+    const currentHtml = sanitizedDescriptionHtml;
+    const currentRawDescription = book?.description;
+    if (currentHtml || currentRawDescription) {
+      measureDescriptionOverflow();
+    }
 
     if (descriptionResizeObserver) {
       descriptionResizeObserver.disconnect();
@@ -501,7 +566,7 @@
           {/if}
 
           <BookAiContentPanel
-            {identifier}
+            identifier={book.id}
             {book}
             onAiContentUpdate={handleAiContentUpdate}
           />

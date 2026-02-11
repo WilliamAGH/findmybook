@@ -1,4 +1,4 @@
-@startuml Book Finder
+@startuml findmybook
 top to bottom direction
 skinparam nodesep 10
 skinparam ranksep 250
@@ -13,7 +13,7 @@ package "net.findmybook" {
     skinparam packageStyle rectangle
 
     ' Title
-    title Book Finder - UML Class Diagram
+    title findmybook - UML Class Diagram
 
     ' Package for model classes
     package "model" {

@@ -1,5 +1,5 @@
 /**
- * Health monitoring system components for web page availability in the book recommendation engine
+ * Health monitoring system components for web page availability in findmybook
  * 
  * This file provides:
  * - A reusable WebPageHealthIndicator class for checking web page availability

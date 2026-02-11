@@ -1,8 +1,10 @@
 import { validateWithSchema } from "$lib/validation/validate";
 import {
+  type BookAiErrorCode,
   type BookAiContentModelStreamUpdate,
   type BookAiContentQueueUpdate,
   type BookAiContentSnapshot,
+  BookAiContentStreamErrorSchema,
   BookAiContentModelStreamUpdateSchema,
   BookAiContentQueueUpdateSchema,
   BookAiContentStreamDoneSchema,
@@ -18,6 +20,29 @@ export interface StreamBookAiContentOptions {
 export interface StreamBookAiContentResult {
   message: string;
   aiContent: BookAiContentSnapshot;
+}
+
+export interface BookAiContentStreamError extends Error {
+  code: BookAiErrorCode;
+  retryable: boolean;
+}
+
+export function isBookAiContentStreamError(error: unknown): error is BookAiContentStreamError {
+  return error instanceof Error
+    && typeof (error as { code?: unknown }).code === "string"
+    && typeof (error as { retryable?: unknown }).retryable === "boolean";
+}
+
+function createBookAiContentStreamError(
+  message: string,
+  code: BookAiErrorCode = "generation_failed",
+  retryable = true,
+): BookAiContentStreamError {
+  const streamError = new Error(message) as BookAiContentStreamError;
+  streamError.name = "BookAiContentStreamError";
+  streamError.code = code;
+  streamError.retryable = retryable;
+  return streamError;
 }
 
 function parseSseMessage(raw: string): { event: string; data: string } | null {
@@ -85,13 +110,21 @@ async function readBookAiContentSseStream(
   const processMessage = (message: { event: string; data: string }): StreamBookAiContentResult | null => {
     if (message.event === "error") {
       const parsed = safeParseJson(message.data, "error");
-      if (typeof parsed === "object" && parsed !== null && "error" in parsed) {
-        const error = (parsed as { error?: unknown }).error;
-        if (typeof error === "string" && error.trim().length > 0) {
-          throw new Error(error);
-        }
+      const streamError = validateWithSchema(
+        BookAiContentStreamErrorSchema,
+        parsed,
+        "bookAiContentStreamError",
+      );
+      if (streamError.success) {
+        throw createBookAiContentStreamError(
+          streamError.data.error,
+          streamError.data.code,
+          streamError.data.retryable,
+        );
       }
-      throw new Error("Book AI stream failed");
+      // Enforce the explicit backend stream error contract (`error`, `code`, `retryable`).
+      // Untyped/legacy payloads are treated as invalid instead of being loosely interpreted.
+      throw createBookAiContentStreamError("Book AI stream failed");
     }
 
     if (message.event === "queued" || message.event === "queue" || message.event === "started") {

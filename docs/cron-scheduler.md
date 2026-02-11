@@ -4,7 +4,7 @@ This document lists scheduled jobs, their configurations, and manual trigger ins
 
 ## Scheduled Jobs
 
-Jobs are enabled by `@EnableScheduling` in `BookRecommendationEngineApplication.java` and defined in the `.../scheduler` package using `@Scheduled`.
+Jobs are enabled by `@EnableScheduling` on the Spring Boot application entrypoint and defined in the `.../scheduler` package using `@Scheduled`.
 
 | Scheduler File Path                                  | Main Method                        | Default Schedule                  | Cron Property (`application.properties`) | Description                                      |
 | :--------------------------------------------------- | :--------------------------------- | :-------------------------------- | :--------------------------------------- | :----------------------------------------------- |

@@ -8,6 +8,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.env.Environment;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.mock.env.MockEnvironment;
@@ -25,7 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Basic application context load test for the Book Finder
+ * Basic application context load test for findmybook
  *
  * @author William Callahan
  *
@@ -47,7 +48,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
     "app.security.user.password=test-password"
 })
 @ActiveProfiles("test") // Ensure the "test" profile and its Redis configuration are active
-class BookRecommendationEngineApplicationTests {
+class FindmybookApplicationTests {
 
     private static final String APPLICATION_TASK_SCHEDULER_BEAN = "taskScheduler";
     private static final String MESSAGE_BROKER_TASK_SCHEDULER_BEAN = "messageBrokerTaskScheduler";
@@ -67,6 +68,9 @@ class BookRecommendationEngineApplicationTests {
     @Autowired
     @Qualifier(MESSAGE_BROKER_TASK_SCHEDULER_BEAN)
     private TaskScheduler messageBrokerTaskScheduler;
+
+    @Autowired
+    private Environment environment;
 
     // No-op: cached repository removed
 
@@ -112,7 +116,7 @@ class BookRecommendationEngineApplicationTests {
         environment.setProperty("DATABASE_URL", "postgres://fallback_user:fallback_pass@db.example.com:5433/books");
 
         DatabaseUrlEnvironmentPostProcessor processor = new DatabaseUrlEnvironmentPostProcessor();
-        processor.postProcessEnvironment(environment, new SpringApplication(BookRecommendationEngineApplication.class));
+        processor.postProcessEnvironment(environment, new SpringApplication(FindmybookApplication.class));
 
         assertEquals("jdbc:postgresql://db.example.com:5433/books", environment.getProperty("spring.datasource.url"));
         assertEquals("fallback_user", environment.getProperty("spring.datasource.username"));
@@ -126,7 +130,7 @@ class BookRecommendationEngineApplicationTests {
         environment.setProperty("DATABASE_URL", "postgres://fallback_user:fallback_pass@fallback-db.example.com:5432/fallback");
 
         DatabaseUrlEnvironmentPostProcessor processor = new DatabaseUrlEnvironmentPostProcessor();
-        processor.postProcessEnvironment(environment, new SpringApplication(BookRecommendationEngineApplication.class));
+        processor.postProcessEnvironment(environment, new SpringApplication(FindmybookApplication.class));
 
         assertEquals("jdbc:postgresql://primary-db.example.com:5432/primary", environment.getProperty("spring.datasource.url"));
         assertEquals("primary_user", environment.getProperty("spring.datasource.username"));
@@ -139,7 +143,7 @@ class BookRecommendationEngineApplicationTests {
         environment.setProperty("JDBC_DATABASE_URL", "jdbc:postgresql://jdbc-db.example.com:5439/jdbc_db?sslmode=require");
 
         DatabaseUrlEnvironmentPostProcessor processor = new DatabaseUrlEnvironmentPostProcessor();
-        processor.postProcessEnvironment(environment, new SpringApplication(BookRecommendationEngineApplication.class));
+        processor.postProcessEnvironment(environment, new SpringApplication(FindmybookApplication.class));
 
         assertEquals("jdbc:postgresql://jdbc-db.example.com:5439/jdbc_db?sslmode=require",
             environment.getProperty("spring.datasource.url"));
@@ -160,33 +164,58 @@ class BookRecommendationEngineApplicationTests {
 
     @Test
     void should_RequireDatasource_When_NoProfilesAreResolved() {
-        assertTrue(BookRecommendationEngineApplication.isDatasourceRequired(null));
+        assertTrue(FindmybookApplication.isDatasourceRequired(null));
     }
 
     @Test
     void should_NotRequireDatasource_When_NodbProfileIsActive() {
-        assertFalse(BookRecommendationEngineApplication.isDatasourceRequired("nodb"));
-        assertFalse(BookRecommendationEngineApplication.isDatasourceRequired("dev,nodb"));
+        assertFalse(FindmybookApplication.isDatasourceRequired("nodb"));
+        assertFalse(FindmybookApplication.isDatasourceRequired("dev,nodb"));
     }
 
     @Test
     void should_NotRequireDatasource_When_TestProfileIsActive() {
-        assertFalse(BookRecommendationEngineApplication.isDatasourceRequired("test"));
-        assertFalse(BookRecommendationEngineApplication.isDatasourceRequired("test,dev"));
+        assertFalse(FindmybookApplication.isDatasourceRequired("test"));
+        assertFalse(FindmybookApplication.isDatasourceRequired("test,dev"));
     }
 
     @Test
     void should_ResolveProfilesFromCommandLineEqualsSyntax_When_Provided() {
-        String resolved = BookRecommendationEngineApplication.resolveStartupActiveProfiles(
+        String resolved = FindmybookApplication.resolveStartupActiveProfiles(
             new String[]{"--spring.profiles.active=dev,nodb"});
         assertEquals("dev,nodb", resolved);
     }
 
     @Test
     void should_ResolveProfilesFromCommandLineSplitSyntax_When_Provided() {
-        String resolved = BookRecommendationEngineApplication.resolveStartupActiveProfiles(
+        String resolved = FindmybookApplication.resolveStartupActiveProfiles(
             new String[]{"--spring.profiles.active", "nodb"});
         assertEquals("nodb", resolved);
+    }
+
+    /**
+     * Guards the shared environment-mode contract used by API responses and SPA logic.
+     * Regressions here can reintroduce production diagnostics to end users.
+     */
+    @Test
+    void should_ExposeTestEnvironmentModeProperty_WhenTestProfileIsActive() {
+        assertEquals("test", environment.getProperty("app.environment.mode"));
+    }
+
+    /**
+     * Keeps the documented local default port stable for scripts and operator tooling.
+     */
+    @Test
+    void should_DefaultServerPortTo8095_WhenNotOverridden() {
+        assertEquals("8095", environment.getProperty("server.port"));
+    }
+
+    /**
+     * Verifies test-profile logging defaults remain constrained and predictable.
+     */
+    @Test
+    void should_KeepTestRootLoggingLevelAtWarn() {
+        assertEquals("WARN", environment.getProperty("logging.level.root"));
     }
 
 }

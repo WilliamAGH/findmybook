@@ -45,7 +45,7 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
                 .imageLinks(Map.of("thumbnail", "https://example.test/fallback.jpg"))
                 .build())
             .build();
-        when(googleBooksMapper.map(argThat(node -> "google-vol-1".equals(node.path("id").asText())))).thenReturn(aggregate);
+        when(googleBooksMapper.map(argThat(node -> "google-vol-1".equals(node.path("id").asString(""))))).thenReturn(aggregate);
 
         SearchPaginationService fallbackService = new SearchPaginationService(
             bookSearchService,
@@ -95,7 +95,7 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
         when(googleApiFetcher.streamSearchItems("fallback", 4, "newest", null, true))
             .thenReturn(Flux.just(googleVolumeNode("google-vol-2", "Google Secondary")));
         when(googleApiFetcher.isFallbackAllowed()).thenReturn(false);
-        when(googleBooksMapper.map(argThat(node -> "google-vol-2".equals(node.path("id").asText()))))
+        when(googleBooksMapper.map(argThat(node -> "google-vol-2".equals(node.path("id").asString("")))))
             .thenReturn(googleAggregate("GOOGLE-SECONDARY-1", "Google Secondary", "https://example.test/google-secondary.jpg"));
 
         SearchPaginationService openLibraryPrimaryService = fallbackEnabledService();
@@ -241,7 +241,7 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
         when(googleApiFetcher.isFallbackAllowed()).thenReturn(true);
         when(googleApiFetcher.streamSearchItems("distributed systems", 24, "relevance", null, false))
             .thenReturn(Flux.just(googleVolumeNode("google-vol-unauth", "Pragmatic Distributed Systems")));
-        when(googleBooksMapper.map(argThat(node -> "google-vol-unauth".equals(node.path("id").asText()))))
+        when(googleBooksMapper.map(argThat(node -> "google-vol-unauth".equals(node.path("id").asString("")))))
             .thenReturn(googleAggregate("google-vol-unauth", "Pragmatic Distributed Systems", "https://example.test/google-unauth.jpg"));
 
         SearchPaginationService fallbackService = fallbackEnabledService();

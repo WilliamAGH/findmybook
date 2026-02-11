@@ -1,12 +1,12 @@
 /**
- * Configuration class for Spring Security settings in the Book Recommendation Engine
+ * Configuration class for Spring Security settings in findmybook
  *
  * @author William Callahan
  *
  * Features:
  * - Enables Web Security and Method Security for @PreAuthorize annotations
  * - Configures role-based access control for different URL patterns
- * - Sets up HTTP Basic Authentication and Form Login
+ * - Sets up HTTP Basic Authentication
  * - Uses custom AuthenticationEntryPoint for admin paths
  * - Defines in-memory user details for admin and user roles
  * - Implements Content Security Policy and Referrer-Policy headers
@@ -21,10 +21,10 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplicat
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
-import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -35,10 +35,7 @@ import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 import org.springframework.security.web.header.writers.StaticHeadersWriter;
-import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.util.StringUtils;
-
-import static org.springframework.security.config.Customizer.withDefaults;
 
 @Configuration
 @EnableWebSecurity
@@ -53,17 +50,30 @@ public class SecurityConfig {
     private final boolean cspEnabled;
     private final String referrerPolicy;
     private final boolean clickyEnabled;
+    private final boolean simpleAnalyticsEnabled;
 
+    /**
+     * Configures the security filter chain and injects environment-specific settings.
+     *
+     * @param customBasicAuthenticationEntryPoint entry point for admin auth failures
+     * @param environment Spring environment for property resolution
+     * @param cspEnabled whether Content Security Policy headers are enabled
+     * @param referrerPolicy the Referrer-Policy header value
+     * @param clickyEnabled whether Clicky analytics are enabled (affects CSP)
+     * @param simpleAnalyticsEnabled whether Simple Analytics are enabled (affects CSP)
+     */
     public SecurityConfig(CustomBasicAuthenticationEntryPoint customBasicAuthenticationEntryPoint,
                           Environment environment,
                           @Value("${app.security.headers.content-security-policy.enabled:true}") boolean cspEnabled,
                           @Value("${app.security.headers.referrer-policy:ORIGIN_WHEN_CROSS_ORIGIN}") String referrerPolicy,
-                          @Value("${app.clicky.enabled:true}") boolean clickyEnabled) {
+                          @Value("${app.clicky.enabled:true}") boolean clickyEnabled,
+                          @Value("${app.simple-analytics.enabled:true}") boolean simpleAnalyticsEnabled) {
         this.customBasicAuthenticationEntryPoint = customBasicAuthenticationEntryPoint;
         this.environment = environment;
         this.cspEnabled = cspEnabled;
         this.referrerPolicy = referrerPolicy;
         this.clickyEnabled = clickyEnabled;
+        this.simpleAnalyticsEnabled = simpleAnalyticsEnabled;
     }
 
     @Bean
@@ -77,13 +87,20 @@ public class SecurityConfig {
                     .requestMatchers("/robots.txt").permitAll() // Explicitly permit robots.txt
                     .anyRequest().permitAll() // Default to permit all for non-admin routes
             )
-            .formLogin(withDefaults()) // Enable form-based login
             .httpBasic(httpBasic -> httpBasic
                 .authenticationEntryPoint(customBasicAuthenticationEntryPoint) // Use custom entry point for admin paths
             )
-            .csrf(csrf -> csrf
-                .ignoringRequestMatchers(buildCsrfIgnoreMatchers())
-            );
+            // Stateless: HTTP Basic credentials are sent per-request; no JSESSIONID cookie is
+            // issued, so browsers never auto-attach session credentials to cross-origin requests.
+            // Per Spring Security docs (7.0): SessionCreationPolicy.STATELESS prevents HttpSession
+            // creation and SecurityContext caching in session.
+            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            // CSRF disabled: stateless session management above ensures no session cookies exist,
+            // so browsers cannot auto-attach credentials to cross-origin requests.  All
+            // state-changing endpoints live under /admin/** and require HTTP Basic Auth.  Public
+            // routes are read-only (GET/HEAD).  Re-evaluate if cookie-based sessions or form-login
+            // are introduced.
+            .csrf(csrf -> csrf.disable());
 
         // Configure headers if CSP is enabled
         if (cspEnabled) {
@@ -93,50 +110,44 @@ public class SecurityConfig {
         return http.build();
     }
 
-    private PathPatternRequestMatcher[] buildCsrfIgnoreMatchers() {
-        PathPatternRequestMatcher.Builder matcherBuilder = PathPatternRequestMatcher.withDefaults();
-        return new PathPatternRequestMatcher[] {
-            matcherBuilder.matcher(HttpMethod.GET, "/admin/s3-cleanup/dry-run"),
-            matcherBuilder.matcher(HttpMethod.GET, "/admin/api-metrics/**"),
-            matcherBuilder.matcher(HttpMethod.POST, "/api/theme"),
-            matcherBuilder.matcher(HttpMethod.POST, "/api/books/{identifier}/ai/content/stream")
-        };
-    }
-
     private void configureSecurity(HttpSecurity http) throws Exception {
         http.headers(headers -> {
             // Set Referrer-Policy based on configuration
             ReferrerPolicyHeaderWriter.ReferrerPolicy policy = ReferrerPolicyHeaderWriter.ReferrerPolicy.valueOf(referrerPolicy);
             headers.referrerPolicy(referrer -> referrer.policy(policy));
 
-            if (cspEnabled) { // Check if CSP is enabled first
-                // Allow HTTP and HTTPS images from any source - book covers come from many external sources
-                // (Google Books, Open Library, Goodreads, Amazon, etc.)
-                // Note: HTTP allowed because some providers (e.g., Google Books API) return HTTP URLs
-                StringBuilder imgSrcDirective = new StringBuilder("'self' data: blob: https: http: ");
-                StringBuilder scriptSrcDirective = new StringBuilder("'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://cdn.tailwindcss.com 'unsafe-inline' blob:");
-                StringBuilder connectSrcDirective = new StringBuilder("'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com");
+            // Check if CSP is enabled first
+            // Allow HTTP and HTTPS images from any source - book covers come from many external sources
+            // (Google Books, Open Library, Goodreads, Amazon, etc.)
+            // Note: HTTP allowed because some providers (e.g., Google Books API) return HTTP URLs
+            StringBuilder imgSrcDirective = new StringBuilder("'self' data: blob: https: http: ");
+            StringBuilder scriptSrcDirective = new StringBuilder("'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://cdn.tailwindcss.com 'unsafe-inline' blob:");
+            StringBuilder connectSrcDirective = new StringBuilder("'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com");
 
-                if (clickyEnabled) {
-                    // Add Clicky Analytics domains for script-src, connect-src, and img-src
-                    // Include both HTTP and HTTPS as Clicky may use either depending on page protocol
-                    scriptSrcDirective.append(" https://static.getclicky.com http://static.getclicky.com https://in.getclicky.com http://in.getclicky.com https://clicky.com http://clicky.com");
-                    connectSrcDirective.append(" https://static.getclicky.com http://static.getclicky.com https://in.getclicky.com http://in.getclicky.com https://clicky.com http://clicky.com");
-                    imgSrcDirective.append(" https://in.getclicky.com http://in.getclicky.com");
-                }
-
-                // Add Content Security Policy header with dynamic directives
-                headers.addHeaderWriter(new StaticHeadersWriter("Content-Security-Policy",
-                    "default-src 'self'; " +
-                    "script-src " + scriptSrcDirective.toString() + "; " +
-                    "style-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.googleapis.com 'unsafe-inline'; " +
-                    "img-src " + imgSrcDirective.toString().trim() + "; " + // trim to remove trailing space if no additional domains
-                    "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; " +
-                    "connect-src " + connectSrcDirective.toString() + "; " +
-                    "frame-src 'self'; " +
-                    "object-src 'none'"
-                ));
+            if (simpleAnalyticsEnabled) {
+                scriptSrcDirective.append(" https://scripts.simpleanalyticscdn.com");
+                connectSrcDirective.append(" https://queue.simpleanalyticscdn.com");
             }
+
+            if (clickyEnabled) {
+                // Add Clicky Analytics domains for script-src, connect-src, and img-src
+                // Include both HTTP and HTTPS as Clicky may use either depending on page protocol
+                scriptSrcDirective.append(" https://static.getclicky.com http://static.getclicky.com https://in.getclicky.com http://in.getclicky.com https://clicky.com http://clicky.com");
+                connectSrcDirective.append(" https://static.getclicky.com http://static.getclicky.com https://in.getclicky.com http://in.getclicky.com https://clicky.com http://clicky.com");
+                imgSrcDirective.append(" https://in.getclicky.com http://in.getclicky.com");
+            }
+
+            // Add Content Security Policy header with dynamic directives
+            headers.addHeaderWriter(new StaticHeadersWriter("Content-Security-Policy",
+                "default-src 'self'; " +
+                "script-src " + scriptSrcDirective.toString() + "; " +
+                "style-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.googleapis.com 'unsafe-inline'; " +
+                "img-src " + imgSrcDirective.toString().trim() + "; " + // trim to remove trailing space if no additional domains
+                "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; " +
+                "connect-src " + connectSrcDirective.toString() + "; " +
+                "frame-src 'self'; " +
+                "object-src 'none'"
+            ));
         });
     }
 

@@ -136,16 +136,25 @@ export const CategoriesFacetsPayloadSchema = z.object({
   minBooks: z.number().int().nonnegative(),
 });
 
+export const OpenGraphPropertySchema = z.object({
+  property: z.string(),
+  content: z.string(),
+});
+
 export const PageMetadataSchema = z.object({
   title: z.string(),
   description: z.string(),
   canonicalUrl: z.string(),
   keywords: z.string(),
   ogImage: z.string(),
+  robots: z.string(),
+  openGraphType: z.string().optional().default("website"),
+  openGraphProperties: z.array(OpenGraphPropertySchema).optional().default([]),
+  structuredDataJson: z.string().optional().default(""),
   statusCode: z.number().int(),
 });
 
-export const RouteNameSchema = z.enum(["home", "search", "book", "sitemap", "explore", "categories", "notFound"]);
+export const RouteNameSchema = z.enum(["home", "search", "book", "sitemap", "explore", "categories", "notFound", "error"]);
 
 export const RouteDefinitionSchema = z.object({
   name: RouteNameSchema,
@@ -213,6 +222,7 @@ export const BookAiContentQueueStatsSchema = z.object({
   pending: z.number().int().nonnegative(),
   maxParallel: z.number().int().positive(),
   available: z.boolean(),
+  environmentMode: z.string().optional().default("production"),
 });
 
 export const BookAiContentQueueUpdateSchema = z.union([
@@ -244,6 +254,25 @@ export const BookAiContentMessageDeltaSchema = z.object({
 
 export const BookAiContentMessageDoneSchema = z.object({
   message: z.string(),
+});
+
+export const BookAiErrorCodeSchema = z.enum([
+  "identifier_required",
+  "book_not_found",
+  "service_unavailable",
+  "queue_busy",
+  "stream_timeout",
+  "empty_generation",
+  "cache_serialization_failed",
+  "description_too_short",
+  "enrichment_failed",
+  "generation_failed",
+]);
+
+export const BookAiContentStreamErrorSchema = z.object({
+  error: z.string(),
+  code: BookAiErrorCodeSchema.optional().default("generation_failed"),
+  retryable: z.boolean().optional().default(true),
 });
 
 export const BookAiContentModelStreamUpdateSchema = z.union([
@@ -296,6 +325,7 @@ export type BookAiContentSnapshot = z.infer<typeof BookAiContentSnapshotSchema>;
 export type BookAiContentQueueStats = z.infer<typeof BookAiContentQueueStatsSchema>;
 export type BookAiContentQueueUpdate = z.infer<typeof BookAiContentQueueUpdateSchema>;
 export type BookAiContentModelStreamUpdate = z.infer<typeof BookAiContentModelStreamUpdateSchema>;
+export type BookAiErrorCode = z.infer<typeof BookAiErrorCodeSchema>;
 export type SearchHit = z.infer<typeof SearchHitSchema>;
 export type SearchResponse = z.infer<typeof SearchResponseSchema>;
 export type BookCard = z.infer<typeof BookCardSchema>;

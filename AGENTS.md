@@ -93,8 +93,8 @@
 
 ### [LOC1] File Size Ceiling (Blocking)
 - [LOC1a] Keep new source files under 350 lines.
-- [LOC1b] Start splitting files when they approach 400 lines.
-- [LOC1c] For touched legacy files over 500 lines, include a concrete split plan in the summary.
+- [LOC1b] Start splitting files when they approach 350 lines.
+- [LOC1c] For touched legacy files over 350 lines, include a concrete split plan in the summary.
 
 ## Architecture
 ### [ARC1] Canonical Architecture Direction

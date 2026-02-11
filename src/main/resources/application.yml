@@ -31,6 +31,10 @@ spring:
   sql:
     init:
       mode: never # PRODUCTION-SAFE: Schema initialization disabled to prevent data loss
+
+  mvc:
+    problemdetails:
+      enabled: true
   
   profiles:
     default: prod # PRODUCTION-SAFE: Default to prod if no profile is explicitly set
@@ -90,6 +94,9 @@ app:
   clicky:
     enabled: ${CLICKY_ENABLED:true}
     site-id: ${CLICKY_SITE_ID:101484793}
+  simple-analytics:
+    enabled: true # Enable in PROD
+    script-url: ${SIMPLE_ANALYTICS_SCRIPT_URL:https://scripts.simpleanalyticscdn.com/latest.js}
   
   # External embedding service URL (optional)
   # If not provided, a simple placeholder embedding will be used
@@ -294,6 +301,10 @@ s3:
   cdn-url: https://book-finder.sfo3.digitaloceanspaces.com
 
 app:
+  clicky:
+    enabled: false
+  simple-analytics:
+    enabled: false
   cache:
     enabled: true
   environment:

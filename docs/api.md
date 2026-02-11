@@ -17,6 +17,32 @@
   - `GET /api/pages/book/{identifier}/affiliate-links`
   - `GET /api/pages/categories/facets?limit={n}&minBooks={n}`
 
+## Public HTML Route Contract
+- Canonical page routes:
+  - `/`
+  - `/search`
+  - `/explore`
+  - `/categories`
+  - `/book/{identifier}`
+  - `/sitemap`
+  - `/sitemap/{view}/{letter}/{page}`
+  - `/404`
+  - `/error`
+- Trailing-slash variants of page routes redirect with `308 Permanent Redirect` to the non-slash canonical URL.
+- Redirects preserve original query strings (including encoded values and pagination/search params).
+- SPA book links may include `bookId` as an optional query parameter (`/book/{identifier}?bookId={canonicalOrExternalId}`) for client-side fallback when slug-only detail lookups return `404`.
+- Crawler and API routes are not slash-aliased and remain explicit (`/api/**`, `/robots.txt`, `/sitemap.xml`, `/sitemap-xml/**`).
+- Runtime does not serve `/frontend/index.html`; frontend assets are static files only (`/frontend/app.js`, `/frontend/app.css`, icons, manifest).
+
+## Error Response Contract
+- MVC exception flows use RFC 9457 Problem Details (`application/problem+json`) via Spring Boot/Spring MVC global handling.
+- Fallback `/error` handling remains centralized in Spring Boot’s global error endpoint.
+- HTML error rendering is centralized through the shared SPA shell metadata pipeline.
+- `POST /api/theme` invalid payloads return `400 application/problem+json`.
+- `GET /r/{source}/{externalId}` returns `404 application/problem+json` when `source` is unsupported.
+- `GET /sitemap-xml/books/{page}.xml` and `GET /sitemap-xml/authors/{page}.xml` return `404` when page is out of range; default content negotiation emits RFC 9457 Problem Details for the error body.
+- Admin endpoint validation/runtime failures return typed Problem Details (`400`/`500`) instead of ad-hoc text error bodies.
+
 ## Search API Contract
 - `GET /api/books/search` supports:
   - `query` (required)
@@ -44,6 +70,8 @@
     - `generatedAt: ISO-8601 datetime | null`
     - `model: string | null`
     - `provider: string | null`
+- Unknown `GET /api/books/{identifier}` lookups return `404 application/problem+json`
+  (RFC 9457 Problem Details).
 
 ## Book AI Content Streaming Contract
 - `GET /api/books/ai/content/queue`
@@ -51,6 +79,8 @@
     - `running: number`
     - `pending: number`
     - `maxParallel: number`
+    - `available: boolean`
+    - `environmentMode: string` (`development`, `production`, or `test`)
 - `POST /api/books/{identifier}/ai/content/stream`
   - Query params:
     - `refresh` (`false` by default; when `false`, cached Postgres AI snapshot is returned when present)
@@ -64,7 +94,18 @@
     - `message_delta`: `{ delta }`
     - `message_done`: `{ message }`
     - `done`: `{ message, aiContent }` where `aiContent` matches the `book.aiContent` contract
-    - `error`: `{ error }`
+    - `error`: `{ error, code, retryable }`
+      - `code` values include:
+        - `identifier_required`
+        - `book_not_found`
+        - `service_unavailable`
+        - `queue_busy`
+        - `stream_timeout`
+        - `empty_generation`
+        - `cache_serialization_failed`
+        - `description_too_short` (emitted only after canonical description enrichment attempts from Open Library and Google Books still fail to satisfy minimum content requirements)
+        - `enrichment_failed` (emitted when book description enrichment providers are unavailable)
+        - `generation_failed`
 
 ## Search Pagination
 - The `/api/books/search` endpoint defaults to 12 results per page.
@@ -87,9 +128,15 @@
 - `GET /api/pages/meta?path={routePath}`
   - Query params:
     - `path` (required route path, for example `/`, `/search`, `/book/the-hobbit`)
+    - Missing/blank `path` returns `400 application/problem+json` (RFC 9457 Problem Details).
   - Response fields:
-    - `title`, `description`, `canonicalUrl`, `keywords`, `ogImage`
+    - `title`, `description`, `canonicalUrl`, `keywords`, `ogImage`, `robots`
+    - `openGraphType` (for example `website` or `book`)
+    - `openGraphProperties: Array<{ property, content }>` (route-specific OG extensions such as `book:*`)
+    - `structuredDataJson` (JSON-LD payload for route rich-result metadata)
     - `statusCode` (semantic route status for head/error handling in SPA)
+  - Special routes:
+    - `path=/error` returns error metadata with `statusCode=500`.
 - `GET /api/pages/routes`
   - Response fields:
     - `version: number`
@@ -109,6 +156,7 @@
     - `authors: SitemapAuthorPayload[]` (authors view)
 - `GET /api/pages/book/{identifier}/affiliate-links`
   - Returns a `Record<string, string>` of retailer label -> URL
+  - Unknown identifiers return `404 application/problem+json` (RFC 9457 Problem Details).
 - `GET /api/pages/categories/facets`
   - Query params:
     - `limit` (optional, defaults `24`, max `200`)

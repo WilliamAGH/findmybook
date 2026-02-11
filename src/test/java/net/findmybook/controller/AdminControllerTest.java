@@ -12,10 +12,11 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
+import org.springframework.web.server.ResponseStatusException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -75,10 +76,13 @@ class AdminControllerTest {
             .when(newYorkTimesBestsellerScheduler)
             .processNewYorkTimesBestsellers();
 
-        ResponseEntity<String> response = adminController.triggerNytBestsellerProcessing();
+        ResponseStatusException exception = assertThrows(
+            ResponseStatusException.class,
+            () -> adminController.triggerNytBestsellerProcessing()
+        );
 
-        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertEquals("NYT processing is disabled", response.getBody());
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        assertEquals("NYT processing is disabled", exception.getReason());
     }
 
     @Test
@@ -87,10 +91,13 @@ class AdminControllerTest {
             .when(newYorkTimesBestsellerScheduler)
             .processNewYorkTimesBestsellers();
 
-        ResponseEntity<String> response = adminController.triggerNytBestsellerProcessing();
+        ResponseStatusException exception = assertThrows(
+            ResponseStatusException.class,
+            () -> adminController.triggerNytBestsellerProcessing()
+        );
 
-        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
-        assertEquals("Failed to trigger New York Times Bestseller processing job.", response.getBody());
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, exception.getStatusCode());
+        assertEquals("Failed to trigger New York Times Bestseller processing job.", exception.getReason());
     }
 
     @Test
@@ -98,11 +105,14 @@ class AdminControllerTest {
         when(s3CoverCleanupService.performDryRun(anyString(), anyInt()))
             .thenThrow(new RuntimeException("S3 list failed"));
 
-        ResponseEntity<String> response = adminController.triggerS3CoverCleanupDryRun(null, 25);
+        ResponseStatusException exception = assertThrows(
+            ResponseStatusException.class,
+            () -> adminController.triggerS3CoverCleanupDryRun(null, 25)
+        );
 
-        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
-        assertNotNull(response.getBody(), "Response body should not be null for error responses");
-        assertTrue(response.getBody().contains("Error during S3 Cover Cleanup Dry Run"));
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, exception.getStatusCode());
+        assertNotNull(exception.getReason(), "Reason should not be null for error responses");
+        assertTrue(exception.getReason().contains("Error during S3 Cover Cleanup Dry Run"));
     }
 
     @Test
@@ -110,8 +120,10 @@ class AdminControllerTest {
         when(s3CoverCleanupService.performMoveAction(nullable(String.class), anyInt(), anyString()))
             .thenThrow(new RuntimeException("S3 move failed"));
 
-        ResponseEntity<Object> response = adminController.triggerS3CoverMoveAction(null, 10, TEST_QUARANTINE_PREFIX);
-
-        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+        ResponseStatusException exception = assertThrows(
+            ResponseStatusException.class,
+            () -> adminController.triggerS3CoverMoveAction(null, 10, TEST_QUARANTINE_PREFIX)
+        );
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, exception.getStatusCode());
     }
 }

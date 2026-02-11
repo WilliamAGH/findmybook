@@ -8,6 +8,14 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Matcher;
 import net.findmybook.config.SitemapProperties;
+import net.findmybook.controller.PageApiPayloads.CategoriesFacetsPayload;
+import net.findmybook.controller.PageApiPayloads.CategoryFacetPayload;
+import net.findmybook.controller.PageApiPayloads.HomePayload;
+import net.findmybook.controller.PageApiPayloads.OpenGraphMetaPayload;
+import net.findmybook.controller.PageApiPayloads.PageMetadataPayload;
+import net.findmybook.controller.PageApiPayloads.SitemapAuthorPayload;
+import net.findmybook.controller.PageApiPayloads.SitemapBookPayload;
+import net.findmybook.controller.PageApiPayloads.SitemapPayload;
 import net.findmybook.dto.BookCard;
 import net.findmybook.service.AffiliateLinkService;
 import net.findmybook.service.BookSeoMetadataService;
@@ -128,12 +136,14 @@ public class PageApiController {
     @GetMapping("/book/{identifier}/affiliate-links")
     public Mono<ResponseEntity<Map<String, String>>> affiliateLinks(@PathVariable String identifier) {
         if (!StringUtils.hasText(identifier)) {
-            return Mono.just(ResponseEntity.badRequest().build());
+            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Book identifier is required"));
         }
 
         return homePageSectionsService.locateBook(identifier)
             .map(book -> ResponseEntity.ok(affiliateLinkService.generateLinks(book)))
-            .switchIfEmpty(Mono.just(ResponseEntity.notFound().build()));
+            .switchIfEmpty(Mono.error(
+                new ResponseStatusException(HttpStatus.NOT_FOUND, "No book found for identifier: " + identifier)
+            ));
     }
 
     /**
@@ -220,7 +230,7 @@ public class PageApiController {
     @GetMapping("/meta")
     public Mono<ResponseEntity<PageMetadataPayload>> metadata(@RequestParam(name = "path", required = false) String path) {
         if (!StringUtils.hasText(path)) {
-            return Mono.just(ResponseEntity.badRequest().build());
+            return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Route path is required"));
         }
 
         String normalizedPath = normalizeRoutePath(path);
@@ -235,6 +245,12 @@ public class PageApiController {
         }
         if ("/categories".equals(normalizedPath)) {
             return Mono.just(ResponseEntity.ok(toPageMetadataPayload(bookSeoMetadataService.categoriesMetadata(), HttpStatus.OK.value())));
+        }
+        if ("/error".equals(normalizedPath)) {
+            return Mono.just(ResponseEntity.ok(toPageMetadataPayload(
+                bookSeoMetadataService.errorMetadata(HttpStatus.INTERNAL_SERVER_ERROR.value(), normalizedPath),
+                HttpStatus.INTERNAL_SERVER_ERROR.value()
+            )));
         }
         if ("/sitemap".equals(normalizedPath)) {
             return Mono.just(ResponseEntity.ok(toPageMetadataPayload(
@@ -335,12 +351,20 @@ public class PageApiController {
     }
 
     private PageMetadataPayload toPageMetadataPayload(BookSeoMetadataService.SeoMetadata metadata, int statusCode) {
+        List<OpenGraphMetaPayload> openGraphProperties = metadata.openGraphProperties().stream()
+            .map(property -> new OpenGraphMetaPayload(property.property(), property.content()))
+            .toList();
+
         return new PageMetadataPayload(
             metadata.title(),
             metadata.description(),
             metadata.canonicalUrl(),
             metadata.keywords(),
             metadata.ogImage(),
+            metadata.robots(),
+            metadata.openGraphType(),
+            openGraphProperties,
+            metadata.structuredDataJson(),
             statusCode
         );
     }
@@ -357,102 +381,4 @@ public class PageApiController {
         return new SitemapAuthorPayload(section.authorId(), section.authorName(), section.updatedAt(), books);
     }
 
-    /**
-     * Typed homepage payload for SPA home cards.
-     *
-     * @param currentBestsellers bestseller cards section
-     * @param recentBooks recent-books section
-     */
-    public record HomePayload(List<BookCard> currentBestsellers, List<BookCard> recentBooks) {
-    }
-
-    /**
-     * Typed sitemap payload for SPA sitemap rendering.
-     *
-     * @param viewType active view type (authors or books)
-     * @param activeLetter active bucket letter
-     * @param pageNumber current page (1-indexed)
-     * @param totalPages total page count for active view/bucket
-     * @param totalItems total item count for active view/bucket
-     * @param letters available letter buckets
-     * @param baseUrl base URL used by sitemap links
-     * @param books book list when in books view
-     * @param authors author list when in authors view
-     */
-    public record SitemapPayload(String viewType,
-                                 String activeLetter,
-                                 int pageNumber,
-                                 int totalPages,
-                                 int totalItems,
-                                 List<String> letters,
-                                 String baseUrl,
-                                 List<SitemapBookPayload> books,
-                                 List<SitemapAuthorPayload> authors) {
-    }
-
-    /**
-     * Typed sitemap book record.
-     *
-     * @param id canonical book ID
-     * @param slug book slug used in public routes
-     * @param title book title
-     * @param updatedAt last known update timestamp
-     */
-    public record SitemapBookPayload(String id, String slug, String title, Instant updatedAt) {
-    }
-
-    /**
-     * Typed sitemap author record with the author's indexed books.
-     *
-     * @param authorId canonical author ID
-     * @param authorName display author name
-     * @param lastModified latest author section modification timestamp
-     * @param books books indexed under this author
-     */
-    public record SitemapAuthorPayload(String authorId,
-                                       String authorName,
-                                       Instant lastModified,
-                                       List<SitemapBookPayload> books) {
-    }
-
-    /**
-     * Typed categories/genres facet response payload.
-     *
-     * @param genres category facets sorted by popularity
-     * @param generatedAt server time when the payload was assembled
-     * @param limit effective facet limit
-     * @param minBooks effective threshold for included facets
-     */
-    public record CategoriesFacetsPayload(List<CategoryFacetPayload> genres,
-                                          Instant generatedAt,
-                                          int limit,
-                                          int minBooks) {
-    }
-
-    /**
-     * Typed category facet entry.
-     *
-     * @param name display category/genre name
-     * @param bookCount number of books associated with the category
-     */
-    public record CategoryFacetPayload(String name, int bookCount) {
-    }
-
-    /**
-     * Typed metadata payload consumed by SPA head management.
-     *
-     * @param title page title without global suffix
-     * @param description page description content
-     * @param canonicalUrl canonical absolute URL for the current route
-     * @param keywords SEO keywords list
-     * @param ogImage OpenGraph/Twitter preview image URL
-     * @param statusCode semantic HTTP status for route presentation
-     */
-    public record PageMetadataPayload(String title,
-                                      String description,
-                                      String canonicalUrl,
-                                      String keywords,
-                                      String ogImage,
-                                      int statusCode) {
-    }
 }

@@ -9,15 +9,18 @@
   import NotFoundPage from "$lib/pages/NotFoundPage.svelte";
   import { currentUrl, initializeSpaRouting, matchRoute } from "$lib/router/router";
   import { getPageMetadata } from "$lib/services/pages";
+  import { upsertStructuredDataJsonLd } from "$lib/services/structuredDataHead";
   import { initializeTheme } from "$lib/stores/theme";
   import type { PageMetadata } from "$lib/validation/schemas";
 
-  const PAGE_TITLE_SUFFIX = " - Book Finder";
-  const DEFAULT_TITLE = "Book Finder";
-  const DEFAULT_DESCRIPTION = "Discover books and recommendations on FindMyBook.";
-  const DEFAULT_KEYWORDS = "book recommendations, find books, book search";
+  const PAGE_TITLE_SUFFIX = " | findmybook";
+  const DEFAULT_TITLE = "findmybook";
+  const DEFAULT_DESCRIPTION =
+    "Discover your next favorite read with findmybook recommendations, search, and curated collections.";
+  const DEFAULT_KEYWORDS = "findmybook, book recommendations, book discovery, book search";
   const DEFAULT_OG_IMAGE = "/images/og-logo.png";
-
+  const DEFAULT_OG_TYPE = "website";
+  const DEFAULT_ROBOTS = "index, follow, max-image-preview:large";
   const metadataCache = new Map<string, PageMetadata>();
 
   function titleWithoutSuffix(value: string): string {
@@ -50,6 +53,21 @@
     return canonical?.getAttribute("href")?.trim() || window.location.href;
   }
 
+  function readOpenGraphProperties(): PageMetadata["openGraphProperties"] {
+    const nodes = Array.from(document.querySelectorAll<HTMLMetaElement>('meta[property^="book:"]'));
+    return nodes
+      .map((node) => ({
+        property: node.getAttribute("property")?.trim() || "",
+        content: node.getAttribute("content")?.trim() || "",
+      }))
+      .filter((property) => property.property.length > 0 && property.content.length > 0);
+  }
+
+  function readStructuredDataJson(): string {
+    const script = document.querySelector<HTMLScriptElement>('script[type="application/ld+json"]');
+    return script?.textContent?.trim() || "";
+  }
+
   let url = $state(new URL(window.location.href));
   let route = $derived(matchRoute(url.pathname));
   let pageMetadata = $state<PageMetadata>({
@@ -58,6 +76,10 @@
     canonicalUrl: readCanonicalUrl(),
     keywords: readMetaByName("keywords", DEFAULT_KEYWORDS),
     ogImage: readMetaByProperty("og:image", DEFAULT_OG_IMAGE),
+    robots: readMetaByName("robots", DEFAULT_ROBOTS),
+    openGraphType: readMetaByProperty("og:type", DEFAULT_OG_TYPE),
+    openGraphProperties: readOpenGraphProperties(),
+    structuredDataJson: readStructuredDataJson(),
     statusCode: 200,
   });
   let metadataLoadSequence = 0;
@@ -82,15 +104,11 @@
       if (sequence !== metadataLoadSequence) {
         return;
       }
+      // Preserve current metadata on failure: DOM-read tags on initial load or
+      // the last successfully loaded API metadata during SPA navigation.
+      // Replacing with metadataErrorState would set robots to "noindex, nofollow"
+      // and instruct crawlers to deindex a page that rendered correctly.
       console.error("Failed to load page metadata", error);
-      pageMetadata = {
-        ...pageMetadata,
-        title: titleWithoutSuffix(document.title),
-        description: readMetaByName("description", DEFAULT_DESCRIPTION),
-        canonicalUrl: readCanonicalUrl(),
-        keywords: readMetaByName("keywords", DEFAULT_KEYWORDS),
-        ogImage: readMetaByProperty("og:image", DEFAULT_OG_IMAGE),
-      };
     }
   }
 
@@ -99,6 +117,11 @@
     untrack(() => {
       void loadRouteMetadata(pathname);
     });
+  });
+
+  $effect(() => {
+    const structuredDataJson = pageMetadata.structuredDataJson;
+    upsertStructuredDataJsonLd(structuredDataJson);
   });
 
   onMount(() => {
@@ -123,19 +146,34 @@
   <title>{titleWithSuffix(pageMetadata.title)}</title>
   <meta name="description" content={pageMetadata.description} />
   <meta name="keywords" content={pageMetadata.keywords} />
+  <meta name="robots" content={pageMetadata.robots} />
+  <meta name="googlebot" content={pageMetadata.robots} />
+  <meta name="application-name" content="findmybook" />
+  <meta name="apple-mobile-web-app-title" content="findmybook" />
+  <meta name="theme-color" content="#fdfcfa" />
   <link rel="canonical" href={pageMetadata.canonicalUrl} />
+  <link rel="alternate" hreflang="en-US" href={pageMetadata.canonicalUrl} />
+  <link rel="alternate" hreflang="x-default" href={pageMetadata.canonicalUrl} />
 
-  <meta property="og:type" content="website" />
+  <meta property="og:type" content={pageMetadata.openGraphType} />
+  <meta property="og:site_name" content="findmybook" />
+  <meta property="og:locale" content="en_US" />
   <meta property="og:url" content={pageMetadata.canonicalUrl} />
   <meta property="og:title" content={titleWithSuffix(pageMetadata.title)} />
   <meta property="og:description" content={pageMetadata.description} />
   <meta property="og:image" content={pageMetadata.ogImage} />
+  <meta property="og:image:alt" content="findmybook social preview image" />
+  {#each pageMetadata.openGraphProperties as property, index (property.property + ":" + property.content + ":" + index)}
+    <meta property={property.property} content={property.content} />
+  {/each}
 
   <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:domain" content="findmybook.net" />
   <meta name="twitter:url" content={pageMetadata.canonicalUrl} />
   <meta name="twitter:title" content={titleWithSuffix(pageMetadata.title)} />
   <meta name="twitter:description" content={pageMetadata.description} />
   <meta name="twitter:image" content={pageMetadata.ogImage} />
+  <meta name="twitter:image:alt" content="findmybook social preview image" />
 </svelte:head>
 
 <div class="flex min-h-screen flex-col bg-linen-50 text-anthracite-900 dark:bg-slate-900 dark:text-slate-100">
@@ -158,6 +196,8 @@
         letter={route.params.letter ?? "A"}
         page={route.params.page ?? 1}
       />
+    {:else if route.name === "error"}
+      <NotFoundPage variant="error" />
     {:else}
       <NotFoundPage />
     {/if}
