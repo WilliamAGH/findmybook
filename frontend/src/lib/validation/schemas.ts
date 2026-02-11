@@ -72,14 +72,14 @@ export const ViewMetricsSchema = z.object({
 
 export const BookSchema = z.object({
   id: z.string(),
-  slug: z.string().max(500).nullable().optional(),
-  title: z.string().max(1000).nullable().optional(),
+  slug: z.string().nullable().optional(),
+  title: z.string().nullable().optional(),
   source: z.string().nullable().optional(),
-  description: z.string().max(50000).nullable().optional(),
+  description: z.string().nullable().optional(),
   descriptionContent: DescriptionContentSchema.nullable().optional(),
   publication: PublicationSchema.nullable().optional(),
   authors: z.array(AuthorSchema).optional().default([]),
-  categories: z.array(z.string().max(200)).optional().default([]),
+  categories: z.array(z.string()).optional().default([]),
   collections: z.array(CollectionSchema).optional().default([]),
   tags: z.array(TagSchema).optional().default([]),
   cover: CoverSchema.nullable().optional(),
