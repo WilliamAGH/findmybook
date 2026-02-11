@@ -25,8 +25,8 @@ import org.springframework.util.StringUtils;
  * Renders OpenGraph PNG cards for book routes.
  *
  * <p>The renderer owns only visual composition concerns (background, cover
- * placement, typography, badges, and branding) and accepts already-resolved
- * domain values from upstream orchestration services.
+ * placement, typography, and branding) and accepts already-resolved domain
+ * values from upstream orchestration services.
  */
 @Component
 public class BookOpenGraphPngRenderer {
@@ -55,12 +55,11 @@ public class BookOpenGraphPngRenderer {
      *
      * @param title primary card title
      * @param subtitle secondary author/description line
-     * @param badges visual badges displayed under subtitle
      * @param coverImage decoded cover image; when {@code null}, the cover area is omitted
      *                   and the text region expands to fill the card
      * @return encoded PNG bytes
      */
-    public byte[] render(String title, String subtitle, List<String> badges, BufferedImage coverImage) {
+    public byte[] render(String title, String subtitle, BufferedImage coverImage) {
         BufferedImage canvas = new BufferedImage(CANVAS_WIDTH, CANVAS_HEIGHT, BufferedImage.TYPE_INT_RGB);
         Graphics2D graphics = canvas.createGraphics();
         boolean hasCover = coverImage != null;
@@ -70,7 +69,7 @@ public class BookOpenGraphPngRenderer {
             if (hasCover) {
                 drawCover(graphics, coverImage);
             }
-            drawText(graphics, title, subtitle, badges, hasCover);
+            drawText(graphics, title, subtitle, hasCover);
             drawBrand(graphics);
         } finally {
             graphics.dispose();
@@ -153,7 +152,7 @@ public class BookOpenGraphPngRenderer {
         graphics.drawRoundRect(x, y, COVER_WIDTH, COVER_HEIGHT, COVER_RADIUS, COVER_RADIUS);
     }
 
-    private void drawText(Graphics2D graphics, String title, String subtitle, List<String> badges, boolean hasCover) {
+    private void drawText(Graphics2D graphics, String title, String subtitle, boolean hasCover) {
         int contentLeft = OUTER_PADDING + CONTENT_PADDING;
         int textX = hasCover ? contentLeft + COVER_WIDTH + CONTENT_GAP : contentLeft;
         int maxTextWidth = Math.max(

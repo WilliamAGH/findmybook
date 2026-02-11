@@ -1,9 +1,7 @@
 package net.findmybook.support.seo;
 
 import java.awt.image.BufferedImage;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Locale;
 import net.findmybook.model.Book;
 import net.findmybook.service.image.LocalDiskCoverCacheService;
@@ -96,9 +94,8 @@ public class BookOpenGraphImageResolver {
         }
         String title = resolveTitle(book, identifier);
         String subtitle = resolveSubtitle(book);
-        List<String> badges = resolveBadges(book);
         BufferedImage coverImage = loadCoverImage(book);
-        return bookOpenGraphPngRenderer.render(title, subtitle, badges, coverImage);
+        return bookOpenGraphPngRenderer.render(title, subtitle, coverImage);
     }
 
     /**
@@ -112,7 +109,6 @@ public class BookOpenGraphImageResolver {
         return bookOpenGraphPngRenderer.render(
             DEFAULT_CARD_TITLE,
             normalizedIdentifier,
-            List.of("Book"),
             null
         );
     }
@@ -159,34 +155,6 @@ public class BookOpenGraphImageResolver {
             }
         }
         return "";
-    }
-
-    private List<String> resolveBadges(Book book) {
-        List<String> badges = new ArrayList<>();
-        if (book == null) {
-            badges.add("Book");
-            return badges;
-        }
-        if (Boolean.TRUE.equals(book.getPdfAvailable())) {
-            badges.add("PDF");
-        }
-        if (Boolean.TRUE.equals(book.getEpubAvailable())) {
-            badges.add("EPUB");
-        }
-        if (book.getCategories() != null) {
-            String category = book.getCategories().stream()
-                .filter(StringUtils::hasText)
-                .map(String::trim)
-                .findFirst()
-                .orElse("");
-            if (StringUtils.hasText(category)) {
-                badges.add(category);
-            }
-        }
-        if (badges.isEmpty()) {
-            badges.add("Book");
-        }
-        return badges.stream().distinct().limit(3).toList();
     }
 
     private String truncate(String value, int maxLength) {
