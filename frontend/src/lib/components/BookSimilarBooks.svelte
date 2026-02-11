@@ -21,6 +21,7 @@
   let { books, loadFailed = false }: { books: Book[]; loadFailed?: boolean } = $props();
 
   let failedCoverBookIds = $state(new Set<string>());
+  let fallbackAttemptedBookIds = $state(new Set<string>());
 
   /**
    * Resolves the best available cover URL for a book.
@@ -98,12 +99,16 @@
     const img = event.target as HTMLImageElement;
     const book = books.find((b) => b.id === bookId);
     if (!book) {
+      console.warn(
+        `[BookSimilarBooks] Cover error for bookId="${bookId}" but book not found in recommendations array (${books.length} books). Removing from display.`,
+      );
       failedCoverBookIds = new Set([...failedCoverBookIds, bookId]);
       return;
     }
 
     const fallback = resolveFallbackUrl(book);
-    if (fallback && img.src !== fallback) {
+    if (fallback && !fallbackAttemptedBookIds.has(bookId)) {
+      fallbackAttemptedBookIds = new Set([...fallbackAttemptedBookIds, bookId]);
       img.src = fallback;
       return;
     }
