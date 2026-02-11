@@ -7,8 +7,7 @@
  * - Configures cached cover image serving from file system
  * - Sets appropriate browser caching headers
  * - Resolves dynamic paths based on application properties
- * - Preserves standard resource handler mappings
- * - Supports both custom and default resource locations
+ * - Canonicalizes trailing slashes on page routes
  */
 package net.findmybook.config;
 
@@ -51,12 +50,19 @@ public class WebConfig implements WebMvcConfigurer {
     }
 
     /**
-     * Configures resource handlers for static content serving
-     * - Dynamically maps cover image cache directory
-     * - Sets appropriate cache control headers
-     * - Preserves default static resource mappings
-     * 
-     * @param registry The Spring MVC resource handler registry
+     * Configures resource handlers for static content serving.
+     *
+     * <p>Only registers handlers that need non-default behavior:
+     * <ul>
+     *   <li>{@code /frontend/**} -- no-cache revalidation for stable-named SPA bundles</li>
+     *   <li>{@code /<coverCacheDirName>/**} -- 30-day browser cache for file-system cover images</li>
+     * </ul>
+     *
+     * <p>The default {@code /**} and {@code /webjars/**} handlers are left to
+     * Spring Boot's {@code WebMvcAutoConfiguration}, which applies the
+     * {@code spring.web.resources} YAML cache/versioning settings automatically.
+     *
+     * @param registry the Spring MVC resource handler registry
      */
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
@@ -79,20 +85,9 @@ public class WebConfig implements WebMvcConfigurer {
                 .addResourceLocations(resourceLocation)
                 .setCachePeriod(3600 * 24 * 30); // Cache for 30 days in browser
 
-        // It's good practice to also explicitly register the default static resource handlers
-        // if you're adding custom ones, to ensure they continue to work as expected.
-        // Spring Boot's auto-configuration usually handles these, but being explicit can prevent surprises.
-        if (!registry.hasMappingForPattern("/webjars/**")) {
-            registry.addResourceHandler("/webjars/**")
-                    .addResourceLocations("classpath:/META-INF/resources/webjars/");
-        }
-        if (!registry.hasMappingForPattern("/**")) {
-            registry.addResourceHandler("/**")
-                    .addResourceLocations("classpath:/META-INF/resources/",
-                                        "classpath:/resources/",
-                                        "classpath:/static/",
-                                        "classpath:/public/");
-        }
+        // Spring Boot 4 WebMvcAutoConfiguration registers /** and /webjars/** handlers
+        // with the spring.web.resources YAML cache/versioning settings applied automatically.
+        // No custom registration needed here -- doing so would shadow those settings.
     }
 
     /**
