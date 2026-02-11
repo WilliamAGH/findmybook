@@ -10,6 +10,7 @@ import net.findmybook.exception.S3CoverUploadException;
 import net.findmybook.exception.S3UploadException;
 import net.findmybook.exception.UnsafeUrlException;
 import net.findmybook.model.Book;
+import net.findmybook.model.image.CoverRejectionReason;
 import net.findmybook.model.image.ImageDetails;
 import net.findmybook.model.image.ImageProvenanceData;
 import net.findmybook.model.image.ProcessedImage;
@@ -271,6 +272,7 @@ public class S3BookCoverService implements ExternalCoverService {
             request.height(),
             false,
             true,
+            null,
             null
         );
 
@@ -298,6 +300,10 @@ public class S3BookCoverService implements ExternalCoverService {
                 if (!processedImage.isProcessingSuccessful()) {
                     String reason = processedImage.getProcessingError();
                     logger.warn("Book ID {}: Image processing failed: {}. Will not upload to S3.", bookId, reason);
+                    CoverRejectionReason rejection = processedImage.rejectionReason();
+                    if (rejection != null) {
+                        return Mono.error(new CoverProcessingException(bookId, imageUrl, rejection, reason));
+                    }
                     return Mono.error(new CoverProcessingException(bookId, imageUrl, reason));
                 }
 

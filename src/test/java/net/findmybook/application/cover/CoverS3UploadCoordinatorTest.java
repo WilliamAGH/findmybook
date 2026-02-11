@@ -17,6 +17,7 @@ import java.util.Optional;
 import java.util.UUID;
 import net.findmybook.exception.CoverDownloadException;
 import net.findmybook.exception.CoverProcessingException;
+import net.findmybook.model.image.CoverRejectionReason;
 import net.findmybook.exception.CoverTooLargeException;
 import net.findmybook.exception.S3UploadException;
 import net.findmybook.exception.UnsafeUrlException;
@@ -307,9 +308,18 @@ class CoverS3UploadCoordinatorTest {
     @Test
     void should_ClassifyPlaceholderProcessingFailureAsLikelyNoCover() {
         CoverProcessingException processingException =
-            new CoverProcessingException("book-2", "https://example.com/b.jpg", "PlaceholderImage_TooSmall");
+            new CoverProcessingException("book-2", "https://example.com/b.jpg",
+                CoverRejectionReason.PLACEHOLDER_TOO_SMALL, "Image dimensions too small, likely a placeholder");
 
         assertThat(CoverBackfillService.isLikelyNoCoverImageFailure(processingException)).isTrue();
+    }
+
+    @Test
+    void should_NotClassifyInfrastructureErrorAsNoCover() {
+        CoverProcessingException infrastructureError =
+            new CoverProcessingException("book-3", "https://example.com/c.jpg", "IOException during processing");
+
+        assertThat(CoverBackfillService.isLikelyNoCoverImageFailure(infrastructureError)).isFalse();
     }
 
     @Test

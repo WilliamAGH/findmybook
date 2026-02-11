@@ -1,6 +1,7 @@
 package net.findmybook.application.cover;
 
 import tools.jackson.databind.JsonNode;
+import net.findmybook.exception.CoverProcessingException;
 import net.findmybook.model.image.ImageDetails;
 import net.findmybook.service.GoogleApiFetcher;
 import net.findmybook.service.image.S3BookCoverService;
@@ -608,13 +609,14 @@ public class CoverBackfillService {
     }
 
     static boolean isLikelyNoCoverImageFailure(Throwable ex) {
-        String message = summarizeThrowable(ex);
-        if (!StringUtils.hasText(message)) return false;
-        return message.contains("InvalidAspectRatio")
-            || message.contains("PlaceholderImage_TooSmall")
-            || message.contains("LikelyNotACover_DominantColor")
-            || message.contains("Unsupported or corrupt image format")
-            || message.contains("UnreadableImage");
+        Throwable current = ex;
+        while (current != null) {
+            if (current instanceof CoverProcessingException cpe && cpe.isNoCoverAvailable()) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private static boolean containsHttpStatus(Throwable throwable, int statusCode) {
