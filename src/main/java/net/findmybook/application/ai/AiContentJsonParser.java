@@ -55,6 +55,8 @@ class AiContentJsonParser {
                 log.warn("AI response was non-JSON; applied plain-text parsing fallback");
                 return plainTextFallback.get();
             }
+            log.warn("AI response parsing failed and fallback produced no content (length={}, error={})",
+                responseText.length(), parseFailure.getMessage());
             throw parseFailure;
         }
         String summary = requiredText(payload, "summary");
@@ -164,13 +166,14 @@ class AiContentJsonParser {
                 continue;
             }
 
-            SectionMatch sectionMatch = matchSectionHeader(line);
-            if (sectionMatch != null) {
-                activeSection = sectionMatch.section();
-                if (StringUtils.hasText(sectionMatch.remainder())) {
+            Optional<SectionMatch> sectionMatch = matchSectionHeader(line);
+            if (sectionMatch.isPresent()) {
+                SectionMatch match = sectionMatch.get();
+                activeSection = match.section();
+                if (StringUtils.hasText(match.remainder())) {
                     appendToSection(
-                        sectionMatch.section(),
-                        sectionMatch.remainder(),
+                        match.section(),
+                        match.remainder(),
                         summaryLines,
                         readerFitLines,
                         themeLines,
@@ -185,8 +188,8 @@ class AiContentJsonParser {
             appendToSection(activeSection, line, summaryLines, readerFitLines, themeLines, takeawayLines, contextLines, unscopedLines);
         }
 
-        String summary = chooseSummary(summaryLines, unscopedLines);
-        if (!StringUtils.hasText(summary)) {
+        Optional<String> summary = chooseSummary(summaryLines, unscopedLines);
+        if (summary.isEmpty()) {
             return Optional.empty();
         }
 
@@ -200,7 +203,7 @@ class AiContentJsonParser {
         }
 
         return Optional.of(new BookAiContent(
-            summary,
+            summary.get(),
             readerFit.orElse(null),
             keyThemes,
             takeaways.isEmpty() ? null : takeaways,
@@ -208,16 +211,12 @@ class AiContentJsonParser {
         ));
     }
 
-    private String chooseSummary(List<String> summaryLines, List<String> unscopedLines) {
+    private Optional<String> chooseSummary(List<String> summaryLines, List<String> unscopedLines) {
         Optional<String> explicitSummary = joinLines(summaryLines);
         if (explicitSummary.isPresent()) {
-            return explicitSummary.get();
+            return explicitSummary;
         }
-        Optional<String> inferredSummary = joinLines(unscopedLines);
-        if (inferredSummary.isEmpty()) {
-            return null;
-        }
-        return clampToTwoSentences(inferredSummary.get());
+        return joinLines(unscopedLines).map(this::clampToTwoSentences);
     }
 
     private String clampToTwoSentences(String text) {
@@ -279,7 +278,7 @@ class AiContentJsonParser {
         }
         return raw
             .replace('\t', ' ')
-            .replaceAll("^[\\-*•\\d.)\\s]+", "")
+            .replaceAll("^\\s*(?:[\\-*•]\\s+|\\d+[.)]\\s+)", "")
             .replaceAll("\\s+", " ")
             .trim();
     }
@@ -302,7 +301,7 @@ class AiContentJsonParser {
         }
     }
 
-    private SectionMatch matchSectionHeader(String line) {
+    private Optional<SectionMatch> matchSectionHeader(String line) {
         String normalized = line.replaceAll("\\s+", " ").trim();
         return matchSection(normalized, "summary", Section.SUMMARY)
             .or(() -> matchSection(normalized, "reader fit", Section.READER_FIT))
@@ -312,8 +311,7 @@ class AiContentJsonParser {
             .or(() -> matchSection(normalized, "themes", Section.KEY_THEMES))
             .or(() -> matchSection(normalized, "takeaways", Section.TAKEAWAYS))
             .or(() -> matchSection(normalized, "takeaway", Section.TAKEAWAYS))
-            .or(() -> matchSection(normalized, "context", Section.CONTEXT))
-            .orElse(null);
+            .or(() -> matchSection(normalized, "context", Section.CONTEXT));
     }
 
     private Optional<SectionMatch> matchSection(String line, String label, Section section) {
