@@ -19,7 +19,7 @@ import net.findmybook.domain.seo.OpenGraphProperty;
 import net.findmybook.domain.seo.SeoMetadata;
 import net.findmybook.service.BookSeoMetadataService;
 import net.findmybook.service.HomePageSectionsService;
-import net.findmybook.service.PageViewEventRepository;
+import net.findmybook.adapters.persistence.PageViewEventRepository;
 import net.findmybook.service.RecentBookViewRepository;
 import net.findmybook.service.SitemapService;
 import org.junit.jupiter.api.BeforeEach;

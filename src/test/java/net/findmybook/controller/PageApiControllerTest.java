@@ -22,7 +22,7 @@ import net.findmybook.dto.BookCard;
 import net.findmybook.service.AffiliateLinkService;
 import net.findmybook.service.BookSeoMetadataService;
 import net.findmybook.service.HomePageSectionsService;
-import net.findmybook.service.PageViewEventRepository;
+import net.findmybook.adapters.persistence.PageViewEventRepository;
 import net.findmybook.service.RecentBookViewRepository;
 import net.findmybook.service.SitemapService;
 import net.findmybook.util.ApplicationConstants;

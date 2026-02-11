@@ -12,7 +12,7 @@ import net.findmybook.controller.PageApiPayloads.HomePayload;
 import net.findmybook.dto.BookCard;
 import net.findmybook.service.AffiliateLinkService;
 import net.findmybook.service.HomePageSectionsService;
-import net.findmybook.service.PageViewEventRepository;
+import net.findmybook.adapters.persistence.PageViewEventRepository;
 import net.findmybook.service.RecentBookViewRepository;
 import net.findmybook.util.PagingUtils;
 import net.findmybook.util.cover.CoverPrioritizer;
@@ -82,9 +82,10 @@ public class PublicPagePayloadUseCase {
      *
      * @param rawPopularWindow optional popularity window query value
      * @param rawPopularLimit optional popularity limit query value
+     * @param recordView whether to record a homepage page-view event
      * @return asynchronous homepage payload response object
      */
-    public Mono<HomePayload> loadHomePayload(@Nullable String rawPopularWindow, @Nullable Integer rawPopularLimit) {
+    public Mono<HomePayload> loadHomePayload(@Nullable String rawPopularWindow, @Nullable Integer rawPopularLimit, boolean recordView) {
         RecentBookViewRepository.ViewWindow resolvedPopularWindow = parsePopularWindow(rawPopularWindow);
         int resolvedPopularLimit = PagingUtils.safeLimit(
             rawPopularLimit != null ? rawPopularLimit : 0,
@@ -93,7 +94,9 @@ public class PublicPagePayloadUseCase {
             MAX_POPULAR_BOOKS
         );
 
-        pageViewEventRepository.recordView(HOMEPAGE_PAGE_KEY, Instant.now(), API_SOURCE);
+        if (recordView) {
+            pageViewEventRepository.recordView(HOMEPAGE_PAGE_KEY, Instant.now(), API_SOURCE);
+        }
 
         Mono<List<BookCard>> bestsellers = homePageSectionsService.loadCurrentBestsellers(MAX_BESTSELLERS * OVERFETCH_MULTIPLIER)
             .map(cards -> retainRenderableCovers(cards, MAX_BESTSELLERS))

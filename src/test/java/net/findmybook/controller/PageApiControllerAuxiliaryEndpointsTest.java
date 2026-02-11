@@ -23,7 +23,7 @@ import net.findmybook.domain.seo.RouteManifest;
 import net.findmybook.service.BookSeoMetadataService;
 import net.findmybook.service.BookSearchService;
 import net.findmybook.service.HomePageSectionsService;
-import net.findmybook.service.PageViewEventRepository;
+import net.findmybook.adapters.persistence.PageViewEventRepository;
 import net.findmybook.service.RecentBookViewRepository;
 import net.findmybook.service.SitemapService;
 import org.junit.jupiter.api.BeforeEach;

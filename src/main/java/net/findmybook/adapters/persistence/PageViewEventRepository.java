@@ -1,4 +1,4 @@
-package net.findmybook.service;
+package net.findmybook.adapters.persistence;
 
 import jakarta.annotation.Nullable;
 import java.sql.Timestamp;
@@ -8,16 +8,16 @@ import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Async;
-import org.springframework.stereotype.Service;
+import org.springframework.stereotype.Repository;
 import org.springframework.util.StringUtils;
 
 /**
  * Repository abstraction for persisting non-book page view events.
  *
- * <p>Use {@link RecentBookViewRepository} for per-book detail views. This repository is scoped to
- * generic route-level analytics events such as homepage traffic.</p>
+ * <p>Use {@link net.findmybook.service.RecentBookViewRepository} for per-book detail views. This
+ * repository is scoped to generic route-level analytics events such as homepage traffic.</p>
  */
-@Service
+@Repository
 public class PageViewEventRepository {
 
     private static final Logger log = LoggerFactory.getLogger(PageViewEventRepository.class);
