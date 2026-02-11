@@ -46,7 +46,17 @@ class AiContentJsonParser {
             throw new IllegalStateException("AI content response was empty");
         }
 
-        JsonNode payload = parseJsonPayload(responseText);
+        JsonNode payload;
+        try {
+            payload = parseJsonPayload(responseText);
+        } catch (IllegalStateException parseFailure) {
+            Optional<BookAiContent> plainTextFallback = parsePlainTextFallback(responseText);
+            if (plainTextFallback.isPresent()) {
+                log.warn("AI response was non-JSON; applied plain-text parsing fallback");
+                return plainTextFallback.get();
+            }
+            throw parseFailure;
+        }
         String summary = requiredText(payload, "summary");
         Optional<String> readerFit = optionalText(payload, "readerFit", "reader_fit", "idealReader");
         List<String> themes = stringList(payload, MAX_KEY_THEME_COUNT, "keyThemes", "key_themes", "themes");
@@ -129,5 +139,206 @@ class AiContentJsonParser {
             }
         }
         return Optional.empty();
+    }
+
+    private Optional<BookAiContent> parsePlainTextFallback(String responseText) {
+        String cleaned = responseText
+            .replace("```json", "")
+            .replace("```", "")
+            .trim();
+        if (!StringUtils.hasText(cleaned)) {
+            return Optional.empty();
+        }
+
+        List<String> summaryLines = new ArrayList<>();
+        List<String> readerFitLines = new ArrayList<>();
+        List<String> themeLines = new ArrayList<>();
+        List<String> takeawayLines = new ArrayList<>();
+        List<String> contextLines = new ArrayList<>();
+        List<String> unscopedLines = new ArrayList<>();
+
+        Section activeSection = Section.NONE;
+        for (String rawLine : cleaned.split("\\R")) {
+            String line = normalizeLine(rawLine);
+            if (!StringUtils.hasText(line)) {
+                continue;
+            }
+
+            SectionMatch sectionMatch = matchSectionHeader(line);
+            if (sectionMatch != null) {
+                activeSection = sectionMatch.section();
+                if (StringUtils.hasText(sectionMatch.remainder())) {
+                    appendToSection(
+                        sectionMatch.section(),
+                        sectionMatch.remainder(),
+                        summaryLines,
+                        readerFitLines,
+                        themeLines,
+                        takeawayLines,
+                        contextLines,
+                        unscopedLines
+                    );
+                }
+                continue;
+            }
+
+            appendToSection(activeSection, line, summaryLines, readerFitLines, themeLines, takeawayLines, contextLines, unscopedLines);
+        }
+
+        String summary = chooseSummary(summaryLines, unscopedLines);
+        if (!StringUtils.hasText(summary)) {
+            return Optional.empty();
+        }
+
+        Optional<String> readerFit = joinLines(readerFitLines);
+        List<String> keyThemes = normalizeList(themeLines, MAX_KEY_THEME_COUNT);
+        List<String> takeaways = normalizeList(takeawayLines, MAX_TAKEAWAY_COUNT);
+        Optional<String> context = joinLines(contextLines);
+
+        if (keyThemes.isEmpty() && takeaways.isEmpty()) {
+            log.warn("Plain-text AI fallback produced no themes and no takeaways");
+        }
+
+        return Optional.of(new BookAiContent(
+            summary,
+            readerFit.orElse(null),
+            keyThemes,
+            takeaways.isEmpty() ? null : takeaways,
+            context.orElse(null)
+        ));
+    }
+
+    private String chooseSummary(List<String> summaryLines, List<String> unscopedLines) {
+        Optional<String> explicitSummary = joinLines(summaryLines);
+        if (explicitSummary.isPresent()) {
+            return explicitSummary.get();
+        }
+        Optional<String> inferredSummary = joinLines(unscopedLines);
+        if (inferredSummary.isEmpty()) {
+            return null;
+        }
+        return clampToTwoSentences(inferredSummary.get());
+    }
+
+    private String clampToTwoSentences(String text) {
+        String[] sentences = text.split("(?<=[.!?])\\s+");
+        if (sentences.length <= 2) {
+            return text;
+        }
+        return (sentences[0] + " " + sentences[1]).trim();
+    }
+
+    private Optional<String> joinLines(List<String> lines) {
+        if (lines == null || lines.isEmpty()) {
+            return Optional.empty();
+        }
+        String joined = String.join(" ", lines).replaceAll("\\s+", " ").trim();
+        if (!StringUtils.hasText(joined)) {
+            return Optional.empty();
+        }
+        return Optional.of(joined);
+    }
+
+    private List<String> normalizeList(List<String> lines, int maxSize) {
+        List<String> values = new ArrayList<>();
+        for (String line : lines) {
+            if (!StringUtils.hasText(line)) {
+                continue;
+            }
+            if (line.contains(", ")) {
+                for (String token : line.split(",\\s+")) {
+                    addDistinct(values, token, maxSize);
+                    if (values.size() == maxSize) {
+                        break;
+                    }
+                }
+            } else {
+                addDistinct(values, line, maxSize);
+            }
+            if (values.size() == maxSize) {
+                break;
+            }
+        }
+        return values.isEmpty() ? List.of() : List.copyOf(values);
+    }
+
+    private void addDistinct(List<String> values, String value, int maxSize) {
+        if (values.size() >= maxSize) {
+            return;
+        }
+        String normalized = normalizeLine(value);
+        if (!StringUtils.hasText(normalized) || values.contains(normalized)) {
+            return;
+        }
+        values.add(normalized);
+    }
+
+    private String normalizeLine(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        return raw
+            .replace('\t', ' ')
+            .replaceAll("^[\\-*•\\d.)\\s]+", "")
+            .replaceAll("\\s+", " ")
+            .trim();
+    }
+
+    private void appendToSection(Section section,
+                                 String line,
+                                 List<String> summaryLines,
+                                 List<String> readerFitLines,
+                                 List<String> themeLines,
+                                 List<String> takeawayLines,
+                                 List<String> contextLines,
+                                 List<String> unscopedLines) {
+        switch (section) {
+            case SUMMARY -> summaryLines.add(line);
+            case READER_FIT -> readerFitLines.add(line);
+            case KEY_THEMES -> themeLines.add(line);
+            case TAKEAWAYS -> takeawayLines.add(line);
+            case CONTEXT -> contextLines.add(line);
+            case NONE -> unscopedLines.add(line);
+        }
+    }
+
+    private SectionMatch matchSectionHeader(String line) {
+        String normalized = line.replaceAll("\\s+", " ").trim();
+        return matchSection(normalized, "summary", Section.SUMMARY)
+            .or(() -> matchSection(normalized, "reader fit", Section.READER_FIT))
+            .or(() -> matchSection(normalized, "reader_fit", Section.READER_FIT))
+            .or(() -> matchSection(normalized, "ideal reader", Section.READER_FIT))
+            .or(() -> matchSection(normalized, "key themes", Section.KEY_THEMES))
+            .or(() -> matchSection(normalized, "themes", Section.KEY_THEMES))
+            .or(() -> matchSection(normalized, "takeaways", Section.TAKEAWAYS))
+            .or(() -> matchSection(normalized, "takeaway", Section.TAKEAWAYS))
+            .or(() -> matchSection(normalized, "context", Section.CONTEXT))
+            .orElse(null);
+    }
+
+    private Optional<SectionMatch> matchSection(String line, String label, Section section) {
+        String lowerLine = line.toLowerCase();
+        String lowerLabel = label.toLowerCase();
+        if (lowerLine.equals(lowerLabel)) {
+            return Optional.of(new SectionMatch(section, ""));
+        }
+        String prefix = lowerLabel + ":";
+        if (lowerLine.startsWith(prefix)) {
+            String remainder = line.substring(prefix.length()).trim();
+            return Optional.of(new SectionMatch(section, remainder));
+        }
+        return Optional.empty();
+    }
+
+    private enum Section {
+        NONE,
+        SUMMARY,
+        READER_FIT,
+        KEY_THEMES,
+        TAKEAWAYS,
+        CONTEXT
+    }
+
+    private record SectionMatch(Section section, String remainder) {
     }
 }
