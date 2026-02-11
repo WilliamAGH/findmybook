@@ -226,6 +226,69 @@ describe("SearchPage loading state", () => {
     });
   });
 
+  it("shouldRedirectExplorePopularToLastPageWhenRequestedPageOvershoots", async () => {
+    getHomePagePayloadMock.mockResolvedValue({
+      currentBestsellers: [],
+      recentBooks: [],
+      popularBooks: Array.from({ length: 24 }, (_, index) => ({
+        id: `popular-book-${index + 1}`,
+        slug: `popular-book-${index + 1}`,
+        title: `Popular Book ${index + 1}`,
+        authors: [`Author ${index + 1}`],
+        cover_url: null,
+        cover_s3_key: null,
+        fallback_cover_url: "/images/placeholder-book-cover.svg",
+        average_rating: 4.2,
+        ratings_count: 100 + index,
+        tags: {},
+      })),
+      popularWindow: "90d",
+    });
+
+    const currentUrl = new URL(
+      "https://findmybook.net/explore?popularWindow=90d&page=3&orderBy=newest&view=grid&coverSource=ANY&resolution=HIGH_FIRST",
+    );
+    window.history.replaceState({}, "", `${currentUrl.pathname}${currentUrl.search}`);
+
+    render(SearchPage, {
+      props: { currentUrl, routeName: "explore" },
+    });
+
+    await waitFor(() => {
+      expect(window.location.search).toContain("page=2");
+    });
+  });
+
+  it("shouldShowOnlyNoResultsMessageWhenSearchResponseIsEmpty", async () => {
+    searchBooksMock.mockResolvedValue({
+      query: "no-hit-query",
+      queryHash: "no-hit-query",
+      startIndex: 0,
+      maxResults: 12,
+      totalResults: 0,
+      hasMore: false,
+      nextStartIndex: 0,
+      prefetchedCount: 0,
+      orderBy: "newest",
+      coverSource: "ANY",
+      resolution: "HIGH_FIRST",
+      results: [],
+    });
+
+    const currentUrl = new URL(
+      "https://findmybook.net/search?query=no-hit-query&page=1&orderBy=newest&view=grid&coverSource=ANY&resolution=HIGH_FIRST",
+    );
+
+    render(SearchPage, {
+      props: { currentUrl, routeName: "search" },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("No results found.")).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/Showing 0 of 0 results/i)).not.toBeInTheDocument();
+  });
+
   it("shouldIncludeFallbackBookIdOnSearchResultLinks", async () => {
     searchBooksMock.mockResolvedValue({
       query: "doug turnbull",

@@ -44,7 +44,7 @@
   </p>
 {/if}
 
-{#if !loading && searchResult && (query || showingExplorePopular)}
+{#if !loading && searchResult && searchResult.results.length > 0 && (query || showingExplorePopular)}
   <p class="text-sm text-anthracite-600 dark:text-slate-400">
     Showing {searchResult.results.length} of {searchResult.totalResults} results
     {#if routeName === "categories" && selectedGenres.length > 0}

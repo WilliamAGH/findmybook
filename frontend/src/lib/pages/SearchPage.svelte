@@ -61,12 +61,21 @@
         recordView: false,
       });
       if (sequence !== searchLoadSequence) return;
-      searchResult = buildExplorePopularSearchResponse(
+      const response = buildExplorePopularSearchResponse(
         payload.popularBooks,
         payload.popularWindow,
         page,
         PAGE_SIZE,
       );
+      if (response.totalResults > 0 && response.results.length === 0) {
+        const requestedPage = page;
+        const lastPage = Math.max(1, Math.ceil(response.totalResults / Math.max(response.maxResults, 1)));
+        if (requestedPage > lastPage) {
+          applyFilters(lastPage, null, true);
+          return;
+        }
+      }
+      searchResult = response;
     } catch (error) {
       if (sequence !== searchLoadSequence) return;
       errorMessage = error instanceof Error ? error.message : "Failed to load popular books";
