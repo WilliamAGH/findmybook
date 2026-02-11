@@ -9,6 +9,8 @@ import net.findmybook.util.IsbnUtils;
 import net.findmybook.util.SlugGenerator;
 import net.findmybook.util.TextUtils;
 import jakarta.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -29,6 +31,7 @@ import java.util.regex.Pattern;
 @Component
 public class NytBestsellerPayloadMapper {
 
+    private static final Logger log = LoggerFactory.getLogger(NytBestsellerPayloadMapper.class);
     private static final Pattern AUTHOR_AND_SEPARATOR_PATTERN = Pattern.compile("(?i)\\band\\b");
     private static final String AUTHOR_DELIMITER_PATTERN = "[,;&]";
     private final ObjectMapper objectMapper;
@@ -154,6 +157,7 @@ public class NytBestsellerPayloadMapper {
         try {
             return objectMapper.writeValueAsString(bookNode);
         } catch (JacksonException exception) {
+            log.error("Failed to serialize NYT book node: {}", exception.getMessage(), exception);
             return null;
         }
     }

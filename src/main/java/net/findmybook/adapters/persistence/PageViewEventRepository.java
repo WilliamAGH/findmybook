@@ -51,7 +51,11 @@ public class PageViewEventRepository {
      */
     @Async
     public void recordView(String pageKey, @Nullable Instant viewedAt, @Nullable String source) {
-        if (!isEnabled() || !StringUtils.hasText(pageKey)) {
+        if (!isEnabled()) {
+            return;
+        }
+        if (!StringUtils.hasText(pageKey)) {
+            log.warn("Ignoring page view with blank pageKey (source={})", source);
             return;
         }
 
