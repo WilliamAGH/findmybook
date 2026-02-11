@@ -94,7 +94,7 @@ public class PageApiController {
      */
     @GetMapping("/book/{identifier}/affiliate-links")
     public Mono<ResponseEntity<Map<String, String>>> affiliateLinks(@PathVariable String identifier) {
-        return publicPagePayloadUseCase.loadAffiliateLinks(identifier);
+        return publicPagePayloadUseCase.loadAffiliateLinks(identifier).map(ResponseEntity::ok);
     }
 
     /**
@@ -154,7 +154,7 @@ public class PageApiController {
         @RequestParam(name = "limit", required = false) Integer limit,
         @RequestParam(name = "minBooks", required = false) Integer minBooks
     ) {
-        return publicPagePayloadUseCase.loadCategoryFacets(limit, minBooks);
+        return ResponseEntity.ok(publicPagePayloadUseCase.loadCategoryFacets(limit, minBooks));
     }
 
     /**

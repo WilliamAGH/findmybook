@@ -19,7 +19,6 @@ import net.findmybook.util.cover.CoverPrioritizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.server.ResponseStatusException;
@@ -125,15 +124,15 @@ public class PublicPagePayloadUseCase {
      * Resolves typed affiliate links for a single book identifier.
      *
      * @param identifier slug, UUID, or ISBN identifier
-     * @return affiliate links response when a book exists, otherwise 404
+     * @return affiliate links when a book exists, otherwise error signal
      */
-    public Mono<ResponseEntity<Map<String, String>>> loadAffiliateLinks(String identifier) {
+    public Mono<Map<String, String>> loadAffiliateLinks(String identifier) {
         if (!StringUtils.hasText(identifier)) {
             return Mono.error(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Book identifier is required"));
         }
 
         return homePageSectionsService.locateBook(identifier)
-            .map(book -> ResponseEntity.ok(affiliateLinkService.generateLinks(book)))
+            .map(book -> affiliateLinkService.generateLinks(book))
             .switchIfEmpty(Mono.error(
                 new ResponseStatusException(HttpStatus.NOT_FOUND, "No book found for identifier: " + identifier)
             ));
@@ -146,7 +145,7 @@ public class PublicPagePayloadUseCase {
      * @param minBooks optional minimum books threshold
      * @return typed category facets payload
      */
-    public ResponseEntity<CategoriesFacetsPayload> loadCategoryFacets(@Nullable Integer limit, @Nullable Integer minBooks) {
+    public CategoriesFacetsPayload loadCategoryFacets(@Nullable Integer limit, @Nullable Integer minBooks) {
         int safeLimit = PagingUtils.safeLimit(
             limit != null ? limit : 0,
             DEFAULT_CATEGORY_FACET_LIMIT,
@@ -157,12 +156,12 @@ public class PublicPagePayloadUseCase {
         List<CategoryFacetPayload> genres = homePageSectionsService.loadCategoryFacets(safeLimit, safeMinBooks).stream()
             .map(facet -> new CategoryFacetPayload(facet.name(), facet.bookCount()))
             .toList();
-        return ResponseEntity.ok(new CategoriesFacetsPayload(
+        return new CategoriesFacetsPayload(
             genres,
             Instant.now(),
             safeLimit,
             safeMinBooks
-        ));
+        );
     }
 
     private static List<BookCard> retainRenderableCovers(List<BookCard> cards, int maxItems) {
