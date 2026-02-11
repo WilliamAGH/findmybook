@@ -37,6 +37,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.LocalDate;
+
 @RestController
 @RequestMapping("/admin")
 @Slf4j
@@ -150,10 +152,6 @@ public class AdminController {
         int requestedLimit     = limitOptional != null ? limitOptional : s3CleanupConfig.defaultBatchLimit();
         int batchLimitToUse    = requestedLimit > 0 ? requestedLimit : Integer.MAX_VALUE;
         if (requestedLimit <= 0) {
-            // This behavior can be adjusted; for now, let's say 0 or negative means a very large number (effectively no limit for practical purposes)
-            // or stick to a sane default if that's preferred
-            // The S3CoverCleanupService currently handles batchLimit > 0
-            // If batchLimit is 0 or negative, it processes all
             log.warn("Batch limit {} requested; treating as unlimited.", requestedLimit);
         }
         
@@ -263,26 +261,62 @@ public class AdminController {
     }
 
     /**
-     * Triggers the New York Times Bestseller processing job.
+     * Triggers New York Times bestseller processing.
+     * <p>
+     * Modes:
+     * <ul>
+     *   <li>Default (no params): run the latest overview ingest once.</li>
+     *   <li>{@code publishedDate=yyyy-MM-dd}: force one historical date ingest.</li>
+     *   <li>{@code rerunAll=true}: rerun all historical NYT publication dates in Postgres.</li>
+     * </ul>
      *
+     * @param publishedDate optional NYT publication date to force
+     * @param rerunAll when true, rerun all historical NYT publication dates
      * @return A ResponseEntity indicating the outcome of the trigger.
      */
     @PostMapping(value = "/trigger-nyt-bestsellers", produces = MediaType.TEXT_PLAIN_VALUE)
-    public ResponseEntity<String> triggerNytBestsellerProcessing() {
-        log.info("Admin endpoint /admin/trigger-nyt-bestsellers invoked.");
+    public ResponseEntity<String> triggerNytBestsellerProcessing(
+        @RequestParam(name = "publishedDate", required = false) LocalDate publishedDate,
+        @RequestParam(name = "rerunAll", defaultValue = "false") boolean rerunAll
+    ) {
+        log.info("Admin endpoint /admin/trigger-nyt-bestsellers invoked. publishedDate={}, rerunAll={}",
+            publishedDate,
+            rerunAll);
         
         if (newYorkTimesBestsellerScheduler == null) {
             String errorMessage = "New York Times Bestseller Scheduler is not available. S3 integration may be disabled.";
             log.warn(errorMessage);
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, errorMessage);
         }
+
+        if (rerunAll && publishedDate != null) {
+            throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "Cannot combine rerunAll=true with a specific publishedDate."
+            );
+        }
         
         try {
-            // It's good practice to run schedulers asynchronously if they are long-running,
-            // but for a manual trigger, a direct call might be acceptable depending on execution time.
-            // If processNewYorkTimesBestsellers is very long, consider wrapping in an async task.
-            newYorkTimesBestsellerScheduler.processNewYorkTimesBestsellers();
-            String successMessage = "Successfully triggered New York Times Bestseller processing job.";
+            String successMessage;
+            if (rerunAll) {
+                NewYorkTimesBestsellerScheduler.HistoricalRerunSummary summary =
+                    newYorkTimesBestsellerScheduler.rerunHistoricalBestsellers();
+                successMessage = String.format(
+                    "NYT historical rerun completed. totalDates=%d, succeeded=%d, failed=%d%s",
+                    summary.totalDates(),
+                    summary.succeededDates(),
+                    summary.failedDates(),
+                    summary.failures().isEmpty() ? "" : ", failures=" + summary.failures()
+                );
+            } else if (publishedDate != null) {
+                newYorkTimesBestsellerScheduler.forceProcessNewYorkTimesBestsellers(publishedDate);
+                successMessage = "Successfully triggered New York Times Bestseller processing job for "
+                    + publishedDate
+                    + ".";
+            } else {
+                newYorkTimesBestsellerScheduler.processNewYorkTimesBestsellers();
+                successMessage = "Successfully triggered New York Times Bestseller processing job.";
+            }
             log.info(successMessage);
             return ResponseEntity.ok(successMessage);
         } catch (IllegalStateException ex) {

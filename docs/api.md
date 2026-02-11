@@ -267,6 +267,17 @@ Admin endpoints require HTTP Basic Authentication.
   - Notes:
     - `outcome` values are `SUCCESS`, `NOT_FOUND`, `FAILURE`, `SKIPPED`.
     - `currentBookId` is retained for compatibility with existing polling clients.
+- `POST /admin/trigger-nyt-bestsellers`
+  - Triggers NYT ingest processing.
+  - Query params:
+    - `publishedDate` (optional, format `yyyy-MM-dd`): force ingest for one historical NYT publication date.
+    - `rerunAll` (optional, default `false`): rerun all historical NYT publication dates currently present in `book_collections`.
+  - Notes:
+    - `rerunAll=true` cannot be combined with `publishedDate`.
+    - `rerunAll=true` is intended for metadata backfills/upserts on existing canonical NYT books and related join/tag/external-id rows.
+  - Response:
+    - `200 OK` with plain-text acknowledgement when the ingest trigger succeeds.
+    - `400 Bad Request` when NYT processing is disabled/rejected.
 
 ### Example Request
 ```bash

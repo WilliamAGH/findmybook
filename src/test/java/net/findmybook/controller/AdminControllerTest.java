@@ -19,6 +19,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -90,7 +91,7 @@ class AdminControllerTest {
 
         ResponseStatusException exception = assertThrows(
             ResponseStatusException.class,
-            () -> adminController.triggerNytBestsellerProcessing()
+            () -> adminController.triggerNytBestsellerProcessing(null, false)
         );
 
         assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
@@ -105,10 +106,66 @@ class AdminControllerTest {
 
         RuntimeException exception = assertThrows(
             RuntimeException.class,
-            () -> adminController.triggerNytBestsellerProcessing()
+            () -> adminController.triggerNytBestsellerProcessing(null, false)
         );
 
         assertEquals("NYT upstream failed", exception.getMessage());
+    }
+
+    @Test
+    void triggerNytBestsellerProcessing_shouldReturnHistoricalSummary_WhenRerunAllIsTrue() {
+        when(newYorkTimesBestsellerScheduler.rerunHistoricalBestsellers())
+            .thenReturn(new NewYorkTimesBestsellerScheduler.HistoricalRerunSummary(
+                3,
+                3,
+                0,
+                List.of()
+            ));
+
+        var response = adminController.triggerNytBestsellerProcessing(null, true);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertNotNull(response.getBody());
+        assertTrue(response.getBody().contains("totalDates=3"));
+        assertTrue(response.getBody().contains("succeeded=3"));
+        assertTrue(response.getBody().contains("failed=0"));
+    }
+
+    @Test
+    void triggerNytBestsellerProcessing_shouldReturnBadRequest_WhenHistoricalRerunRejected() {
+        doThrow(new IllegalStateException("NYT historical rerun is disabled"))
+            .when(newYorkTimesBestsellerScheduler)
+            .rerunHistoricalBestsellers();
+
+        ResponseStatusException exception = assertThrows(
+            ResponseStatusException.class,
+            () -> adminController.triggerNytBestsellerProcessing(null, true)
+        );
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        assertEquals("NYT historical rerun is disabled", exception.getReason());
+    }
+
+    @Test
+    void triggerNytBestsellerProcessing_shouldReturnBadRequest_WhenRerunAllAndDateProvided() {
+        ResponseStatusException exception = assertThrows(
+            ResponseStatusException.class,
+            () -> adminController.triggerNytBestsellerProcessing(LocalDate.parse("2026-02-09"), true)
+        );
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
+        assertEquals("Cannot combine rerunAll=true with a specific publishedDate.", exception.getReason());
+    }
+
+    @Test
+    void triggerNytBestsellerProcessing_shouldForceSpecificPublishedDate_WhenProvided() {
+        LocalDate requestedDate = LocalDate.parse("2026-02-09");
+
+        var response = adminController.triggerNytBestsellerProcessing(requestedDate, false);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertTrue(response.getBody().contains("2026-02-09"));
+        verify(newYorkTimesBestsellerScheduler).forceProcessNewYorkTimesBestsellers(requestedDate);
     }
 
     @Test
