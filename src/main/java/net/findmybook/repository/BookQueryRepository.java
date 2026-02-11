@@ -157,6 +157,16 @@ public class BookQueryRepository {
         return recommendationSupport.fetchRecommendationCards(sourceBookId, limit);
     }
 
+    /**
+     * Indicates whether at least one non-expired recommendation row exists for the source work cluster.
+     *
+     * @param sourceBookId canonical source-book UUID
+     * @return true when active recommendation rows are available
+     */
+    public boolean hasActiveRecommendationRows(UUID sourceBookId) {
+        return recommendationSupport.hasActiveRecommendations(sourceBookId);
+    }
+
     // ==================== Book List Items ====================
     
     /**
