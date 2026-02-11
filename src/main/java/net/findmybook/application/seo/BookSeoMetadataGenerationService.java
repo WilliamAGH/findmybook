@@ -22,6 +22,11 @@ public class BookSeoMetadataGenerationService {
     private static final Logger log = LoggerFactory.getLogger(BookSeoMetadataGenerationService.class);
     private static final String FALLBACK_PROVIDER = "deterministic-fallback";
     private static final int MIN_DESCRIPTION_LENGTH = 50;
+    private static final String FALLBACK_DESCRIPTION = "No description available.";
+    private static final String FALLBACK_TITLE = "Unknown Title";
+    private static final String FALLBACK_AUTHOR = "Unknown author";
+    private static final String FALLBACK_PUBLISHER = "Unknown publisher";
+    private static final String FALLBACK_DATE = "Unknown";
 
     private final BookSeoMetadataRepository repository;
     private final BookSearchService bookSearchService;
@@ -141,15 +146,15 @@ public class BookSeoMetadataGenerationService {
         String description = detail.description() == null ? null : detail.description().trim();
         description = bookDataOrchestrator.enrichDescriptionForAiIfNeeded(bookId, detail, description, MIN_DESCRIPTION_LENGTH);
         if (!StringUtils.hasText(description)) {
-            description = "No description available.";
+            description = FALLBACK_DESCRIPTION;
         }
 
-        String bookTitle = StringUtils.hasText(detail.title()) ? detail.title().trim() : "Unknown Title";
+        String bookTitle = StringUtils.hasText(detail.title()) ? detail.title().trim() : FALLBACK_TITLE;
         String authors = detail.authors() == null || detail.authors().isEmpty()
-            ? "Unknown author"
+            ? FALLBACK_AUTHOR
             : String.join(", ", detail.authors());
-        String publisher = StringUtils.hasText(detail.publisher()) ? detail.publisher().trim() : "Unknown publisher";
-        String publishedDate = detail.publishedDate() != null ? detail.publishedDate().toString() : "Unknown";
+        String publisher = StringUtils.hasText(detail.publisher()) ? detail.publisher().trim() : FALLBACK_PUBLISHER;
+        String publishedDate = detail.publishedDate() != null ? detail.publishedDate().toString() : FALLBACK_DATE;
 
         return new PromptContext(bookTitle, authors, publisher, publishedDate, description);
     }

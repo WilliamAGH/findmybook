@@ -39,8 +39,11 @@ class BookSeoMetadataRepositoryTest {
 
     @Test
     void should_IncrementVersionAndDemotePrevious_When_InsertingNewCurrentVersion() {
+        // Arrange
         UUID bookId = createBook();
         repository.insertNewCurrentVersion(bookId, "Title v1 - Book Details | findmybook.net", "Description v1", "m1", "openai", "h1");
+
+        // Act
         BookSeoMetadataSnapshot snapshot = repository.insertNewCurrentVersion(
             bookId,
             "Title v2 - Book Details | findmybook.net",
@@ -50,6 +53,7 @@ class BookSeoMetadataRepositoryTest {
             "h2"
         );
 
+        // Assert
         assertThat(snapshot.version()).isEqualTo(2);
         assertThat(snapshot.seoTitle()).isEqualTo("Title v2 - Book Details | findmybook.net");
         Boolean previousCurrent = jdbcTemplate.queryForObject(
@@ -62,6 +66,7 @@ class BookSeoMetadataRepositoryTest {
 
     @Test
     void should_ReturnCurrentPromptHash_When_CurrentVersionExists() {
+        // Arrange
         UUID bookId = createBook();
         repository.insertNewCurrentVersion(
             bookId,
@@ -72,6 +77,7 @@ class BookSeoMetadataRepositoryTest {
             "prompt-hash"
         );
 
+        // Act & Assert
         assertThat(repository.fetchCurrentPromptHash(bookId)).contains("prompt-hash");
     }
 

@@ -64,6 +64,7 @@ public class CoverBackfillService {
     private static final String SRC_GOOGLE_BOOKS = "GOOGLE_BOOKS";
     private static final String SRC_LONGITOOD = "LONGITOOD";
 
+    /** Selects which candidate books a backfill run should target. */
     public enum BackfillMode { MISSING, GRAYSCALE, REJECTED }
 
     /**
@@ -190,6 +191,7 @@ public class CoverBackfillService {
         this.webClient = webClientBuilder.build();
     }
 
+    /** Returns the latest aggregate backfill progress snapshot for admin status polling. */
     public BackfillProgress getProgress() {
         return progress.get();
     }
@@ -203,6 +205,7 @@ public class CoverBackfillService {
         return backfillRunning.get();
     }
 
+    /** Requests graceful cancellation of the current backfill run. Thread-safe. */
     public void cancel() {
         cancelled = true;
         log.info("Cover backfill cancellation requested");

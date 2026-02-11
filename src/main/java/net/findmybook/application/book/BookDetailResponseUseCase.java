@@ -24,9 +24,6 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class BookDetailResponseUseCase {
 
-    private static final String INVALID_VIEW_WINDOW_DETAIL =
-        "Invalid viewWindow parameter: supported values are 30d, 90d, all";
-
     private final BookAiContentService bookAiContentService;
     private final RecentlyViewedService recentlyViewedService;
 
@@ -81,7 +78,10 @@ public class BookDetailResponseUseCase {
         Optional<RecentBookViewRepository.ViewWindow> parsed =
             RecentBookViewRepository.ViewWindow.fromQueryValue(rawViewWindow);
         if (parsed.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, INVALID_VIEW_WINDOW_DETAIL);
+            throw new ResponseStatusException(
+                HttpStatus.BAD_REQUEST,
+                "Invalid viewWindow parameter: supported values are 30d, 90d, all"
+            );
         }
         return parsed;
     }
