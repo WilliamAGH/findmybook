@@ -221,7 +221,7 @@ export function normalizeRealtimeSearchHits(incoming: unknown[]): SearchHit[] {
 
 /**
  * Merges incoming realtime hits into an existing result set, deduplicating by id
- * and re-sorting according to the active sort order.
+ * while preferring fresher incoming payloads, then re-sorting by active order.
  */
 export function mergeSearchHits(
   existingHits: SearchHit[],
@@ -230,9 +230,7 @@ export function mergeSearchHits(
 ): SearchHit[] {
   const merged = new Map(existingHits.map((hit) => [hit.id, hit]));
   for (const candidate of incomingHits) {
-    if (!merged.has(candidate.id)) {
-      merged.set(candidate.id, candidate);
-    }
+    merged.set(candidate.id, candidate);
   }
   return sortSearchHits(Array.from(merged.values()), orderBy);
 }
