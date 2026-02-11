@@ -17,6 +17,10 @@ class SeoMetadataNormalizationPolicy {
     private static final Pattern EXPECTED_TITLE_PATTERN =
         Pattern.compile("^.+ - Book Details \\| findmybook\\.net$", Pattern.CASE_INSENSITIVE);
 
+    private static final int MIN_TITLE_LENGTH = 3;
+    private static final int ELLIPSIS_LENGTH = 3;
+    private static final int MIN_WORD_LENGTH = 5;
+
     /**
      * Normalizes a candidate SEO title, falling back to deterministic output when invalid.
      */
@@ -71,12 +75,12 @@ class SeoMetadataNormalizationPolicy {
         if (value.length() <= maxLength) {
             return value;
         }
-        if (maxLength <= 3) {
+        if (maxLength <= MIN_TITLE_LENGTH) {
             return value.substring(0, maxLength);
         }
-        String shortened = value.substring(0, maxLength - 3);
+        String shortened = value.substring(0, maxLength - ELLIPSIS_LENGTH);
         int lastSpace = shortened.lastIndexOf(' ');
-        if (lastSpace > 5) {
+        if (lastSpace > MIN_WORD_LENGTH) {
             shortened = shortened.substring(0, lastSpace);
         }
         return shortened + "...";
