@@ -89,23 +89,25 @@ void runGrayscaleBackfill(Connection conn, S3Client s3, String bucket) throws Ex
         WHERE book_id = ? AND is_grayscale IS NULL
         """;
 
+    record GrayscaleRow(String bookId, Object rowId, String s3Path) {}
+
     int books = 0, links = 0, grayscaleLinks = 0, errors = 0;
     while (true) {
-        var batch = new java.util.ArrayList<Object[]>();
+        var batch = new java.util.ArrayList<GrayscaleRow>();
         try (PreparedStatement ps = conn.prepareStatement(selectSql)) {
             ps.setInt(1, BATCH_SIZE);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    batch.add(new Object[]{ rs.getString("book_id"), rs.getObject("id"), rs.getString("s3_image_path") });
+                    batch.add(new GrayscaleRow(rs.getString("book_id"), rs.getObject("id"), rs.getString("s3_image_path")));
                 }
             }
         }
         if (batch.isEmpty()) break;
 
         try (PreparedStatement updatePs = conn.prepareStatement(updateSql)) {
-            for (Object[] row : batch) {
-                String bookId = (String) row[0];
-                String s3Key = (String) row[2];
+            for (GrayscaleRow row : batch) {
+                String bookId = row.bookId();
+                String s3Key = row.s3Path();
                 try {
                     BufferedImage img = downloadS3Image(s3, bucket, s3Key);
                     boolean grayscale = img != null && isEffectivelyGrayscale(img);
@@ -212,20 +214,22 @@ void runDimensionBackfill(Connection conn, S3Client s3, String bucket) throws Ex
         WHERE book_id = ?::uuid AND is_grayscale IS NULL
         """;
 
+    record DimensionRow(String rowId, String bookId, String s3Path, int width, int height) {}
+
     int processed = 0, corrected = 0, badAspect = 0, errors = 0;
     while (true) {
-        var batch = new java.util.ArrayList<Object[]>();
+        var batch = new java.util.ArrayList<DimensionRow>();
         try (PreparedStatement ps = conn.prepareStatement(selectSql)) {
             ps.setInt(1, BATCH_SIZE);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    batch.add(new Object[]{
+                    batch.add(new DimensionRow(
                         rs.getString("id"),
                         rs.getString("book_id"),
                         rs.getString("s3_image_path"),
                         rs.getInt("width"),
                         rs.getInt("height")
-                    });
+                    ));
                 }
             }
         }
@@ -233,11 +237,11 @@ void runDimensionBackfill(Connection conn, S3Client s3, String bucket) throws Ex
 
         try (PreparedStatement updatePs = conn.prepareStatement(updateSql);
              PreparedStatement propagatePs = conn.prepareStatement(propagateGrayscaleSql)) {
-            for (Object[] row : batch) {
-                String rowId = (String) row[0];
-                String bookId = (String) row[1];
-                String s3Key = (String) row[2];
-                int storedW = (int) row[3], storedH = (int) row[4];
+            for (DimensionRow row : batch) {
+                String rowId = row.rowId();
+                String bookId = row.bookId();
+                String s3Key = row.s3Path();
+                int storedW = row.width(), storedH = row.height();
                 try {
                     BufferedImage img = downloadS3Image(s3, bucket, s3Key);
                     if (img == null) {
@@ -413,7 +417,8 @@ static Map<String, String> loadEnv() {
                 env.put(key, val);
             }
         }
-    } catch (Exception ignored) {
+    } catch (Exception ex) {
+        System.err.println("Warning: failed to read .env file: " + ex.getMessage());
     }
     return env;
 }
