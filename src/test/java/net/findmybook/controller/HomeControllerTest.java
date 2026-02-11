@@ -212,6 +212,33 @@ class HomeControllerTest {
     }
 
     @Test
+    void should_RenderDynamicBookOpenGraphTags_When_BookRouteResolvesSuccessfully() {
+        Book book = new Book();
+        book.setId("book-id");
+        book.setSlug("the-hobbit");
+        book.setTitle("The Hobbit");
+        book.setDescription("Bilbo Baggins embarks on an unexpected adventure.");
+        when(homePageSectionsService.locateBook("the-hobbit")).thenReturn(Mono.just(book));
+
+        webTestClient.get().uri("/book/the-hobbit")
+            .exchange()
+            .expectStatus().isOk()
+            .expectHeader().contentTypeCompatibleWith(MediaType.TEXT_HTML)
+            .expectBody(String.class)
+            .value(body -> {
+                assertTrue(body.contains("<meta property=\"og:type\" content=\"book\">"));
+                assertTrue(body.contains(
+                    "<meta property=\"og:image\" content=\"https://findmybook.net/api/pages/og/book/the-hobbit\">"));
+                assertTrue(body.contains(
+                    "<meta name=\"twitter:image\" content=\"https://findmybook.net/api/pages/og/book/the-hobbit\">"));
+                assertTrue(!body.contains(
+                    "<meta property=\"og:image\" content=\"https://findmybook.net/api/pages/og/route\">"));
+                assertTrue(!body.contains(
+                    "<meta name=\"twitter:image\" content=\"https://findmybook.net/api/pages/og/route\">"));
+            });
+    }
+
+    @Test
     void should_EscapeScriptSensitiveCharacters_When_BookPathContainsHtmlLikeSegment() {
         String html = bookSeoMetadataService.renderSpaShell(
             bookSeoMetadataService.notFoundMetadata("/book/<svg>")
