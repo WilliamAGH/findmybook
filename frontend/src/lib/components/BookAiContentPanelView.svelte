@@ -1,7 +1,7 @@
 <script lang="ts">
   import { ChevronDown, RefreshCw } from "@lucide/svelte";
   import type { Book } from "$lib/validation/schemas";
-  import { isDegenerateText } from "$lib/validation/textQuality";
+  import { hasRenderableAiContent } from "$lib/services/bookAiContentPanelState";
 
   interface Props {
     book: Book;
@@ -66,7 +66,7 @@
 
   {#if !collapsed}
     <div class="border-t border-linen-200 px-4 pb-4 pt-3 dark:border-slate-700">
-      {#if book.aiContent && !isDegenerateText(book.aiContent.summary)}
+      {#if book.aiContent && hasRenderableAiContent(book)}
         {#if aiErrorMessage}
           <p class="mb-2 text-xs text-red-700 dark:text-red-300">{aiErrorMessage}</p>
         {/if}
@@ -139,6 +139,10 @@
           ></span>
           <p class="text-sm text-anthracite-600 dark:text-slate-400">Loading AI content...</p>
         </div>
+      {:else}
+        <p class="text-xs text-anthracite-500 dark:text-slate-400">
+          AI content is unavailable right now. Use refresh to try again.
+        </p>
       {/if}
     </div>
   {/if}

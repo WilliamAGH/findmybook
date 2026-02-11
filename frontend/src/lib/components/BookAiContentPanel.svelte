@@ -4,6 +4,7 @@
   import { isBookAiContentStreamError, streamBookAiContent } from "$lib/services/bookAiContentStream";
   import { getBookAiContentQueueStats } from "$lib/services/books";
   import {
+    hasRenderableAiContent,
     PRODUCTION_ENVIRONMENT_MODE,
     normalizeEnvironmentMode,
     shouldRenderPanel,
@@ -41,7 +42,7 @@
   /** True when the auto-trigger $effect is about to fire but hasn't yet set aiLoading. */
   let willAutoTrigger = $derived(
     !!identifier
-      && !book?.aiContent
+      && !hasRenderableAiContent(book)
       && !aiAutoTriggerDeferred
       && lastAutoTriggerIdentifier !== identifier,
   );
@@ -119,7 +120,7 @@
 
     aiQueueMessage = null;
     aiAutoTriggerDeferred = false;
-    if (!book?.aiContent || failure.code === "service_unavailable" || failure.retryable === false) {
+    if (!hasRenderableAiContent(book) || failure.code === "service_unavailable" || failure.retryable === false) {
       aiServiceAvailable = false;
     }
   }
@@ -161,7 +162,7 @@
           aiAutoTriggerDeferred = false;
           return false;
         }
-        if (!book?.aiContent) {
+        if (!hasRenderableAiContent(book)) {
           return false;
         }
         aiErrorMessage = refresh ? "AI content service is not available right now." : null;
@@ -182,7 +183,7 @@
         aiErrorMessage = null;
         aiQueueMessage = null;
         aiAutoTriggerDeferred = false;
-        if (!book?.aiContent) {
+        if (!hasRenderableAiContent(book)) {
           aiServiceAvailable = false;
         }
       }
@@ -294,7 +295,7 @@
       if (identifier !== scheduledIdentifier) {
         return;
       }
-      if (!book?.aiContent && !aiLoading && !aiAutoTriggerDeferred) {
+      if (!hasRenderableAiContent(book) && !aiLoading && !aiAutoTriggerDeferred) {
         void triggerAiGeneration(false);
       }
     }, 0);

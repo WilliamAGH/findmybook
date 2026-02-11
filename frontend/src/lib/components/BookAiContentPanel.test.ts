@@ -121,4 +121,46 @@ describe("BookAiContentPanel production behavior", () => {
     expect(streamBookAiContentMock).toHaveBeenCalledTimes(1);
     expect(onAiContentUpdate).not.toHaveBeenCalled();
   });
+
+  it("shouldAttemptRegenerationWhenExistingSummaryIsDegenerate", async () => {
+    streamBookAiContentMock.mockResolvedValue({
+      aiContent: {
+        summary: "This regenerated summary now contains enough descriptive prose to render safely.",
+        keyThemes: ["Theme"],
+        takeaways: ["Takeaway"],
+        readerFit: null,
+        context: null,
+      },
+    });
+    const onAiContentUpdate = vi.fn();
+
+    render(BookAiContentPanel, {
+      props: {
+        identifier: "degenerate-summary-book",
+        book: {
+          id: "book-degenerate",
+          slug: "book-degenerate",
+          title: "Degenerate Summary Fixture",
+          description:
+            "This description is long enough for AI generation and should allow regeneration attempts.",
+          descriptionContent: {
+            text: "This description is long enough for AI generation and should allow regeneration attempts.",
+          },
+          aiContent: {
+            summary: "@".repeat(120),
+            keyThemes: ["Legacy"],
+            takeaways: ["Legacy takeaway"],
+            readerFit: null,
+            context: null,
+          },
+        } as any,
+        onAiContentUpdate,
+      },
+    });
+
+    await waitFor(() => {
+      expect(streamBookAiContentMock).toHaveBeenCalledTimes(1);
+    });
+    expect(onAiContentUpdate).toHaveBeenCalledTimes(1);
+  });
 });

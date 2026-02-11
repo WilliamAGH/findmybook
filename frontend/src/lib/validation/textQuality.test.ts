@@ -76,6 +76,16 @@ describe("isDegenerateText", () => {
     expect(isDegenerateText(digits)).toBe(true);
   });
 
+  it("should_ReturnFalse_When_LetterRatioIsExactlyHalf", () => {
+    const boundary = "abcdefghij1234567890";
+    expect(isDegenerateText(boundary)).toBe(false);
+  });
+
+  it("should_ReturnTrue_When_LetterRatioFallsBelowHalf", () => {
+    const belowBoundary = "abcdefghi12345678901";
+    expect(isDegenerateText(belowBoundary)).toBe(true);
+  });
+
   // -- Edge cases ----------------------------------------------------------
 
   it("should_ReturnFalse_When_TextIsUndefined", () => {

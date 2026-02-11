@@ -6,7 +6,7 @@
  * Used as a last-resort display guard, not a replacement for backend checks.
  */
 
-const MIN_LETTER_RATIO = 0.4;
+const MIN_LETTER_RATIO = 0.5;
 const MAX_SINGLE_CHAR_RATIO = 0.5;
 const MIN_RENDERABLE_LENGTH = 10;
 
@@ -16,7 +16,7 @@ const MIN_RENDERABLE_LENGTH = 10;
  *
  * Checks:
  * - Single-character domination (any character > 50% of string)
- * - Insufficient letter characters (< 40% Unicode letters)
+ * - Insufficient letter characters (< 50% Unicode letters)
  */
 export function isDegenerateText(text: string): boolean {
   if (!text || text.length < MIN_RENDERABLE_LENGTH) {
