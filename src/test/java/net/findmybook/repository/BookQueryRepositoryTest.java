@@ -207,7 +207,7 @@ class BookQueryRepositoryTest {
     }
 
     @Test
-    void should_ReturnPersistedRecommendationCards_When_RecommendationRowsAreExpired() {
+    void should_ReturnPersistedRecommendationCards_When_PersistedRowsExist() {
         if (bookQueryRepository == null || jdbcTemplate == null) {
             return;
         }
