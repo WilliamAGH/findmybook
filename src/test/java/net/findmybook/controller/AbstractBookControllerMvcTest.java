@@ -135,7 +135,7 @@ abstract class AbstractBookControllerMvcTest {
             .thenReturn(true);
         lenient().when(bookAiContentService.findCurrent(any(UUID.class)))
             .thenReturn(Optional.empty());
-        lenient().when(recommendationService.getSimilarBooks(any(), anyInt()))
+        lenient().when(recommendationService.regenerateSimilarBooks(any(), anyInt()))
             .thenReturn(Mono.just(List.of()));
     }
 

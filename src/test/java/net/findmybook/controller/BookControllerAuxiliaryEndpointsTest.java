@@ -80,7 +80,7 @@ class BookControllerAuxiliaryEndpointsTest extends AbstractBookControllerMvcTest
             .thenReturn(false);
 
         Book generatedBook = buildBook("22222222-2222-4222-8222-222222222222", "generated-book");
-        when(recommendationService.getSimilarBooks(fixtureBook.getSlug(), 3))
+        when(recommendationService.regenerateSimilarBooks(fixtureBook.getSlug(), 3))
             .thenReturn(Mono.just(List.of(generatedBook)));
 
         BookCard refreshedCard = new BookCard(
@@ -99,7 +99,8 @@ class BookControllerAuxiliaryEndpointsTest extends AbstractBookControllerMvcTest
             new RecommendationCard(refreshedCard, 0.8, "AUTHOR", "RECOMMENDATION_PIPELINE")
         );
         when(bookSearchService.fetchRecommendationCards(bookUuid, 3))
-            .thenReturn(List.of(), refreshed);
+            .thenReturn(List.of())
+            .thenReturn(refreshed);
 
         performAsync(get("/api/books/" + fixtureBook.getSlug() + "/similar")
             .param("limit", "3"))
@@ -108,7 +109,7 @@ class BookControllerAuxiliaryEndpointsTest extends AbstractBookControllerMvcTest
             .andExpect(jsonPath("$.length()").value(1))
             .andExpect(jsonPath("$[0].id", equalTo(generatedBook.getId())));
 
-        verify(recommendationService).getSimilarBooks(fixtureBook.getSlug(), 3);
+        verify(recommendationService).regenerateSimilarBooks(fixtureBook.getSlug(), 3);
     }
 
     @Test

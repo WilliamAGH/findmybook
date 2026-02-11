@@ -124,6 +124,31 @@ public class RecommendationService {
     }
 
     /**
+     * Regenerates recommendations for a book by bypassing cached recommendation IDs.
+     *
+     * <p>This method executes the scoring pipeline and persists refreshed Postgres rows.
+     * It is intended for stale-cache recovery paths where active recommendation rows are absent.</p>
+     *
+     * @param bookId public identifier or canonical UUID
+     * @param finalCount desired number of recommendations (defaults to 6 when non-positive)
+     * @return mono emitting regenerated recommendation books
+     */
+    public Mono<List<Book>> regenerateSimilarBooks(String bookId, int finalCount) {
+        final int effectiveCount = (finalCount <= 0) ? DEFAULT_RECOMMENDATION_COUNT : finalCount;
+
+        return fetchCanonicalBook(bookId)
+            .flatMap(sourceBook -> fetchRecommendationsFromApiAndUpdateCache(sourceBook, effectiveCount))
+            .switchIfEmpty(Mono.defer(() -> {
+                log.warn("Recommendation regeneration for '{}' produced no results; canonical book lookup or API pipeline returned empty", bookId);
+                return Mono.just(Collections.emptyList());
+            }))
+            .onErrorMap(ex -> {
+                LoggingUtils.error(log, ex, "Failed to regenerate recommendations for {}", bookId);
+                return new IllegalStateException("Failed to regenerate recommendations for " + bookId, ex);
+            });
+    }
+
+    /**
      * Fetches book recommendations using the Google Books API and updates the cache
      * This is a fallback method used when cached recommendations are unavailable or insufficient
      * 
@@ -145,7 +170,10 @@ public class RecommendationService {
         }
         return fetchCanonicalBook(bookId)
                 .flatMap(sourceBook -> fetchRecommendationsFromApiAndUpdateCache(sourceBook, effectiveCount))
-                .switchIfEmpty(Mono.just(Collections.emptyList()));
+                .switchIfEmpty(Mono.defer(() -> {
+                    log.warn("Legacy recommendation fallback for '{}' produced no results", bookId);
+                    return Mono.just(Collections.emptyList());
+                }));
     }
 
     private Mono<Book> fetchCanonicalBook(String identifier) {

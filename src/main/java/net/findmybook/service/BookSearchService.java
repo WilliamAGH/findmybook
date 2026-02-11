@@ -203,6 +203,16 @@ public class BookSearchService {
         return requireBookQueryRepository().fetchRecommendationCards(bookId, limit);
     }
 
+    /**
+     * Checks whether the canonical source work has non-expired recommendation rows.
+     *
+     * @param bookId canonical source-book UUID
+     * @return true when active recommendation rows exist
+     */
+    public boolean hasActiveRecommendationCards(UUID bookId) {
+        return requireBookQueryRepository().hasActiveRecommendationRows(bookId);
+    }
+
     public Optional<BookDetail> fetchBookDetailBySlug(String slug) {
         return requireBookQueryRepository().fetchBookDetailBySlug(slug);
     }
