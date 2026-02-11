@@ -538,6 +538,7 @@
           {/if}
 
           <!-- Metadata Grid -->
+          <h2 class="text-lg font-semibold text-anthracite-900 dark:text-slate-100">Book Details</h2>
           <dl class="grid gap-3 text-sm text-anthracite-700 dark:text-slate-300 sm:grid-cols-2">
             {#if book.publication?.publishedDate}
               <div class="flex items-start gap-2">
@@ -583,25 +584,21 @@
           {#if sanitizedDescriptionHtml.length > 0 || book.description}
             <section class="rounded-xl border border-linen-200 bg-linen-50/60 dark:border-slate-700 dark:bg-slate-900/60">
               <div class="flex items-center justify-between gap-3 px-4 py-3">
+                <h2 class="text-sm font-medium text-anthracite-700 dark:text-slate-300">From the Publisher</h2>
                 <button
                   type="button"
-                  class="inline-flex items-center gap-1.5 text-sm font-medium text-anthracite-700 transition hover:text-anthracite-900 disabled:cursor-default disabled:opacity-60 dark:text-slate-300 dark:hover:text-slate-100"
+                  class="inline-flex items-center gap-1.5 text-xs font-medium text-anthracite-600 transition hover:text-anthracite-900 disabled:cursor-default disabled:opacity-60 dark:text-slate-400 dark:hover:text-slate-100"
                   onclick={() => descriptionExpanded = !descriptionExpanded}
                   aria-expanded={!descriptionCollapsed}
                   disabled={descriptionMeasured && !descriptionOverflows}
+                  aria-label={descriptionCollapsed ? "Expand publisher description" : "Collapse publisher description"}
                 >
                   <ChevronDown
                     size={14}
                     class="shrink-0 transition-transform duration-200 {descriptionCollapsed ? '-rotate-90' : ''}"
                   />
-                  From the Publisher
+                  {descriptionCollapsed ? "Expand" : "Collapse"}
                 </button>
-                <span
-                  aria-hidden="true"
-                  class="inline-flex items-center justify-center rounded-md p-1 opacity-0"
-                >
-                  <ChevronDown size={14} />
-                </span>
               </div>
               <div class="border-t border-linen-200 px-4 pb-4 pt-3 dark:border-slate-700">
                 <div class="relative">

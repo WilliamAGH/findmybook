@@ -33,30 +33,34 @@
 
 <section class="rounded-xl border border-linen-200 bg-linen-50/60 dark:border-slate-700 dark:bg-slate-900/60">
   <div class="flex items-center justify-between gap-3 px-4 py-3">
-    <button
-      type="button"
-      class="inline-flex items-center gap-1.5 text-sm font-medium text-anthracite-700 transition hover:text-anthracite-900 dark:text-slate-300 dark:hover:text-slate-100"
-      onclick={onToggleCollapsed}
-      aria-expanded={!collapsed}
-    >
-      <ChevronDown
-        size={14}
-        class="shrink-0 transition-transform duration-200 {collapsed ? '-rotate-90' : ''}"
-      />
-      Reader's Guide
-    </button>
-    {#if aiServiceAvailable}
+    <h2 class="text-sm font-medium text-anthracite-700 dark:text-slate-300">Reader's Guide</h2>
+    <div class="flex items-center gap-2">
       <button
         type="button"
-        class="inline-flex items-center justify-center rounded-md p-1 text-anthracite-500 transition hover:bg-linen-100 hover:text-anthracite-700 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-        disabled={aiLoading}
-        onclick={onRefresh}
-        title="Refresh"
-        aria-label="Refresh"
+        class="inline-flex items-center gap-1.5 text-xs font-medium text-anthracite-600 transition hover:text-anthracite-900 dark:text-slate-400 dark:hover:text-slate-100"
+        onclick={onToggleCollapsed}
+        aria-expanded={!collapsed}
+        aria-label={collapsed ? "Expand Reader's Guide" : "Collapse Reader's Guide"}
       >
-        <RefreshCw size={14} class={aiLoading ? "animate-spin" : ""} />
+        <ChevronDown
+          size={14}
+          class="shrink-0 transition-transform duration-200 {collapsed ? '-rotate-90' : ''}"
+        />
+        {collapsed ? "Expand" : "Collapse"}
       </button>
-    {/if}
+      {#if aiServiceAvailable}
+        <button
+          type="button"
+          class="inline-flex items-center justify-center rounded-md p-1 text-anthracite-500 transition hover:bg-linen-100 hover:text-anthracite-700 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          disabled={aiLoading}
+          onclick={onRefresh}
+          title="Refresh"
+          aria-label="Refresh"
+        >
+          <RefreshCw size={14} class={aiLoading ? "animate-spin" : ""} />
+        </button>
+      {/if}
+    </div>
   </div>
 
   {#if !collapsed}

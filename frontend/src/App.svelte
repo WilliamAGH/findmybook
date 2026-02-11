@@ -14,11 +14,15 @@
   import type { PageMetadata } from "$lib/validation/schemas";
 
   const PAGE_TITLE_SUFFIX = " | findmybook";
+  const PAGE_TITLE_SUFFIX_DOT_NET = " | findmybook.net";
   const DEFAULT_TITLE = "findmybook";
   const DEFAULT_DESCRIPTION =
     "Discover your next favorite read with findmybook recommendations, search, and curated collections.";
   const DEFAULT_KEYWORDS = "findmybook, book recommendations, book discovery, book search";
-  const DEFAULT_OG_IMAGE = "/images/og-logo.png";
+  const DEFAULT_OG_IMAGE = "https://findmybook.net/images/og-logo.png";
+  const DEFAULT_OG_IMAGE_TYPE = "image/png";
+  const DEFAULT_OG_IMAGE_WIDTH = "1200";
+  const DEFAULT_OG_IMAGE_HEIGHT = "630";
   const DEFAULT_OG_TYPE = "website";
   const DEFAULT_ROBOTS = "index, follow, max-image-preview:large";
   const metadataCache = new Map<string, PageMetadata>();
@@ -32,7 +36,7 @@
 
   function titleWithSuffix(value: string): string {
     const normalized = value?.trim() || DEFAULT_TITLE;
-    if (normalized.endsWith(PAGE_TITLE_SUFFIX)) {
+    if (normalized.endsWith(PAGE_TITLE_SUFFIX) || normalized.endsWith(PAGE_TITLE_SUFFIX_DOT_NET)) {
       return normalized;
     }
     return `${normalized}${PAGE_TITLE_SUFFIX}`;
@@ -162,6 +166,10 @@
   <meta property="og:title" content={titleWithSuffix(pageMetadata.title)} />
   <meta property="og:description" content={pageMetadata.description} />
   <meta property="og:image" content={pageMetadata.ogImage} />
+  <meta property="og:image:secure_url" content={pageMetadata.ogImage} />
+  <meta property="og:image:type" content={DEFAULT_OG_IMAGE_TYPE} />
+  <meta property="og:image:width" content={DEFAULT_OG_IMAGE_WIDTH} />
+  <meta property="og:image:height" content={DEFAULT_OG_IMAGE_HEIGHT} />
   <meta property="og:image:alt" content="findmybook social preview image" />
   {#each pageMetadata.openGraphProperties as property, index (property.property + ":" + property.content + ":" + index)}
     <meta property={property.property} content={property.content} />
