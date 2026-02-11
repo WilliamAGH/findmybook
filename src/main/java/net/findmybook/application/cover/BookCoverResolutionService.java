@@ -36,14 +36,14 @@ public class BookCoverResolutionService {
      *
      * @param bookSearchService query service for canonical detail projections
      * @param bookIdentifierResolver identifier normalizer for slug/external IDs
-     * @param bookDataOrchestrator fallback orchestrator used when projections miss
+     * @param bookDataOrchestrator optional fallback orchestrator used when projections miss
      */
     public BookCoverResolutionService(BookSearchService bookSearchService,
                                       BookIdentifierResolver bookIdentifierResolver,
-                                      BookDataOrchestrator bookDataOrchestrator) {
+                                      Optional<BookDataOrchestrator> bookDataOrchestrator) {
         this.bookSearchService = bookSearchService;
         this.bookIdentifierResolver = bookIdentifierResolver;
-        this.bookDataOrchestrator = Optional.ofNullable(bookDataOrchestrator);
+        this.bookDataOrchestrator = bookDataOrchestrator != null ? bookDataOrchestrator : Optional.empty();
     }
 
     /**
