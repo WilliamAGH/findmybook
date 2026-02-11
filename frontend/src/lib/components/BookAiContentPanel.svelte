@@ -4,7 +4,6 @@
   import { isBookAiContentStreamError, streamBookAiContent } from "$lib/services/bookAiContentStream";
   import { getBookAiContentQueueStats } from "$lib/services/books";
   import {
-    AI_AUTO_TRIGGER_QUEUE_THRESHOLD,
     PRODUCTION_ENVIRONMENT_MODE,
     normalizeEnvironmentMode,
     shouldRenderPanel,
@@ -169,16 +168,6 @@
         return false;
       }
       aiServiceAvailable = true;
-      if (queueStats.pending > AI_AUTO_TRIGGER_QUEUE_THRESHOLD) {
-        aiQueueMessage = `Queue busy (${queueStats.pending} waiting)`;
-        aiAutoTriggerDeferred = !refresh;
-        if (aiFailureDiagnosticsEnabled() && refresh) {
-          aiErrorMessage = "Queue is busy right now. Try again shortly.";
-        } else {
-          aiErrorMessage = null;
-        }
-        return false;
-      }
       return true;
     } catch (queueError) {
       console.error("[BookAiContentPanel] Queue stats failed:", queueError);

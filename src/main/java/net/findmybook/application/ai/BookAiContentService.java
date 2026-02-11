@@ -125,7 +125,32 @@ public class BookAiContentService {
         ensureAvailable();
         String prompt = buildPrompt(loadPromptContext(bookId));
         String promptHash = sha256(prompt);
+        return generateAndPersistFromPrompt(bookId, prompt, promptHash, onDelta);
+    }
 
+    /**
+     * Generates fresh AI content only when prompt context has changed since the current version.
+     *
+     * @param bookId canonical book UUID
+     * @param onDelta callback for streamed model deltas
+     * @return generation outcome with generated/skipped semantics
+     */
+    public GenerationOutcome generateAndPersistIfPromptChanged(UUID bookId, Consumer<String> onDelta) {
+        ensureAvailable();
+        String prompt = buildPrompt(loadPromptContext(bookId));
+        String promptHash = sha256(prompt);
+        Optional<String> existingPromptHash = repository.fetchCurrentPromptHash(bookId);
+        if (existingPromptHash.isPresent() && existingPromptHash.get().equals(promptHash)) {
+            return GenerationOutcome.skipped(bookId, promptHash, findCurrent(bookId).orElse(null));
+        }
+        GeneratedContent generated = generateAndPersistFromPrompt(bookId, prompt, promptHash, onDelta);
+        return GenerationOutcome.generated(bookId, promptHash, generated.snapshot());
+    }
+
+    private GeneratedContent generateAndPersistFromPrompt(UUID bookId,
+                                                          String prompt,
+                                                          String promptHash,
+                                                          Consumer<String> onDelta) {
         ChatCompletionCreateParams params = ChatCompletionCreateParams.builder()
             .model(ChatModel.of(configuredModel))
             .messages(List.of(
@@ -246,6 +271,27 @@ public class BookAiContentService {
 
     /** Immutable generation result used by SSE controllers. */
     public record GeneratedContent(String rawMessage, BookAiContentSnapshot snapshot) {}
+
+    /**
+     * Immutable outcome used by background ingestion generation workflows.
+     *
+     * @param bookId canonical book UUID
+     * @param generated whether a new version was generated
+     * @param promptHash prompt hash computed for this generation context
+     * @param snapshot snapshot when available
+     */
+    public record GenerationOutcome(UUID bookId,
+                                    boolean generated,
+                                    String promptHash,
+                                    BookAiContentSnapshot snapshot) {
+        private static GenerationOutcome skipped(UUID bookId, String promptHash, BookAiContentSnapshot snapshot) {
+            return new GenerationOutcome(bookId, false, promptHash, snapshot);
+        }
+
+        private static GenerationOutcome generated(UUID bookId, String promptHash, BookAiContentSnapshot snapshot) {
+            return new GenerationOutcome(bookId, true, promptHash, snapshot);
+        }
+    }
 
     private record BookPromptContext(UUID bookId, String title, String authors, String description, String publishedDate, String publisher) {}
 }

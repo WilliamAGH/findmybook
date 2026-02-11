@@ -38,7 +38,6 @@ import tools.jackson.databind.ObjectMapper;
 public class BookAiContentController {
     private static final Logger log = LoggerFactory.getLogger(BookAiContentController.class);
     private static final long SSE_TIMEOUT_MILLIS = Duration.ofMinutes(4).toMillis();
-    private static final int AUTO_TRIGGER_QUEUE_THRESHOLD = 5;
     private static final int DEFAULT_GENERATION_PRIORITY = 0;
     private static final int MIN_QUEUE_TICKER_THREADS = 4;
     private static final int MAX_QUEUE_TICKER_THREADS = 16;
@@ -108,11 +107,6 @@ public class BookAiContentController {
                 resolveClientMessage(AiErrorCode.SERVICE_UNAVAILABLE, "AI content service is not configured"));
             return emitter;
         }
-        if (requestQueue.snapshot().pending() > AUTO_TRIGGER_QUEUE_THRESHOLD) {
-            sseOrchestrator.emitTerminalError(emitter, AiErrorCode.QUEUE_BUSY,
-                resolveClientMessage(AiErrorCode.QUEUE_BUSY, "AI queue is currently busy; please try again in a moment"));
-            return emitter;
-        }
         beginQueuedStream(emitter, bookId);
         return emitter;
     }
@@ -162,7 +156,7 @@ public class BookAiContentController {
     private BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent> enqueueGenerationTask(
             QueuedStreamState state) {
         AtomicBoolean messageStarted = new AtomicBoolean(false);
-        return requestQueue.enqueue(DEFAULT_GENERATION_PRIORITY, () -> {
+        return requestQueue.enqueueForeground(DEFAULT_GENERATION_PRIORITY, () -> {
             sendMessageStartEvent(state.emitter(), messageStarted);
             BookAiContentService.GeneratedContent generated = aiContentService.generateAndPersist(state.bookId(), delta -> {
                 sseOrchestrator.sendEvent(state.emitter(), "message_delta", new MessageDeltaPayload(delta));

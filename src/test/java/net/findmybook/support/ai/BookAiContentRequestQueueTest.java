@@ -49,6 +49,35 @@ class BookAiContentRequestQueueTest {
     }
 
     @Test
+    void should_RunForegroundBeforePendingBackground_When_BackgroundWasQueuedFirst() throws Exception {
+        BookAiContentRequestQueue queue = new BookAiContentRequestQueue(1);
+        CountDownLatch releaseRunningBackground = new CountDownLatch(1);
+        List<String> executionOrder = new CopyOnWriteArrayList<>();
+
+        BookAiContentRequestQueue.EnqueuedTask<String> runningBackground = queue.enqueueBackground(0, () -> {
+            awaitLatch(releaseRunningBackground);
+            executionOrder.add("running-background");
+            return "running-background";
+        });
+        BookAiContentRequestQueue.EnqueuedTask<String> pendingBackground = queue.enqueueBackground(0, () -> {
+            executionOrder.add("pending-background");
+            return "pending-background";
+        });
+        BookAiContentRequestQueue.EnqueuedTask<String> foregroundTask = queue.enqueueForeground(0, () -> {
+            executionOrder.add("foreground");
+            return "foreground";
+        });
+
+        assertThat(runningBackground.started().get(TASK_TIMEOUT.toSeconds(), TimeUnit.SECONDS)).isNull();
+        releaseRunningBackground.countDown();
+
+        assertThat(runningBackground.result().get(TASK_TIMEOUT.toSeconds(), TimeUnit.SECONDS)).isEqualTo("running-background");
+        assertThat(foregroundTask.result().get(TASK_TIMEOUT.toSeconds(), TimeUnit.SECONDS)).isEqualTo("foreground");
+        assertThat(pendingBackground.result().get(TASK_TIMEOUT.toSeconds(), TimeUnit.SECONDS)).isEqualTo("pending-background");
+        assertThat(executionOrder).containsExactly("running-background", "foreground", "pending-background");
+    }
+
+    @Test
     void should_ReportQueuePosition_When_TaskIsPending() {
         BookAiContentRequestQueue queue = new BookAiContentRequestQueue(1);
         CountDownLatch releaseFirstTask = new CountDownLatch(1);
@@ -148,6 +177,27 @@ class BookAiContentRequestQueueTest {
         BookAiContentRequestQueue queue = new BookAiContentRequestQueue(100);
         BookAiContentRequestQueue.QueueSnapshot snapshot = queue.snapshot();
         assertThat(snapshot.maxParallel()).isEqualTo(20);
+    }
+
+    @Test
+    void should_RejectBackgroundAfterPendingCapButStillAcceptForeground() throws Exception {
+        BookAiContentRequestQueue queue = new BookAiContentRequestQueue(1, 1);
+        CountDownLatch releaseRunningBackground = new CountDownLatch(1);
+
+        BookAiContentRequestQueue.EnqueuedTask<String> runningBackground = queue.enqueueBackground(0, () -> {
+            awaitLatch(releaseRunningBackground);
+            return "running-background";
+        });
+        queue.enqueueBackground(0, () -> "pending-background");
+
+        assertThatThrownBy(() -> queue.enqueueBackground(0, () -> "overflow-background"))
+            .isInstanceOf(BookAiQueueCapacityExceededException.class);
+
+        BookAiContentRequestQueue.EnqueuedTask<String> foregroundTask = queue.enqueueForeground(0, () -> "foreground");
+        releaseRunningBackground.countDown();
+
+        assertThat(runningBackground.result().get(TASK_TIMEOUT.toSeconds(), TimeUnit.SECONDS)).isEqualTo("running-background");
+        assertThat(foregroundTask.result().get(TASK_TIMEOUT.toSeconds(), TimeUnit.SECONDS)).isEqualTo("foreground");
     }
 
     private void awaitLatch(CountDownLatch latch) {

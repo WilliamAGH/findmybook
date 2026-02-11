@@ -1,11 +1,6 @@
 import type { Book } from "$lib/validation/schemas";
 
 /**
- * Shared queue threshold for automatic AI generation triggering.
- */
-export const AI_AUTO_TRIGGER_QUEUE_THRESHOLD = 5;
-
-/**
  * Minimum plain-text description length required for faithful AI generation.
  */
 export const AI_MINIMUM_DESCRIPTION_LENGTH = 50;
