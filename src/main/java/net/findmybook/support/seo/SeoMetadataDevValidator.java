@@ -42,6 +42,12 @@ public class SeoMetadataDevValidator {
     private final Environment environment;
     private final boolean enabled;
 
+    /**
+     * Creates a validator instance where all checks are unconditionally skipped.
+     * Intended for non-Spring contexts (tests, static utilities) where no
+     * {@link Environment} is available. The {@code enabled} flag prevents
+     * the null environment reference from ever being dereferenced.
+     */
     public static SeoMetadataDevValidator disabled() {
         return new SeoMetadataDevValidator(null, false);
     }

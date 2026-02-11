@@ -193,9 +193,12 @@ public class BookOpenGraphPngRenderer {
                 currentLine.append(candidate);
                 continue;
             }
-            lines.add(currentLine.isEmpty() ? word : currentLine.toString());
+            boolean lineWasEmpty = currentLine.isEmpty();
+            lines.add(lineWasEmpty ? word : currentLine.toString());
             currentLine.setLength(0);
-            currentLine.append(word);
+            if (!lineWasEmpty) {
+                currentLine.append(word);
+            }
             if (lines.size() >= maxLines) {
                 break;
             }
