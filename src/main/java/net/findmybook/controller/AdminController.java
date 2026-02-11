@@ -375,16 +375,18 @@ public class AdminController {
             @RequestParam(name = "mode", defaultValue = "missing") String mode,
             @RequestParam(name = "limit", defaultValue = "100") int limit) {
 
-        CoverBackfillService.BackfillProgress current = coverBackfillService.getProgress();
-        if (current.running()) {
+        if (coverBackfillService.isRunning()) {
+            CoverBackfillService.BackfillProgress current = coverBackfillService.getProgress();
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                 "A cover backfill is already running (" + current.processed() + "/" + current.totalCandidates() + ")");
         }
 
         CoverBackfillService.BackfillMode backfillMode = switch (mode.toLowerCase()) {
+            case "missing" -> CoverBackfillService.BackfillMode.MISSING;
             case "grayscale" -> CoverBackfillService.BackfillMode.GRAYSCALE;
             case "rejected" -> CoverBackfillService.BackfillMode.REJECTED;
-            default -> CoverBackfillService.BackfillMode.MISSING;
+            default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                "Invalid backfill mode: '" + mode + "'. Supported values: missing, grayscale, rejected");
         };
 
         int clampedLimit = Math.clamp(limit, 1, 10_000);

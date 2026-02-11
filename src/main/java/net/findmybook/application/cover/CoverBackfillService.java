@@ -23,6 +23,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
@@ -170,6 +171,7 @@ public class CoverBackfillService {
             List.of()
         )
     );
+    private final AtomicBoolean backfillRunning = new AtomicBoolean(false);
     private volatile boolean cancelled;
 
     /** Per-source consecutive failure counter; reset on success. */
@@ -191,6 +193,15 @@ public class CoverBackfillService {
         return progress.get();
     }
 
+    /**
+     * Indicates whether a backfill run is currently executing.
+     * Thread-safe: backed by an {@link AtomicBoolean} that is set atomically
+     * at the start of {@link #runBackfill} and cleared in its {@code finally} block.
+     */
+    public boolean isRunning() {
+        return backfillRunning.get();
+    }
+
     public void cancel() {
         cancelled = true;
         log.info("Cover backfill cancellation requested");
@@ -204,6 +215,12 @@ public class CoverBackfillService {
      */
     @Async("taskExecutor")
     public void runBackfill(BackfillMode mode, int limit) {
+        if (!backfillRunning.compareAndSet(false, true)) {
+            log.warn("Cover backfill already running; ignoring new request (mode={}, limit={})", mode, limit);
+            return;
+        }
+
+        try {
         cancelled = false;
         consecutiveFailures.clear();
         pausedUntil.clear();
@@ -309,6 +326,9 @@ public class CoverBackfillService {
             lastCompletedFound,
             lastCompletedAttempts
         );
+        } finally {
+            backfillRunning.set(false);
+        }
     }
 
     // ── Candidate queries ───────────────────────────────────────────────
@@ -517,7 +537,7 @@ public class CoverBackfillService {
 
             Map<String, String> links = new HashMap<>();
             imageLinks.properties().forEach(entry ->
-                links.put(entry.getKey(), entry.getValue().asText()));
+                links.put(entry.getKey(), entry.getValue().asString()));
 
             String bestUrl = CoverImageUrlSelector.selectPreferredImageUrl(links);
             if (!StringUtils.hasText(bestUrl)) {
