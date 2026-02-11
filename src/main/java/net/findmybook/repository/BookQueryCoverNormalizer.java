@@ -56,7 +56,7 @@ final class BookQueryCoverNormalizer {
                 card.id(), card.slug(), card.title(), card.authors(),
                 coverUrl, s3Key, fallbackUrl,
                 card.averageRating(), card.ratingsCount(), card.tags(),
-                grayscale
+                grayscale, card.publishedDate()
             );
         });
     }

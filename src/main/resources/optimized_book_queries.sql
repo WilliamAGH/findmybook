@@ -35,7 +35,8 @@ RETURNS TABLE (
     cover_is_grayscale BOOLEAN,
     average_rating NUMERIC,
     ratings_count INTEGER,
-    tags JSONB
+    tags JSONB,
+    published_date DATE
 ) AS $$
 BEGIN
     RETURN QUERY
@@ -74,7 +75,8 @@ BEGIN
                  JOIN book_tags bt ON bt.id = bta.tag_id
                  WHERE bta.book_id = b.id),
                 '{}'::JSONB
-            ) as tags
+            ) as tags,
+            b.published_date
         FROM input_ids
         JOIN books b ON b.id = input_ids.book_id
         LEFT JOIN book_authors_join baj ON b.id = baj.book_id
@@ -198,7 +200,8 @@ BEGIN
         GROUP BY input_ids.ord, b.id, b.slug, b.title,
                  cover_meta.cover_url, cover_meta.cover_s3_key, cover_meta.cover_fallback_url,
                  cover_meta.cover_is_grayscale,
-                 bei.average_rating, bei.ratings_count
+                 bei.average_rating, bei.ratings_count,
+                 b.published_date
     )
     SELECT
         card_data.id,
@@ -211,7 +214,8 @@ BEGIN
         card_data.cover_is_grayscale,
         card_data.average_rating,
         card_data.ratings_count,
-        card_data.tags
+        card_data.tags,
+        card_data.published_date
     FROM card_data
     ORDER BY card_data.ord;
 END;

@@ -67,7 +67,8 @@ final class BookQueryRowMapperFactory {
             resultSetSupport.getDoubleOrNull(rs, "average_rating"),
             resultSetSupport.getIntOrNull(rs, "ratings_count"),
             resultSetSupport.parseJsonb(rs.getString("tags")),
-            grayscale
+            grayscale,
+            resultSetSupport.getLocalDateOrNull(rs, "published_date")
         );
     }
 

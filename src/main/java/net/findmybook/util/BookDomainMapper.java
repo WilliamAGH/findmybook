@@ -89,6 +89,7 @@ public final class BookDomainMapper {
         Book book = base(card.id(), card.slug(), card.title(), card.authors());
         book.setAverageRating(card.averageRating());
         book.setRatingsCount(card.ratingsCount());
+        book.setPublishedDate(toDate(card.publishedDate()));
         book.setQualifiers(copyMap(card.tags()));
         String primaryCover = StringUtils.hasText(card.coverS3Key())
             ? card.coverS3Key()
