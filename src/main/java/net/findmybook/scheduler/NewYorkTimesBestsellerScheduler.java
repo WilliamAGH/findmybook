@@ -38,6 +38,7 @@ public class NewYorkTimesBestsellerScheduler {
     private final NytBestsellerPayloadMapper payloadMapper;
     private final NytBestsellerPersistenceCollaborator persistenceCollaborator;
     private final boolean schedulerEnabled;
+    private final boolean standaloneScheduleEnabled;
     private final boolean nytOnly;
 
     public NewYorkTimesBestsellerScheduler(NewYorkTimesService newYorkTimesService,
@@ -48,6 +49,7 @@ public class NewYorkTimesBestsellerScheduler {
                                            NytBestsellerPayloadMapper payloadMapper,
                                            NytBestsellerPersistenceCollaborator persistenceCollaborator,
                                            @Value("${app.nyt.scheduler.enabled:true}") boolean schedulerEnabled,
+                                           @Value("${app.nyt.scheduler.standalone-enabled:false}") boolean standaloneScheduleEnabled,
                                            @Value("${app.nyt.scheduler.nyt-only:true}") boolean nytOnly) {
         this.newYorkTimesService = newYorkTimesService;
         this.bookLookupService = bookLookupService;
@@ -57,11 +59,16 @@ public class NewYorkTimesBestsellerScheduler {
         this.payloadMapper = payloadMapper;
         this.persistenceCollaborator = persistenceCollaborator;
         this.schedulerEnabled = schedulerEnabled;
+        this.standaloneScheduleEnabled = standaloneScheduleEnabled;
         this.nytOnly = nytOnly;
     }
 
     @Scheduled(cron = "${app.nyt.scheduler.cron:0 0 4 * * SUN}")
     public void processNewYorkTimesBestsellers() {
+        if (!standaloneScheduleEnabled) {
+            log.info("Skipping standalone NYT scheduler execution because weekly catalog refresh owns this run.");
+            return;
+        }
         processNewYorkTimesBestsellers(null, false);
     }
 

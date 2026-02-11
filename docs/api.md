@@ -317,6 +317,20 @@ Admin endpoints require HTTP Basic Authentication.
   - Response:
     - `200 OK` with plain-text acknowledgement when the ingest trigger succeeds.
     - `400 Bad Request` when NYT processing is disabled/rejected.
+- `POST /admin/trigger-recommendation-refresh`
+  - Triggers a full recommendation-cache refresh by extending `book_recommendations.expires_at` for all rows.
+  - Response:
+    - `200 OK` with plain-text summary (`totalRows`, `activeBefore`, `refreshedRows`, `activeAfter`, `ttlDays`).
+    - `500 Internal Server Error` when refresh fails.
+- `POST /admin/trigger-weekly-refresh`
+  - Triggers the weekly catalog orchestrator immediately.
+  - Runtime behavior:
+    - Runs NYT ingest phase.
+    - Runs recommendation-cache refresh phase.
+    - Logs `ERROR` and returns failure when any phase throws.
+  - Response:
+    - `200 OK` with plain-text summary (`nytTriggered`, `recommendationTriggered`, optional recommendation row stats).
+    - `500 Internal Server Error` when any phase fails.
 
 ### Example Request
 ```bash

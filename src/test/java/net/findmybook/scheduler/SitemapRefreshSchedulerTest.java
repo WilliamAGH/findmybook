@@ -132,6 +132,7 @@ class NewYorkTimesBestsellerSchedulerTest {
             payloadMapper,
             persistenceCollaborator,
             true,
+            true,
             true
         );
     }

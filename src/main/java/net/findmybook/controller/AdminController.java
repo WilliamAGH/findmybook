@@ -13,6 +13,8 @@
  */
 package net.findmybook.controller;
 
+import net.findmybook.application.book.RecommendationCacheRefreshUseCase;
+import net.findmybook.boot.scheduler.WeeklyCatalogRefreshScheduler;
 import net.findmybook.scheduler.BookCacheWarmingScheduler;
 import net.findmybook.scheduler.NewYorkTimesBestsellerScheduler;
 import net.findmybook.service.ApiCircuitBreakerService;
@@ -51,6 +53,8 @@ public class AdminController {
     private final S3CoverCleanupService s3CoverCleanupService;
     private final S3CleanupConfig s3CleanupConfig;
     private final NewYorkTimesBestsellerScheduler newYorkTimesBestsellerScheduler;
+    private final WeeklyCatalogRefreshScheduler weeklyCatalogRefreshScheduler;
+    private final RecommendationCacheRefreshUseCase recommendationCacheRefreshUseCase;
     private final BookCacheWarmingScheduler bookCacheWarmingScheduler;
     private final ApiCircuitBreakerService apiCircuitBreakerService;
 
@@ -59,6 +63,8 @@ public class AdminController {
      *
      * @param s3CoverCleanupServiceProvider provider for the S3 cleanup service
      * @param newYorkTimesBestsellerScheduler the NYT scheduler, or null if disabled
+     * @param weeklyCatalogRefreshScheduler scheduler that orchestrates weekly NYT + recommendation refresh
+     * @param recommendationCacheRefreshUseCase use case for full recommendation-cache expiry refresh
      * @param bookCacheWarmingScheduler the cache warming scheduler
      * @param apiCircuitBreakerService the circuit breaker service
      * @param configuredS3Prefix configured source prefix for S3 cleanup
@@ -67,6 +73,8 @@ public class AdminController {
      */
     public AdminController(ObjectProvider<S3CoverCleanupService> s3CoverCleanupServiceProvider,
                            NewYorkTimesBestsellerScheduler newYorkTimesBestsellerScheduler,
+                           WeeklyCatalogRefreshScheduler weeklyCatalogRefreshScheduler,
+                           RecommendationCacheRefreshUseCase recommendationCacheRefreshUseCase,
                            BookCacheWarmingScheduler bookCacheWarmingScheduler,
                            ApiCircuitBreakerService apiCircuitBreakerService,
                            @Value("${app.s3.cleanup.prefix:images/book-covers/}") String configuredS3Prefix,
@@ -74,6 +82,8 @@ public class AdminController {
                            @Value("${app.s3.cleanup.quarantine-prefix:images/non-covers-pages/}") String configuredQuarantinePrefix) {
         this.s3CoverCleanupService = s3CoverCleanupServiceProvider.getIfAvailable();
         this.newYorkTimesBestsellerScheduler = newYorkTimesBestsellerScheduler;
+        this.weeklyCatalogRefreshScheduler = weeklyCatalogRefreshScheduler;
+        this.recommendationCacheRefreshUseCase = recommendationCacheRefreshUseCase;
         this.bookCacheWarmingScheduler = bookCacheWarmingScheduler;
         this.apiCircuitBreakerService = apiCircuitBreakerService;
         this.s3CleanupConfig = new S3CleanupConfig(configuredS3Prefix, defaultBatchLimit, configuredQuarantinePrefix);
@@ -278,6 +288,71 @@ public class AdminController {
                 HttpStatus.BAD_REQUEST,
                 ex.getMessage() != null ? ex.getMessage() : "Failed to trigger New York Times Bestseller processing job.",
                 ex
+            );
+        }
+    }
+
+    /**
+     * Triggers a full recommendation-cache expiration refresh.
+     *
+     * @return plain-text summary for operational diagnostics
+     */
+    @PostMapping(value = "/trigger-recommendation-refresh", produces = MediaType.TEXT_PLAIN_VALUE)
+    public ResponseEntity<String> triggerRecommendationRefresh() {
+        log.info("Admin endpoint /admin/trigger-recommendation-refresh invoked.");
+        try {
+            RecommendationCacheRefreshUseCase.RefreshSummary summary =
+                recommendationCacheRefreshUseCase.refreshAllRecommendations();
+            String successMessage = String.format(
+                "Recommendation refresh completed. totalRows=%d, activeBefore=%d, refreshedRows=%d, activeAfter=%d, ttlDays=%d",
+                summary.totalRows(),
+                summary.activeRowsBefore(),
+                summary.refreshedRows(),
+                summary.activeRowsAfter(),
+                summary.ttlDays()
+            );
+            log.info(successMessage);
+            return ResponseEntity.ok(successMessage);
+        } catch (IllegalStateException exception) {
+            log.error("Recommendation refresh failed.", exception);
+            throw new ResponseStatusException(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "Failed to trigger recommendation refresh.",
+                exception
+            );
+        }
+    }
+
+    /**
+     * Triggers the weekly catalog refresh orchestration job immediately.
+     *
+     * @return plain-text summary for NYT and recommendation phases
+     */
+    @PostMapping(value = "/trigger-weekly-refresh", produces = MediaType.TEXT_PLAIN_VALUE)
+    public ResponseEntity<String> triggerWeeklyRefresh() {
+        log.info("Admin endpoint /admin/trigger-weekly-refresh invoked.");
+        try {
+            WeeklyCatalogRefreshScheduler.WeeklyRefreshSummary summary =
+                weeklyCatalogRefreshScheduler.forceRunWeeklyRefreshCycle();
+            String successMessage = String.format(
+                "Weekly refresh completed. nytTriggered=%s, recommendationTriggered=%s%s",
+                summary.nytTriggered(),
+                summary.recommendationTriggered(),
+                summary.recommendationSummary() == null
+                    ? ""
+                    : String.format(
+                        ", recommendationRefreshedRows=%d",
+                        summary.recommendationSummary().refreshedRows()
+                    )
+            );
+            log.info(successMessage);
+            return ResponseEntity.ok(successMessage);
+        } catch (IllegalStateException exception) {
+            log.error("Weekly refresh trigger failed.", exception);
+            throw new ResponseStatusException(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "Failed to trigger weekly refresh.",
+                exception
             );
         }
     }

@@ -83,6 +83,17 @@ app:
   ai:
     queue:
       background-max-pending: ${APP_AI_QUEUE_BACKGROUND_MAX_PENDING:100000}
+  recommendations:
+    refresh:
+      ttl-days: ${APP_RECOMMENDATIONS_REFRESH_TTL_DAYS:30}
+  weekly-refresh:
+    enabled: ${APP_WEEKLY_REFRESH_ENABLED:true}
+    cron: ${APP_WEEKLY_REFRESH_CRON:0 0 4 * * SUN}
+    nyt-phase-enabled: ${APP_WEEKLY_REFRESH_NYT_PHASE_ENABLED:true}
+    recommendation-phase-enabled: ${APP_WEEKLY_REFRESH_RECOMMENDATION_PHASE_ENABLED:true}
+  nyt:
+    scheduler:
+      standalone-enabled: ${APP_NYT_SCHEDULER_STANDALONE_ENABLED:false}
   security:
     admin:
       password: ${APP_ADMIN_PASSWORD}
