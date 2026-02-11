@@ -161,6 +161,10 @@ describe("BookAiContentPanel production behavior", () => {
     await waitFor(() => {
       expect(streamBookAiContentMock).toHaveBeenCalledTimes(1);
     });
+    expect(streamBookAiContentMock).toHaveBeenCalledWith(
+      "degenerate-summary-book",
+      expect.objectContaining({ refresh: true }),
+    );
     expect(onAiContentUpdate).toHaveBeenCalledTimes(1);
   });
 });
