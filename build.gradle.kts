@@ -42,6 +42,7 @@ tasks.withType<Test>().configureEach {
         }
     )
     jvmArgs("--enable-preview")
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
     jvmArgs("-Djdk.attach.allowAttachSelf=true")
     jvmArgs("-XX:+EnableDynamicAgentLoading")
     jvmArgs("-Dmockito.mock-maker=subclass")
@@ -55,6 +56,7 @@ tasks.withType<JavaExec>().configureEach {
         }
     )
     jvmArgs("--enable-preview")
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
     systemProperty("io.netty.noUnsafe", "true")
 }
 
@@ -81,6 +83,8 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-webflux")
     implementation("org.springframework.boot:spring-boot-starter-websocket")
+
+    runtimeOnly("io.netty:netty-resolver-dns-native-macos::osx-aarch_64")
 
     implementation("org.postgresql:postgresql")
     implementation("com.github.ben-manes.caffeine:caffeine")
