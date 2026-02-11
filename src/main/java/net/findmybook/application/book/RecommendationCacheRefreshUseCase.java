@@ -4,6 +4,7 @@ import net.findmybook.adapters.persistence.RecommendationMaintenanceRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,27 +38,36 @@ public class RecommendationCacheRefreshUseCase {
      */
     @Transactional
     public RefreshSummary refreshAllRecommendations() {
-        long totalRows = recommendationMaintenanceRepository.countRecommendationRows();
-        long activeRowsBefore = recommendationMaintenanceRepository.countActiveRecommendationRows();
-        int refreshedRows = recommendationMaintenanceRepository.refreshAllRecommendationExpirations(ttlDays);
-        long activeRowsAfter = recommendationMaintenanceRepository.countActiveRecommendationRows();
+        try {
+            long totalRows = recommendationMaintenanceRepository.countRecommendationRows();
+            long activeRowsBefore = recommendationMaintenanceRepository.countActiveRecommendationRows();
+            int refreshedRows = recommendationMaintenanceRepository.refreshAllRecommendationExpirations(ttlDays);
+            long activeRowsAfter = recommendationMaintenanceRepository.countActiveRecommendationRows();
 
-        RefreshSummary summary = new RefreshSummary(
-            totalRows,
-            activeRowsBefore,
-            refreshedRows,
-            activeRowsAfter,
-            ttlDays
-        );
-        log.info(
-            "Recommendation cache refresh completed: totalRows={}, activeBefore={}, refreshedRows={}, activeAfter={}, ttlDays={}",
-            summary.totalRows(),
-            summary.activeRowsBefore(),
-            summary.refreshedRows(),
-            summary.activeRowsAfter(),
-            summary.ttlDays()
-        );
-        return summary;
+            RefreshSummary summary = new RefreshSummary(
+                totalRows,
+                activeRowsBefore,
+                refreshedRows,
+                activeRowsAfter,
+                ttlDays
+            );
+            log.info(
+                "Recommendation cache refresh completed: totalRows={}, activeBefore={}, refreshedRows={}, activeAfter={}, ttlDays={}",
+                summary.totalRows(),
+                summary.activeRowsBefore(),
+                summary.refreshedRows(),
+                summary.activeRowsAfter(),
+                summary.ttlDays()
+            );
+            return summary;
+        } catch (DataAccessException dataAccessException) {
+            log.error(
+                "Recommendation cache refresh failed due to data-access error (ttlDays={}).",
+                ttlDays,
+                dataAccessException
+            );
+            throw new IllegalStateException("Recommendation refresh failed due to data-access error.", dataAccessException);
+        }
     }
 
     /**
