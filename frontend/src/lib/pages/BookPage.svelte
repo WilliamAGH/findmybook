@@ -474,7 +474,10 @@
     </a>
 
     <!-- Book Detail Card -->
-    <article class="overflow-clip rounded-xl border border-linen-200 shadow-soft dark:border-slate-700">
+    <article
+      class="overflow-clip rounded-xl border border-linen-200 shadow-soft dark:border-slate-700"
+      aria-labelledby="book-page-title"
+    >
       <div class="grid gap-6 p-5 md:grid-cols-[320px_1fr] md:p-8">
         <!-- Cover -->
         <div class="md:sticky md:top-20 md:self-start relative flex items-center justify-center overflow-hidden rounded-xl bg-linen-50 p-6 dark:bg-slate-900">
@@ -496,6 +499,7 @@
         <!-- Details -->
         <div class="flex flex-col gap-4">
           <h1
+            id="book-page-title"
             bind:this={titleElement}
             class="text-3xl font-semibold text-balance text-anthracite-900 dark:text-slate-100"
             class:line-clamp-3={!titleExpanded}
@@ -538,7 +542,7 @@
           {/if}
 
           <!-- Metadata Grid -->
-          <h2 class="text-lg font-semibold text-anthracite-900 dark:text-slate-100">Book Details</h2>
+          <h2 id="book-metadata-heading" class="text-lg font-semibold text-anthracite-900 dark:text-slate-100">Book Details</h2>
           <dl class="grid gap-3 text-sm text-anthracite-700 dark:text-slate-300 sm:grid-cols-2">
             {#if book.publication?.publishedDate}
               <div class="flex items-start gap-2">
@@ -582,9 +586,14 @@
 
           <!-- Description -->
           {#if sanitizedDescriptionHtml.length > 0 || book.description}
-            <section class="rounded-xl border border-linen-200 bg-linen-50/60 dark:border-slate-700 dark:bg-slate-900/60">
+            <section
+              class="rounded-xl border border-linen-200 bg-linen-50/60 dark:border-slate-700 dark:bg-slate-900/60"
+              aria-labelledby="book-publisher-heading"
+            >
               <div class="flex items-center justify-between gap-3 px-4 py-3">
-                <h2 class="text-sm font-medium text-anthracite-700 dark:text-slate-300">From the Publisher</h2>
+                <h2 id="book-publisher-heading" class="text-sm font-medium text-anthracite-700 dark:text-slate-300">
+                  From the Publisher
+                </h2>
                 <button
                   type="button"
                   class="inline-flex items-center gap-1.5 text-xs font-medium text-anthracite-600 transition hover:text-anthracite-900 disabled:cursor-default disabled:opacity-60 dark:text-slate-400 dark:hover:text-slate-100"
