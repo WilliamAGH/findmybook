@@ -155,10 +155,11 @@ export function buildSearchRouteUrl(args: BuildSearchRouteUrlArgs): string {
   const url = new URL(searchBasePathForRoute(routeName), origin);
   if (routeName === "categories") {
     for (const genre of selectedGenres) url.searchParams.append("genre", genre);
-  } else if (query.trim()) {
-    url.searchParams.set("query", query.trim());
   } else if (routeName === "explore") {
     url.searchParams.set("popularWindow", explorePopularWindow);
+    if (query.trim()) url.searchParams.set("query", query.trim());
+  } else if (query.trim()) {
+    url.searchParams.set("query", query.trim());
   }
   url.searchParams.set("page", String(page));
   url.searchParams.set("orderBy", orderBy);

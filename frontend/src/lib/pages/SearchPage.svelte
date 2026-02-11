@@ -283,7 +283,7 @@
     <h1 class="text-2xl font-semibold text-anthracite-900 dark:text-slate-100">{pageTitle}</h1>
     {#if routeName === "explore"}
       <p class="mt-1 text-sm text-anthracite-600 dark:text-slate-400">
-        Most popular books from the {popularWindowLabel(explorePopularWindow)}. Add a query to switch into search mode.
+        Most popular books {explorePopularWindow === "all" ? "of" : "from the"} {popularWindowLabel(explorePopularWindow)}. Add a query to switch into search mode.
       </p>
     {/if}
   </header>
