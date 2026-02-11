@@ -113,6 +113,42 @@ class BookControllerAuxiliaryEndpointsTest extends AbstractBookControllerMvcTest
     }
 
     @Test
+    @DisplayName("GET /api/books/{id}/similar returns stale cached DTOs when regeneration fails")
+    void should_ReturnStaleCachedDtos_When_RegenerationFails() throws Exception {
+        UUID bookUuid = UUID.fromString(fixtureBook.getId());
+        when(bookIdentifierResolver.resolveToUuid(fixtureBook.getSlug()))
+            .thenReturn(Optional.of(bookUuid));
+        when(bookSearchService.hasActiveRecommendationCards(bookUuid))
+            .thenReturn(false);
+
+        BookCard staleCard = new BookCard(
+            fixtureBook.getId(),
+            fixtureBook.getSlug(),
+            fixtureBook.getTitle(),
+            fixtureBook.getAuthors(),
+            fixtureBook.getCoverImages().getPreferredUrl(),
+            fixtureBook.getS3ImagePath(),
+            fixtureBook.getCoverImages().getFallbackUrl(),
+            4.5,
+            150,
+            Map.of("reason", Map.of("type", "AUTHOR"))
+        );
+        when(bookSearchService.fetchRecommendationCards(bookUuid, 3))
+            .thenReturn(List.of(new RecommendationCard(staleCard, 0.72, "AUTHOR", "SAME_AUTHOR")));
+        when(recommendationService.regenerateSimilarBooks(fixtureBook.getSlug(), 3))
+            .thenReturn(Mono.error(new IllegalStateException("recommendation-provider-down")));
+
+        performAsync(get("/api/books/" + fixtureBook.getSlug() + "/similar")
+            .param("limit", "3"))
+            .andExpect(status().isOk())
+            .andExpect(content().contentType("application/json"))
+            .andExpect(jsonPath("$.length()").value(1))
+            .andExpect(jsonPath("$[0].id", equalTo(fixtureBook.getId())));
+
+        verify(recommendationService).regenerateSimilarBooks(fixtureBook.getSlug(), 3);
+    }
+
+    @Test
     @DisplayName("GET /api/books/{id}/similar returns 404 when canonical lookup fails")
     void should_Return404_When_CanonicalLookupFails() throws Exception {
         when(bookIdentifierResolver.resolveToUuid("unknown"))
