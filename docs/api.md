@@ -181,13 +181,13 @@
     - `popularWindow` (optional; `30d`, `90d`, `all`; default `30d`)
     - `popularLimit` (optional; defaults `8`, maximum `24`)
   - Response fields:
-   - `currentBestsellers: BookCard[]`
-     - `recentBooks: BookCard[]`
-     - `popularBooks: BookCard[]`
-     - `popularWindow: string`
-   - `BookCard` includes: `id`, `slug`, `title`, `authors`, `cover_url`, `cover_s3_key`,
-     `fallback_cover_url`, `average_rating`, `ratings_count`, `tags`, `cover_grayscale`,
-     `published_date` (ISO-8601 date or null).
+    - `currentBestsellers: BookCard[]`
+    - `recentBooks: BookCard[]`
+    - `popularBooks: BookCard[]`
+    - `popularWindow: string`
+    - `BookCard` includes: `id`, `slug`, `title`, `authors`, `cover_url`, `cover_s3_key`,
+      `fallback_cover_url`, `average_rating`, `ratings_count`, `tags`, `cover_grayscale`,
+      `published_date` (ISO-8601 date or null).
   - Side effect:
     - Each request appends a `page_view_events` row with `page_key = "homepage"`.
   - Home payload enforces cover-bearing cards only:
