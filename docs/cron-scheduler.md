@@ -28,6 +28,20 @@ Jobs are enabled by `@EnableScheduling` on the Spring Boot application entrypoin
 - Standalone NYT scheduler can be disabled while keeping admin/manual NYT triggers available:
   - `app.nyt.scheduler.standalone-enabled` (default `false`)
 
+## Recommendation Cache Semantics
+
+- Persistence table: `book_recommendations`
+  - Active recommendation rows are those with `expires_at IS NULL OR expires_at > NOW()`.
+  - Recommendation expiry is refreshed by `RecommendationCacheRefreshUseCase` through `RecommendationMaintenanceRepository`.
+- Ingestion path for new recommendation rows:
+  - `RecommendationService` computes recommendations from author/category/text strategies.
+  - `BookRecommendationPersistenceService` upserts `RECOMMENDATION_PIPELINE` rows.
+  - Additional rows can exist from source-prioritized strategies like `SAME_AUTHOR` and `SAME_CATEGORY`.
+- API read behavior:
+  - `GET /api/books/{identifier}/similar` checks active rows first.
+  - If active rows are missing/stale, the API regenerates recommendations and returns refreshed rows when available.
+  - If regeneration returns no refreshed rows, older persisted rows remain an explicit fallback path.
+
 ## Manual Job Triggers
 
 Manually trigger jobs/tasks via API endpoints. Useful for testing or immediate execution.
