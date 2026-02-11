@@ -10,7 +10,7 @@
   - `POST /api/books/{identifier}/ai/content/stream?refresh={true|false}`
   - `GET /api/books/authors/search?query={author}`
 - **Page API (Svelte SPA):**
-  - `GET /api/pages/home`
+  - `GET /api/pages/home?popularWindow={30d|90d|all}&popularLimit={n}`
   - `GET /api/pages/routes`
   - `GET /api/pages/meta?path={routePath}`
   - `GET /api/pages/sitemap?view={authors|books}&letter={A-Z|0-9}&page={n}`
@@ -52,8 +52,15 @@
   - `publishedYear` (optional integer year filter)
   - `coverSource` (default `ANY`)
   - `resolution` (default `ANY`)
+- `GET /api/books/{identifier}` and `GET /api/books/slug/{slug}` support:
+  - `viewWindow` (optional, one of `30d`, `90d`, `all`)
+  - Invalid `viewWindow` returns `400 Bad Request`.
 - Unsupported `orderBy` values return `400 Bad Request`.
 - Response includes deterministic pagination metadata plus `queryHash` for realtime routing.
+- Search result ordering always applies cover tier first:
+  - color covers first,
+  - grayscale covers after color,
+  - no-cover entries last.
 - `GET /api/books/{identifier}` and search hit payloads include canonical description fields:
   - `description` (legacy string; retained for backward compatibility)
   - `descriptionContent` (backend-formatted source of truth):
@@ -72,6 +79,12 @@
     - `provider: string | null`
 - Unknown `GET /api/books/{identifier}` lookups return `404 application/problem+json`
   (RFC 9457 Problem Details).
+- Successful `GET /api/books/{identifier}` and `GET /api/books/slug/{slug}` responses append a
+  `recent_book_views` event used by recently viewed and rolling view analytics.
+- When `viewWindow` is requested, detail payloads include:
+  - `viewMetrics` (nullable object)
+    - `window: "30d" | "90d" | "all"`
+    - `totalViews: number`
 
 ## Book AI Content Streaming Contract
 - `GET /api/books/ai/content/queue`
@@ -119,12 +132,20 @@
 
 ## SPA Page Payload Contracts
 - `GET /api/pages/home`
+  - Query params:
+    - `popularWindow` (optional; `30d`, `90d`, `all`; default `30d`)
+    - `popularLimit` (optional; defaults `8`, maximum `24`)
   - Response fields:
     - `currentBestsellers: BookCard[]`
     - `recentBooks: BookCard[]`
+    - `popularBooks: BookCard[]`
+    - `popularWindow: string`
+  - Side effect:
+    - Each request appends a `page_view_events` row with `page_key = "homepage"`.
   - Home payload enforces cover-bearing cards only:
-    - Placeholder/null-equivalent cover values are excluded from both arrays.
-    - Entries with real cover images are returned first, preserving section order among valid covers.
+    - Placeholder/null-equivalent cover values are excluded.
+    - Grayscale covers are excluded.
+    - All home sections (`currentBestsellers`, `recentBooks`, `popularBooks`) emit color covers only.
 - `GET /api/pages/meta?path={routePath}`
   - Query params:
     - `path` (required route path, for example `/`, `/search`, `/book/the-hobbit`)
@@ -207,6 +228,25 @@
 Admin endpoints require HTTP Basic Authentication.
 - **Username:** `admin`
 - **Password:** Set via `APP_ADMIN_PASSWORD`
+
+- `POST /admin/backfill/covers`
+  - Query params:
+    - `mode` (`missing`, `grayscale`, `rejected`; default `missing`)
+    - `limit` (default `100`, clamped to `1..10000`)
+  - Response:
+    - `202 Accepted` text acknowledgement when backfill starts
+    - `409 Conflict` when a run is already active
+- `GET /admin/backfill/covers/status`
+  - Response fields:
+    - `totalCandidates`, `processed`, `coverFound`, `noCoverFound`, `running`
+    - `currentBookId`, `currentBookTitle`, `currentBookIsbn`
+    - `currentBookAttempts: Array<{ source, outcome, detail, attemptedAt }>`
+    - `lastCompletedBookId`, `lastCompletedBookTitle`, `lastCompletedBookIsbn`
+    - `lastCompletedBookFound`
+    - `lastCompletedBookAttempts: Array<{ source, outcome, detail, attemptedAt }>`
+  - Notes:
+    - `outcome` values are `SUCCESS`, `NOT_FOUND`, `FAILURE`, `SKIPPED`.
+    - `currentBookId` is retained for compatibility with existing polling clients.
 
 ### Example Request
 ```bash
