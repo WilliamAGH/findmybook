@@ -20,85 +20,7 @@ public final class SitemapBookLastModifiedSqlSupport {
     public static String globalBookLastModifiedCte(String bookUpdatedAtAlias) {
         return """
                 WITH change_events AS (
-                    SELECT b.id AS book_id,
-                           GREATEST(
-                               COALESCE(b.updated_at, TIMESTAMP 'epoch'),
-                               COALESCE(b.created_at, TIMESTAMP 'epoch')
-                           ) AS changed_at
-                    FROM books b
-                    WHERE b.slug IS NOT NULL
-                    UNION ALL
-                    SELECT be.book_id,
-                           GREATEST(
-                               COALESCE(be.last_updated, TIMESTAMP 'epoch'),
-                               COALESCE(be.created_at, TIMESTAMP 'epoch')
-                           )
-                    FROM book_external_ids be
-                    UNION ALL
-                    SELECT br.book_id,
-                           GREATEST(
-                               COALESCE(br.fetched_at, TIMESTAMP 'epoch'),
-                               COALESCE(br.contributed_at, TIMESTAMP 'epoch'),
-                               COALESCE(br.created_at, TIMESTAMP 'epoch')
-                           )
-                    FROM book_raw_data br
-                    UNION ALL
-                    SELECT bil.book_id,
-                           GREATEST(
-                               COALESCE(bil.updated_at, TIMESTAMP 'epoch'),
-                               COALESCE(bil.s3_uploaded_at, TIMESTAMP 'epoch'),
-                               COALESCE(bil.created_at, TIMESTAMP 'epoch')
-                           )
-                    FROM book_image_links bil
-                    UNION ALL
-                    SELECT bd.book_id,
-                           GREATEST(
-                               COALESCE(bd.updated_at, TIMESTAMP 'epoch'),
-                               COALESCE(bd.created_at, TIMESTAMP 'epoch')
-                           )
-                    FROM book_dimensions bd
-                    UNION ALL
-                    SELECT bta.book_id,
-                           GREATEST(
-                               COALESCE(bta.created_at, TIMESTAMP 'epoch'),
-                               COALESCE(bt.updated_at, TIMESTAMP 'epoch'),
-                               COALESCE(bt.created_at, TIMESTAMP 'epoch')
-                           )
-                    FROM book_tag_assignments bta
-                    JOIN book_tags bt ON bt.id = bta.tag_id
-                    UNION ALL
-                    SELECT baj.book_id,
-                           GREATEST(
-                               COALESCE(baj.updated_at, TIMESTAMP 'epoch'),
-                               COALESCE(baj.created_at, TIMESTAMP 'epoch'),
-                               COALESCE(a.updated_at, TIMESTAMP 'epoch'),
-                               COALESCE(a.created_at, TIMESTAMP 'epoch')
-                           )
-                    FROM book_authors_join baj
-                    JOIN authors a ON a.id = baj.author_id
-                    UNION ALL
-                    SELECT bcj.book_id,
-                           GREATEST(
-                               COALESCE(bcj.updated_at, TIMESTAMP 'epoch'),
-                               COALESCE(bcj.created_at, TIMESTAMP 'epoch'),
-                               COALESCE(bcj.added_at, TIMESTAMP 'epoch'),
-                               COALESCE(bc.updated_at, TIMESTAMP 'epoch'),
-                               COALESCE(bc.created_at, TIMESTAMP 'epoch')
-                           )
-                    FROM book_collections_join bcj
-                    JOIN book_collections bc ON bc.id = bcj.collection_id
-                    UNION ALL
-                    SELECT bac.book_id,
-                           COALESCE(bac.created_at, TIMESTAMP 'epoch')
-                    FROM book_ai_content bac
-                    UNION ALL
-                    SELECT bsm.book_id,
-                           COALESCE(bsm.created_at, TIMESTAMP 'epoch')
-                    FROM book_seo_metadata bsm
-                    UNION ALL
-                    SELECT bsr.book_id,
-                           COALESCE(bsr.created_at, TIMESTAMP 'epoch')
-                    FROM book_slug_redirect bsr
+                    %s
                 ),
                 book_last_modified AS (
                     SELECT b.id,
@@ -110,7 +32,7 @@ public final class SitemapBookLastModifiedSqlSupport {
                     WHERE b.slug IS NOT NULL
                     GROUP BY b.id, b.slug, b.title
                 )
-                """.formatted(bookUpdatedAtAlias);
+                """.formatted(unionAllChangeEvents(), bookUpdatedAtAlias);
     }
 
     /**
@@ -242,5 +164,89 @@ public final class SitemapBookLastModifiedSqlSupport {
                 JOIN book_last_modified blm ON blm.id = baj.book_id
                 ORDER BY baj.author_id, lower(blm.title), blm.slug
                 """.formatted(authorPlaceholders, bookUpdatedAtAlias, bookUpdatedAtAlias);
+    }
+
+    private static String unionAllChangeEvents() {
+        return """
+                    SELECT b.id AS book_id,
+                           GREATEST(
+                               COALESCE(b.updated_at, TIMESTAMP 'epoch'),
+                               COALESCE(b.created_at, TIMESTAMP 'epoch')
+                           ) AS changed_at
+                    FROM books b
+                    WHERE b.slug IS NOT NULL
+                    UNION ALL
+                    SELECT be.book_id,
+                           GREATEST(
+                               COALESCE(be.last_updated, TIMESTAMP 'epoch'),
+                               COALESCE(be.created_at, TIMESTAMP 'epoch')
+                           )
+                    FROM book_external_ids be
+                    UNION ALL
+                    SELECT br.book_id,
+                           GREATEST(
+                               COALESCE(br.fetched_at, TIMESTAMP 'epoch'),
+                               COALESCE(br.contributed_at, TIMESTAMP 'epoch'),
+                               COALESCE(br.created_at, TIMESTAMP 'epoch')
+                           )
+                    FROM book_raw_data br
+                    UNION ALL
+                    SELECT bil.book_id,
+                           GREATEST(
+                               COALESCE(bil.updated_at, TIMESTAMP 'epoch'),
+                               COALESCE(bil.s3_uploaded_at, TIMESTAMP 'epoch'),
+                               COALESCE(bil.created_at, TIMESTAMP 'epoch')
+                           )
+                    FROM book_image_links bil
+                    UNION ALL
+                    SELECT bd.book_id,
+                           GREATEST(
+                               COALESCE(bd.updated_at, TIMESTAMP 'epoch'),
+                               COALESCE(bd.created_at, TIMESTAMP 'epoch')
+                           )
+                    FROM book_dimensions bd
+                    UNION ALL
+                    SELECT bta.book_id,
+                           GREATEST(
+                               COALESCE(bta.created_at, TIMESTAMP 'epoch'),
+                               COALESCE(bt.updated_at, TIMESTAMP 'epoch'),
+                               COALESCE(bt.created_at, TIMESTAMP 'epoch')
+                           )
+                    FROM book_tag_assignments bta
+                    JOIN book_tags bt ON bt.id = bta.tag_id
+                    UNION ALL
+                    SELECT baj.book_id,
+                           GREATEST(
+                               COALESCE(baj.updated_at, TIMESTAMP 'epoch'),
+                               COALESCE(baj.created_at, TIMESTAMP 'epoch'),
+                               COALESCE(a.updated_at, TIMESTAMP 'epoch'),
+                               COALESCE(a.created_at, TIMESTAMP 'epoch')
+                           )
+                    FROM book_authors_join baj
+                    JOIN authors a ON a.id = baj.author_id
+                    UNION ALL
+                    SELECT bcj.book_id,
+                           GREATEST(
+                               COALESCE(bcj.updated_at, TIMESTAMP 'epoch'),
+                               COALESCE(bcj.created_at, TIMESTAMP 'epoch'),
+                               COALESCE(bcj.added_at, TIMESTAMP 'epoch'),
+                               COALESCE(bc.updated_at, TIMESTAMP 'epoch'),
+                               COALESCE(bc.created_at, TIMESTAMP 'epoch')
+                           )
+                    FROM book_collections_join bcj
+                    JOIN book_collections bc ON bc.id = bcj.collection_id
+                    UNION ALL
+                    SELECT bac.book_id,
+                           COALESCE(bac.created_at, TIMESTAMP 'epoch')
+                    FROM book_ai_content bac
+                    UNION ALL
+                    SELECT bsm.book_id,
+                           COALESCE(bsm.created_at, TIMESTAMP 'epoch')
+                    FROM book_seo_metadata bsm
+                    UNION ALL
+                    SELECT bsr.book_id,
+                           COALESCE(bsr.created_at, TIMESTAMP 'epoch')
+                    FROM book_slug_redirect bsr
+                """;
     }
 }
