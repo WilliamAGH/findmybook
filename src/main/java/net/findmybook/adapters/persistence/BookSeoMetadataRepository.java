@@ -22,10 +22,12 @@ public class BookSeoMetadataRepository implements BookSeoMetadataSnapshotReader 
     private final JdbcTemplate jdbcTemplate;
 
     /**
-     * Self-reference for transactional method invocation within the same class.
-     * Required because Spring's @Transactional uses proxies, and direct 'this' calls
-     * bypass the proxy and don't participate in the transaction.
+     * Lazy self-reference so {@code insertNewCurrentVersion} can invoke
+     * {@link #fetchCurrent} through the transactional proxy.
+     * {@code @Lazy} defers resolution until first use, breaking the circular
+     * dependency that Spring Boot 4.x otherwise prohibits at startup.
      */
+    @org.springframework.context.annotation.Lazy
     @jakarta.annotation.Resource
     private BookSeoMetadataSnapshotReader self;
 
@@ -157,7 +159,6 @@ public class BookSeoMetadataRepository implements BookSeoMetadataSnapshotReader 
             promptHash
         );
 
-        // Invoke via self-reference to ensure @Transactional proxy is applied
         return self.fetchCurrent(bookId)
             .orElseThrow(() -> new IllegalStateException("Inserted SEO metadata could not be reloaded for book " + bookId));
     }
