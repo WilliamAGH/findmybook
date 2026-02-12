@@ -81,25 +81,17 @@ public class BookCollectionPersistenceService {
         );
     }
 
-    public Optional<String> upsertBestsellerCollection(String providerListId,
-                                                       String listCode,
-                                                       String displayName,
-                                                       String normalizedName,
-                                                       String description,
-                                                       LocalDate bestsellersDate,
-                                                       LocalDate publishedDate,
-                                                       String updatedFrequency,
-                                                       JsonNode rawListJson) {
-        if (jdbcTemplate == null || listCode == null || publishedDate == null) {
+    public Optional<String> upsertBestsellerCollection(BestsellerCollectionDto dto) {
+        if (jdbcTemplate == null || dto.listCode() == null || dto.publishedDate() == null) {
             return Optional.empty();
         }
 
-        String normalized = normalizedName != null && !normalizedName.isBlank()
-            ? normalizedName
-            : listCode.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-");
+        String normalized = dto.normalizedName() != null && !dto.normalizedName().isBlank()
+            ? dto.normalizedName()
+            : dto.listCode().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-");
 
-        String safeDisplayName = (displayName == null || displayName.isBlank()) ? listCode : displayName;
-        String rawJson = rawListJson != null ? rawListJson.toString() : null;
+        String safeDisplayName = (dto.displayName() == null || dto.displayName().isBlank()) ? dto.listCode() : dto.displayName();
+        String rawJson = dto.rawListJson() != null ? dto.rawListJson().toString() : null;
 
         try {
             String id = jdbcTemplate.queryForObject(
@@ -109,53 +101,44 @@ public class BookCollectionPersistenceService {
                 "DO UPDATE SET display_name = EXCLUDED.display_name, description = EXCLUDED.description, updated_frequency = COALESCE(EXCLUDED.updated_frequency, book_collections.updated_frequency), raw_data_json = EXCLUDED.raw_data_json, updated_at = NOW() RETURNING id",
                 (rs, rowNum) -> rs.getString("id"),
                 IdGenerator.generateShort(),
-                providerListId,
-                listCode,
+                dto.providerListId(),
+                dto.listCode(),
                 safeDisplayName,
                 normalized,
-                description,
-                bestsellersDate,
-                publishedDate,
-                updatedFrequency,
+                dto.description(),
+                dto.bestsellersDate(),
+                dto.publishedDate(),
+                dto.updatedFrequency(),
                 rawJson
             );
 
             return Optional.ofNullable(id);
         } catch (DataAccessException ex) {
-            LoggingUtils.error(log, ex, "Failed upserting bestseller collection listCode={} publishedDate={}", listCode, publishedDate);
+            LoggingUtils.error(log, ex, "Failed upserting bestseller collection listCode={} publishedDate={}", dto.listCode(), dto.publishedDate());
             return JdbcUtils.optionalString(
                 jdbcTemplate,
                 "SELECT id FROM book_collections WHERE source = 'NYT' AND provider_list_code = ? AND published_date = ?",
-                listCode,
-                publishedDate
+                dto.listCode(),
+                dto.publishedDate()
             );
         }
     }
 
-    public void upsertBestsellerMembership(String collectionId,
-                                           String bookId,
-                                           Integer position,
-                                           Integer weeksOnList,
-                                           Integer rankLastWeek,
-                                           Integer peakPosition,
-                                           String providerIsbn13,
-                                           String providerIsbn10,
-                                           String providerBookRef,
-                                           String rawItemJson) {
+    public void upsertBestsellerMembership(BestsellerMembershipDto dto) {
         if (jdbcTemplate == null) {
             log.warn("upsertBestsellerMembership: jdbcTemplate is null");
             return;
         }
-        if (collectionId == null || bookId == null) {
-            log.warn("upsertBestsellerMembership: collectionId or bookId is null - collectionId: {}, bookId: {}", collectionId, bookId);
+        if (dto.collectionId() == null || dto.bookId() == null) {
+            log.warn("upsertBestsellerMembership: collectionId or bookId is null - collectionId: {}, bookId: {}", dto.collectionId(), dto.bookId());
             return;
         }
 
         try {
             // Validate that bookId is a valid UUID
-            UUID bookUuid = UUID.fromString(bookId);
+            UUID bookUuid = UUID.fromString(dto.bookId());
 
-            if (position != null) {
+            if (dto.position() != null) {
                 // Maintain the unique rank invariant by vacating any prior occupant
                 // before assigning this rank to the incoming book.
                 JdbcUtils.executeUpdate(
@@ -163,14 +146,14 @@ public class BookCollectionPersistenceService {
                     "UPDATE book_collections_join " +
                     "SET position = NULL, updated_at = NOW() " +
                     "WHERE collection_id = ? AND position = ? AND book_id <> ?",
-                    collectionId,
-                    position,
+                    dto.collectionId(),
+                    dto.position(),
                     bookUuid
                 );
             }
             
             log.debug("Inserting book into collection: collectionId='{}', bookId='{}', position={}, isbn13='{}'",
-                collectionId, bookId, position, providerIsbn13);
+                dto.collectionId(), dto.bookId(), dto.position(), dto.providerIsbn13());
             
             JdbcUtils.executeUpdate(
                 jdbcTemplate,
@@ -178,27 +161,31 @@ public class BookCollectionPersistenceService {
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, NOW(), NOW()) " +
                 "ON CONFLICT (collection_id, book_id) DO UPDATE SET position = EXCLUDED.position, weeks_on_list = COALESCE(EXCLUDED.weeks_on_list, book_collections_join.weeks_on_list), rank_last_week = COALESCE(EXCLUDED.rank_last_week, book_collections_join.rank_last_week), peak_position = COALESCE(EXCLUDED.peak_position, book_collections_join.peak_position), provider_isbn13 = COALESCE(EXCLUDED.provider_isbn13, book_collections_join.provider_isbn13), provider_isbn10 = COALESCE(EXCLUDED.provider_isbn10, book_collections_join.provider_isbn10), provider_book_ref = COALESCE(EXCLUDED.provider_book_ref, book_collections_join.provider_book_ref), raw_item_json = EXCLUDED.raw_item_json, updated_at = NOW()",
                 IdGenerator.generateLong(),
-                collectionId,
+                dto.collectionId(),
                 bookUuid,
-                position,
-                weeksOnList,
-                rankLastWeek,
-                peakPosition,
-                providerIsbn13,
-                providerIsbn10,
-                providerBookRef,
-                rawItemJson
+                dto.position(),
+                dto.weeksOnList(),
+                dto.rankLastWeek(),
+                dto.peakPosition(),
+                dto.providerIsbn13(),
+                dto.providerIsbn10(),
+                dto.providerBookRef(),
+                dto.rawItemJson()
             );
             
             log.info("Successfully added book to collection: collectionId='{}', bookId='{}', position={}",
-                collectionId, bookId, position);
+                dto.collectionId(), dto.bookId(), dto.position());
         } catch (IllegalArgumentException ex) {
-            LoggingUtils.error(log, ex, "Invalid UUID format for bookId: {}", bookId);
+            LoggingUtils.error(log, ex, "Invalid UUID format for bookId: {}", dto.bookId());
         } catch (DataAccessException ex) {
             LoggingUtils.error(log, ex, "Database error adding book to collection: collectionId='{}', bookId='{}', position={}, isbn13='{}'",
-                collectionId, bookId, position, providerIsbn13);
+                dto.collectionId(), dto.bookId(), dto.position(), dto.providerIsbn13());
         }
     }
+
+    public record BestsellerCollectionDto(String providerListId, String listCode, String displayName, String normalizedName, String description, LocalDate bestsellersDate, LocalDate publishedDate, String updatedFrequency, JsonNode rawListJson) {}
+    
+    public record BestsellerMembershipDto(String collectionId, String bookId, Integer position, Integer weeksOnList, Integer rankLastWeek, Integer peakPosition, String providerIsbn13, String providerIsbn10, String providerBookRef, String rawItemJson) {}
 
     public Optional<String> upsertList(String source,
                                        String providerListCode,

@@ -151,10 +151,7 @@ public class NytBestsellerPersistenceCollaborator {
     public void assignCoreTags(String bookId,
                                NytListContext listContext,
                                JsonNode bookNode,
-                               @Nullable Integer rank,
-                               @Nullable Integer weeksOnList,
-                               @Nullable Integer rankLastWeek,
-                               @Nullable Integer peakPosition) {
+                               RankingStats stats) {
         String naturalListLabel = payloadMapper.resolveNaturalListLabel(
             listContext.listDisplayName(),
             listContext.listName(),
@@ -163,10 +160,7 @@ public class NytBestsellerPersistenceCollaborator {
         Map<String, Object> metadata = buildNytTagMetadata(
             listContext,
             bookNode,
-            rank,
-            weeksOnList,
-            rankLastWeek,
-            peakPosition,
+            stats,
             naturalListLabel
         );
 
@@ -179,10 +173,7 @@ public class NytBestsellerPersistenceCollaborator {
 
     private Map<String, Object> buildNytTagMetadata(NytListContext listContext,
                                                      JsonNode bookNode,
-                                                     @Nullable Integer rank,
-                                                     @Nullable Integer weeksOnList,
-                                                     @Nullable Integer rankLastWeek,
-                                                     @Nullable Integer peakPosition,
+                                                     RankingStats stats,
                                                      String naturalListLabel) {
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("list_code", listContext.listCode());
@@ -192,18 +183,12 @@ public class NytBestsellerPersistenceCollaborator {
         putIfHasText(metadata, "updated_frequency", listContext.updatedFrequency());
         putIfHasText(metadata, "published_date", formatDate(listContext.publishedDate()));
         putIfHasText(metadata, "bestsellers_date", formatDate(listContext.bestsellersDate()));
-        if (rank != null) {
-            metadata.put("rank", rank);
-        }
-        if (weeksOnList != null) {
-            metadata.put("weeks_on_list", weeksOnList);
-        }
-        if (rankLastWeek != null) {
-            metadata.put("rank_last_week", rankLastWeek);
-        }
-        if (peakPosition != null) {
-            metadata.put("peak_position", peakPosition);
-        }
+        
+        if (stats.rank() != null) metadata.put("rank", stats.rank());
+        if (stats.weeksOnList() != null) metadata.put("weeks_on_list", stats.weeksOnList());
+        if (stats.rankLastWeek() != null) metadata.put("rank_last_week", stats.rankLastWeek());
+        if (stats.peakPosition() != null) metadata.put("peak_position", stats.peakPosition());
+
         putIfHasText(metadata, "title", payloadMapper.firstNonEmptyText(bookNode, "title", "book_title"));
         putIfHasText(metadata, "description", payloadMapper.firstNonEmptyText(bookNode, "description", "summary"));
         putIfHasText(metadata, "author", payloadMapper.firstNonEmptyText(bookNode, "author"));
@@ -243,6 +228,8 @@ public class NytBestsellerPersistenceCollaborator {
         }
         return metadata;
     }
+
+    public record RankingStats(@Nullable Integer rank, @Nullable Integer weeksOnList, @Nullable Integer rankLastWeek, @Nullable Integer peakPosition) {}
 
     @Nullable
     private static String formatDate(@Nullable LocalDate date) {

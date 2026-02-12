@@ -8,6 +8,7 @@ import net.findmybook.scheduler.NewYorkTimesBestsellerScheduler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -30,15 +31,27 @@ public class WeeklyCatalogRefreshScheduler {
 
     public WeeklyCatalogRefreshScheduler(NewYorkTimesBestsellerScheduler newYorkTimesBestsellerScheduler,
                                          RecommendationCacheRefreshUseCase recommendationCacheRefreshUseCase,
-                                         @Value("${app.weekly-refresh.enabled:true}") boolean schedulerEnabled,
-                                         @Value("${app.weekly-refresh.nyt-phase-enabled:true}") boolean nytPhaseEnabled,
-                                         @Value("${app.weekly-refresh.recommendation-phase-enabled:true}") boolean recommendationPhaseEnabled) {
+                                         SchedulerConfiguration config) {
         this.newYorkTimesBestsellerScheduler = newYorkTimesBestsellerScheduler;
         this.recommendationCacheRefreshUseCase = recommendationCacheRefreshUseCase;
-        this.schedulerEnabled = schedulerEnabled;
-        this.nytPhaseEnabled = nytPhaseEnabled;
-        this.recommendationPhaseEnabled = recommendationPhaseEnabled;
+        this.schedulerEnabled = config.schedulerEnabled();
+        this.nytPhaseEnabled = config.nytPhaseEnabled();
+        this.recommendationPhaseEnabled = config.recommendationPhaseEnabled();
     }
+
+    @Component
+    public static class ConfigLoader {
+        @Bean
+        public SchedulerConfiguration schedulerConfiguration(
+            @Value("${app.weekly-refresh.enabled:true}") boolean schedulerEnabled,
+            @Value("${app.weekly-refresh.nyt-phase-enabled:true}") boolean nytPhaseEnabled,
+            @Value("${app.weekly-refresh.recommendation-phase-enabled:true}") boolean recommendationPhaseEnabled
+        ) {
+            return new SchedulerConfiguration(schedulerEnabled, nytPhaseEnabled, recommendationPhaseEnabled);
+        }
+    }
+
+    public record SchedulerConfiguration(boolean schedulerEnabled, boolean nytPhaseEnabled, boolean recommendationPhaseEnabled) {}
 
     /**
      * Executes the weekly refresh cycle on schedule.
