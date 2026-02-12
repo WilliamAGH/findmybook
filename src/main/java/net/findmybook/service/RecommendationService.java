@@ -1,27 +1,15 @@
 /**
  * Service for generating book recommendations based on various similarity criteria.
- * This class is responsible for generating book recommendations using a combination of strategies:
  *
- * - Uses multi-faceted approach combining author, category, and text-based matching
- *
- * @implNote LOC1 split plan (701 lines): extract {@code RecommendationScoringStrategy}
- *     (scoring, ranking, and deduplication logic) and {@code BookSearchStrategyChain}
- *     (author/category/text search orchestration).
- * - Implements scoring algorithm to rank recommendations by relevance
- * - Supports language-aware filtering to match source book language
- * - Provides reactive API for non-blocking recommendation generation
- * - Handles category normalization for better cross-book matching
- * - Implements keyword extraction with stop word filtering
- * - Caches recommendations for improved performance and reduced API usage
- * - Updates recommendation IDs in source book for persistent recommendation history
+ * <p>Composes {@link RecommendationScoringStrategy} (scoring, ranking, deduplication)
+ * and {@link RecommendationStrategyChain} (author/category/text search orchestration)
+ * to discover, score, and persist recommendation candidates.</p>
  *
  * @author William Callahan
  */
 package net.findmybook.service;
 
-import net.findmybook.dto.BookListItem;
 import net.findmybook.model.Book;
-import net.findmybook.repository.BookQueryRepository;
 import net.findmybook.service.BookRecommendationPersistenceService.RecommendationRecord;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,22 +21,18 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 import net.findmybook.util.LoggingUtils;
-import net.findmybook.util.BookDomainMapper;
 import org.springframework.util.StringUtils;
 import net.findmybook.util.cover.CoverPrioritizer;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
 @Service
 @Slf4j
 public class RecommendationService {
@@ -57,10 +41,7 @@ public class RecommendationService {
     private static final int FETCH_PREFETCH = 8;
 
     private final BookDataOrchestrator bookDataOrchestrator;
-    private final BookSearchService bookSearchService;
-    private final BookQueryRepository bookQueryRepository;
     private final BookRecommendationPersistenceService recommendationPersistenceService;
-    private final RecommendationScoringStrategy scoringStrategy;
     private final RecommendationStrategyChain strategyChain;
     private final boolean externalFallbackEnabled;
 
@@ -70,13 +51,9 @@ public class RecommendationService {
      * @implNote Delegates scoring and search orchestration to strategy components.
      */
     public RecommendationService(RecommendationServices services, RecommendationConfig config,
-                                RecommendationScoringStrategy scoringStrategy,
                                 RecommendationStrategyChain strategyChain) {
         this.bookDataOrchestrator = services.bookDataOrchestrator();
-        this.bookSearchService = services.bookSearchService();
-        this.bookQueryRepository = services.bookQueryRepository();
         this.recommendationPersistenceService = services.recommendationPersistenceService();
-        this.scoringStrategy = scoringStrategy;
         this.strategyChain = strategyChain;
         this.externalFallbackEnabled = config.externalFallbackEnabled();
     }
@@ -93,14 +70,10 @@ public class RecommendationService {
         @Bean
         public RecommendationServices recommendationServices(
             BookDataOrchestrator bookDataOrchestrator,
-            BookSearchService bookSearchService,
-            BookQueryRepository bookQueryRepository,
             BookRecommendationPersistenceService recommendationPersistenceService
         ) {
             return new RecommendationServices(
                 bookDataOrchestrator,
-                bookSearchService,
-                bookQueryRepository,
                 recommendationPersistenceService
             );
         }
@@ -110,8 +83,6 @@ public class RecommendationService {
 
     public record RecommendationServices(
         BookDataOrchestrator bookDataOrchestrator,
-        BookSearchService bookSearchService,
-        BookQueryRepository bookQueryRepository,
         BookRecommendationPersistenceService recommendationPersistenceService
     ) {}
 
@@ -257,10 +228,7 @@ public class RecommendationService {
             .collect(Collectors.toMap(
                 scoredBook -> scoredBook.getBook().getId(),
                 scoredBook -> scoredBook,
-                (sb1, sb2) -> {
-                    sb1.mergeWith(sb2);
-                    return sb1;
-                },
+                (sb1, sb2) -> sb1.mergeWith(sb2),
                 HashMap::new
             ));
     }
@@ -378,95 +346,6 @@ public class RecommendationService {
             return true;
         }
         return Objects.equals(sourceLang, candidate.getLanguage());
-    }
-
-    private Mono<List<Book>> searchBooks(String query, String langCode, int limit) {
-        if (!StringUtils.hasText(query) || bookSearchService == null || bookQueryRepository == null) {
-            return Mono.just(Collections.emptyList());
-        }
-
-        final int safeLimit = Math.max(limit, 1);
-
-        return Mono.fromCallable(() -> bookSearchService.searchBooks(query, safeLimit))
-            .subscribeOn(Schedulers.boundedElastic())
-            .flatMap(results -> {
-                if (results == null || results.isEmpty()) {
-                    return Mono.just(Collections.<Book>emptyList());
-                }
-
-                List<UUID> orderedIds = results.stream()
-                    .map(BookSearchService.SearchResult::bookId)
-                    .filter(Objects::nonNull)
-                    .distinct()
-                    .limit(safeLimit)
-                    .toList();
-
-                if (orderedIds.isEmpty()) {
-                    return Mono.just(Collections.<Book>emptyList());
-                }
-
-                return Mono.fromCallable(() -> bookQueryRepository.fetchBookListItems(orderedIds))
-                    .subscribeOn(Schedulers.boundedElastic())
-                    .map(items -> orderBooksBySearchResults(results, items, safeLimit));
-            })
-            .defaultIfEmpty(Collections.emptyList())
-            .map(books -> limitResults(books, safeLimit))
-            .onErrorMap(error -> logAndWrapError(error, "RecommendationService.searchBooks query=" + query + " lang=" + langCode));
-    }
-
-    private List<Book> limitResults(List<Book> books, int limit) {
-        if (books == null || books.isEmpty()) {
-            return Collections.emptyList();
-        }
-        return books.stream()
-                .filter(Objects::nonNull)
-                .filter(book -> StringUtils.hasText(book.getId()))
-                .limit(limit)
-                .toList();
-    }
-
-    private List<Book> orderBooksBySearchResults(List<BookSearchService.SearchResult> results,
-                                                 List<BookListItem> items,
-                                                 int limit) {
-        if (items == null || items.isEmpty()) {
-            return List.of();
-        }
-
-        Map<String, Book> booksById = BookDomainMapper.fromListItems(items).stream()
-            .filter(Objects::nonNull)
-            .filter(book -> StringUtils.hasText(book.getId()))
-            .collect(Collectors.toMap(Book::getId, book -> book, (first, second) -> first, LinkedHashMap::new));
-
-        if (booksById.isEmpty()) {
-            return List.of();
-        }
-
-        List<Book> ordered = new ArrayList<>(Math.min(limit, booksById.size()));
-
-        for (BookSearchService.SearchResult result : results) {
-            UUID bookId = result.bookId();
-            if (bookId == null) {
-                continue;
-            }
-            Book book = booksById.remove(bookId.toString());
-            if (book != null) {
-                ordered.add(book);
-                if (ordered.size() == limit) {
-                    return ordered;
-                }
-            }
-        }
-
-        if (ordered.size() < limit) {
-            for (Book remaining : booksById.values()) {
-                ordered.add(remaining);
-                if (ordered.size() == limit) {
-                    break;
-                }
-            }
-        }
-
-        return ordered;
     }
 
     private record PersistableRecommendations(
