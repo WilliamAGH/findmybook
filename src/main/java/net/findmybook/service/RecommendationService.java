@@ -161,10 +161,7 @@ public class RecommendationService {
                 .switchIfEmpty(externalFallbackEnabled
                         ? fetchLegacyRecommendations(bookId, effectiveCount)
                         : Mono.just(Collections.emptyList()))
-                .onErrorMap(ex -> {
-                    LoggingUtils.error(log, ex, "Failed to assemble recommendations for {}", bookId);
-                    return new IllegalStateException("Failed to assemble recommendations for " + bookId, ex);
-                });
+                .onErrorMap(ex -> logAndWrapError(ex, "Failed to assemble recommendations for " + bookId));
     }
 
     /**
@@ -183,10 +180,7 @@ public class RecommendationService {
         return fetchCanonicalBook(bookId)
             .switchIfEmpty(Mono.error(new IllegalStateException("No canonical book found for " + bookId)))
             .flatMap(sourceBook -> fetchRecommendationsFromApiAndUpdateCache(sourceBook, effectiveCount))
-            .onErrorMap(ex -> {
-                LoggingUtils.error(log, ex, "Failed to regenerate recommendations for {}", bookId);
-                return new IllegalStateException("Failed to regenerate recommendations for " + bookId, ex);
-            });
+            .onErrorMap(ex -> logAndWrapError(ex, "Failed to regenerate recommendations for " + bookId));
     }
 
     /**
@@ -301,7 +295,8 @@ public class RecommendationService {
             .limit(effectiveCount)
             .collect(Collectors.toList());
 
-        return persistRecommendations(sourceBook, orderedCandidates, orderedBooks, limitedRecommendations);
+        return persistRecommendations(sourceBook,
+            new PersistableRecommendations(orderedCandidates, orderedBooks, limitedRecommendations));
     }
 
     private List<ScoredBook> sortAndFilterCandidates(Book sourceBook, Map<String, ScoredBook> recommendationMap) {
@@ -321,9 +316,10 @@ public class RecommendationService {
     }
 
     private Mono<List<Book>> persistRecommendations(Book sourceBook,
-                                                    List<ScoredBook> orderedCandidates,
-                                                    List<Book> orderedBooks,
-                                                    List<Book> limitedRecommendations) {
+                                                    PersistableRecommendations recommendations) {
+        List<ScoredBook> orderedCandidates = recommendations.orderedCandidates();
+        List<Book> orderedBooks = recommendations.orderedBooks();
+        List<Book> limitedRecommendations = recommendations.limitedRecommendations();
         if (bookDataOrchestrator != null) {
             bookDataOrchestrator.persistBooksAsync(limitedRecommendations, "RECOMMENDATION");
         }
@@ -358,13 +354,7 @@ public class RecommendationService {
                     sourceBook.getId(), newRecommendationIds.size(), orderedBooks.size())))
             .thenReturn(limitedRecommendations)
             .doOnSuccess(finalList -> log.info("Fetched {} total potential recommendations for book ID {} from API, updated cache. Returning {} recommendations.", orderedBooks.size(), sourceBook.getId(), finalList.size()))
-            .onErrorMap(e -> {
-                LoggingUtils.error(log, e, "Error completing recommendation pipeline for book {}", sourceBook.getId());
-                return new IllegalStateException(
-                    "Error completing recommendation pipeline for " + sourceBook.getId(),
-                    e
-                );
-            });
+            .onErrorMap(e -> logAndWrapError(e, "Error completing recommendation pipeline for book " + sourceBook.getId()));
     }
 
     private List<RecommendationRecord> buildPersistenceRecords(List<ScoredBook> orderedCandidates, Set<String> limitedIds) {
@@ -602,10 +592,7 @@ public class RecommendationService {
             })
             .defaultIfEmpty(Collections.emptyList())
             .map(books -> limitResults(books, safeLimit))
-            .onErrorMap(error -> new IllegalStateException(
-                "RecommendationService.searchBooks query=" + query + " lang=" + langCode,
-                error
-            ));
+            .onErrorMap(error -> logAndWrapError(error, "RecommendationService.searchBooks query=" + query + " lang=" + langCode));
     }
 
     private List<Book> limitResults(List<Book> books, int limit) {
@@ -661,6 +648,17 @@ public class RecommendationService {
         }
 
         return ordered;
+    }
+
+    private record PersistableRecommendations(
+        List<ScoredBook> orderedCandidates,
+        List<Book> orderedBooks,
+        List<Book> limitedRecommendations
+    ) {}
+
+    private IllegalStateException logAndWrapError(Throwable cause, String context) {
+        LoggingUtils.error(log, cause, "{}", context);
+        return new IllegalStateException(context, cause);
     }
 
     /**

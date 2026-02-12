@@ -97,45 +97,26 @@ public class CoverPersistenceService {
         Boolean canonicalHighRes = false;
         int bestPriority = Integer.MAX_VALUE;
 
-        // Process all image types
         for (Map.Entry<String, String> entry : imageLinks.entrySet()) {
-            String imageType = entry.getKey();
-            String url = entry.getValue();
-
-            // Skip null/blank URLs and normalize to HTTPS in one pass
-            String httpsUrl = null;
-            if (url != null && !url.isBlank()) {
-                httpsUrl = UrlUtils.validateAndNormalize(url);
-            }
-
-            if (!StringUtils.hasText(httpsUrl)) {
-                if (url != null && !url.isBlank()) {
-                    log.warn("Skipping invalid image URL for book {} type {}: {}", bookId, imageType, url);
-                }
+            GoogleImageEntry validated = validateGoogleImageEntry(bookId, entry.getKey(), entry.getValue());
+            if (validated == null) {
                 continue;
             }
-
-            // Estimate dimensions based on Google's image type
-            ImageDimensionUtils.DimensionEstimate estimate =
-                ImageDimensionUtils.estimateFromGoogleType(imageType);
-
             try {
-                // Upsert book_image_links row
-                upsertImageLink(new ImageLinkParams(bookId, imageType, httpsUrl, source, estimate.width(), estimate.height(), estimate.highRes()));
+                upsertImageLink(new ImageLinkParams(bookId, entry.getKey(), validated.url(), source,
+                    validated.width(), validated.height(), validated.highRes()));
 
-                // Track best quality image for canonical cover
-                int priority = ImageDimensionUtils.getTypePriority(imageType);
-                if (priority < bestPriority) {
-                    bestPriority = priority;
-                    canonicalCoverUrl = httpsUrl;
-                    canonicalWidth = estimate.width();
-                    canonicalHeight = estimate.height();
-                    canonicalHighRes = estimate.highRes();
+                if (validated.priority() < bestPriority) {
+                    bestPriority = validated.priority();
+                    canonicalCoverUrl = validated.url();
+                    canonicalWidth = validated.width();
+                    canonicalHeight = validated.height();
+                    canonicalHighRes = validated.highRes();
                 }
             } catch (IllegalArgumentException | DataAccessException ex) {
                 log.error("Failed to persist image link for book {} type {}: {}",
-                    bookId, imageType, ex.getMessage(), ex);
-                throw new IllegalStateException("Failed to persist image link for book " + bookId + " type " + imageType, ex);
+                    bookId, entry.getKey(), ex.getMessage(), ex);
+                throw new IllegalStateException("Failed to persist image link for book " + bookId + " type " + entry.getKey(), ex);
             }
         }
 
@@ -375,6 +356,32 @@ public class CoverPersistenceService {
             log.info("Propagated is_grayscale={} to {} sibling rows for book {}",
                 isGrayscale, updated, bookId);
         }
+    }
+
+    /** Validated Google image entry ready for persistence, with its type priority. */
+    private record GoogleImageEntry(String url, Integer width, Integer height, Boolean highRes, int priority) {}
+
+    /**
+     * Validates and normalizes a raw Google Books image URL into a persistable entry.
+     *
+     * <p>Pure validation — no side effects. The caller is responsible for persisting
+     * the result via {@link #upsertImageLink(ImageLinkParams)}.
+     *
+     * @return validated entry with estimated dimensions and priority, or {@code null} if the URL was invalid/blank
+     */
+    private GoogleImageEntry validateGoogleImageEntry(UUID bookId, String imageType, String rawUrl) {
+        String httpsUrl = rawUrl != null && !rawUrl.isBlank() ? UrlUtils.validateAndNormalize(rawUrl) : null;
+
+        if (!StringUtils.hasText(httpsUrl)) {
+            if (rawUrl != null && !rawUrl.isBlank()) {
+                log.warn("Skipping invalid image URL for book {} type {}: {}", bookId, imageType, rawUrl);
+            }
+            return null;
+        }
+
+        ImageDimensionUtils.DimensionEstimate estimate = ImageDimensionUtils.estimateFromGoogleType(imageType);
+        return new GoogleImageEntry(httpsUrl, estimate.width(), estimate.height(), estimate.highRes(),
+            ImageDimensionUtils.getTypePriority(imageType));
     }
 
     /**
