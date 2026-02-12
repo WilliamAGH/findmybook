@@ -96,7 +96,13 @@ public class SimilarBooksResponseUseCase {
             return List.of();
         }
         return context.generatedBooks().stream()
-            .map(BookDtoMapper::toDto)
+            .map(book -> {
+                BookDto dto = BookDtoMapper.toDto(book);
+                if (dto == null) {
+                    log.warn("BookDtoMapper.toDto returned null for book id='{}'; excluding from similar books.", book.getId());
+                }
+                return dto;
+            })
             .filter(Objects::nonNull)
             .limit(context.safeLimit())
             .toList();
