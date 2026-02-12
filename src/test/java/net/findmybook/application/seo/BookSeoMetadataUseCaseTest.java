@@ -29,6 +29,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -103,9 +104,9 @@ class BookSeoMetadataUseCaseTest {
             .thenReturn("https://findmybook.net/api/pages/og/book/the-great-gatsby");
         when(canonicalUrlResolver.normalizePublicUrl("/images/og-logo.png"))
             .thenReturn("https://findmybook.net/images/og-logo.png");
-        when(bookOpenGraphImageResolver.resolveBookImage(book, anyString()))
+        when(bookOpenGraphImageResolver.resolveBookImage(eq(book), anyString()))
             .thenReturn("/images/og-logo.png");
-        when(seoMarkupFormatter.pageTitle("The Great Gatsby", anyString(), anyString()))
+        when(seoMarkupFormatter.pageTitle(eq("The Great Gatsby"), anyString(), anyString()))
             .thenReturn("The Great Gatsby | findmybook");
         when(bookStructuredDataRenderer.renderBookGraph(any(BookGraphRenderRequest.class)))
             .thenReturn("{\"@type\":\"Book\"}");
@@ -153,7 +154,7 @@ class BookSeoMetadataUseCaseTest {
             .thenReturn("https://findmybook.net/api/pages/og/book/the-great-gatsby");
         when(canonicalUrlResolver.normalizePublicUrl("/images/og-logo.png"))
             .thenReturn("https://findmybook.net/images/og-logo.png");
-        when(bookOpenGraphImageResolver.resolveBookImage(book, anyString()))
+        when(bookOpenGraphImageResolver.resolveBookImage(eq(book), anyString()))
             .thenReturn("/images/og-logo.png");
         when(seoMarkupFormatter.pageTitle(anyString(), anyString(), anyString()))
             .thenReturn("The Great Gatsby - Book Details | findmybook.net");
@@ -184,7 +185,7 @@ class BookSeoMetadataUseCaseTest {
             .thenReturn("https://findmybook.net/api/pages/og/book/fallback-book");
         when(canonicalUrlResolver.normalizePublicUrl("/images/og-logo.png"))
             .thenReturn("https://findmybook.net/images/og-logo.png");
-        when(bookOpenGraphImageResolver.resolveBookImage(book, anyString()))
+        when(bookOpenGraphImageResolver.resolveBookImage(eq(book), anyString()))
             .thenReturn("/images/og-logo.png");
         when(seoMarkupFormatter.pageTitle(anyString(), anyString(), anyString()))
             .thenReturn("Fallback Book | findmybook");
@@ -211,7 +212,7 @@ class BookSeoMetadataUseCaseTest {
             .thenReturn("https://findmybook.net/book/abc-123");
         when(canonicalUrlResolver.normalizePublicUrl("/api/pages/og/book/abc-123"))
             .thenReturn("https://findmybook.net/api/pages/og/book/abc-123");
-        when(bookOpenGraphImageResolver.resolveBookImage(book, anyString()))
+        when(bookOpenGraphImageResolver.resolveBookImage(eq(book), anyString()))
             .thenReturn("/images/og-logo.png");
         when(seoMarkupFormatter.pageTitle(anyString(), anyString(), anyString()))
             .thenReturn("Untitled | findmybook");
