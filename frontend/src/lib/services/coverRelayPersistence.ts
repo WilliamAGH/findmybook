@@ -10,6 +10,7 @@ import type { CoverIngestResponse } from "$lib/validation/coverSchemas";
 import type { Book } from "$lib/validation/schemas";
 
 const PLACEHOLDER_COVER_FILENAME = "placeholder-book-cover.svg";
+const PERSISTED_COVER_PATH_SEGMENT = "images/book-covers/";
 
 export function normalizeCoverUrl(candidateUrl: string): string | null {
   if (!candidateUrl || candidateUrl.trim().length === 0) {
@@ -35,7 +36,7 @@ function hasPersistedS3Cover(book: Book): boolean {
 
 function isPersistedCoverUrl(candidateUrl: string): boolean {
   const normalized = candidateUrl.toLowerCase();
-  return normalized.includes("images/book-covers/");
+  return normalized.includes(PERSISTED_COVER_PATH_SEGMENT);
 }
 
 function isPlaceholderCoverUrl(candidateUrl: string, placeholderCoverUrl: string): boolean {

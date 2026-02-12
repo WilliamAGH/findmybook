@@ -6,6 +6,7 @@ import java.util.UUID;
 import net.findmybook.domain.seo.BookSeoMetadataSnapshot;
 import net.findmybook.domain.seo.BookSeoMetadataSnapshotReader;
 import net.findmybook.util.IdGenerator;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,12 +28,11 @@ public class BookSeoMetadataRepository implements BookSeoMetadataSnapshotReader 
      * {@code @Lazy} defers resolution until first use, breaking the circular
      * dependency that Spring Boot 4.x otherwise prohibits at startup.
      */
-    @org.springframework.context.annotation.Lazy
-    @jakarta.annotation.Resource
-    private BookSeoMetadataSnapshotReader self;
+    private final BookSeoMetadataSnapshotReader self;
 
-    public BookSeoMetadataRepository(JdbcTemplate jdbcTemplate) {
+    public BookSeoMetadataRepository(JdbcTemplate jdbcTemplate, @Lazy BookSeoMetadataSnapshotReader self) {
         this.jdbcTemplate = jdbcTemplate;
+        this.self = self;
     }
 
     /**
