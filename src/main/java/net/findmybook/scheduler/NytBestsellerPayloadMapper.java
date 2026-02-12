@@ -21,7 +21,6 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
 
@@ -334,7 +333,7 @@ public class NytBestsellerPayloadMapper {
             }
             try {
                 return Integer.valueOf(raw.trim());
-            } catch (NumberFormatException ignored) {
+            } catch (NumberFormatException _) {
                 return null;
             }
         }

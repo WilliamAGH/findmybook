@@ -24,12 +24,11 @@ class WeeklyCatalogRefreshSchedulerTest {
 
     @Test
     void should_TriggerNytAndRecommendationPhases_When_WeeklyRefreshRunsSuccessfully() {
+        WeeklyCatalogRefreshScheduler.SchedulerConfiguration config = new WeeklyCatalogRefreshScheduler.SchedulerConfiguration(true, true, true);
         WeeklyCatalogRefreshScheduler scheduler = new WeeklyCatalogRefreshScheduler(
             newYorkTimesBestsellerScheduler,
             recommendationCacheRefreshUseCase,
-            true,
-            true,
-            true
+            config
         );
         RecommendationCacheRefreshUseCase.RefreshSummary refreshSummary =
             new RecommendationCacheRefreshUseCase.RefreshSummary(20L, 0L, 20, 20L, 30);
@@ -47,12 +46,11 @@ class WeeklyCatalogRefreshSchedulerTest {
 
     @Test
     void should_AttemptRecommendationPhaseAndThrow_When_NytPhaseFails() {
+        WeeklyCatalogRefreshScheduler.SchedulerConfiguration config = new WeeklyCatalogRefreshScheduler.SchedulerConfiguration(true, true, true);
         WeeklyCatalogRefreshScheduler scheduler = new WeeklyCatalogRefreshScheduler(
             newYorkTimesBestsellerScheduler,
             recommendationCacheRefreshUseCase,
-            true,
-            true,
-            true
+            config
         );
         when(recommendationCacheRefreshUseCase.refreshAllRecommendations())
             .thenReturn(new RecommendationCacheRefreshUseCase.RefreshSummary(10L, 1L, 9, 10L, 30));
@@ -69,12 +67,11 @@ class WeeklyCatalogRefreshSchedulerTest {
 
     @Test
     void should_SkipExecution_When_SchedulerIsDisabledAndNotForced() {
+        WeeklyCatalogRefreshScheduler.SchedulerConfiguration config = new WeeklyCatalogRefreshScheduler.SchedulerConfiguration(false, true, true);
         WeeklyCatalogRefreshScheduler scheduler = new WeeklyCatalogRefreshScheduler(
             newYorkTimesBestsellerScheduler,
             recommendationCacheRefreshUseCase,
-            false,
-            true,
-            true
+            config
         );
 
         scheduler.runWeeklyRefreshCycle();
