@@ -29,7 +29,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -68,9 +67,9 @@ class BookSeoMetadataUseCaseTest {
 
     @Test
     void should_UseFallbackConstants_When_BookIdentifierIsUnresolved() {
-        when(canonicalUrlResolver.normalizePublicUrl(eq("/book/unknown-slug")))
+        when(canonicalUrlResolver.normalizePublicUrl("/book/unknown-slug"))
             .thenReturn("https://findmybook.net/book/unknown-slug");
-        when(canonicalUrlResolver.normalizePublicUrl(eq("/api/pages/og/book/unknown-slug")))
+        when(canonicalUrlResolver.normalizePublicUrl("/api/pages/og/book/unknown-slug"))
             .thenReturn("https://findmybook.net/api/pages/og/book/unknown-slug");
         when(seoMarkupFormatter.pageTitle(anyString(), anyString(), anyString()))
             .thenReturn("Book Details | findmybook");
@@ -98,19 +97,19 @@ class BookSeoMetadataUseCaseTest {
         book.setIsbn13("9780743273565");
         book.setAuthors(List.of("F. Scott Fitzgerald"));
 
-        when(canonicalUrlResolver.normalizePublicUrl(eq("/book/the-great-gatsby")))
+        when(canonicalUrlResolver.normalizePublicUrl("/book/the-great-gatsby"))
             .thenReturn("https://findmybook.net/book/the-great-gatsby");
-        when(canonicalUrlResolver.normalizePublicUrl(eq("/api/pages/og/book/the-great-gatsby")))
+        when(canonicalUrlResolver.normalizePublicUrl("/api/pages/og/book/the-great-gatsby"))
             .thenReturn("https://findmybook.net/api/pages/og/book/the-great-gatsby");
-        when(canonicalUrlResolver.normalizePublicUrl(eq("/images/og-logo.png")))
+        when(canonicalUrlResolver.normalizePublicUrl("/images/og-logo.png"))
             .thenReturn("https://findmybook.net/images/og-logo.png");
-        when(bookOpenGraphImageResolver.resolveBookImage(eq(book), anyString()))
+        when(bookOpenGraphImageResolver.resolveBookImage(book, anyString()))
             .thenReturn("/images/og-logo.png");
-        when(seoMarkupFormatter.pageTitle(eq("The Great Gatsby"), anyString(), anyString()))
+        when(seoMarkupFormatter.pageTitle("The Great Gatsby", anyString(), anyString()))
             .thenReturn("The Great Gatsby | findmybook");
         when(bookStructuredDataRenderer.renderBookGraph(any(BookGraphRenderRequest.class)))
             .thenReturn("{\"@type\":\"Book\"}");
-        when(bookOpenGraphPropertyFactory.fromBook(eq(book)))
+        when(bookOpenGraphPropertyFactory.fromBook(book))
             .thenReturn(List.of(
                 new OpenGraphProperty("book:isbn", "9780743273565")
             ));
@@ -136,7 +135,7 @@ class BookSeoMetadataUseCaseTest {
         book.setTitle("The Great Gatsby");
         book.setDescription("A novel by F. Scott Fitzgerald");
 
-        when(bookSeoMetadataSnapshotReader.fetchCurrent(eq(bookId))).thenReturn(Optional.of(
+        when(bookSeoMetadataSnapshotReader.fetchCurrent(bookId)).thenReturn(Optional.of(
             new BookSeoMetadataSnapshot(
                 bookId,
                 2,
@@ -148,19 +147,19 @@ class BookSeoMetadataUseCaseTest {
                 "prompt-hash"
             )
         ));
-        when(canonicalUrlResolver.normalizePublicUrl(eq("/book/the-great-gatsby")))
+        when(canonicalUrlResolver.normalizePublicUrl("/book/the-great-gatsby"))
             .thenReturn("https://findmybook.net/book/the-great-gatsby");
-        when(canonicalUrlResolver.normalizePublicUrl(eq("/api/pages/og/book/the-great-gatsby")))
+        when(canonicalUrlResolver.normalizePublicUrl("/api/pages/og/book/the-great-gatsby"))
             .thenReturn("https://findmybook.net/api/pages/og/book/the-great-gatsby");
-        when(canonicalUrlResolver.normalizePublicUrl(eq("/images/og-logo.png")))
+        when(canonicalUrlResolver.normalizePublicUrl("/images/og-logo.png"))
             .thenReturn("https://findmybook.net/images/og-logo.png");
-        when(bookOpenGraphImageResolver.resolveBookImage(eq(book), anyString()))
+        when(bookOpenGraphImageResolver.resolveBookImage(book, anyString()))
             .thenReturn("/images/og-logo.png");
         when(seoMarkupFormatter.pageTitle(anyString(), anyString(), anyString()))
             .thenReturn("The Great Gatsby - Book Details | findmybook.net");
         when(bookStructuredDataRenderer.renderBookGraph(any(BookGraphRenderRequest.class)))
             .thenReturn("{\"@type\":\"Book\"}");
-        when(bookOpenGraphPropertyFactory.fromBook(eq(book))).thenReturn(List.of());
+        when(bookOpenGraphPropertyFactory.fromBook(book)).thenReturn(List.of());
 
         SeoMetadata metadata = useCase.bookMetadata(book, 160);
 
@@ -177,21 +176,21 @@ class BookSeoMetadataUseCaseTest {
         book.setTitle("Fallback Book");
         book.setDescription("Legacy description text for fallback behavior validation.");
 
-        when(bookSeoMetadataSnapshotReader.fetchCurrent(eq(bookId)))
+        when(bookSeoMetadataSnapshotReader.fetchCurrent(bookId))
             .thenThrow(new DataAccessResourceFailureException("book_seo_metadata relation missing"));
-        when(canonicalUrlResolver.normalizePublicUrl(eq("/book/fallback-book")))
+        when(canonicalUrlResolver.normalizePublicUrl("/book/fallback-book"))
             .thenReturn("https://findmybook.net/book/fallback-book");
-        when(canonicalUrlResolver.normalizePublicUrl(eq("/api/pages/og/book/fallback-book")))
+        when(canonicalUrlResolver.normalizePublicUrl("/api/pages/og/book/fallback-book"))
             .thenReturn("https://findmybook.net/api/pages/og/book/fallback-book");
-        when(canonicalUrlResolver.normalizePublicUrl(eq("/images/og-logo.png")))
+        when(canonicalUrlResolver.normalizePublicUrl("/images/og-logo.png"))
             .thenReturn("https://findmybook.net/images/og-logo.png");
-        when(bookOpenGraphImageResolver.resolveBookImage(eq(book), anyString()))
+        when(bookOpenGraphImageResolver.resolveBookImage(book, anyString()))
             .thenReturn("/images/og-logo.png");
         when(seoMarkupFormatter.pageTitle(anyString(), anyString(), anyString()))
             .thenReturn("Fallback Book | findmybook");
         when(bookStructuredDataRenderer.renderBookGraph(any(BookGraphRenderRequest.class)))
             .thenReturn("{\"@type\":\"Book\"}");
-        when(bookOpenGraphPropertyFactory.fromBook(eq(book))).thenReturn(List.of());
+        when(bookOpenGraphPropertyFactory.fromBook(book)).thenReturn(List.of());
 
         SeoMetadata metadata = useCase.bookMetadata(book, 160);
 
@@ -208,17 +207,17 @@ class BookSeoMetadataUseCaseTest {
 
         when(canonicalUrlResolver.normalizePublicUrl(anyString()))
             .thenReturn("https://findmybook.net/images/og-logo.png");
-        when(canonicalUrlResolver.normalizePublicUrl(eq("/book/abc-123")))
+        when(canonicalUrlResolver.normalizePublicUrl("/book/abc-123"))
             .thenReturn("https://findmybook.net/book/abc-123");
-        when(canonicalUrlResolver.normalizePublicUrl(eq("/api/pages/og/book/abc-123")))
+        when(canonicalUrlResolver.normalizePublicUrl("/api/pages/og/book/abc-123"))
             .thenReturn("https://findmybook.net/api/pages/og/book/abc-123");
-        when(bookOpenGraphImageResolver.resolveBookImage(eq(book), anyString()))
+        when(bookOpenGraphImageResolver.resolveBookImage(book, anyString()))
             .thenReturn("/images/og-logo.png");
         when(seoMarkupFormatter.pageTitle(anyString(), anyString(), anyString()))
             .thenReturn("Untitled | findmybook");
         when(bookStructuredDataRenderer.renderBookGraph(any(BookGraphRenderRequest.class)))
             .thenReturn("{}");
-        when(bookOpenGraphPropertyFactory.fromBook(eq(book)))
+        when(bookOpenGraphPropertyFactory.fromBook(book))
             .thenReturn(List.of());
 
         SeoMetadata metadata = useCase.bookMetadata(book, 170);
@@ -235,10 +234,10 @@ class BookSeoMetadataUseCaseTest {
         book.setSlug("test-book");
         book.setTitle("Test Book");
 
-        when(canonicalUrlResolver.normalizePublicUrl(eq("/book/test-book"))).thenReturn("https://findmybook.net/book/test-book");
-        when(canonicalUrlResolver.normalizePublicUrl(eq("/api/pages/og/book/test-book")))
+        when(canonicalUrlResolver.normalizePublicUrl("/book/test-book")).thenReturn("https://findmybook.net/book/test-book");
+        when(canonicalUrlResolver.normalizePublicUrl("/api/pages/og/book/test-book"))
             .thenReturn("https://findmybook.net/api/pages/og/book/test-book");
-        when(canonicalUrlResolver.normalizePublicUrl(eq("/og.png"))).thenReturn("https://findmybook.net/og.png");
+        when(canonicalUrlResolver.normalizePublicUrl("/og.png")).thenReturn("https://findmybook.net/og.png");
         when(bookOpenGraphImageResolver.resolveBookImage(any(), anyString())).thenReturn("/og.png");
         when(seoMarkupFormatter.pageTitle(anyString(), anyString(), anyString())).thenReturn("Test Book | findmybook");
         when(bookStructuredDataRenderer.renderBookGraph(any(BookGraphRenderRequest.class))).thenReturn("{}");
@@ -260,24 +259,24 @@ class BookSeoMetadataUseCaseTest {
         Book book = new Book();
         book.setId("abc-123");
 
-        when(bookOpenGraphImageResolver.renderBookOpenGraphImage(eq(book), eq("abc-123")))
+        when(bookOpenGraphImageResolver.renderBookOpenGraphImage(book, "abc-123"))
             .thenReturn(new byte[] {1, 2, 3});
 
         byte[] image = useCase.bookOpenGraphImage(book, "abc-123");
 
         assertEquals(3, image.length);
-        verify(bookOpenGraphImageResolver).renderBookOpenGraphImage(eq(book), eq("abc-123"));
+        verify(bookOpenGraphImageResolver).renderBookOpenGraphImage(book, "abc-123");
     }
 
     @Test
     void should_RenderBookOpenGraphFallbackImage_When_IdentifierIsUnresolved() {
-        when(bookOpenGraphImageResolver.renderFallbackOpenGraphImage(eq("missing-book")))
+        when(bookOpenGraphImageResolver.renderFallbackOpenGraphImage("missing-book"))
             .thenReturn(new byte[] {5, 6});
 
         byte[] image = useCase.bookOpenGraphFallbackImage("missing-book");
 
         assertEquals(2, image.length);
-        verify(bookOpenGraphImageResolver).renderFallbackOpenGraphImage(eq("missing-book"));
+        verify(bookOpenGraphImageResolver).renderFallbackOpenGraphImage("missing-book");
     }
 
     @Test

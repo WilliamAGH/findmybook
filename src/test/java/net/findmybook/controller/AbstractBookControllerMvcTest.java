@@ -97,7 +97,7 @@ abstract class AbstractBookControllerMvcTest {
             new RecommendationCardResponseUseCase();
         SimilarBooksResponseUseCase similarBooksResponseUseCase =
             new SimilarBooksResponseUseCase(bookSearchService, recommendationCardResponseUseCase, recommendationService);
-        BookController bookController = new BookController(
+        BookController.BookControllerServices services = new BookController.BookControllerServices(
             bookSearchService,
             bookIdentifierResolver,
             searchPaginationService,
@@ -105,6 +105,7 @@ abstract class AbstractBookControllerMvcTest {
             similarBooksResponseUseCase,
             bookDataOrchestrator
         );
+        BookController bookController = new BookController(services);
         BookCoverResolutionService bookCoverResolutionService = new BookCoverResolutionService(
             bookSearchService,
             bookIdentifierResolver,

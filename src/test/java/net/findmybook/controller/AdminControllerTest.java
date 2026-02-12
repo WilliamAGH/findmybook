@@ -79,17 +79,20 @@ class AdminControllerTest {
     void setUp() {
         when(s3CoverCleanupServiceProvider.getIfAvailable()).thenReturn(s3CoverCleanupService);
         when(backfillCoordinatorProvider.getIfAvailable()).thenReturn(backfillCoordinator);
-        adminController = new AdminController(
+        AdminController.AdminServices adminServices = new AdminController.AdminServices(
             s3CoverCleanupServiceProvider,
             newYorkTimesBestsellerScheduler,
             weeklyCatalogRefreshScheduler,
             recommendationCacheRefreshUseCase,
             bookCacheWarmingScheduler,
-            apiCircuitBreakerService,
+            apiCircuitBreakerService
+        );
+        AdminController.S3CleanupConfig s3CleanupConfig = new AdminController.S3CleanupConfig(
             TEST_S3_PREFIX,
             TEST_BATCH_LIMIT,
             TEST_QUARANTINE_PREFIX
         );
+        adminController = new AdminController(adminServices, s3CleanupConfig);
         backfillAdminController = new BackfillAdminController(
             backfillCoordinatorProvider,
             coverBackfillService
@@ -161,9 +164,10 @@ class AdminControllerTest {
 
     @Test
     void triggerNytBestsellerProcessing_shouldReturnBadRequest_WhenRerunAllAndDateProvided() {
+        LocalDate requestedDate = LocalDate.parse("2026-02-09");
         ResponseStatusException exception = assertThrows(
             ResponseStatusException.class,
-            () -> adminController.triggerNytBestsellerProcessing(LocalDate.parse("2026-02-09"), true)
+            () -> adminController.triggerNytBestsellerProcessing(requestedDate, true)
         );
 
         assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());

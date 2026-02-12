@@ -2,7 +2,6 @@ package net.findmybook.controller;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -115,7 +114,7 @@ class PageApiControllerMetadataTest {
 
     @Test
     void should_ReturnErrorMetadata_When_ErrorPathRequested() throws Exception {
-        when(bookSeoMetadataService.errorMetadata(eq(500), eq("/error"))).thenReturn(
+        when(bookSeoMetadataService.errorMetadata(500, "/error")).thenReturn(
             new SeoMetadata(
                 "Error 500",
                 "Unexpected error",
@@ -175,8 +174,8 @@ class PageApiControllerMetadataTest {
 
     @Test
     void should_ReturnNotFoundMetadata_When_BookPathCannotBeResolved() throws Exception {
-        when(homePageSectionsService.locateBook(eq("missing-book"))).thenReturn(Mono.empty());
-        when(bookSeoMetadataService.notFoundMetadata(eq("/book/missing-book"))).thenReturn(
+        when(homePageSectionsService.locateBook("missing-book")).thenReturn(Mono.empty());
+        when(bookSeoMetadataService.notFoundMetadata("/book/missing-book")).thenReturn(
             new SeoMetadata(
                 "Page Not Found",
                 "Missing page.",
@@ -202,9 +201,9 @@ class PageApiControllerMetadataTest {
         when(bookSeoMetadataService.sitemapRoutePattern()).thenReturn(
             Pattern.compile("^/sitemap/(authors|books)/([^/]+)/(\\d+)$")
         );
-        when(sitemapService.normalizeBucket(eq("A"))).thenReturn("A");
+        when(sitemapService.normalizeBucket("A")).thenReturn("A");
         String expectedPath = "/sitemap/books/A/" + Integer.MAX_VALUE;
-        when(bookSeoMetadataService.sitemapMetadata(eq(expectedPath))).thenReturn(
+        when(bookSeoMetadataService.sitemapMetadata(expectedPath)).thenReturn(
             new SeoMetadata(
                 "Sitemap",
                 "Sitemap description",
@@ -230,9 +229,9 @@ class PageApiControllerMetadataTest {
         when(bookSeoMetadataService.sitemapRoutePattern()).thenReturn(
             Pattern.compile("^/sitemap/(authors|books)/([^/]+)/(\\d+)$")
         );
-        when(sitemapService.normalizeBucket(eq("A"))).thenReturn("A");
+        when(sitemapService.normalizeBucket("A")).thenReturn("A");
         String expectedPath = "/sitemap/books/A/1";
-        when(bookSeoMetadataService.sitemapMetadata(eq(expectedPath))).thenReturn(
+        when(bookSeoMetadataService.sitemapMetadata(expectedPath)).thenReturn(
             new SeoMetadata(
                 "Sitemap",
                 "Sitemap description",

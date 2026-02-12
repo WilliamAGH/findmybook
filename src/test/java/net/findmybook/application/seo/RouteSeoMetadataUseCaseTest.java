@@ -17,9 +17,7 @@ import java.util.regex.Pattern;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -104,7 +102,7 @@ class RouteSeoMetadataUseCaseTest {
 
     @Test
     void should_BuildNotFoundMetadata_When_PathIsUnresolved() {
-        when(canonicalUrlResolver.normalizePublicUrl(eq("/404"))).thenReturn("https://findmybook.net/404");
+        when(canonicalUrlResolver.normalizePublicUrl("/404")).thenReturn("https://findmybook.net/404");
         when(seoMarkupFormatter.pageTitle(anyString(), anyString(), anyString())).thenReturn("Page Not Found | findmybook");
         when(routeStructuredDataRenderer.renderRouteGraph(any(RouteGraphRenderRequest.class)))
             .thenReturn("not-found-json");
@@ -118,7 +116,7 @@ class RouteSeoMetadataUseCaseTest {
 
     @Test
     void should_BuildErrorMetadata_When_StatusCodeIsProvided() {
-        when(canonicalUrlResolver.normalizePublicUrl(eq("/error"))).thenReturn("https://findmybook.net/error");
+        when(canonicalUrlResolver.normalizePublicUrl("/error")).thenReturn("https://findmybook.net/error");
         when(seoMarkupFormatter.pageTitle(anyString(), anyString(), anyString())).thenReturn("Error 500 | findmybook");
         when(routeStructuredDataRenderer.renderRouteGraph(any(RouteGraphRenderRequest.class)))
             .thenReturn("error-json");
@@ -134,7 +132,7 @@ class RouteSeoMetadataUseCaseTest {
     void should_BuildGenericSitemapMetadata_When_PathDoesNotMatchPattern() {
         when(seoRouteManifestUseCase.sitemapRoutePattern())
             .thenReturn(Pattern.compile("^/sitemap/(authors|books)/([^/]+)/(\\d+)$"));
-        when(canonicalUrlResolver.normalizePublicUrl(eq("/sitemap"))).thenReturn("https://findmybook.net/sitemap");
+        when(canonicalUrlResolver.normalizePublicUrl("/sitemap")).thenReturn("https://findmybook.net/sitemap");
         when(seoMarkupFormatter.pageTitle(anyString(), anyString(), anyString())).thenReturn("Sitemap | findmybook");
         when(routeStructuredDataRenderer.renderRouteGraph(any(RouteGraphRenderRequest.class)))
             .thenReturn("sitemap-json");
@@ -149,7 +147,7 @@ class RouteSeoMetadataUseCaseTest {
     void should_BuildPatternedSitemapMetadata_When_PathMatchesViewBucketPage() {
         when(seoRouteManifestUseCase.sitemapRoutePattern())
             .thenReturn(Pattern.compile("^/sitemap/(authors|books)/([^/]+)/(\\d+)$"));
-        when(canonicalUrlResolver.normalizePublicUrl(eq("/sitemap/books/A/2")))
+        when(canonicalUrlResolver.normalizePublicUrl("/sitemap/books/A/2"))
             .thenReturn("https://findmybook.net/sitemap/books/A/2");
         when(seoMarkupFormatter.pageTitle(anyString(), anyString(), anyString())).thenReturn("Books Sitemap: A Page 2 | findmybook");
         when(routeStructuredDataRenderer.renderRouteGraph(any(RouteGraphRenderRequest.class)))

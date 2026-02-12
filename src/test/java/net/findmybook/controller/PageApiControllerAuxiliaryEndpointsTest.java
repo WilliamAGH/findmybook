@@ -2,7 +2,6 @@ package net.findmybook.controller;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -79,8 +78,8 @@ class PageApiControllerAuxiliaryEndpointsTest {
     @Test
     void shouldReturnSitemapPayloadWhenBooksViewRequested() throws Exception {
         when(sitemapProperties.getBaseUrl()).thenReturn("https://findmybook.net");
-        when(sitemapService.normalizeBucket(eq("A"))).thenReturn("A");
-        when(sitemapService.getBooksByLetter(eq("A"), eq(1))).thenReturn(
+        when(sitemapService.normalizeBucket("A")).thenReturn("A");
+        when(sitemapService.getBooksByLetter("A", 1)).thenReturn(
             new SitemapService.PagedResult<>(
                 List.of(new SitemapService.BookSitemapItem("book-uuid", "book-slug", "Book Title", Instant.parse("2026-01-01T00:00:00Z"))),
                 1,
@@ -100,8 +99,8 @@ class PageApiControllerAuxiliaryEndpointsTest {
     void shouldReturnAffiliateLinksWhenBookExists() throws Exception {
         Book book = new Book();
         book.setId("book-uuid");
-        when(homePageSectionsService.locateBook(eq("book-uuid"))).thenReturn(Mono.just(book));
-        when(affiliateLinkService.generateLinks(eq(book))).thenReturn(Map.of("Amazon", "https://example.com/amz"));
+        when(homePageSectionsService.locateBook("book-uuid")).thenReturn(Mono.just(book));
+        when(affiliateLinkService.generateLinks(book)).thenReturn(Map.of("Amazon", "https://example.com/amz"));
 
         var asyncResult = mockMvc.perform(get("/api/pages/book/book-uuid/affiliate-links"))
             .andExpect(status().isOk())
@@ -114,7 +113,7 @@ class PageApiControllerAuxiliaryEndpointsTest {
 
     @Test
     void shouldReturnProblemDetailWhenAffiliateLinksBookMissing() throws Exception {
-        when(homePageSectionsService.locateBook(eq("missing-book"))).thenReturn(Mono.empty());
+        when(homePageSectionsService.locateBook("missing-book")).thenReturn(Mono.empty());
 
         var asyncResult = mockMvc.perform(get("/api/pages/book/missing-book/affiliate-links")
                 .accept(MediaType.APPLICATION_PROBLEM_JSON))
@@ -129,7 +128,7 @@ class PageApiControllerAuxiliaryEndpointsTest {
 
     @Test
     void should_ReturnCategoryFacets_When_CategoriesEndpointRequested() throws Exception {
-        when(homePageSectionsService.loadCategoryFacets(eq(10), eq(3))).thenReturn(
+        when(homePageSectionsService.loadCategoryFacets(10, 3)).thenReturn(
             List.of(
                 new BookSearchService.CategoryFacet("Fantasy", 240),
                 new BookSearchService.CategoryFacet("Mystery", 180)
