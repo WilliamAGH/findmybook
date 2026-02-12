@@ -43,7 +43,7 @@ public class BookCoverResolutionService {
                                       Optional<BookDataOrchestrator> bookDataOrchestrator) {
         this.bookSearchService = bookSearchService;
         this.bookIdentifierResolver = bookIdentifierResolver;
-        this.bookDataOrchestrator = bookDataOrchestrator != null ? bookDataOrchestrator : Optional.empty();
+        this.bookDataOrchestrator = bookDataOrchestrator;
     }
 
     /**

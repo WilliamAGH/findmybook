@@ -289,11 +289,11 @@ public class RecommendationService {
 
         List<Book> orderedBooks = orderedCandidates.stream()
             .map(ScoredBook::getBook)
-            .collect(Collectors.toList());
+            .toList();
 
         List<Book> limitedRecommendations = orderedBooks.stream()
             .limit(effectiveCount)
-            .collect(Collectors.toList());
+            .toList();
 
         return persistRecommendations(sourceBook,
             new PersistableRecommendations(orderedCandidates, orderedBooks, limitedRecommendations));
@@ -312,7 +312,7 @@ public class RecommendationService {
         return recommendationMap.values().stream()
             .filter(scored -> isEligibleRecommendation(sourceBook, scored.getBook(), filterByLanguage, sourceLang))
             .sorted(comparator)
-            .collect(Collectors.toList());
+            .toList();
     }
 
     private Mono<List<Book>> persistRecommendations(Book sourceBook,
@@ -328,7 +328,7 @@ public class RecommendationService {
             .map(Book::getId)
             .filter(Objects::nonNull)
             .distinct()
-            .collect(Collectors.toList());
+            .toList();
 
         sourceBook.addRecommendationIds(newRecommendationIds);
 
@@ -371,7 +371,7 @@ public class RecommendationService {
                 scored.getBook(),
                 scored.getScore(),
                 new ArrayList<>(scored.getReasons())))
-            .collect(Collectors.toList());
+            .toList();
     }
 
     private boolean isEligibleRecommendation(Book sourceBook, Book candidate, boolean filterByLanguage, String sourceLang) {
@@ -435,7 +435,7 @@ public class RecommendationService {
             .map(category -> category.split("\\s*/\\s*")[0])
             .distinct()
             .limit(MAX_MAIN_CATEGORIES)
-            .collect(Collectors.toList());
+            .toList();
 
         if (mainCategories.isEmpty()) {
             return Flux.empty();
@@ -603,7 +603,7 @@ public class RecommendationService {
                 .filter(Objects::nonNull)
                 .filter(book -> StringUtils.hasText(book.getId()))
                 .limit(limit)
-                .collect(Collectors.toList());
+                .toList();
     }
 
     private List<Book> orderBooksBySearchResults(List<BookSearchService.SearchResult> results,
