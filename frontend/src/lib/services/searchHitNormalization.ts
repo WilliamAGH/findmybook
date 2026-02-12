@@ -7,12 +7,17 @@
  * Extracted from the book data access layer to keep each service module
  * single-purpose and within the repository file-size ceiling.
  */
+import { z } from "zod/v4";
 import type { SortOption } from "$lib/services/searchConfig";
 import { validateWithSchema } from "$lib/validation/validate";
 import {
   type SearchHit,
   RealtimeSearchHitCandidateSchema,
 } from "$lib/validation/schemas";
+
+type RealtimeCoverPayload = NonNullable<
+  z.infer<typeof RealtimeSearchHitCandidateSchema>["cover"]
+>;
 
 function normalizeAuthorNames(rawAuthors: string[]): Array<{ id: string | null; name: string }> {
   return rawAuthors.map((name) => ({ id: null, name }));
@@ -161,19 +166,19 @@ function sortSearchHits(hits: SearchHit[], orderBy: SortOption): SearchHit[] {
 }
 
 /**
- * Build a fully-typed Cover object from a loosely-typed realtime candidate cover payload.
+ * Build a fully-typed Cover object from a Zod-validated realtime candidate cover payload.
  * Fills missing fields with null to satisfy the SearchHit cover contract.
  */
-function buildNormalizedCover(raw: Record<string, unknown>): SearchHit["cover"] {
+function buildNormalizedCover(raw: RealtimeCoverPayload): SearchHit["cover"] {
   return {
-    s3ImagePath: (raw.s3ImagePath as string) ?? null,
-    externalImageUrl: (raw.externalImageUrl as string) ?? null,
+    s3ImagePath: raw.s3ImagePath ?? null,
+    externalImageUrl: raw.externalImageUrl ?? null,
     width: null,
     height: null,
     highResolution: null,
-    preferredUrl: (raw.preferredUrl as string) ?? null,
-    fallbackUrl: (raw.fallbackUrl as string) ?? null,
-    source: (raw.source as string) ?? null,
+    preferredUrl: raw.preferredUrl ?? null,
+    fallbackUrl: raw.fallbackUrl ?? null,
+    source: raw.source ?? null,
   };
 }
 
@@ -203,7 +208,16 @@ function normalizeSearchHit(raw: unknown): SearchHit | null {
     categories: candidate.categories,
     collections: [],
     tags: [],
-    cover: buildNormalizedCover(candidate.cover ?? {}),
+    cover: candidate.cover ? buildNormalizedCover(candidate.cover) : {
+      s3ImagePath: null,
+      externalImageUrl: null,
+      width: null,
+      height: null,
+      highResolution: null,
+      preferredUrl: null,
+      fallbackUrl: null,
+      source: null,
+    },
     editions: [],
     recommendationIds: [],
     extras: {},
@@ -220,8 +234,10 @@ export function normalizeRealtimeSearchHits(incoming: unknown[]): SearchHit[] {
 }
 
 /**
- * Merges incoming realtime hits into an existing result set, deduplicating by id
- * while preferring fresher incoming payloads, then re-sorting by active order.
+ * Merges incoming realtime hits into an existing result set, deduplicating by id.
+ * Existing backend results are preserved; only genuinely new hits are added.
+ * This prevents structurally incomplete WebSocket payloads from overwriting
+ * full backend results that contain populated collections, tags, and editions.
  */
 export function mergeSearchHits(
   existingHits: SearchHit[],
@@ -230,7 +246,9 @@ export function mergeSearchHits(
 ): SearchHit[] {
   const merged = new Map(existingHits.map((hit) => [hit.id, hit]));
   for (const candidate of incomingHits) {
-    merged.set(candidate.id, candidate);
+    if (!merged.has(candidate.id)) {
+      merged.set(candidate.id, candidate);
+    }
   }
   return sortSearchHits(Array.from(merged.values()), orderBy);
 }
