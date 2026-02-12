@@ -302,12 +302,10 @@ public class BookController {
         }
 
         String trimmed = identifier.trim();
-        Mono<BookDto> resolvedBook = Mono.fromCallable(() -> locateBookDto(trimmed))
+        return Mono.fromCallable(() -> locateBookDto(trimmed))
             .subscribeOn(Schedulers.boundedElastic())
             .flatMap(Mono::justOrEmpty)
             .switchIfEmpty(fetchBookViaFallback(trimmed));
-
-        return resolvedBook;
     }
 
     private Optional<BookDto> locateBookDto(String identifier) {

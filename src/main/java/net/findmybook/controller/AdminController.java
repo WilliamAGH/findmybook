@@ -319,8 +319,8 @@ public class AdminController {
      */
     @GetMapping(value = "/circuit-breaker/status", produces = MediaType.TEXT_PLAIN_VALUE)
     public ResponseEntity<String> getCircuitBreakerStatus() {
-        return executeAdminAction("circuit-breaker/status", "circuit breaker status retrieval", () ->
-            apiCircuitBreakerService.getCircuitStatus()
+        return executeAdminAction("circuit-breaker/status", "circuit breaker status retrieval",
+            apiCircuitBreakerService::getCircuitStatus
         );
     }
 
@@ -333,7 +333,7 @@ public class AdminController {
     public ResponseEntity<String> resetCircuitBreaker() {
         return executeAdminAction("circuit-breaker/reset", "circuit breaker reset", () -> {
             apiCircuitBreakerService.reset();
-            return "Successfully reset API circuit breaker to CLOSED state.";
+            return "Circuit breaker reset to CLOSED.";
         });
     }
 

@@ -107,7 +107,7 @@ public class BookSearchService {
                         new ClusterInfo(rs.getInt("edition_count"), rs.getObject("cluster_id", UUID.class)));
                 }
             ).stream()
-             .filter(result -> result != null)
+             .filter(Objects::nonNull)
              .toList();
 
         List<SearchResult> deduplicated = deduplicator.deduplicate(rawResults);
@@ -189,7 +189,7 @@ public class BookSearchService {
             MIN_CATEGORY_FACET_LIMIT,
             MAX_LIMIT
         );
-        int safeMinBooks = minBooks == null ? 1 : Math.max(0, Math.min(minBooks, MAX_CATEGORY_FACET_MIN_BOOKS));
+        int safeMinBooks = minBooks == null ? 1 : Math.clamp(minBooks, 0, MAX_CATEGORY_FACET_MIN_BOOKS);
         String sql = """
             SELECT category_name,
                    book_count::int AS book_count
