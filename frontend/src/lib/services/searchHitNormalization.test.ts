@@ -50,24 +50,24 @@ function createSearchHit(id: string, overrides: Partial<SearchHit> = {}): Search
 }
 
 describe("mergeSearchHits", () => {
-  it("should_ReplaceExistingHit_When_IncomingHitSharesIdentifier", () => {
+  it("should_PreserveExistingHit_When_IncomingHitSharesIdentifier", () => {
     const existing = createSearchHit("book-1", {
-      title: "Older Title",
-      relevanceScore: 1,
-      cover: { preferredUrl: "https://cdn.example.com/older.jpg" },
+      title: "Backend Title",
+      relevanceScore: 5,
+      cover: { preferredUrl: "https://cdn.example.com/backend.jpg" },
     });
     const incoming = createSearchHit("book-1", {
-      title: "Fresh Title",
+      title: "WebSocket Title",
       relevanceScore: 9,
-      cover: { preferredUrl: "https://cdn.example.com/fresh.jpg" },
+      cover: { preferredUrl: "https://cdn.example.com/ws.jpg" },
     });
 
     const merged = mergeSearchHits([existing], [incoming], "relevance");
 
     expect(merged).toHaveLength(1);
-    expect(merged[0].title).toBe("Fresh Title");
-    expect(merged[0].relevanceScore).toBe(9);
-    expect(merged[0].cover?.preferredUrl).toBe("https://cdn.example.com/fresh.jpg");
+    expect(merged[0].title).toBe("Backend Title");
+    expect(merged[0].relevanceScore).toBe(5);
+    expect(merged[0].cover?.preferredUrl).toBe("https://cdn.example.com/backend.jpg");
   });
 
   it("should_AppendDistinctHits_When_IncomingIdentifierIsNew", () => {
