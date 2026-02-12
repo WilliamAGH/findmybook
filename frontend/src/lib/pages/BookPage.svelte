@@ -263,22 +263,11 @@
       return "/";
     }
 
-    const page = currentUrl.searchParams.get("page");
-    const orderBy = currentUrl.searchParams.get("orderBy");
-    const view = currentUrl.searchParams.get("view");
-    const year = currentUrl.searchParams.get("year");
-
-    if (page) {
-      url.searchParams.set("page", page);
-    }
-    if (orderBy) {
-      url.searchParams.set("orderBy", orderBy);
-    }
-    if (view) {
-      url.searchParams.set("view", view);
-    }
-    if (year) {
-      url.searchParams.set("year", year);
+    for (const param of ["page", "orderBy", "view", "year"] as const) {
+      const value = currentUrl.searchParams.get(param);
+      if (value) {
+        url.searchParams.set(param, value);
+      }
     }
 
     return `${url.pathname}${url.search}`;
