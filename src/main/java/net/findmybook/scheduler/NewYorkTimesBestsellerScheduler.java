@@ -26,6 +26,9 @@ import java.util.List;
 
 /**
  * Orchestrates NYT bestseller ingestion from API payload to canonical persistence services.
+ *
+ * @implNote LOC1 split plan (458 lines): extract {@code NytListProcessor}
+ *     (per-list and per-entry processing logic).
  */
 @Component
 @Slf4j

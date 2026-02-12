@@ -46,6 +46,11 @@ import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+/**
+ * REST controller exposing Postgres-first book APIs.
+ *
+ * @implNote LOC1 note (356 lines): minimal overage; within tolerance after minor cleanup.
+ */
 @RestController
 @RequestMapping("/api/books")
 public class BookController {

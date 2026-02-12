@@ -1,8 +1,12 @@
 /**
- * Service for generating book recommendations based on various similarity criteria
+ * Service for generating book recommendations based on various similarity criteria.
  * This class is responsible for generating book recommendations using a combination of strategies:
- * 
+ *
  * - Uses multi-faceted approach combining author, category, and text-based matching
+ *
+ * @implNote LOC1 split plan (701 lines): extract {@code RecommendationScoringStrategy}
+ *     (scoring, ranking, and deduplication logic) and {@code BookSearchStrategyChain}
+ *     (author/category/text search orchestration).
  * - Implements scoring algorithm to rank recommendations by relevance
  * - Supports language-aware filtering to match source book language
  * - Provides reactive API for non-blocking recommendation generation
@@ -132,11 +136,11 @@ public class RecommendationService {
 
     /**
      * Generates recommendations for books similar to the specified book
-     * 
+     *
      * @param bookId The Google Books ID to find recommendations for
      * @param finalCount The number of recommendations to return (defaults to 6 if ≤ 0)
      * @return Mono emitting list of recommended books in descending order of relevance
-     * 
+     *
      * @implNote Combines three recommendation strategies (author, category, text matching)
      * Scores and ranks results to provide the most relevant recommendations
      * Filters by language to match the source book when language information is available
@@ -188,11 +192,11 @@ public class RecommendationService {
     /**
      * Fetches book recommendations using the Google Books API and updates the cache
      * This is a fallback method used when cached recommendations are unavailable or insufficient
-     * 
+     *
      * @param sourceBook The book to find recommendations for
      * @param effectiveCount The desired number of recommendations to return
      * @return Mono emitting a list of recommended books
-     * 
+     *
      * @implNote Uses a multi-strategy approach:
      * 1. Retrieves books by same authors (via findBooksByAuthorsReactive)
      * 2. Retrieves books in similar categories (via findBooksByCategoriesReactive)
@@ -279,8 +283,8 @@ public class RecommendationService {
             ));
     }
 
-    private Mono<List<Book>> processAndPersistRecommendations(Book sourceBook, 
-                                                              Map<String, ScoredBook> recommendationMap, 
+    private Mono<List<Book>> processAndPersistRecommendations(Book sourceBook,
+                                                              Map<String, ScoredBook> recommendationMap,
                                                               int effectiveCount) {
         List<ScoredBook> orderedCandidates = sortAndFilterCandidates(sourceBook, recommendationMap);
 
@@ -400,10 +404,10 @@ public class RecommendationService {
 
     /**
      * Finds books by the same authors as the source book
-     * 
+     *
      * @param sourceBook The source book to find author matches for
      * @return Flux emitting scored books by the same authors
-     * 
+     *
      * @implNote Assigns high score (4.0) to author matches as they are strong indicators
      * Returns empty flux if source book has no authors
      */
@@ -412,7 +416,7 @@ public class RecommendationService {
             return Flux.empty();
         }
         String langCode = sourceBook.getLanguage(); // Get language from source book
-        
+
         return Flux.fromIterable(sourceBook.getAuthors())
             .flatMap(author -> searchBooks("inauthor:" + author, langCode, MAX_SEARCH_RESULTS)
                 .flatMapMany(Flux::fromIterable)
@@ -422,13 +426,13 @@ public class RecommendationService {
                     error
                 )));
     }
-    
+
     /**
      * Finds books in the same categories as the source book
-     * 
+     *
      * @param sourceBook The source book to find category matches for
      * @return Flux emitting scored books in matching categories
-     * 
+     *
      * @implNote Extracts main categories and builds optimized category search query
      * Score varies based on category overlap calculation
      */
@@ -449,7 +453,7 @@ public class RecommendationService {
 
         String categoryQueryString = "subject:" + String.join(" OR subject:", mainCategories);
         String langCode = sourceBook.getLanguage(); // Get language from source book
-        
+
         return searchBooks(categoryQueryString, langCode, MAX_SEARCH_RESULTS)
             .flatMapMany(Flux::fromIterable)
             .take(MAX_SEARCH_RESULTS)
@@ -462,14 +466,14 @@ public class RecommendationService {
                 error
             ));
     }
-    
+
     /**
      * Calculates similarity score based on category overlap between books
-     * 
+     *
      * @param sourceBook The source book for comparison
      * @param candidateBook The candidate book being evaluated
      * @return Score between 1.0 and 3.0 reflecting category similarity
-     * 
+     *
      * @implNote Uses normalized categories for more accurate matching
      * Score is proportional to the percentage of overlapping categories
      */
@@ -478,41 +482,41 @@ public class RecommendationService {
             ValidationUtils.isNullOrEmpty(candidateBook.getCategories())) {
             return BASE_CATEGORY_SCORE; // Some basic score if it can't calculate
         }
-        
+
         Set<String> sourceCategories = normalizeCategories(sourceBook.getCategories());
         Set<String> candidateCategories = normalizeCategories(candidateBook.getCategories());
-        
+
         // Find intersecting categories
         Set<String> intersection = new HashSet<>(sourceCategories);
         intersection.retainAll(candidateCategories);
-        
+
         // More overlapping categories = higher score
         double overlapRatio = (double) intersection.size() /
                 PagingUtils.atLeast(Math.min(sourceCategories.size(), candidateCategories.size()), 1);
-        
+
         // Scale to range 1.0 - 3.0
         return CATEGORY_SCORE_BASE + (overlapRatio * CATEGORY_SCORE_RANGE);
     }
-    
+
     /**
      * Normalizes book categories for consistent comparison
-     * 
+     *
      * @param categories List of categories to normalize
      * @return Set of normalized category strings
-     * 
+     *
      * @implNote Delegates to CategoryNormalizer utility for DRY principle
      * @see CategoryNormalizer#normalizeForComparison(List)
      */
     private Set<String> normalizeCategories(List<String> categories) {
         return CategoryNormalizer.normalizeForComparison(categories);
     }
-    
+
     /**
      * Finds books with similar keywords in title and description
-     * 
+     *
      * @param sourceBook The source book to find keyword matches for
      * @return Flux emitting scored books with matching keywords
-     * 
+     *
      * @implNote Extracts significant keywords from title and description
      * Filters out common stop words and short tokens
      * Score based on quantity of matching keywords
@@ -661,8 +665,8 @@ public class RecommendationService {
 
     /**
      * Helper class to track books with their calculated similarity scores
-     * 
-     * Encapsulates:  
+     *
+     * Encapsulates:
      * - Book object with all its metadata
      * - Similarity score that accumulates across multiple recommendation strategies
      * - Used for ranking recommendations by relevance

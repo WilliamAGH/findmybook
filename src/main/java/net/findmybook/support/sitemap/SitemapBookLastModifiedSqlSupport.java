@@ -1,5 +1,7 @@
 package net.findmybook.support.sitemap;
 
+import java.util.regex.Pattern;
+
 /**
  * SQL builder for sitemap book last-modified projections.
  *
@@ -7,6 +9,14 @@ package net.findmybook.support.sitemap;
  * methods reuse one canonical definition for book-level {@code lastmod} values.</p>
  */
 public final class SitemapBookLastModifiedSqlSupport {
+
+    /** Validates SQL column aliases against standard identifier rules to prevent injection via {@code String.formatted()}. */
+    private static final String SQL_IDENTIFIER_REGEX = "[a-zA-Z_][a-zA-Z0-9_]*";
+    private static final Pattern SQL_IDENTIFIER_PATTERN = Pattern.compile(SQL_IDENTIFIER_REGEX);
+
+    /** Validates JDBC placeholder strings to only allow {@code ?}, commas, and whitespace — blocking injection via {@code IN (...)}. */
+    private static final String SQL_PLACEHOLDER_REGEX = "[?,\\s]+";
+    private static final Pattern SQL_PLACEHOLDER_PATTERN = Pattern.compile(SQL_PLACEHOLDER_REGEX);
 
     private SitemapBookLastModifiedSqlSupport() {
     }
@@ -18,6 +28,7 @@ public final class SitemapBookLastModifiedSqlSupport {
      * @return formatted SQL containing {@code change_events} and {@code book_last_modified} CTEs
      */
     public static String globalBookLastModifiedCte(String bookUpdatedAtAlias) {
+        validateSqlIdentifier(bookUpdatedAtAlias, "bookUpdatedAtAlias");
         return """
                 WITH change_events AS (
                     %s
@@ -43,6 +54,8 @@ public final class SitemapBookLastModifiedSqlSupport {
      * @return formatted SQL string for author-scoped sitemap rows
      */
     public static String scopedAuthorBookLastModifiedQuery(String authorPlaceholders, String bookUpdatedAtAlias) {
+        validateSqlPlaceholders(authorPlaceholders);
+        validateSqlIdentifier(bookUpdatedAtAlias, "bookUpdatedAtAlias");
         return """
                 WITH requested_authors AS (
                     SELECT baj.author_id
@@ -164,6 +177,20 @@ public final class SitemapBookLastModifiedSqlSupport {
                 JOIN book_last_modified blm ON blm.id = baj.book_id
                 ORDER BY baj.author_id, lower(blm.title), blm.slug
                 """.formatted(authorPlaceholders, bookUpdatedAtAlias, bookUpdatedAtAlias);
+    }
+
+    private static void validateSqlIdentifier(String value, String parameterName) {
+        if (value == null || value.isBlank() || !SQL_IDENTIFIER_PATTERN.matcher(value).matches()) {
+            throw new IllegalArgumentException(
+                parameterName + " must be a valid SQL identifier matching " + SQL_IDENTIFIER_REGEX);
+        }
+    }
+
+    private static void validateSqlPlaceholders(String value) {
+        if (value == null || value.isBlank() || !SQL_PLACEHOLDER_PATTERN.matcher(value).matches()) {
+            throw new IllegalArgumentException(
+                "authorPlaceholders must contain only '?', ',', and whitespace");
+        }
     }
 
     private static String unionAllChangeEvents() {
