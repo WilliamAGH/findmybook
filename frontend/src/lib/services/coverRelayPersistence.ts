@@ -9,16 +9,15 @@
 import type { CoverIngestResponse } from "$lib/validation/coverSchemas";
 import type { Book } from "$lib/validation/schemas";
 
-const S3_COVER_PATH_SEGMENT = "/images/book-covers/";
 const PLACEHOLDER_COVER_FILENAME = "placeholder-book-cover.svg";
 
-function normalizeCoverUrl(candidateUrl: string): string | null {
+export function normalizeCoverUrl(candidateUrl: string): string | null {
   if (!candidateUrl || candidateUrl.trim().length === 0) {
     return null;
   }
 
   try {
-    const baseOrigin = typeof location !== "undefined" ? location.origin : undefined;
+    const baseOrigin = typeof location === "undefined" ? undefined : location.origin;
     const parsed = baseOrigin ? new URL(candidateUrl, baseOrigin) : new URL(candidateUrl);
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
       return null;
@@ -36,8 +35,7 @@ function hasPersistedS3Cover(book: Book): boolean {
 
 function isPersistedCoverUrl(candidateUrl: string): boolean {
   const normalized = candidateUrl.toLowerCase();
-  return normalized.includes(S3_COVER_PATH_SEGMENT)
-    || normalized.includes("images/book-covers/");
+  return normalized.includes("images/book-covers/");
 }
 
 function isPlaceholderCoverUrl(candidateUrl: string, placeholderCoverUrl: string): boolean {
@@ -65,7 +63,7 @@ export function reserveCoverRelayCandidate(
   placeholderCoverUrl: string,
   attemptedCoverPersistKeys: Set<string>,
 ): string | null {
-  if (!book || !book.id || book.id.trim().length === 0) {
+  if (!book?.id || book.id.trim().length === 0) {
     return null;
   }
 

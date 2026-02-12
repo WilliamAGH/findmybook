@@ -13,6 +13,7 @@
   } from "$lib/services/books";
   import {
     mergePersistedCoverIntoBook,
+    normalizeCoverUrl,
     releaseCoverRelayCandidate,
     reserveCoverRelayCandidate,
   } from "$lib/services/coverRelayPersistence";
@@ -20,7 +21,7 @@
   import type { Book, BookAiContentSnapshot } from "$lib/validation/schemas";
   import { ChevronLeft } from "@lucide/svelte";
 
-  const attemptedCoverPersistKeys = new Set<string>();
+  let attemptedCoverPersistKeys = new Set<string>();
 
   let {
     currentUrl,
@@ -227,7 +228,7 @@
         source: currentBook.cover?.source ?? null,
       });
 
-      if (sequence !== loadSequence || !book || book.id !== currentBook.id || detailCoverUrl !== normalizedRenderedUrl) {
+      if (sequence !== loadSequence || !book || book.id !== currentBook.id || normalizeCoverUrl(detailCoverUrl) !== normalizedRenderedUrl) {
         releaseCoverRelayCandidate(currentBook.id, normalizedRenderedUrl, attemptedCoverPersistKeys);
         return;
       }
@@ -301,6 +302,7 @@
       if (unsubscribeRealtime) {
         unsubscribeRealtime();
       }
+      attemptedCoverPersistKeys.clear();
     };
   });
 </script>
