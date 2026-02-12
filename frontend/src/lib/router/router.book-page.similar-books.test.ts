@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import BookPage from "$lib/pages/BookPage.svelte";
+import { buildCover } from "$lib/validation/schemas";
 
 const {
   getBookMock,
@@ -66,16 +67,13 @@ beforeEach(() => {
   subscribeToBookCoverUpdatesMock.mockResolvedValue(() => {});
 });
 
-const DISPLAYABLE_COVER = {
-  s3ImagePath: null,
-  externalImageUrl: null,
+const DISPLAYABLE_COVER = buildCover({
   width: 300,
   height: 450,
   highResolution: false,
   preferredUrl: "https://cdn.example.com/cover.jpg",
-  fallbackUrl: null,
   source: "GOOGLE_BOOKS",
-};
+});
 
 function createBookPayload(overrides: Record<string, unknown>) {
   return {
@@ -190,16 +188,14 @@ describe("BookPage similar books", () => {
         id: "broken-cover-1",
         slug: "broken-cover-1",
         title: "Broken Cover",
-        cover: {
-          s3ImagePath: null,
-          externalImageUrl: null,
+        cover: buildCover({
           width: 300,
           height: 450,
           highResolution: false,
           preferredUrl: "https://cdn.example.com/broken-primary.jpg",
           fallbackUrl: "/images/book-covers/broken-cover-fallback.jpg",
           source: "GOOGLE_BOOKS",
-        },
+        }),
       }),
     ]);
 

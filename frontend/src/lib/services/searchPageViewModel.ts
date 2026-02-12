@@ -177,7 +177,7 @@ export function mapSearchHitToBookCard(hit: SearchHit): BookCardDisplay {
     title: hit.title ?? "Untitled",
     authors,
     description: hit.descriptionContent?.text ?? hit.description,
-    coverUrl: hit.cover?.preferredUrl ?? hit.cover?.s3ImagePath ?? hit.cover?.externalImageUrl ?? null,
+    coverUrl: hit.cover?.displayUrl ?? null,
     fallbackCoverUrl: hit.cover?.fallbackUrl ?? "/images/placeholder-book-cover.svg",
   };
 }

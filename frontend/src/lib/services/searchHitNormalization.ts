@@ -13,6 +13,7 @@ import { validateWithSchema } from "$lib/validation/validate";
 import {
   type SearchHit,
   RealtimeSearchHitCandidateSchema,
+  buildCover,
 } from "$lib/validation/schemas";
 
 type RealtimeCoverPayload = NonNullable<
@@ -34,12 +35,7 @@ function normalizeAuthorNames(rawAuthors: string[]): Array<{ id: string | null; 
 }
 
 function hasCover(hit: SearchHit): boolean {
-  return Boolean(
-    hit.cover?.preferredUrl
-      || hit.cover?.externalImageUrl
-      || hit.cover?.s3ImagePath
-      || hit.cover?.fallbackUrl,
-  );
+  return Boolean(hit.cover?.displayUrl || hit.cover?.fallbackUrl);
 }
 
 function normalizeProvider(value: string | null | undefined): string | null {
@@ -175,21 +171,15 @@ function sortSearchHits(hits: SearchHit[], orderBy: SortOption): SearchHit[] {
     .map((entry) => entry.hit);
 }
 
-/**
- * Build a fully-typed Cover object from a Zod-validated realtime candidate cover payload.
- * Fills missing fields with null to satisfy the SearchHit cover contract.
- */
+/** Converts a Zod-validated realtime cover payload into a fully-typed Cover with computed displayUrl. */
 function buildNormalizedCover(raw: RealtimeCoverPayload): SearchHit["cover"] {
-  return {
-    s3ImagePath: raw.s3ImagePath ?? null,
-    externalImageUrl: raw.externalImageUrl ?? null,
-    width: null,
-    height: null,
-    highResolution: null,
-    preferredUrl: raw.preferredUrl ?? null,
-    fallbackUrl: raw.fallbackUrl ?? null,
-    source: raw.source ?? null,
-  };
+  return buildCover({
+    s3ImagePath: raw.s3ImagePath,
+    externalImageUrl: raw.externalImageUrl,
+    preferredUrl: raw.preferredUrl,
+    fallbackUrl: raw.fallbackUrl,
+    source: raw.source,
+  });
 }
 
 function normalizeSearchHit(raw: unknown): SearchHit | null {
@@ -218,16 +208,7 @@ function normalizeSearchHit(raw: unknown): SearchHit | null {
     categories: candidate.categories,
     collections: [],
     tags: [],
-    cover: candidate.cover ? buildNormalizedCover(candidate.cover) : {
-      s3ImagePath: null,
-      externalImageUrl: null,
-      width: null,
-      height: null,
-      highResolution: null,
-      preferredUrl: null,
-      fallbackUrl: null,
-      source: null,
-    },
+    cover: candidate.cover ? buildNormalizedCover(candidate.cover) : buildCover({}),
     editions: [],
     recommendationIds: [],
     extras: {},

@@ -18,7 +18,7 @@ export const TagSchema = z.object({
   attributes: z.record(z.string(), z.unknown()).optional().default({}),
 });
 
-export const CoverSchema = z.object({
+const RawCoverSchema = z.object({
   s3ImagePath: z.string().nullable().optional(),
   externalImageUrl: z.string().nullable().optional(),
   width: z.number().nullable().optional(),
@@ -28,6 +28,48 @@ export const CoverSchema = z.object({
   fallbackUrl: z.string().nullable().optional(),
   source: z.string().nullable().optional(),
 });
+
+/**
+ * Resolves the best available display URL from cover fields.
+ * Priority: preferredUrl (backend-computed best) → s3ImagePath (persisted CDN key) → externalImageUrl (provider).
+ */
+export function resolveCoverDisplayUrl(
+  preferredUrl: string | null | undefined,
+  s3ImagePath: string | null | undefined,
+  externalImageUrl: string | null | undefined,
+): string | null {
+  return preferredUrl ?? s3ImagePath ?? externalImageUrl ?? null;
+}
+
+/**
+ * Cover schema with computed displayUrl derived from the resolution priority chain.
+ * Consumers read cover.displayUrl instead of re-implementing the resolution logic.
+ */
+export const CoverSchema = RawCoverSchema.transform((cover) => ({
+  ...cover,
+  displayUrl: resolveCoverDisplayUrl(cover.preferredUrl, cover.s3ImagePath, cover.externalImageUrl),
+}));
+
+/** Wire-format input type for Cover (without computed displayUrl). */
+export type CoverInput = z.input<typeof CoverSchema>;
+
+/**
+ * Constructs a Cover with computed displayUrl outside of Zod parse.
+ * Use at manual construction sites (normalization, persistence merge, test fixtures).
+ */
+export function buildCover(input: CoverInput): Cover {
+  return {
+    s3ImagePath: input.s3ImagePath ?? null,
+    externalImageUrl: input.externalImageUrl ?? null,
+    width: input.width ?? null,
+    height: input.height ?? null,
+    highResolution: input.highResolution ?? null,
+    preferredUrl: input.preferredUrl ?? null,
+    fallbackUrl: input.fallbackUrl ?? null,
+    source: input.source ?? null,
+    displayUrl: resolveCoverDisplayUrl(input.preferredUrl, input.s3ImagePath, input.externalImageUrl),
+  };
+}
 
 export const EditionSchema = z.object({
   googleBooksId: z.string().nullable().optional(),
@@ -329,6 +371,7 @@ export const RealtimeSearchHitCandidateSchema = z.object({
   relevanceScore: z.number().optional(),
 });
 
+export type Cover = z.infer<typeof CoverSchema>;
 export type Book = z.infer<typeof BookSchema>;
 export type ViewMetrics = z.infer<typeof ViewMetricsSchema>;
 export type BookAiContentSnapshot = z.infer<typeof BookAiContentSnapshotSchema>;

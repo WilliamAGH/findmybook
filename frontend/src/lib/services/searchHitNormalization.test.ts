@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { mergeSearchHits } from "$lib/services/searchHitNormalization";
-import type { SearchHit } from "$lib/validation/schemas";
+import { type SearchHit, buildCover } from "$lib/validation/schemas";
 
 function createSearchHit(id: string, overrides: Partial<SearchHit> = {}): SearchHit {
   const base: SearchHit = {
@@ -19,16 +19,7 @@ function createSearchHit(id: string, overrides: Partial<SearchHit> = {}): Search
     categories: [],
     collections: [],
     tags: [],
-    cover: {
-      s3ImagePath: null,
-      externalImageUrl: null,
-      width: null,
-      height: null,
-      highResolution: null,
-      preferredUrl: null,
-      fallbackUrl: null,
-      source: null,
-    },
+    cover: buildCover({}),
     editions: [],
     recommendationIds: [],
     extras: {},
@@ -40,7 +31,7 @@ function createSearchHit(id: string, overrides: Partial<SearchHit> = {}): Search
     ? base.cover
     : overrides.cover === null
       ? null
-      : { ...(base.cover ?? {}), ...overrides.cover };
+      : buildCover({ ...(base.cover ?? {}), ...overrides.cover });
 
   return {
     ...base,
@@ -54,12 +45,12 @@ describe("mergeSearchHits", () => {
     const existing = createSearchHit("book-1", {
       title: "Backend Title",
       relevanceScore: 5,
-      cover: { preferredUrl: "https://cdn.example.com/backend.jpg" },
+      cover: buildCover({ preferredUrl: "https://cdn.example.com/backend.jpg" }),
     });
     const incoming = createSearchHit("book-1", {
       title: "WebSocket Title",
       relevanceScore: 9,
-      cover: { preferredUrl: "https://cdn.example.com/ws.jpg" },
+      cover: buildCover({ preferredUrl: "https://cdn.example.com/ws.jpg" }),
     });
 
     const merged = mergeSearchHits([existing], [incoming], "relevance");
