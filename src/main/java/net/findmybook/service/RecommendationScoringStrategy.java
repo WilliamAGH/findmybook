@@ -4,7 +4,6 @@ import net.findmybook.model.Book;
 import net.findmybook.util.PagingUtils;
 import net.findmybook.util.StringUtils;
 import net.findmybook.util.ValidationUtils;
-import net.findmybook.util.cover.CoverPrioritizer;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
@@ -31,9 +30,11 @@ public class RecommendationScoringStrategy {
     private static final String REASON_TEXT = "TEXT";
 
     /**
-     * Spring component constructor - no dependencies required.
+     * Spring component constructor - intentionally empty as this service has no external dependencies.
+     * All configuration is via static constants; instantiation is managed by Spring's component scanning.
      */
     public RecommendationScoringStrategy() {
+        // No dependencies to inject; constants defined above provide all configuration.
     }
 
     /** Stop words for keyword extraction from title/description. */
@@ -50,6 +51,7 @@ public class RecommendationScoringStrategy {
         return AUTHOR_MATCH_SCORE;
     }
 
+    /** Returns the recommendation reason constant for an author match. */
     public String authorReason() {
         return REASON_AUTHOR;
     }
@@ -75,6 +77,7 @@ public class RecommendationScoringStrategy {
         return CATEGORY_SCORE_BASE + (overlapRatio * CATEGORY_SCORE_RANGE);
     }
 
+    /** Returns the recommendation reason constant for a category overlap match. */
     public String categoryReason() {
         return REASON_CATEGORY;
     }
@@ -86,6 +89,7 @@ public class RecommendationScoringStrategy {
         return TEXT_MATCH_SCORE_MULTIPLIER * matchCount;
     }
 
+    /** Returns the recommendation reason constant for a text/keyword match. */
     public String textReason() {
         return REASON_TEXT;
     }
@@ -134,7 +138,10 @@ public class RecommendationScoringStrategy {
             if (category == null) continue;
             String[] parts = category.split("\\s*/\\s*");
             for (String part : parts) {
-                normalized.add(part.trim().toLowerCase(Locale.ROOT));
+                String trimmed = part.trim();
+                if (!trimmed.isEmpty()) {
+                    normalized.add(trimmed.toLowerCase(Locale.ROOT));
+                }
             }
         }
         return normalized;
