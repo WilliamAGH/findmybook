@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -98,20 +99,21 @@ public class CoverPersistenceService {
         int bestPriority = Integer.MAX_VALUE;
 
         for (Map.Entry<String, String> entry : imageLinks.entrySet()) {
-            GoogleImageEntry validated = validateGoogleImageEntry(bookId, entry.getKey(), entry.getValue());
-            if (validated == null) {
+            Optional<GoogleImageEntry> validated = validateGoogleImageEntry(bookId, entry.getKey(), entry.getValue());
+            if (validated.isEmpty()) {
                 continue;
             }
+            GoogleImageEntry entryDetails = validated.get();
             try {
-                upsertImageLink(new ImageLinkParams(bookId, entry.getKey(), validated.url(), source,
-                    validated.width(), validated.height(), validated.highRes()));
+                upsertImageLink(new ImageLinkParams(bookId, entry.getKey(), entryDetails.url(), source,
+                    entryDetails.width(), entryDetails.height(), entryDetails.highRes()));
 
-                if (validated.priority() < bestPriority) {
-                    bestPriority = validated.priority();
-                    canonicalCoverUrl = validated.url();
-                    canonicalWidth = validated.width();
-                    canonicalHeight = validated.height();
-                    canonicalHighRes = validated.highRes();
+                if (entryDetails.priority() < bestPriority) {
+                    bestPriority = entryDetails.priority();
+                    canonicalCoverUrl = entryDetails.url();
+                    canonicalWidth = entryDetails.width();
+                    canonicalHeight = entryDetails.height();
+                    canonicalHighRes = entryDetails.highRes();
                 }
             } catch (IllegalArgumentException | DataAccessException ex) {
                 log.error("Failed to persist image link for book {} type {}: {}",
@@ -367,21 +369,21 @@ public class CoverPersistenceService {
      * <p>Pure validation — no side effects. The caller is responsible for persisting
      * the result via {@link #upsertImageLink(ImageLinkParams)}.
      *
-     * @return validated entry with estimated dimensions and priority, or {@code null} if the URL was invalid/blank
+     * @return validated entry with estimated dimensions and priority, or empty if the URL was invalid/blank
      */
-    private GoogleImageEntry validateGoogleImageEntry(UUID bookId, String imageType, String rawUrl) {
+    private Optional<GoogleImageEntry> validateGoogleImageEntry(UUID bookId, String imageType, String rawUrl) {
         String httpsUrl = rawUrl != null && !rawUrl.isBlank() ? UrlUtils.validateAndNormalize(rawUrl) : null;
 
         if (!StringUtils.hasText(httpsUrl)) {
             if (rawUrl != null && !rawUrl.isBlank()) {
                 log.warn("Skipping invalid image URL for book {} type {}: {}", bookId, imageType, rawUrl);
             }
-            return null;
+            return Optional.empty();
         }
 
         ImageDimensionUtils.DimensionEstimate estimate = ImageDimensionUtils.estimateFromGoogleType(imageType);
-        return new GoogleImageEntry(httpsUrl, estimate.width(), estimate.height(), estimate.highRes(),
-            ImageDimensionUtils.getTypePriority(imageType));
+        return Optional.of(new GoogleImageEntry(httpsUrl, estimate.width(), estimate.height(), estimate.highRes(),
+            ImageDimensionUtils.getTypePriority(imageType)));
     }
 
     /**
@@ -412,6 +414,7 @@ public class CoverPersistenceService {
                     WHEN EXCLUDED.s3_image_path IS NOT NULL THEN NOW()
                     ELSE book_image_links.s3_uploaded_at
                 END,
+                download_error = NULL,
                 updated_at = NOW()
             """,
             IdGenerator.generate(),

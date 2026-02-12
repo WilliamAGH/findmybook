@@ -342,14 +342,17 @@ public class CoverS3UploadCoordinator {
     /**
      * Maps an upload error to the concise message recorded in the database.
      *
-     * <p>Returns empty for {@link S3UploadException} which represents a runtime
-     * configuration skip rather than a recordable failure.</p>
+     * <p>Only genuine download, processing, and upload failures are recorded. Metadata
+     * persistence errors and runtime configuration skips return empty — recording those
+     * as {@code download_error} would hide an otherwise valid cover from queries.</p>
      */
     private Optional<String> resolveRecordableErrorMessage(Throwable error) {
         UploadFailureDetail detail = resolveUploadFailureDetail(error);
-        return detail.code() == S3UploadErrorCode.RUNTIME_CONFIGURATION
-            ? Optional.empty()
-            : Optional.of(detail.reason());
+        return switch (detail.code()) {
+            case DOWNLOAD_FAILED, PROCESSING_FAILED, TOO_LARGE, UNSAFE_URL, EMPTY_UPLOAD_RESULT ->
+                Optional.of(detail.reason());
+            default -> Optional.empty();
+        };
     }
 
     String classifyS3FailureCode(Throwable error) {
