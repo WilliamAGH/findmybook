@@ -3,20 +3,18 @@ package net.findmybook.service;
 import net.findmybook.model.Book;
 import net.findmybook.repository.BookQueryRepository;
 import net.findmybook.util.ValidationUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Strategy chain for orchestrating author, category, and text-based book searches.
@@ -30,9 +28,7 @@ public class RecommendationStrategyChain {
     private static final Logger log = LoggerFactory.getLogger(RecommendationStrategyChain.class);
 
     private static final int MAX_SEARCH_RESULTS = 40;
-    private static final int FETCH_CONCURRENCY = 4;
 
-    private final BookDataOrchestrator bookDataOrchestrator;
     private final BookSearchService bookSearchService;
     private final BookQueryRepository bookQueryRepository;
     private final RecommendationScoringStrategy scoringStrategy;
@@ -40,11 +36,9 @@ public class RecommendationStrategyChain {
     /**
      * Constructs the strategy chain with required dependencies.
      */
-    public RecommendationStrategyChain(BookDataOrchestrator bookDataOrchestrator,
-                                        BookSearchService bookSearchService,
+    public RecommendationStrategyChain(BookSearchService bookSearchService,
                                         BookQueryRepository bookQueryRepository,
                                         RecommendationScoringStrategy scoringStrategy) {
-        this.bookDataOrchestrator = bookDataOrchestrator;
         this.bookSearchService = bookSearchService;
         this.bookQueryRepository = bookQueryRepository;
         this.scoringStrategy = scoringStrategy;
@@ -57,15 +51,15 @@ public class RecommendationStrategyChain {
         if (ValidationUtils.isNullOrEmpty(sourceBook.getAuthors())) {
             return Flux.empty();
         }
-        String langCode = sourceBook.getLanguage();
 
         return Flux.fromIterable(sourceBook.getAuthors())
-            .flatMap(author -> searchBooks("inauthor:" + author, langCode, MAX_SEARCH_RESULTS)
+            .flatMap(author -> searchBooks("inauthor:" + author, MAX_SEARCH_RESULTS)
                 .flatMapMany(Flux::fromIterable)
                 .map(book -> new ScoredBook(
                     book,
                     scoringStrategy.authorMatchScore(),
                     scoringStrategy.authorReason()))
+                .doOnError(error -> log.error("findByAuthors failed for author={}", author, error))
                 .onErrorMap(error -> new IllegalStateException(
                     "RecommendationStrategyChain.findByAuthors author=" + author,
                     error)));
@@ -81,15 +75,15 @@ public class RecommendationStrategyChain {
         }
 
         String categoryQueryString = "subject:" + String.join(" OR subject:", mainCategories);
-        String langCode = sourceBook.getLanguage();
 
-        return searchBooks(categoryQueryString, langCode, MAX_SEARCH_RESULTS)
+        return searchBooks(categoryQueryString, MAX_SEARCH_RESULTS)
             .flatMapMany(Flux::fromIterable)
             .take(MAX_SEARCH_RESULTS)
             .map(book -> {
                 double categoryScore = scoringStrategy.calculateCategoryOverlapScore(sourceBook, book);
                 return new ScoredBook(book, categoryScore, scoringStrategy.categoryReason());
             })
+            .doOnError(error -> log.error("findByCategories failed for query={}", categoryQueryString, error))
             .onErrorMap(error -> new IllegalStateException(
                 "RecommendationStrategyChain.findByCategories query=" + categoryQueryString,
                 error));
@@ -105,14 +99,13 @@ public class RecommendationStrategyChain {
         }
 
         String query = String.join(" ", keywords);
-        String langCode = sourceBook.getLanguage();
 
-        return searchBooks(query, langCode, MAX_SEARCH_RESULTS)
+        return searchBooks(query, MAX_SEARCH_RESULTS)
             .flatMapMany(Flux::fromIterable)
             .take(MAX_SEARCH_RESULTS)
             .flatMap(book -> {
                 String candidateText = ((book.getTitle() != null ? book.getTitle() : "") + " " +
-                                      (book.getDescription() != null ? book.getDescription() : "")).toLowerCase(Locale.ROOT);
+                                      (book.getDescription() != null ? book.getDescription() : "")).toLowerCase(java.util.Locale.ROOT);
                 int matchCount = 0;
                 for (String kw : keywords) {
                     if (candidateText.contains(kw)) {
@@ -125,14 +118,19 @@ public class RecommendationStrategyChain {
                 }
                 return Mono.empty();
             })
+            .doOnError(error -> log.error("findByText failed for query={}", query, error))
             .onErrorMap(error -> new IllegalStateException(
                 "RecommendationStrategyChain.findByText query=" + query,
                 error));
     }
 
-    private Mono<List<Book>> searchBooks(String query, String langCode, int limit) {
-        if (!org.springframework.util.StringUtils.hasText(query) || bookSearchService == null || bookQueryRepository == null) {
+    private Mono<List<Book>> searchBooks(String query, int limit) {
+        if (!org.springframework.util.StringUtils.hasText(query)) {
             return Mono.just(Collections.emptyList());
+        }
+        if (bookSearchService == null || bookQueryRepository == null) {
+            return Mono.error(new IllegalStateException(
+                "RecommendationStrategyChain is missing required search dependencies"));
         }
 
         final int safeLimit = Math.max(limit, 1);
