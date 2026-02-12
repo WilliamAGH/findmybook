@@ -177,12 +177,12 @@ final class BookQueryCoverNormalizer {
                       (bil.url IS NOT NULL AND bil.url <> '')
                       OR (bil.s3_image_path IS NOT NULL AND bil.s3_image_path <> '')
                   )
-                  AND (bil.url IS NULL OR bil.url NOT LIKE '%placeholder-book-cover.svg%')
-                  AND (bil.s3_image_path IS NULL OR bil.s3_image_path NOT LIKE '%placeholder-book-cover.svg%')
+                  AND (bil.url IS NULL OR bil.url NOT LIKE '%%placeholder-book-cover.svg%%')
+                  AND (bil.s3_image_path IS NULL OR bil.s3_image_path NOT LIKE '%%placeholder-book-cover.svg%%')
                   AND (bil.url IS NULL OR (
-                      bil.url NOT LIKE '%printsec=titlepage%'
-                      AND bil.url NOT LIKE '%printsec=copyright%'
-                      AND bil.url NOT LIKE '%printsec=toc%'
+                      bil.url NOT LIKE '%%printsec=titlepage%%'
+                      AND bil.url NOT LIKE '%%printsec=copyright%%'
+                      AND bil.url NOT LIKE '%%printsec=toc%%'
                   ))
                   AND (
                       bil.width IS NULL OR bil.height IS NULL
