@@ -21,6 +21,13 @@ public final class CoverPrioritizer {
 
     private static final int MIN_COLOR_COVER_SCORE = 2;
 
+    public static final int RANK_EXCELLENT = 0;
+    public static final int RANK_GOOD = 1;
+    public static final int RANK_ACCEPTABLE = 2;
+    public static final int RANK_FALLBACK = 3;
+    public static final int RANK_POOR = 4;
+    public static final int RANK_NONE = 5;
+
     private CoverPrioritizer() {
     }
 
@@ -28,14 +35,14 @@ public final class CoverPrioritizer {
         if (book == null) {
             return 0;
         }
-        return CoverQuality.rank(
+        return CoverQuality.rank(new CoverQuality.RankingContext(
             book.getS3ImagePath(),
             book.getExternalImageUrl(),
             book.getCoverImageWidth(),
             book.getCoverImageHeight(),
             book.getIsCoverHighResolution(),
             book.getIsCoverGrayscale()
-        );
+        ));
     }
 
     public static int score(BookCard card) {
@@ -50,13 +57,13 @@ public final class CoverPrioritizer {
             primary,
             card.fallbackCoverUrl()
         );
-        return CoverQuality.rankFromUrl(
+        return CoverQuality.rankFromUrl(new CoverQuality.UrlRankingContext(
             resolved.url(),
             resolved.width(),
             resolved.height(),
             resolved.highResolution(),
             card.coverGrayscale()
-        );
+        ));
     }
 
     /**
@@ -159,28 +166,28 @@ public final class CoverPrioritizer {
     }
 
     private static int coverPresenceRank(Book book) {
-        if (hasColorCover(book)) return 0; // color cover
+        if (hasColorCover(book)) return RANK_EXCELLENT; // color cover
         int quality = score(book);
-        if (quality == 1) return 1;   // grayscale cover
-        return 2;                     // no cover
+        if (quality == 1) return RANK_GOOD;   // grayscale cover
+        return RANK_ACCEPTABLE;                     // no cover
     }
 
     private static int sourceRank(Book book) {
         if (book == null) {
-            return 5;
+            return RANK_NONE;
         }
         if (Boolean.TRUE.equals(book.getInPostgres())) {
-            return 0;
+            return RANK_EXCELLENT;
         }
         String provider = resolveExternalProvider(book);
         if ("OPEN_LIBRARY".equals(provider) || "OPEN_LIBRARY_API".equals(provider)) {
-            return 1;
+            return RANK_GOOD;
         }
         if ("GOOGLE_BOOKS".equals(provider) || "GOOGLE_BOOKS_API".equals(provider) || "GOOGLE_API".equals(provider)) {
-            return 2;
+            return RANK_ACCEPTABLE;
         }
         String source = qualifierAsString(book, "search.source");
-        return "EXTERNAL_FALLBACK".equals(source) ? 3 : 4;
+        return "EXTERNAL_FALLBACK".equals(source) ? RANK_FALLBACK : RANK_POOR;
     }
 
     private static String resolveExternalProvider(Book book) {
@@ -203,15 +210,15 @@ public final class CoverPrioritizer {
     private static int matchTypeRank(Book book) {
         String matchType = qualifierAsString(book, "search.matchType");
         if (matchType == null) {
-            return 4;
+            return RANK_POOR;
         }
         String normalized = matchType.toUpperCase(Locale.ROOT);
         return switch (normalized) {
-            case "EXACT_TITLE", "TITLE", "EXACT" -> 0;
-            case "FULLTEXT", "TEXT" -> 1;
-            case "AUTHOR", "AUTHORS" -> 2;
-            case "FUZZY" -> 3;
-            default -> 4;
+            case "EXACT_TITLE", "TITLE", "EXACT" -> RANK_EXCELLENT;
+            case "SUBSTRING" -> RANK_GOOD;
+            case "FUZZY" -> RANK_ACCEPTABLE;
+            case "AUTHOR" -> RANK_FALLBACK;
+            default -> RANK_POOR;
         };
     }
 

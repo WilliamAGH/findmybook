@@ -58,7 +58,13 @@ public class BookCoverResolutionService {
         }
 
         Optional<ResolvedCoverPayload> fromSlug = bookSearchService.fetchBookDetailBySlug(identifier)
-            .map(detail -> toPayload(detail.id(), detail.coverUrl(), detail.thumbnailUrl(), detail.coverWidth(), detail.coverHeight(), detail.coverHighResolution()));
+            .map(detail -> toPayload(detail.id(), new CoverUrlResolver.ResolveContext(
+                detail.coverUrl(),
+                detail.thumbnailUrl(),
+                detail.coverWidth(),
+                detail.coverHeight(),
+                detail.coverHighResolution()
+            )));
         if (fromSlug.isPresent()) {
             return fromSlug;
         }
@@ -66,7 +72,13 @@ public class BookCoverResolutionService {
         Optional<UUID> maybeUuid = bookIdentifierResolver.resolveToUuid(identifier);
         if (maybeUuid.isPresent()) {
             Optional<ResolvedCoverPayload> fromUuid = bookSearchService.fetchBookDetail(maybeUuid.get())
-                .map(detail -> toPayload(detail.id(), detail.coverUrl(), detail.thumbnailUrl(), detail.coverWidth(), detail.coverHeight(), detail.coverHighResolution()));
+                .map(detail -> toPayload(detail.id(), new CoverUrlResolver.ResolveContext(
+                    detail.coverUrl(),
+                    detail.thumbnailUrl(),
+                    detail.coverWidth(),
+                    detail.coverHeight(),
+                    detail.coverHighResolution()
+                )));
             if (fromUuid.isPresent()) {
                 return fromUuid;
             }
@@ -85,11 +97,13 @@ public class BookCoverResolutionService {
             .blockOptional()
             .map(book -> toPayload(
                 book.getId(),
-                book.getS3ImagePath(),
-                book.getExternalImageUrl(),
-                book.getCoverImageWidth(),
-                book.getCoverImageHeight(),
-                book.getIsCoverHighResolution()
+                new CoverUrlResolver.ResolveContext(
+                    book.getS3ImagePath(),
+                    book.getExternalImageUrl(),
+                    book.getCoverImageWidth(),
+                    book.getCoverImageHeight(),
+                    book.getIsCoverHighResolution()
+                )
             ));
     }
 
@@ -109,23 +123,12 @@ public class BookCoverResolutionService {
                 : Optional.empty());
     }
 
-    private ResolvedCoverPayload toPayload(String bookId,
-                                           String primaryUrl,
-                                           String fallbackCandidate,
-                                           Integer width,
-                                           Integer height,
-                                           Boolean highRes) {
-        CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
-            primaryUrl,
-            fallbackCandidate,
-            width,
-            height,
-            highRes
-        );
+    private ResolvedCoverPayload toPayload(String bookId, CoverUrlResolver.ResolveContext context) {
+        CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(context);
 
         String fallbackUrl = firstNonBlank(
-            fallbackCandidate,
-            primaryUrl,
+            context.fallbackExternal(),
+            context.primary(),
             ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH
         );
         String sourceLabel = resolved.fromS3()

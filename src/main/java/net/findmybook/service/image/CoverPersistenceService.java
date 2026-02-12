@@ -139,13 +139,13 @@ public class CoverPersistenceService {
         
         // Canonical cover now represented via highest-priority book_image_links row
         if (canonicalCoverUrl != null) {
-            CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
+            CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(new CoverUrlResolver.ResolveContext(
                 canonicalCoverUrl,
                 canonicalCoverUrl,
                 canonicalWidth,
                 canonicalHeight,
                 canonicalHighRes
-            );
+            ));
 
             upsertImageLink(new ImageLinkParams(bookId, "canonical", resolved.url(), source, resolved.width(), resolved.height(), resolved.highResolution()));
 
@@ -191,60 +191,29 @@ public class CoverPersistenceService {
                               CoverImageSource source) {
             this(s3Key, s3CdnUrl, width, height, null, source);
         }
-    }
 
-    /**
-     * Updates cover metadata after successful S3 upload with actual dimensions.
-     *
-     * @param bookId Canonical book UUID
-     * @param upload S3 upload result containing key, URL, dimensions, and source
-     * @return PersistenceResult indicating success
-     */
-    @Transactional
-    public PersistenceResult updateAfterS3Upload(UUID bookId, S3UploadResult upload) {
-        String s3Key = upload.s3Key();
-        String s3CdnUrl = upload.s3CdnUrl();
-        Integer width = upload.width();
-        Integer height = upload.height();
-        CoverImageSource source = upload.source();
-
-        boolean highRes = ImageDimensionUtils.isHighResolution(width, height);
-        String canonicalUrl = s3CdnUrl;
-        if (!StringUtils.hasText(canonicalUrl)) {
-            CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(s3Key, null, width, height, highRes);
-            canonicalUrl = resolved.url();
-            width = resolved.width();
-            height = resolved.height();
-            highRes = resolved.highResolution();
+        public static Builder builder() {
+            return new Builder();
         }
 
-        if (!StringUtils.hasText(canonicalUrl)) {
-            log.warn("Skipping S3 persistence for book {} because CDN URL resolved empty for key {}", bookId, s3Key);
-            return new PersistenceResult(false, null, width, height, highRes);
-        }
+        public static class Builder {
+            private String s3Key;
+            private String s3CdnUrl;
+            private Integer width;
+            private Integer height;
+            private Boolean isGrayscale;
+            private CoverImageSource source;
 
-        try {
-            // Upsert canonical S3 row as authoritative cover
-            upsertImageLink(new ImageLinkParams(bookId, "canonical", canonicalUrl, source.name(), width, height, highRes, s3Key, upload.isGrayscale()));
+            public Builder s3Key(String s3Key) { this.s3Key = s3Key; return this; }
+            public Builder s3CdnUrl(String s3CdnUrl) { this.s3CdnUrl = s3CdnUrl; return this; }
+            public Builder width(Integer width) { this.width = width; return this; }
+            public Builder height(Integer height) { this.height = height; return this; }
+            public Builder isGrayscale(Boolean isGrayscale) { this.isGrayscale = isGrayscale; return this; }
+            public Builder source(CoverImageSource source) { this.source = source; return this; }
 
-            // Propagate grayscale status to sibling rows for the same book.
-            // All image_links rows for a book originate from the same source image
-            // at different zoom levels; if one is grayscale, they all are.
-            propagateGrayscaleToSiblings(bookId, upload.isGrayscale());
-
-            log.info("Updated cover metadata for book {} after S3 upload: {} ({}x{}, highRes={})",
-                bookId, s3Key, width, height, highRes);
-
-            return new PersistenceResult(true, canonicalUrl, width, height, highRes);
-
-        } catch (IllegalArgumentException ex) {
-            log.error("Failed to update cover metadata after S3 upload for book {} (S3 object may be orphaned: s3Key={}): {}",
-                bookId, s3Key, ex.getMessage(), ex);
-            throw ex;
-        } catch (DataAccessException ex) {
-            log.error("Failed to update cover metadata after S3 upload for book {} due to database error: {}",
-                bookId, ex.getMessage(), ex);
-            throw ex;
+            public S3UploadResult build() {
+                return new S3UploadResult(s3Key, s3CdnUrl, width, height, isGrayscale, source);
+            }
         }
     }
     
@@ -278,13 +247,13 @@ public class CoverPersistenceService {
             return new PersistenceResult(false, null, null, null, false);
         }
 
-        CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
+        CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(new CoverUrlResolver.ResolveContext(
             httpsUrl,
             httpsUrl,
             width,
             height,
             null
-        );
+        ));
 
         try {
             upsertImageLink(new ImageLinkParams(bookId, "canonical", resolved.url(), source,

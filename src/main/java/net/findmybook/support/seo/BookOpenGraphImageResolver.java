@@ -67,13 +67,13 @@ public class BookOpenGraphImageResolver {
             primaryCandidate = book.getS3ImagePath();
         }
 
-        String coverUrl = CoverUrlResolver.resolve(
+        String coverUrl = CoverUrlResolver.resolve(new CoverUrlResolver.ResolveContext(
             primaryCandidate,
             fallbackCandidate,
             book.getCoverImageWidth(),
             book.getCoverImageHeight(),
             book.getIsCoverHighResolution()
-        ).url();
+        )).url();
 
         String placeholder = localDiskCoverCacheService.getLocalPlaceholderPath();
         if (isSocialPreviewImage(coverUrl, placeholder)) {
