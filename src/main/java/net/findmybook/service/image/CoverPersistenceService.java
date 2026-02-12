@@ -126,6 +126,7 @@ public class CoverPersistenceService {
                     canonicalHeight = estimate.height();
                     canonicalHighRes = estimate.highRes();
                 }
+            } catch (IllegalArgumentException ex) {
                 log.warn("Failed to persist image link for book {} type {}: {}",
                     bookId, imageType, ex.getMessage());
             } catch (DataAccessException ex) {
@@ -269,6 +270,8 @@ public class CoverPersistenceService {
             throw ex;
         }
     }
+
+    /**
      * Used for non-Google sources or when directly persisting external URLs.
      * 
      * @param bookId Canonical book UUID
