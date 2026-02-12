@@ -96,14 +96,14 @@ public class BrowserCoverIngestUseCase {
         try {
             persistenceResult = coverPersistenceService.updateAfterS3Upload(
                 bookUuid,
-                new CoverPersistenceService.S3UploadResult(
-                    storageKey,
-                    uploadedImage.getUrlOrPath(),
-                    uploadedImage.getWidth(),
-                    uploadedImage.getHeight(),
-                    uploadedImage.getGrayscale(),
-                    uploadSource
-                )
+                CoverPersistenceService.S3UploadResult.builder()
+                    .s3Key(storageKey)
+                    .s3CdnUrl(uploadedImage.getUrlOrPath())
+                    .width(uploadedImage.getWidth())
+                    .height(uploadedImage.getHeight())
+                    .isGrayscale(uploadedImage.getGrayscale())
+                    .source(uploadSource)
+                    .build()
             );
         } catch (RuntimeException persistenceFailure) {
             log.error(

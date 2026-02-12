@@ -15,6 +15,8 @@ import net.findmybook.service.s3.MoveActionSummary;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.stereotype.Component;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -51,23 +53,55 @@ public class AdminController {
     private final ApiCircuitBreakerService apiCircuitBreakerService;
 
     /** Constructs AdminController with optional S3 cleanup service and externalized config. */
-    public AdminController(ObjectProvider<S3CoverCleanupService> s3CoverCleanupServiceProvider,
-                           NewYorkTimesBestsellerScheduler newYorkTimesBestsellerScheduler,
-                           WeeklyCatalogRefreshScheduler weeklyCatalogRefreshScheduler,
-                           RecommendationCacheRefreshUseCase recommendationCacheRefreshUseCase,
-                           BookCacheWarmingScheduler bookCacheWarmingScheduler,
-                           ApiCircuitBreakerService apiCircuitBreakerService,
-                           @Value("${app.s3.cleanup.prefix:images/book-covers/}") String configuredS3Prefix,
-                           @Value("${app.s3.cleanup.default-batch-limit:100}") int defaultBatchLimit,
-                           @Value("${app.s3.cleanup.quarantine-prefix:images/non-covers-pages/}") String configuredQuarantinePrefix) {
-        this.s3CoverCleanupService = s3CoverCleanupServiceProvider.getIfAvailable();
-        this.newYorkTimesBestsellerScheduler = newYorkTimesBestsellerScheduler;
-        this.weeklyCatalogRefreshScheduler = weeklyCatalogRefreshScheduler;
-        this.recommendationCacheRefreshUseCase = recommendationCacheRefreshUseCase;
-        this.bookCacheWarmingScheduler = bookCacheWarmingScheduler;
-        this.apiCircuitBreakerService = apiCircuitBreakerService;
-        this.s3CleanupConfig = new S3CleanupConfig(configuredS3Prefix, defaultBatchLimit, configuredQuarantinePrefix);
+    public AdminController(AdminServices services, S3CleanupConfig s3CleanupConfig) {
+        this.s3CoverCleanupService = services.s3CoverCleanupServiceProvider().getIfAvailable();
+        this.newYorkTimesBestsellerScheduler = services.newYorkTimesBestsellerScheduler();
+        this.weeklyCatalogRefreshScheduler = services.weeklyCatalogRefreshScheduler();
+        this.recommendationCacheRefreshUseCase = services.recommendationCacheRefreshUseCase();
+        this.bookCacheWarmingScheduler = services.bookCacheWarmingScheduler();
+        this.apiCircuitBreakerService = services.apiCircuitBreakerService();
+        this.s3CleanupConfig = s3CleanupConfig;
     }
+
+    @Component
+    public static class ConfigLoader {
+        @Bean
+        public S3CleanupConfig s3CleanupConfig(
+            @Value("${app.s3.cleanup.prefix:images/book-covers/}") String configuredS3Prefix,
+            @Value("${app.s3.cleanup.default-batch-limit:100}") int defaultBatchLimit,
+            @Value("${app.s3.cleanup.quarantine-prefix:images/non-covers-pages/}") String configuredQuarantinePrefix
+        ) {
+            return new S3CleanupConfig(configuredS3Prefix, defaultBatchLimit, configuredQuarantinePrefix);
+        }
+
+        @Bean
+        public AdminServices adminServices(
+            ObjectProvider<S3CoverCleanupService> s3CoverCleanupServiceProvider,
+            NewYorkTimesBestsellerScheduler newYorkTimesBestsellerScheduler,
+            WeeklyCatalogRefreshScheduler weeklyCatalogRefreshScheduler,
+            RecommendationCacheRefreshUseCase recommendationCacheRefreshUseCase,
+            BookCacheWarmingScheduler bookCacheWarmingScheduler,
+            ApiCircuitBreakerService apiCircuitBreakerService
+        ) {
+            return new AdminServices(
+                s3CoverCleanupServiceProvider,
+                newYorkTimesBestsellerScheduler,
+                weeklyCatalogRefreshScheduler,
+                recommendationCacheRefreshUseCase,
+                bookCacheWarmingScheduler,
+                apiCircuitBreakerService
+            );
+        }
+    }
+
+    public record AdminServices(
+        ObjectProvider<S3CoverCleanupService> s3CoverCleanupServiceProvider,
+        NewYorkTimesBestsellerScheduler newYorkTimesBestsellerScheduler,
+        WeeklyCatalogRefreshScheduler weeklyCatalogRefreshScheduler,
+        RecommendationCacheRefreshUseCase recommendationCacheRefreshUseCase,
+        BookCacheWarmingScheduler bookCacheWarmingScheduler,
+        ApiCircuitBreakerService apiCircuitBreakerService
+    ) {}
 
     /**
      * Triggers a dry run of the S3 cover cleanup process.
