@@ -80,8 +80,7 @@ public class BookSearchService {
                         bookId,
                         rs.getDouble("relevance_score"),
                         rs.getString("match_type"),
-                        rs.getInt("edition_count"),
-                        rs.getObject("cluster_id", UUID.class));
+                        new ClusterInfo(rs.getInt("edition_count"), rs.getObject("cluster_id", UUID.class)));
                 }
             ).stream()
              .filter(result -> result != null)
@@ -110,11 +109,15 @@ public class BookSearchService {
                 rs -> rs.next()
                         ? Optional.of(new IsbnSearchResult(
                                 rs.getObject("book_id", UUID.class),
-                                rs.getString("title"),
-                                rs.getString("subtitle"),
-                                rs.getString("authors"),
-                                rs.getString("isbn13"),
-                                rs.getString("isbn10"),
+                                new BookMetadata(
+                                    rs.getString("title"),
+                                    rs.getString("subtitle"),
+                                    rs.getString("authors")
+                                ),
+                                new IsbnInfo(
+                                    rs.getString("isbn13"),
+                                    rs.getString("isbn10")
+                                ),
                                 rs.getDate("published_date"),
                                 ValidationUtils.stripWrappingQuotes(rs.getString("publisher"))))
                         : Optional.empty()
@@ -295,23 +298,37 @@ public class BookSearchService {
     public record SearchResult(UUID bookId,
                                double relevanceScore,
                                String matchType,
-                               int editionCount,
-                               UUID clusterId) {
+                               ClusterInfo clusterInfo) {
         public SearchResult {
             Objects.requireNonNull(bookId, "bookId");
-            editionCount = editionCount < 1 ? 1 : editionCount;
         }
 
         public SearchResult(UUID bookId, double relevanceScore, String matchType) {
-            this(bookId, relevanceScore, matchType, 1, null);
+            this(bookId, relevanceScore, matchType, new ClusterInfo(1, null));
         }
 
         public SearchResult(UUID bookId, double relevanceScore, String matchType, int editionCount) {
-            this(bookId, relevanceScore, matchType, editionCount, null);
+            this(bookId, relevanceScore, matchType, new ClusterInfo(editionCount, null));
+        }
+        
+
+
+        public int editionCount() {
+            return clusterInfo.editionCount();
+        }
+
+        public UUID clusterId() {
+            return clusterInfo.clusterId();
         }
 
         public String matchTypeNormalized() {
             return matchType == null ? "UNKNOWN" : matchType.toUpperCase(Locale.ROOT);
+        }
+    }
+
+    public record ClusterInfo(int editionCount, UUID clusterId) {
+        public ClusterInfo {
+            editionCount = editionCount < 1 ? 1 : editionCount;
         }
     }
 
@@ -329,12 +346,20 @@ public class BookSearchService {
     }
 
     public record IsbnSearchResult(UUID bookId,
-                                   String title,
-                                   String subtitle,
-                                   String authors,
-                                   String isbn13,
-                                   String isbn10,
+                                   BookMetadata metadata,
+                                   IsbnInfo isbns,
                                    java.util.Date publishedDate,
                                    String publisher) {
+        
+
+        
+        public String title() { return metadata.title(); }
+        public String subtitle() { return metadata.subtitle(); }
+        public String authors() { return metadata.authors(); }
+        public String isbn13() { return isbns.isbn13(); }
+        public String isbn10() { return isbns.isbn10(); }
     }
+    
+    public record BookMetadata(String title, String subtitle, String authors) {}
+    public record IsbnInfo(String isbn13, String isbn10) {}
 }
