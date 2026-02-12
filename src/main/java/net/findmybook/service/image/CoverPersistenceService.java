@@ -125,10 +125,7 @@ public class CoverPersistenceService {
                     canonicalWidth = estimate.width();
                     canonicalHeight = estimate.height();
                     canonicalHighRes = estimate.highRes();
-    }
-            }
-                
-            } catch (IllegalArgumentException ex) {
+                }
                 log.warn("Failed to persist image link for book {} type {}: {}",
                     bookId, imageType, ex.getMessage());
             } catch (DataAccessException ex) {
@@ -217,9 +214,61 @@ public class CoverPersistenceService {
             }
         }
     }
-    
+
     /**
-     * Persists external cover URL with estimated or actual dimensions.
+     * Updates cover metadata after successful S3 upload with actual dimensions.
+     *
+     * @param bookId Canonical book UUID
+     * @param upload S3 upload result containing key, URL, dimensions, and source
+     * @return PersistenceResult indicating success
+     */
+    @Transactional
+    public PersistenceResult updateAfterS3Upload(UUID bookId, S3UploadResult upload) {
+        String s3Key = upload.s3Key();
+        String s3CdnUrl = upload.s3CdnUrl();
+        Integer width = upload.width();
+        Integer height = upload.height();
+        CoverImageSource source = upload.source();
+
+        boolean highRes = ImageDimensionUtils.isHighResolution(width, height);
+        String canonicalUrl = s3CdnUrl;
+        if (!StringUtils.hasText(canonicalUrl)) {
+            CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(new CoverUrlResolver.ResolveContext(s3Key, null, width, height, highRes));
+            canonicalUrl = resolved.url();
+            width = resolved.width();
+            height = resolved.height();
+            highRes = resolved.highResolution();
+        }
+
+        if (!StringUtils.hasText(canonicalUrl)) {
+            log.warn("Skipping S3 persistence for book {} because CDN URL resolved empty for key {}", bookId, s3Key);
+            return new PersistenceResult(false, null, width, height, highRes);
+        }
+
+        try {
+            // Upsert canonical S3 row as authoritative cover
+            upsertImageLink(new ImageLinkParams(bookId, "canonical", canonicalUrl, source.name(), width, height, highRes, s3Key, upload.isGrayscale()));
+
+            // Propagate grayscale status to sibling rows for the same book.
+            // All image_links rows for a book originate from the same source image
+            // at different zoom levels; if one is grayscale, they all are.
+            propagateGrayscaleToSiblings(bookId, upload.isGrayscale());
+
+            log.info("Updated cover metadata for book {} after S3 upload: {} ({}x{}, highRes={})",
+                bookId, s3Key, width, height, highRes);
+
+            return new PersistenceResult(true, canonicalUrl, width, height, highRes);
+
+        } catch (IllegalArgumentException ex) {
+            log.error("Failed to update cover metadata after S3 upload for book {} (S3 object may be orphaned: s3Key={}): {}",
+                bookId, s3Key, ex.getMessage(), ex);
+            throw ex;
+        } catch (DataAccessException ex) {
+            log.error("Failed to update cover metadata after S3 upload for book {} due to database error: {}",
+                bookId, ex.getMessage(), ex);
+            throw ex;
+        }
+    }
      * Used for non-Google sources or when directly persisting external URLs.
      * 
      * @param bookId Canonical book UUID
