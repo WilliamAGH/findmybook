@@ -125,7 +125,8 @@ public class CoverPersistenceService {
                     canonicalWidth = estimate.width();
                     canonicalHeight = estimate.height();
                     canonicalHighRes = estimate.highRes();
-                }
+    }
+            }
                 
             } catch (IllegalArgumentException ex) {
                 log.warn("Failed to persist image link for book {} type {}: {}",
