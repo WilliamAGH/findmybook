@@ -1,3 +1,11 @@
+/**
+ * Cover relay persistence utilities for the book detail page.
+ *
+ * Manages client-side deduplication of cover-persist attempts so that each
+ * {book, renderedUrl} pair is relayed to the backend at most once per page
+ * lifecycle. The caller-owned `attemptedCoverPersistKeys` Set tracks which
+ * keys have been reserved, and these functions mutate that Set as a side effect.
+ */
 import type { CoverIngestResponse } from "$lib/validation/coverSchemas";
 import type { Book } from "$lib/validation/schemas";
 
@@ -45,6 +53,11 @@ function coverPersistKey(bookId: string, coverUrl: string): string {
 
 /**
  * Validates a rendered cover URL and reserves one persistence attempt per {book,url} pair.
+ *
+ * Mutates the caller-owned `attemptedCoverPersistKeys` Set by adding a composite key
+ * so that subsequent calls for the same book and URL are rejected as duplicates.
+ *
+ * @returns the normalized URL if reservation succeeded, or null if ineligible or already attempted
  */
 export function reserveCoverRelayCandidate(
   book: Book | null,
