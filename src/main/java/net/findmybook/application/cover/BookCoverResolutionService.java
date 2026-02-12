@@ -3,6 +3,7 @@ package net.findmybook.application.cover;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
+import net.findmybook.dto.BookDetail;
 import net.findmybook.service.BookDataOrchestrator;
 import net.findmybook.service.BookIdentifierResolver;
 import net.findmybook.service.BookSearchService;
@@ -26,6 +27,7 @@ public class BookCoverResolutionService {
     private static final Logger log = LoggerFactory.getLogger(BookCoverResolutionService.class);
     private static final String SOURCE_S3_CACHE = "S3_CACHE";
     private static final String SOURCE_UNDEFINED = "UNDEFINED";
+    private static final Duration COVER_ORCHESTRATOR_TIMEOUT = Duration.ofSeconds(5);
 
     private final BookSearchService bookSearchService;
     private final BookIdentifierResolver bookIdentifierResolver;
@@ -58,13 +60,7 @@ public class BookCoverResolutionService {
         }
 
         Optional<ResolvedCoverPayload> fromSlug = bookSearchService.fetchBookDetailBySlug(identifier)
-            .map(detail -> toPayload(detail.id(), new CoverUrlResolver.ResolveContext(
-                detail.coverUrl(),
-                detail.thumbnailUrl(),
-                detail.coverWidth(),
-                detail.coverHeight(),
-                detail.coverHighResolution()
-            )));
+            .map(detail -> toPayload(detail.id(), buildResolveContext(detail)));
         if (fromSlug.isPresent()) {
             return fromSlug;
         }
@@ -72,13 +68,7 @@ public class BookCoverResolutionService {
         Optional<UUID> maybeUuid = bookIdentifierResolver.resolveToUuid(identifier);
         if (maybeUuid.isPresent()) {
             Optional<ResolvedCoverPayload> fromUuid = bookSearchService.fetchBookDetail(maybeUuid.get())
-                .map(detail -> toPayload(detail.id(), new CoverUrlResolver.ResolveContext(
-                    detail.coverUrl(),
-                    detail.thumbnailUrl(),
-                    detail.coverWidth(),
-                    detail.coverHeight(),
-                    detail.coverHighResolution()
-                )));
+                .map(detail -> toPayload(detail.id(), buildResolveContext(detail)));
             if (fromUuid.isPresent()) {
                 return fromUuid;
             }
@@ -89,7 +79,7 @@ public class BookCoverResolutionService {
         }
 
         return bookDataOrchestrator.get().fetchCanonicalBookReactive(identifier)
-            .timeout(Duration.ofSeconds(5))
+            .timeout(COVER_ORCHESTRATOR_TIMEOUT)
             .onErrorMap(exception -> {
                 log.warn("Cover orchestrator lookup failed for '{}': {}", identifier, exception.getMessage());
                 return new IllegalStateException("Cover orchestrator lookup failed for identifier '" + identifier + "'", exception);
@@ -121,6 +111,16 @@ public class BookCoverResolutionService {
             .or(() -> StringUtils.hasText(resolvedBookId)
                 ? bookIdentifierResolver.resolveToUuid(resolvedBookId)
                 : Optional.empty());
+    }
+
+    private CoverUrlResolver.ResolveContext buildResolveContext(BookDetail detail) {
+        return new CoverUrlResolver.ResolveContext(
+            detail.coverUrl(),
+            detail.thumbnailUrl(),
+            detail.coverWidth(),
+            detail.coverHeight(),
+            detail.coverHighResolution()
+        );
     }
 
     private ResolvedCoverPayload toPayload(String bookId, CoverUrlResolver.ResolveContext context) {
