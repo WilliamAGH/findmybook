@@ -1,15 +1,6 @@
 /**
- * REST Controller for administrative operations
- * 
- * @author William Callahan
- * 
- * Features:
- * - Provides endpoints for S3 cover image cleanup operations
- * - Supports dry run mode for evaluating cleanup impact
- * - Handles moving flagged images to quarantine
- * - Configurable batch processing limits
- * - Detailed logging and error handling
- * - Returns operation summaries in text and JSON formats
+ * REST controller for administrative operations: S3 cleanup, scheduler triggers,
+ * and circuit breaker management.
  */
 package net.findmybook.controller;
 
@@ -35,6 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDate;
+import java.util.function.Supplier;
 
 @RestController
 @RequestMapping("/admin")
@@ -58,19 +50,7 @@ public class AdminController {
     private final BookCacheWarmingScheduler bookCacheWarmingScheduler;
     private final ApiCircuitBreakerService apiCircuitBreakerService;
 
-    /**
-     * Constructs AdminController with optional services that may be null when disabled.
-     *
-     * @param s3CoverCleanupServiceProvider provider for the S3 cleanup service
-     * @param newYorkTimesBestsellerScheduler the NYT scheduler, or null if disabled
-     * @param weeklyCatalogRefreshScheduler scheduler that orchestrates weekly NYT + recommendation refresh
-     * @param recommendationCacheRefreshUseCase use case for full recommendation-cache expiry refresh
-     * @param bookCacheWarmingScheduler the cache warming scheduler
-     * @param apiCircuitBreakerService the circuit breaker service
-     * @param configuredS3Prefix configured source prefix for S3 cleanup
-     * @param defaultBatchLimit configured default batch size for cleanup operations
-     * @param configuredQuarantinePrefix configured quarantine prefix for moved objects
-     */
+    /** Constructs AdminController with optional S3 cleanup service and externalized config. */
     public AdminController(ObjectProvider<S3CoverCleanupService> s3CoverCleanupServiceProvider,
                            NewYorkTimesBestsellerScheduler newYorkTimesBestsellerScheduler,
                            WeeklyCatalogRefreshScheduler weeklyCatalogRefreshScheduler,
@@ -90,98 +70,53 @@ public class AdminController {
     }
 
     /**
-     * Triggers a dry run of the S3 cover cleanup process
-     * The S3 prefix to scan can be overridden by a request parameter,
-     * otherwise, the configured 'app.s3.cleanup.prefix' is used
-     * The number of items to process can be limited by a request parameter,
-     * otherwise, the configured 'app.s3.cleanup.default-batch-limit' is used
+     * Triggers a dry run of the S3 cover cleanup process.
      *
-     * @param prefixOptional Optional request parameter to override the S3 prefix
-     * @param limitOptional Optional request parameter to override the batch processing limit
-     * @return A ResponseEntity containing a plain text summary and list of flagged files
+     * @param prefixOptional optional S3 prefix override
+     * @param limitOptional optional batch processing limit override
+     * @return plain text summary and list of flagged files
      */
     @GetMapping(value = "/s3-cleanup/dry-run", produces = MediaType.TEXT_PLAIN_VALUE)
     public ResponseEntity<String> triggerS3CoverCleanupDryRun(
             @RequestParam(name = "prefix", required = false) String prefixOptional,
             @RequestParam(name = "limit", required = false) Integer limitOptional) {
-        
-        if (s3CoverCleanupService == null) {
-            String errorMessage = "S3 Cover Cleanup Service is not available. S3 integration may be disabled.";
-            log.warn(errorMessage);
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, errorMessage);
-        }
-        
+        requireS3CleanupService();
+
         String prefixToUse = prefixOptional != null ? prefixOptional : s3CleanupConfig.prefix();
-        int requestedLimit     = limitOptional != null ? limitOptional : s3CleanupConfig.defaultBatchLimit();
-        int batchLimitToUse    = requestedLimit > 0 ? requestedLimit : Integer.MAX_VALUE;
+        int requestedLimit = limitOptional != null ? limitOptional : s3CleanupConfig.defaultBatchLimit();
+        int batchLimitToUse = requestedLimit > 0 ? requestedLimit : Integer.MAX_VALUE;
         if (requestedLimit <= 0) {
             log.warn("Batch limit {} requested; treating as unlimited.", requestedLimit);
         }
-        
-        log.info("Admin endpoint /admin/s3-cleanup/dry-run invoked. Triggering S3 Cover Cleanup Dry Run with prefix: '{}', limit: {}", prefixToUse, batchLimitToUse);
 
-        // Note: This is a synchronous call. For very long operations,
-        // consider making performDryRun @Async or wrapping this call
+        log.info("Admin dry-run invoked. prefix='{}', limit={}", prefixToUse, batchLimitToUse);
         try {
             DryRunSummary summary = s3CoverCleanupService.performDryRun(prefixToUse, batchLimitToUse);
-            
-            StringBuilder responseBuilder = new StringBuilder();
-            responseBuilder.append(String.format(
-                "S3 Cover Cleanup Dry Run completed for prefix: '%s', limit: %d.%n",
-                prefixToUse, batchLimitToUse
-            ));
-            responseBuilder.append(String.format(
-                "Total Objects Scanned: %d, Total Objects Flagged: %d%n",
-                summary.getTotalScanned(), summary.getTotalFlagged()
-            ));
-
-            if (summary.getTotalFlagged() > 0) {
-                responseBuilder.append(String.format("%nFlagged File Keys:%n"));
-                for (String key : summary.getFlaggedFileKeys()) {
-                    responseBuilder.append(String.format("%s%n", key));
-                }
-            } else {
-                responseBuilder.append(String.format("%nNo files were flagged.%n"));
-            }
-            
-            String responseBody = responseBuilder.toString();
-            log.info("S3 Cover Cleanup Dry Run response prepared for prefix: '{}', limit: {}. Summary: {} flagged out of {} scanned.", 
-                        prefixToUse, batchLimitToUse, summary.getTotalFlagged(), summary.getTotalScanned());
+            String responseBody = formatDryRunSummary(summary, prefixToUse, batchLimitToUse);
+            log.info("Dry run complete: {} flagged / {} scanned.", summary.getTotalFlagged(), summary.getTotalScanned());
             return ResponseEntity.ok(responseBody);
         } catch (IllegalStateException ex) {
-            String errorMessage = String.format(
-                "Failed to complete S3 Cover Cleanup Dry Run with prefix: '%s', limit: %d.",
-                prefixToUse,
-                batchLimitToUse
-            );
-            log.error("{} Cause: {}", errorMessage, ex.getMessage(), ex);
-            throw new ResponseStatusException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
-                "Error during S3 Cover Cleanup Dry Run. Check server logs for details.",
-                ex
-            );
+            log.error("Dry run failed for prefix='{}', limit={}: {}", prefixToUse, batchLimitToUse, ex.getMessage(), ex);
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                "Error during S3 Cover Cleanup Dry Run. Check server logs for details.", ex);
         }
     }
 
     /**
-     * Triggers the action of moving flagged S3 cover images to a quarantine prefix
+     * Moves flagged S3 cover images to a quarantine prefix.
      *
-     * @param prefixOptional Optional request parameter to override the S3 source prefix
-     * @param limitOptional Optional request parameter to override the batch processing limit
-     * @param quarantinePrefixOptional Optional request parameter to override the quarantine prefix
-     * @return A ResponseEntity containing the MoveActionSummary as JSON
+     * @param prefixOptional optional S3 source prefix override
+     * @param limitOptional optional batch processing limit override
+     * @param quarantinePrefixOptional optional quarantine prefix override
+     * @return JSON summary of moved objects
      */
     @PostMapping(value = "/s3-cleanup/move-flagged", produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<Object> triggerS3CoverMoveAction(
+    public ResponseEntity<MoveActionSummary> triggerS3CoverMoveAction(
             @RequestParam(name = "prefix", required = false) String prefixOptional,
             @RequestParam(name = "limit", required = false) Integer limitOptional,
             @RequestParam(name = "quarantinePrefix", required = false) String quarantinePrefixOptional) {
 
-        if (s3CoverCleanupService == null) {
-            String errorMessage = "S3 Cover Cleanup Service is not available. S3 integration may be disabled.";
-            log.warn(errorMessage);
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, errorMessage);
-        }
+        requireS3CleanupService();
 
         String sourcePrefixToUse = prefixOptional != null ? prefixOptional : s3CleanupConfig.prefix();
         int batchLimitToUse = limitOptional != null ? limitOptional : s3CleanupConfig.defaultBatchLimit();
@@ -196,30 +131,20 @@ public class AdminController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, errorMsg);
         }
         
-        log.info("Admin endpoint /admin/s3-cleanup/move-flagged invoked. " +
-                        "Source Prefix: '{}', Limit: {}, Quarantine Prefix: '{}'",
+        log.info("Admin move-flagged invoked. source='{}', limit={}, quarantine='{}'",
                 sourcePrefixToUse, batchLimitToUse, quarantinePrefixToUse);
 
         try {
-            MoveActionSummary summary = 
+            MoveActionSummary summary =
                 s3CoverCleanupService.performMoveAction(sourcePrefixToUse, batchLimitToUse, quarantinePrefixToUse);
-            
-            log.info("S3 Cover Cleanup Move Action completed. Summary: {}", summary.toString());
+            log.info("Move action completed. {}", summary);
             return ResponseEntity.ok(summary);
         } catch (IllegalArgumentException ex) {
-            String errorMessage = String.format(
-                "Invalid move action parameters. Source Prefix: '%s', Limit: %d, Quarantine Prefix: '%s'.",
-                sourcePrefixToUse, batchLimitToUse, quarantinePrefixToUse
-            );
-            log.warn(errorMessage, ex);
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, errorMessage, ex);
+            log.warn("Invalid move action params (source='{}', quarantine='{}')", sourcePrefixToUse, quarantinePrefixToUse, ex);
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage(), ex);
         } catch (IllegalStateException ex) {
-            String errorMessage = String.format(
-                "Failed to complete S3 Cover Cleanup Move Action. Source Prefix: '%s', Limit: %d, Quarantine Prefix: '%s'.",
-                sourcePrefixToUse, batchLimitToUse, quarantinePrefixToUse
-            );
-            log.error(errorMessage, ex);
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, errorMessage, ex);
+            log.error("Move action failed (source='{}', limit={})", sourcePrefixToUse, batchLimitToUse, ex);
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, ex.getMessage(), ex);
         }
     }
 
@@ -299,11 +224,10 @@ public class AdminController {
      */
     @PostMapping(value = "/trigger-recommendation-refresh", produces = MediaType.TEXT_PLAIN_VALUE)
     public ResponseEntity<String> triggerRecommendationRefresh() {
-        log.info("Admin endpoint /admin/trigger-recommendation-refresh invoked.");
-        try {
+        return executeAdminAction("trigger-recommendation-refresh", "recommendation refresh", () -> {
             RecommendationCacheRefreshUseCase.RefreshSummary summary =
                 recommendationCacheRefreshUseCase.refreshAllRecommendations();
-            String successMessage = String.format(
+            return String.format(
                 "Recommendation refresh completed. totalRows=%d, activeBefore=%d, refreshedRows=%d, activeAfter=%d, ttlDays=%d",
                 summary.totalRows(),
                 summary.activeRowsBefore(),
@@ -311,16 +235,7 @@ public class AdminController {
                 summary.activeRowsAfter(),
                 summary.ttlDays()
             );
-            log.info(successMessage);
-            return ResponseEntity.ok(successMessage);
-        } catch (IllegalStateException exception) {
-            log.error("Recommendation refresh failed.", exception);
-            throw new ResponseStatusException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
-                "Failed to trigger recommendation refresh.",
-                exception
-            );
-        }
+        });
     }
 
     /**
@@ -330,11 +245,10 @@ public class AdminController {
      */
     @PostMapping(value = "/trigger-weekly-refresh", produces = MediaType.TEXT_PLAIN_VALUE)
     public ResponseEntity<String> triggerWeeklyRefresh() {
-        log.info("Admin endpoint /admin/trigger-weekly-refresh invoked.");
-        try {
+        return executeAdminAction("trigger-weekly-refresh", "weekly refresh", () -> {
             WeeklyCatalogRefreshScheduler.WeeklyRefreshSummary summary =
                 weeklyCatalogRefreshScheduler.forceRunWeeklyRefreshCycle();
-            String successMessage = String.format(
+            return String.format(
                 "Weekly refresh completed. nytTriggered=%s, recommendationTriggered=%s%s",
                 summary.nytTriggered(),
                 summary.recommendationTriggered(),
@@ -342,82 +256,85 @@ public class AdminController {
                     .map(recommendation -> String.format(", recommendationRefreshedRows=%d", recommendation.refreshedRows()))
                     .orElse("")
             );
-            log.info(successMessage);
-            return ResponseEntity.ok(successMessage);
-        } catch (IllegalStateException exception) {
-            log.error("Weekly refresh trigger failed.", exception);
-            throw new ResponseStatusException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
-                "Failed to trigger weekly refresh.",
-                exception
-            );
-        }
+        });
     }
 
     /**
-     * Triggers the Book Cache Warming job.
+     * Triggers the book cache warming job.
      *
-     * @return A ResponseEntity indicating the outcome of the trigger.
+     * @return plain-text outcome summary
      */
     @PostMapping(value = "/trigger-cache-warming", produces = MediaType.TEXT_PLAIN_VALUE)
     public ResponseEntity<String> triggerCacheWarming() {
-        log.info("Admin endpoint /admin/trigger-cache-warming invoked.");
-        try {
+        return executeAdminAction("trigger-cache-warming", "book cache warming", () -> {
             bookCacheWarmingScheduler.warmPopularBookCaches();
-            String successMessage = "Successfully triggered book cache warming job.";
-            log.info(successMessage);
-            return ResponseEntity.ok(successMessage);
-        } catch (IllegalStateException ex) {
-            log.error("Failed to trigger book cache warming job.", ex);
-            throw new ResponseStatusException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
-                "Failed to trigger book cache warming job.",
-                ex
-            );
-        }
+            return "Successfully triggered book cache warming job.";
+        });
     }
 
     /**
      * Gets the current status of the API circuit breaker.
      *
-     * @return A ResponseEntity containing the circuit breaker status
+     * @return plain-text circuit breaker status
      */
     @GetMapping(value = "/circuit-breaker/status", produces = MediaType.TEXT_PLAIN_VALUE)
     public ResponseEntity<String> getCircuitBreakerStatus() {
-        log.info("Admin endpoint /admin/circuit-breaker/status invoked.");
-        try {
-            String status = apiCircuitBreakerService.getCircuitStatus();
-            log.info("Circuit breaker status retrieved: {}", status);
-            return ResponseEntity.ok(status);
-        } catch (IllegalStateException ex) {
-            log.error("Failed to get circuit breaker status.", ex);
-            throw new ResponseStatusException(
-                HttpStatus.INTERNAL_SERVER_ERROR,
-                "Failed to get circuit breaker status.",
-                ex
-            );
-        }
+        return executeAdminAction("circuit-breaker/status", "circuit breaker status retrieval", () ->
+            apiCircuitBreakerService.getCircuitStatus()
+        );
     }
 
     /**
      * Manually resets the API circuit breaker to CLOSED state.
      *
-     * @return A ResponseEntity indicating the outcome of the reset
+     * @return plain-text outcome confirmation
      */
     @PostMapping(value = "/circuit-breaker/reset", produces = MediaType.TEXT_PLAIN_VALUE)
     public ResponseEntity<String> resetCircuitBreaker() {
-        log.info("Admin endpoint /admin/circuit-breaker/reset invoked.");
-        try {
+        return executeAdminAction("circuit-breaker/reset", "circuit breaker reset", () -> {
             apiCircuitBreakerService.reset();
-            String successMessage = "Successfully reset API circuit breaker to CLOSED state.";
-            log.info(successMessage);
-            return ResponseEntity.ok(successMessage);
-        } catch (IllegalStateException ex) {
-            log.error("Failed to reset circuit breaker.", ex);
+            return "Successfully reset API circuit breaker to CLOSED state.";
+        });
+    }
+
+    private void requireS3CleanupService() {
+        if (s3CoverCleanupService == null) {
+            String errorMessage = "S3 Cover Cleanup Service is not available. S3 integration may be disabled.";
+            log.warn(errorMessage);
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, errorMessage);
+        }
+    }
+
+    private static String formatDryRunSummary(DryRunSummary summary, String prefix, int limit) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("S3 Cover Cleanup Dry Run completed for prefix: '%s', limit: %d.%n", prefix, limit));
+        sb.append(String.format("Total Objects Scanned: %d, Total Objects Flagged: %d%n",
+            summary.getTotalScanned(), summary.getTotalFlagged()));
+        if (summary.getTotalFlagged() > 0) {
+            sb.append(String.format("%nFlagged File Keys:%n"));
+            for (String key : summary.getFlaggedFileKeys()) {
+                sb.append(key).append(System.lineSeparator());
+            }
+        } else {
+            sb.append(String.format("%nNo files were flagged.%n"));
+        }
+        return sb.toString();
+    }
+
+    private ResponseEntity<String> executeAdminAction(String endpointLabel,
+                                                       String operationLabel,
+                                                       Supplier<String> action) {
+        log.info("Admin endpoint /admin/{} invoked.", endpointLabel);
+        try {
+            String result = action.get();
+            log.info(result);
+            return ResponseEntity.ok(result);
+        } catch (IllegalStateException exception) {
+            log.error("Failed to trigger {}.", operationLabel, exception);
             throw new ResponseStatusException(
                 HttpStatus.INTERNAL_SERVER_ERROR,
-                "Failed to reset circuit breaker.",
-                ex
+                "Failed to trigger " + operationLabel + ".",
+                exception
             );
         }
     }
