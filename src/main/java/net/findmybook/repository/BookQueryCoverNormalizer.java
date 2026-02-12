@@ -38,7 +38,7 @@ final class BookQueryCoverNormalizer {
     private static final String LOCALHOST_PREFIX = "://localhost";
     private static final String LOOPBACK_IP_PREFIX = "://127.0.0.1";
     private static final String ANY_LOCAL_IP_PREFIX = "://0.0.0.0";
-    private static final String COVER_PATH_SEGMENT = System.getenv().getOrDefault("COVER_PATH_SEGMENT", "/images/book-covers/");
+    private static final String COVER_PATH_SEGMENT = "/images/book-covers/";
 
     /** SQL LIKE patterns with wildcards pre-baked for direct use in queries. */
     private static final String PLACEHOLDER_COVER_LIKE = "%" + PLACEHOLDER_COVER_PATTERN + "%";
