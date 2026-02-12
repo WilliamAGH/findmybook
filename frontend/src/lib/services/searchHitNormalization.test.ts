@@ -27,11 +27,15 @@ function createSearchHit(id: string, overrides: Partial<SearchHit> = {}): Search
     relevanceScore: 0,
   };
 
-  const mergedCover = overrides.cover === undefined
-    ? base.cover
-    : overrides.cover === null
-      ? null
-      : buildCover({ ...(base.cover ?? {}), ...overrides.cover });
+  let mergedCover: SearchHit["cover"];
+  if (overrides.cover === undefined) {
+    mergedCover = base.cover;
+  } else if (overrides.cover === null) {
+    mergedCover = null;
+  } else {
+    const baseCoverProps = base.cover ?? {};
+    mergedCover = buildCover({ ...baseCoverProps, ...overrides.cover });
+  }
 
   return {
     ...base,
