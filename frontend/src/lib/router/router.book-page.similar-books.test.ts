@@ -19,6 +19,7 @@ vi.mock("$lib/services/books", () => ({
   getSimilarBooks: getSimilarBooksMock,
   getAffiliateLinks: getAffiliateLinksMock,
   persistRenderedCover: vi.fn(),
+  DEFAULT_SIMILAR_BOOKS_LIMIT: 8,
 }));
 
 vi.mock("$lib/services/realtime", () => ({
