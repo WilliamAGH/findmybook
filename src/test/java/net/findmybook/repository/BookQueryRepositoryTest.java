@@ -6,6 +6,7 @@ import net.findmybook.dto.BookListItem;
 import net.findmybook.dto.EditionSummary;
 import net.findmybook.dto.RecommendationCard;
 import net.findmybook.test.annotations.DbIntegrationTest;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -36,10 +37,9 @@ class BookQueryRepositoryTest {
     @Test
     void contextLoads() {
         // Verify beans are wired correctly when DB available
-        if (bookQueryRepository != null) {
-            assertThat(bookQueryRepository).isNotNull();
-            assertThat(jdbcTemplate).isNotNull();
-        }
+        Assumptions.assumeTrue(bookQueryRepository != null, "Skipping: no DB connection");
+        assertThat(bookQueryRepository).isNotNull();
+        assertThat(jdbcTemplate).isNotNull();
     }
 
     @Test

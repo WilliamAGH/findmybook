@@ -14,10 +14,7 @@ covers/
 .settings
 .springBeans
 .sts4-cache
-node
-node_modules
 
-!og-logo.png
 ### IntelliJ IDEA ###
 .idea
 *.iws
@@ -26,6 +23,7 @@ node_modules
 
 *.jpg
 *.png
+!og-logo.png
 *.webp
 *.svg
 .dev-cache
@@ -56,6 +54,8 @@ build/
 !**/src/main/**/build/
 !**/src/test/**/build/
 .claude
+
+node
 
 ### VS Code ###
 
