@@ -21,7 +21,7 @@ import {
 export { persistRenderedCover, type PersistRenderedCoverRequest } from "$lib/services/coverPersistence";
 export { normalizeRealtimeSearchHits, mergeSearchHits } from "$lib/services/searchHitNormalization";
 
-const DEFAULT_SIMILAR_BOOKS_LIMIT = 8;
+export const DEFAULT_SIMILAR_BOOKS_LIMIT = 8;
 const inFlightSearchRequests = new Map<string, Promise<SearchResponse>>();
 
 export interface SearchParams {

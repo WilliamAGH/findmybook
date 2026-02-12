@@ -19,6 +19,8 @@ type RealtimeCoverPayload = NonNullable<
   z.infer<typeof RealtimeSearchHitCandidateSchema>["cover"]
 >;
 
+const FALLBACK_BOOK_TITLE = "Untitled";
+
 function normalizeAuthorNames(rawAuthors: string[]): Array<{ id: string | null; name: string }> {
   return rawAuthors.map((name) => ({ id: null, name }));
 }
@@ -195,7 +197,7 @@ function normalizeSearchHit(raw: unknown): SearchHit | null {
   return {
     id: candidate.id,
     slug: candidate.slug ?? candidate.id,
-    title: candidate.title ?? "Untitled",
+    title: candidate.title ?? FALLBACK_BOOK_TITLE,
     source: candidate.source ?? null,
     description: candidate.description ?? null,
     publication: {
