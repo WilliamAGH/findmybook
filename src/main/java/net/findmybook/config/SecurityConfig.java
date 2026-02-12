@@ -20,6 +20,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.stereotype.Component;
 import org.springframework.core.env.Environment;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -60,6 +61,9 @@ public class SecurityConfig {
     private static final String FONTS_GOOGLEAPIS = "https://fonts.googleapis.com";
     private static final String FONTS_GSTATIC = "https://fonts.gstatic.com";
 
+    private static final String ROLE_ADMIN = "ADMIN";
+    private static final String ROLE_USER = "USER";
+
     private final AuthenticationEntryPoint customBasicAuthenticationEntryPoint;
     private final Environment environment;
     private final boolean cspEnabled;
@@ -72,24 +76,38 @@ public class SecurityConfig {
      *
      * @param customBasicAuthenticationEntryPoint entry point for admin auth failures
      * @param environment Spring environment for property resolution
-     * @param cspEnabled whether Content Security Policy headers are enabled
-     * @param referrerPolicy the Referrer-Policy header value
-     * @param clickyEnabled whether Clicky analytics are enabled (affects CSP)
-     * @param simpleAnalyticsEnabled whether Simple Analytics are enabled (affects CSP)
+     * @param toggles the security feature toggles configuration
      */
     public SecurityConfig(CustomBasicAuthenticationEntryPoint customBasicAuthenticationEntryPoint,
                           Environment environment,
-                          @Value("${app.security.headers.content-security-policy.enabled:true}") boolean cspEnabled,
-                          @Value("${app.security.headers.referrer-policy:ORIGIN_WHEN_CROSS_ORIGIN}") String referrerPolicy,
-                          @Value("${app.clicky.enabled:true}") boolean clickyEnabled,
-                          @Value("${app.simple-analytics.enabled:true}") boolean simpleAnalyticsEnabled) {
+                          SecurityFeatureToggles toggles) {
         this.customBasicAuthenticationEntryPoint = customBasicAuthenticationEntryPoint;
         this.environment = environment;
-        this.cspEnabled = cspEnabled;
-        this.referrerPolicy = referrerPolicy;
-        this.clickyEnabled = clickyEnabled;
-        this.simpleAnalyticsEnabled = simpleAnalyticsEnabled;
+        this.cspEnabled = toggles.cspEnabled();
+        this.referrerPolicy = toggles.referrerPolicy();
+        this.clickyEnabled = toggles.clickyEnabled();
+        this.simpleAnalyticsEnabled = toggles.simpleAnalyticsEnabled();
     }
+
+    @Component
+    public static class ConfigLoader {
+        @Bean
+        public SecurityFeatureToggles securityFeatureToggles(
+            @Value("${app.security.headers.content-security-policy.enabled:true}") boolean cspEnabled,
+            @Value("${app.security.headers.referrer-policy:ORIGIN_WHEN_CROSS_ORIGIN}") String referrerPolicy,
+            @Value("${app.clicky.enabled:true}") boolean clickyEnabled,
+            @Value("${app.simple-analytics.enabled:true}") boolean simpleAnalyticsEnabled
+        ) {
+            return new SecurityFeatureToggles(cspEnabled, referrerPolicy, clickyEnabled, simpleAnalyticsEnabled);
+        }
+    }
+
+    public record SecurityFeatureToggles(
+        boolean cspEnabled,
+        String referrerPolicy,
+        boolean clickyEnabled,
+        boolean simpleAnalyticsEnabled
+    ) {}
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -206,7 +224,7 @@ public class SecurityConfig {
             UserDetails admin = User.builder()
                 .username(adminUsername)
                 .password(passwordEncoder.encode(adminPassword))
-                .roles("ADMIN", "USER")
+                .roles(ROLE_ADMIN, ROLE_USER)
                 .build();
             userDetailsManager.createUser(admin);
             adminRegistered = true;
@@ -218,7 +236,7 @@ public class SecurityConfig {
             UserDetails regularUser = User.builder()
                 .username(userUsername)
                 .password(passwordEncoder.encode(userPassword))
-                .roles("USER")
+                .roles(ROLE_USER)
                 .build();
             userDetailsManager.createUser(regularUser);
             userRegistered = true;

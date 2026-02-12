@@ -27,7 +27,7 @@ public class SitemapRepository {
             "ELSE '0-9' END";
 
     private static final String BOOK_UPDATED_AT_ALIAS = "book_updated_at";
-    private static final String EPOCH_TIMESTAMP_LITERAL = "TIMESTAMP 'epoch'";
+    private static final String SQL_EPOCH_TIMESTAMP = "TIMESTAMP 'epoch'";
     private static final String BOOK_CHANGE_EVENTS_CTE =
             SitemapBookLastModifiedSqlSupport.globalBookLastModifiedCte(BOOK_UPDATED_AT_ALIAS);
 
@@ -169,7 +169,7 @@ public class SitemapRepository {
     public DatasetFingerprint fetchBookFingerprint() {
         String sql = BOOK_CHANGE_EVENTS_CTE +
                 "SELECT COUNT(*) AS total_records, " +
-                "COALESCE(MAX(" + BOOK_UPDATED_AT_ALIAS + "), " + EPOCH_TIMESTAMP_LITERAL + ") AS last_modified " +
+                "COALESCE(MAX(" + BOOK_UPDATED_AT_ALIAS + "), " + SQL_EPOCH_TIMESTAMP + ") AS last_modified " +
                 "FROM book_last_modified";
         return jdbcTemplate.queryForObject(sql, (rs, rowNum) -> new DatasetFingerprint(
                 rs.getInt("total_records"),

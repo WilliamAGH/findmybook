@@ -34,6 +34,12 @@ final class BookQueryCoverNormalizer {
     private static final double MIN_ASPECT_RATIO = 1.2;
     private static final double MAX_ASPECT_RATIO = 2.0;
 
+    private static final String PLACEHOLDER_COVER_PATTERN = "placeholder-book-cover.svg";
+    private static final String LOCALHOST_PREFIX = "://localhost";
+    private static final String LOOPBACK_IP_PREFIX = "://127.0.0.1";
+    private static final String ANY_LOCAL_IP_PREFIX = "://0.0.0.0";
+    private static final String COVER_PATH_SEGMENT = "/images/book-covers/";
+
     private final JdbcTemplate jdbcTemplate;
     private final BookQueryResultSetSupport resultSetSupport;
 
@@ -241,13 +247,13 @@ final class BookQueryCoverNormalizer {
             return true;
         }
         String lower = url.toLowerCase();
-        if (lower.contains("placeholder-book-cover.svg")) {
+        if (lower.contains(PLACEHOLDER_COVER_PATTERN)) {
             return true;
         }
-        if (lower.contains("://localhost") || lower.contains("://127.0.0.1") || lower.contains("://0.0.0.0")) {
+        if (lower.contains(LOCALHOST_PREFIX) || lower.contains(LOOPBACK_IP_PREFIX) || lower.contains(ANY_LOCAL_IP_PREFIX)) {
             return true;
         }
-        if (lower.contains("/images/book-covers/") && !CoverUrlResolver.isCdnUrl(url)) {
+        if (lower.contains(COVER_PATH_SEGMENT) && !CoverUrlResolver.isCdnUrl(url)) {
             return true;
         }
         return !(url.startsWith("http://") || url.startsWith("https://"));

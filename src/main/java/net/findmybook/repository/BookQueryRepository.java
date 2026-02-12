@@ -29,6 +29,9 @@ public class BookQueryRepository {
 
     private static final Logger log = LoggerFactory.getLogger(BookQueryRepository.class);
 
+    private static final String COLLECTION_TYPE_BESTSELLER = "BESTSELLER_LIST";
+    private static final String SOURCE_NYT = "NYT";
+
     private final JdbcTemplate jdbcTemplate;
     private final BookQueryRowMapperFactory rowMapperFactory;
     private final BookQueryCoverNormalizer coverNormalizer;
@@ -124,12 +127,12 @@ public class BookQueryRepository {
         String collectionSql = """
             SELECT id
             FROM book_collections
-            WHERE collection_type = 'BESTSELLER_LIST'
-              AND source = 'NYT'
+            WHERE collection_type = '%s'
+              AND source = '%s'
               AND provider_list_code = ?
             ORDER BY published_date DESC, updated_at DESC
             LIMIT 1
-            """;
+            """.formatted(COLLECTION_TYPE_BESTSELLER, SOURCE_NYT);
 
         List<String> collectionIds = jdbcTemplate.query(
             collectionSql,

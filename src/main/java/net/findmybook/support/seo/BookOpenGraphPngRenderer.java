@@ -48,17 +48,40 @@ public class BookOpenGraphPngRenderer {
     private static final String DEFAULT_CARD_TITLE = "Book Details";
     private static final String BRAND_LABEL = "findmybook.net";
     private static final String BRAND_LOGO_RESOURCE = "static/images/findmybook-logo.png";
-    private static final Color BACKGROUND_BASE = new Color(8, 13, 22);
-    private static final Color GRADIENT_START = new Color(13, 20, 33);
-    private static final Color GRADIENT_END = new Color(20, 27, 41);
-    private static final Color ACCENT_PRIMARY = new Color(59, 130, 246);
-    private static final Color ACCENT_SECONDARY = new Color(56, 189, 248);
+    private static final int BG_COLOR_BASE_R = 8;
+    private static final int BG_COLOR_BASE_G = 13;
+    private static final int BG_COLOR_BASE_B = 22;
+    private static final int BG_GRADIENT_START_R = 13;
+    private static final int BG_GRADIENT_START_G = 20;
+    private static final int BG_GRADIENT_START_B = 33;
+    private static final int BG_GRADIENT_END_R = 20;
+    private static final int BG_GRADIENT_END_G = 27;
+    private static final int BG_GRADIENT_END_B = 41;
+    private static final int ACCENT_PRIMARY_R = 59;
+    private static final int ACCENT_PRIMARY_G = 130;
+    private static final int ACCENT_PRIMARY_B = 246;
+    private static final int ACCENT_PRIMARY_X = 770;
+    private static final int ACCENT_PRIMARY_Y = -130;
+    private static final int ACCENT_PRIMARY_SIZE = 500;
+    private static final int ACCENT_SECONDARY_R = 56;
+    private static final int ACCENT_SECONDARY_G = 189;
+    private static final int ACCENT_SECONDARY_B = 248;
+    private static final int ACCENT_SECONDARY_X = -240;
+    private static final int ACCENT_SECONDARY_Y = 420;
+    private static final int ACCENT_SECONDARY_WIDTH = 460;
+    private static final int ACCENT_SECONDARY_HEIGHT = 360;
     private static final float ACCENT_ALPHA = 0.16f;
     private static final float GRID_LINE_ALPHA = 0.08f;
     private static final int GRID_LINE_SPACING = 8;
     private static final int SHELL_CORNER_RADIUS = 36;
-    private static final Color SHELL_FILL = new Color(13, 19, 31, 230);
-    private static final Color SHELL_BORDER = new Color(255, 255, 255, 26);
+    private static final int SHELL_R = 13;
+    private static final int SHELL_G = 19;
+    private static final int SHELL_B = 31;
+    private static final int SHELL_ALPHA = 230;
+    private static final int SHELL_BORDER_R = 255;
+    private static final int SHELL_BORDER_G = 255;
+    private static final int SHELL_BORDER_B = 255;
+    private static final int SHELL_BORDER_ALPHA = 26;
     private static final float SHELL_STROKE_WIDTH = 2f;
     private static final Color COVER_SHADOW_COLOR = new Color(0, 0, 0, 120);
     private static final int COVER_SHADOW_OFFSET = 6;
@@ -70,6 +93,15 @@ public class BookOpenGraphPngRenderer {
     private static final int TITLE_LINE_GAP = 8;
     private static final int SUBTITLE_GAP = 30;
     private static final int SUBTITLE_LINE_GAP = 4;
+
+    private static final Color BACKGROUND_BASE = new Color(BG_COLOR_BASE_R, BG_COLOR_BASE_G, BG_COLOR_BASE_B);
+    private static final Color GRADIENT_START = new Color(BG_GRADIENT_START_R, BG_GRADIENT_START_G, BG_GRADIENT_START_B);
+    private static final Color GRADIENT_END = new Color(BG_GRADIENT_END_R, BG_GRADIENT_END_G, BG_GRADIENT_END_B);
+    private static final Color ACCENT_PRIMARY = new Color(ACCENT_PRIMARY_R, ACCENT_PRIMARY_G, ACCENT_PRIMARY_B);
+    private static final Color ACCENT_SECONDARY = new Color(ACCENT_SECONDARY_R, ACCENT_SECONDARY_G, ACCENT_SECONDARY_B);
+    private static final Color SHELL_FILL = new Color(SHELL_R, SHELL_G, SHELL_B, SHELL_ALPHA);
+    private static final Color SHELL_BORDER = new Color(SHELL_BORDER_R, SHELL_BORDER_G, SHELL_BORDER_B, SHELL_BORDER_ALPHA);
+
     private volatile BufferedImage brandLogo;
 
     /**
@@ -125,9 +157,9 @@ public class BookOpenGraphPngRenderer {
         graphics.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
         graphics.setComposite(AlphaComposite.SrcOver.derive(ACCENT_ALPHA));
         graphics.setColor(ACCENT_PRIMARY);
-        graphics.fillOval(770, -130, 500, 500);
+        graphics.fillOval(ACCENT_PRIMARY_X, ACCENT_PRIMARY_Y, ACCENT_PRIMARY_SIZE, ACCENT_PRIMARY_SIZE);
         graphics.setColor(ACCENT_SECONDARY);
-        graphics.fillOval(-240, 420, 460, 360);
+        graphics.fillOval(ACCENT_SECONDARY_X, ACCENT_SECONDARY_Y, ACCENT_SECONDARY_WIDTH, ACCENT_SECONDARY_HEIGHT);
         graphics.setComposite(AlphaComposite.SrcOver.derive(GRID_LINE_ALPHA));
         graphics.setColor(Color.WHITE);
         for (int x = 0; x < CANVAS_WIDTH; x += GRID_LINE_SPACING) {
@@ -193,7 +225,7 @@ public class BookOpenGraphPngRenderer {
         graphics.setColor(SUBTITLE_COLOR);
         graphics.setFont(new Font("SansSerif", Font.PLAIN, SUBTITLE_FONT_SIZE));
         FontMetrics subtitleMetrics = graphics.getFontMetrics();
-        List<String> subtitleLines = wrapText(subtitleMetrics, subtitle, maxTextWidth, 2, "");
+        List<String> subtitleLines = wrapText(subtitleMetrics, new TextWrapContext(subtitle, maxTextWidth, 2, ""));
         int subtitleY = y + SUBTITLE_GAP;
         for (String line : subtitleLines) {
             if (!StringUtils.hasText(line)) {
@@ -227,14 +259,16 @@ public class BookOpenGraphPngRenderer {
     }
 
     private List<String> wrapTitle(FontMetrics metrics, String title, int maxWidth, int maxLines) {
-        return wrapText(metrics, title, maxWidth, maxLines, DEFAULT_CARD_TITLE);
+        return wrapText(metrics, new TextWrapContext(title, maxWidth, maxLines, DEFAULT_CARD_TITLE));
     }
 
     private List<String> wrapText(FontMetrics metrics,
-                                  String text,
-                                  int maxWidth,
-                                  int maxLines,
-                                  String fallbackValue) {
+                                  TextWrapContext context) {
+        String text = context.text();
+        int maxWidth = context.maxWidth();
+        int maxLines = context.maxLines();
+        String fallbackValue = context.fallbackValue();
+        
         int safeMaxWidth = Math.max(120, maxWidth);
         int safeMaxLines = Math.max(1, maxLines);
         String normalizedValue = StringUtils.hasText(text) ? text.trim() : fallbackValue;
@@ -316,6 +350,8 @@ public class BookOpenGraphPngRenderer {
         }
         return StringUtils.hasText(trimmed) ? trimmed + ellipsis : ellipsis;
     }
+
+    private record TextWrapContext(String text, int maxWidth, int maxLines, String fallbackValue) {}
 
     private BufferedImage loadBrandLogo() {
         BufferedImage cachedLogo = brandLogo;
