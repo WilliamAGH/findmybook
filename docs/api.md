@@ -5,7 +5,7 @@
 - **Health Check:** `/actuator/health`
 - **Book API:**
   - `GET /api/books/search?query={keyword}`
-  - `GET /api/books/{id}`
+  - `GET /api/books/{identifier}`
   - `GET /api/books/{identifier}/similar?limit={n}`
   - `GET /api/covers/{identifier}`
   - `POST /api/covers/{identifier}/ingest`
@@ -312,6 +312,30 @@ Admin endpoints require HTTP Basic Authentication.
   - Notes:
     - `outcome` values are `SUCCESS`, `NOT_FOUND`, `FAILURE`, `SKIPPED`.
     - `currentBookId` is retained for compatibility with existing polling clients.
+- `POST /admin/trigger-cache-warming`
+  - Triggers the book cache warming scheduler immediately.
+  - Response:
+    - `200 OK` with plain-text acknowledgement.
+- `GET /admin/s3-cleanup/dry-run`
+  - Scans S3 book-cover keys and reports orphaned or flagged entries without modifying data.
+  - Query params:
+    - `prefix` (optional): S3 key prefix to limit scan scope
+    - `limit` (optional, default `100`): max keys to scan
+  - Response:
+    - `200 OK` with summary of flagged keys, orphan counts, and sample paths.
+- `POST /admin/s3-cleanup/move-flagged`
+  - Moves flagged S3 book-cover keys to a quarantine prefix.
+  - Query params:
+    - `prefix` (optional): S3 key prefix to limit scope
+    - `limit` (optional, default `100`): max keys to process
+    - `quarantinePrefix` (optional): target prefix for quarantined keys
+  - Response:
+    - `200 OK` with summary of moved keys.
+    - `500 Internal Server Error` on failure.
+- `GET /admin/circuit-breaker/status`
+  - Returns the current state of all Resilience4j circuit breakers.
+  - Response:
+    - `200 OK` with JSON circuit breaker state map.
 - `POST /admin/trigger-nyt-bestsellers`
   - Triggers NYT ingest processing.
   - Query params:

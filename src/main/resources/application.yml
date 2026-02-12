@@ -104,7 +104,7 @@ app:
         enabled: true
   cache:
     enabled: true
-    book: # Corresponds to app.redis.cache.book.ttl
+    book: # Caffeine in-memory cache TTL for book entries
       ttl: 24h # Default TTL for book cache entries
   cover-cache:
     dir: book-covers # Directory name for serving cached cover images

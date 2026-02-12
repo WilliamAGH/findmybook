@@ -20,7 +20,7 @@ Jobs are enabled by `@EnableScheduling` on the Spring Boot application entrypoin
 
 ## Updating Schedules
 
-- **Configurable Jobs**: Modify the `cron` property (e.g., `app.nyt.scheduler.cron`) in `application.properties` or an environment variable.
+- **Configurable Jobs**: Modify the `cron` property (e.g., `app.nyt.scheduler.cron`) in `application.yml` or an environment variable.
 - **Hardcoded Jobs**: Edit the `cron` attribute in the `@Scheduled` annotation in the Java file and recompile.
 - Weekly orchestrator phase switches:
   - `app.weekly-refresh.nyt-phase-enabled`
@@ -49,7 +49,6 @@ All admin endpoints require HTTP Basic Authentication (user: `admin`, password f
 
 | Job / Task                               | Manual Trigger Command / Endpoint                                                                                                                     | Notes                                                                                                                                                                                             |
 | :--------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Sitemap Update**                       | `POST http://localhost:{SERVER_PORT}/admin/trigger-sitemap-update`                                                                                        | Defined in `SitemapController.java`. Example: `dotenv run sh -c 'curl -X POST -u admin:$APP_ADMIN_PASSWORD http://localhost:${SERVER_PORT}/admin/trigger-sitemap-update'`                                         |
 | **Book Cache Warming**                   | `POST http://localhost:{SERVER_PORT}/admin/trigger-cache-warming`                                                                                      | Defined in `AdminController.java`. Runs `bookCacheWarmingScheduler.warmPopularBookCaches()`.                                                                                                    |
 | **New York Times Bestseller Processing** | `POST http://localhost:{SERVER_PORT}/admin/trigger-nyt-bestsellers`                                                                                       | Defined in `AdminController.java`. Calls `newYorkTimesBestsellerScheduler.processNewYorkTimesBestsellers()`. Example: `dotenv run sh -c 'curl -X POST -u admin:$APP_ADMIN_PASSWORD http://localhost:${SERVER_PORT}/admin/trigger-nyt-bestsellers'` |
 | **Recommendation Cache Full Refresh**    | `POST http://localhost:{SERVER_PORT}/admin/trigger-recommendation-refresh`                                                                             | Defined in `AdminController.java`. Runs `RecommendationCacheRefreshUseCase.refreshAllRecommendations()`.                                                                                        |
