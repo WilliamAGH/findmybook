@@ -21,6 +21,14 @@ type RealtimeCoverPayload = NonNullable<
 
 const FALLBACK_BOOK_TITLE = "Untitled";
 
+/** Canonical search-hit source provider identifiers used for ranking and deduplication. */
+const PROVIDER_POSTGRES = "POSTGRES";
+const PROVIDER_OPEN_LIBRARY = "OPEN_LIBRARY";
+const PROVIDER_OPEN_LIBRARY_API = "OPEN_LIBRARY_API";
+const PROVIDER_GOOGLE_BOOKS = "GOOGLE_BOOKS";
+const PROVIDER_GOOGLE_BOOKS_API = "GOOGLE_BOOKS_API";
+const PROVIDER_GOOGLE_API = "GOOGLE_API";
+
 function normalizeAuthorNames(rawAuthors: string[]): Array<{ id: string | null; name: string }> {
   return rawAuthors.map((name) => ({ id: null, name }));
 }
@@ -59,27 +67,27 @@ function resolveProvider(hit: SearchHit): string {
     ?? null;
   const normalizedUrl = coverUrl?.toLowerCase() ?? "";
   if (normalizedUrl.includes("covers.openlibrary.org")) {
-    return "OPEN_LIBRARY";
+    return PROVIDER_OPEN_LIBRARY;
   }
   if (normalizedUrl.includes("googleusercontent.com") || normalizedUrl.includes("books.google")) {
-    return "GOOGLE_BOOKS";
+    return PROVIDER_GOOGLE_BOOKS;
   }
   if (hit.cover?.s3ImagePath) {
-    return "POSTGRES";
+    return PROVIDER_POSTGRES;
   }
 
-  return "POSTGRES";
+  return PROVIDER_POSTGRES;
 }
 
 function sourceRank(hit: SearchHit): number {
   const provider = resolveProvider(hit);
-  if (provider === "POSTGRES") {
+  if (provider === PROVIDER_POSTGRES) {
     return 0;
   }
-  if (provider === "OPEN_LIBRARY" || provider === "OPEN_LIBRARY_API") {
+  if (provider === PROVIDER_OPEN_LIBRARY || provider === PROVIDER_OPEN_LIBRARY_API) {
     return 1;
   }
-  if (provider === "GOOGLE_BOOKS" || provider === "GOOGLE_BOOKS_API" || provider === "GOOGLE_API") {
+  if (provider === PROVIDER_GOOGLE_BOOKS || provider === PROVIDER_GOOGLE_BOOKS_API || provider === PROVIDER_GOOGLE_API) {
     return 2;
   }
   return 3;
