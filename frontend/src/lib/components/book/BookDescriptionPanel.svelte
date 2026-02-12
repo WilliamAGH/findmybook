@@ -128,6 +128,7 @@
       <div class="relative">
         <div
           bind:this={descriptionContainer}
+          style:--description-max-lines={DESCRIPTION_MAX_LINES}
           class="book-description-expandable break-words text-sm leading-relaxed text-anthracite-700 dark:text-slate-300 overflow-hidden transition-[max-height] duration-300 ease-in-out"
           class:book-description-content={sanitizedDescriptionHtml.length > 0}
           class:whitespace-pre-wrap={sanitizedDescriptionHtml.length === 0}
@@ -163,7 +164,7 @@
 
 <style>
   .book-description-expandable.book-description-collapsed {
-    max-height: 13lh;
+    max-height: calc(var(--description-max-lines) * 1lh);
   }
 
   .book-description-expandable.book-description-expanded {
