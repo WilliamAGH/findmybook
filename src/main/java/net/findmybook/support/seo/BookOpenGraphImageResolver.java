@@ -20,6 +20,7 @@ public class BookOpenGraphImageResolver {
     private static final String PLACEHOLDER_COVER_MARKER = "placeholder-book-cover";
     private static final String HTTP_SCHEME_PREFIX = "http";
     private static final String DEFAULT_CARD_TITLE = "Book Details";
+    private static final int MAX_TITLE_LENGTH = 96;
 
     private final LocalDiskCoverCacheService localDiskCoverCacheService;
     private final BookOpenGraphCoverImageLoader bookOpenGraphCoverImageLoader;
@@ -124,10 +125,10 @@ public class BookOpenGraphImageResolver {
 
     private String resolveTitle(Book book, String identifier) {
         if (book != null && StringUtils.hasText(book.getTitle())) {
-            return truncate(book.getTitle().trim(), 96);
+            return truncate(book.getTitle().trim(), MAX_TITLE_LENGTH);
         }
         if (StringUtils.hasText(identifier)) {
-            return truncate(identifier.trim(), 96);
+            return truncate(identifier.trim(), MAX_TITLE_LENGTH);
         }
         return DEFAULT_CARD_TITLE;
     }

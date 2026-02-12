@@ -48,6 +48,28 @@ public class BookOpenGraphPngRenderer {
     private static final String DEFAULT_CARD_TITLE = "Book Details";
     private static final String BRAND_LABEL = "findmybook.net";
     private static final String BRAND_LOGO_RESOURCE = "static/images/findmybook-logo.png";
+    private static final Color BACKGROUND_BASE = new Color(8, 13, 22);
+    private static final Color GRADIENT_START = new Color(13, 20, 33);
+    private static final Color GRADIENT_END = new Color(20, 27, 41);
+    private static final Color ACCENT_PRIMARY = new Color(59, 130, 246);
+    private static final Color ACCENT_SECONDARY = new Color(56, 189, 248);
+    private static final float ACCENT_ALPHA = 0.16f;
+    private static final float GRID_LINE_ALPHA = 0.08f;
+    private static final int GRID_LINE_SPACING = 8;
+    private static final int SHELL_CORNER_RADIUS = 36;
+    private static final Color SHELL_FILL = new Color(13, 19, 31, 230);
+    private static final Color SHELL_BORDER = new Color(255, 255, 255, 26);
+    private static final float SHELL_STROKE_WIDTH = 2f;
+    private static final Color COVER_SHADOW_COLOR = new Color(0, 0, 0, 120);
+    private static final int COVER_SHADOW_OFFSET = 6;
+    private static final int COVER_SHADOW_DEPTH = 14;
+    private static final Color SUBTITLE_COLOR = new Color(173, 188, 210);
+    private static final Color BRAND_TEXT_COLOR = new Color(203, 213, 225);
+    private static final float LOGO_OPACITY = 0.92f;
+    private static final int TITLE_TOP_OFFSET = 94;
+    private static final int TITLE_LINE_GAP = 8;
+    private static final int SUBTITLE_GAP = 30;
+    private static final int SUBTITLE_LINE_GAP = 4;
     private volatile BufferedImage brandLogo;
 
     /**
@@ -97,18 +119,18 @@ public class BookOpenGraphPngRenderer {
     }
 
     private void paintBackground(Graphics2D graphics) {
-        graphics.setColor(new Color(8, 13, 22));
+        graphics.setColor(BACKGROUND_BASE);
         graphics.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-        graphics.setPaint(new GradientPaint(0, 0, new Color(13, 20, 33), CANVAS_WIDTH, CANVAS_HEIGHT, new Color(20, 27, 41)));
+        graphics.setPaint(new GradientPaint(0, 0, GRADIENT_START, CANVAS_WIDTH, CANVAS_HEIGHT, GRADIENT_END));
         graphics.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-        graphics.setComposite(AlphaComposite.SrcOver.derive(0.16f));
-        graphics.setColor(new Color(59, 130, 246));
+        graphics.setComposite(AlphaComposite.SrcOver.derive(ACCENT_ALPHA));
+        graphics.setColor(ACCENT_PRIMARY);
         graphics.fillOval(770, -130, 500, 500);
-        graphics.setColor(new Color(56, 189, 248));
+        graphics.setColor(ACCENT_SECONDARY);
         graphics.fillOval(-240, 420, 460, 360);
-        graphics.setComposite(AlphaComposite.SrcOver.derive(0.08f));
-        graphics.setColor(new Color(255, 255, 255));
-        for (int x = 0; x < CANVAS_WIDTH; x += 8) {
+        graphics.setComposite(AlphaComposite.SrcOver.derive(GRID_LINE_ALPHA));
+        graphics.setColor(Color.WHITE);
+        for (int x = 0; x < CANVAS_WIDTH; x += GRID_LINE_SPACING) {
             graphics.drawLine(x, 0, x, CANVAS_HEIGHT);
         }
         graphics.setComposite(AlphaComposite.SrcOver);
@@ -117,23 +139,23 @@ public class BookOpenGraphPngRenderer {
             OUTER_PADDING,
             CANVAS_WIDTH - (OUTER_PADDING * 2f),
             CANVAS_HEIGHT - (OUTER_PADDING * 2f),
-            36,
-            36
+            SHELL_CORNER_RADIUS,
+            SHELL_CORNER_RADIUS
         );
-        graphics.setColor(new Color(13, 19, 31, 230));
+        graphics.setColor(SHELL_FILL);
         graphics.fill(shell);
-        graphics.setColor(new Color(255, 255, 255, 26));
-        graphics.setStroke(new BasicStroke(2f));
+        graphics.setColor(SHELL_BORDER);
+        graphics.setStroke(new BasicStroke(SHELL_STROKE_WIDTH));
         graphics.draw(shell);
     }
 
     private void drawCover(Graphics2D graphics, BufferedImage coverImage) {
         int x = OUTER_PADDING + CONTENT_PADDING;
         int y = (CANVAS_HEIGHT - COVER_HEIGHT) / 2;
-        graphics.setColor(new Color(0, 0, 0, 120));
-        graphics.fillRoundRect(x - 6, y - 6, COVER_WIDTH + 12, COVER_HEIGHT + 12, COVER_RADIUS + 8, COVER_RADIUS + 8);
-        graphics.setColor(new Color(0, 0, 0, 120));
-        graphics.fillRoundRect(x + 14, y + 20, COVER_WIDTH, COVER_HEIGHT, COVER_RADIUS, COVER_RADIUS);
+        graphics.setColor(COVER_SHADOW_COLOR);
+        graphics.fillRoundRect(x - COVER_SHADOW_OFFSET, y - COVER_SHADOW_OFFSET, COVER_WIDTH + COVER_SHADOW_OFFSET * 2, COVER_HEIGHT + COVER_SHADOW_OFFSET * 2, COVER_RADIUS + GRID_LINE_SPACING, COVER_RADIUS + GRID_LINE_SPACING);
+        graphics.setColor(COVER_SHADOW_COLOR);
+        graphics.fillRoundRect(x + COVER_SHADOW_DEPTH, y + 20, COVER_WIDTH, COVER_HEIGHT, COVER_RADIUS, COVER_RADIUS);
         graphics.setClip(new RoundRectangle2D.Float(x, y, COVER_WIDTH, COVER_HEIGHT, COVER_RADIUS, COVER_RADIUS));
         double scale = Math.max((double) COVER_WIDTH / coverImage.getWidth(), (double) COVER_HEIGHT / coverImage.getHeight());
         int drawWidth = (int) Math.round(coverImage.getWidth() * scale);
@@ -147,8 +169,8 @@ public class BookOpenGraphPngRenderer {
             null
         );
         graphics.setClip(null);
-        graphics.setColor(new Color(255, 255, 255, 26));
-        graphics.setStroke(new BasicStroke(2f));
+        graphics.setColor(SHELL_BORDER);
+        graphics.setStroke(new BasicStroke(SHELL_STROKE_WIDTH));
         graphics.drawRoundRect(x, y, COVER_WIDTH, COVER_HEIGHT, COVER_RADIUS, COVER_RADIUS);
     }
 
@@ -163,22 +185,22 @@ public class BookOpenGraphPngRenderer {
         graphics.setFont(new Font("SansSerif", Font.BOLD, TITLE_FONT_SIZE));
         FontMetrics titleMetrics = graphics.getFontMetrics();
         List<String> titleLines = wrapTitle(titleMetrics, title, maxTextWidth, 2);
-        int y = OUTER_PADDING + CONTENT_PADDING + 94;
+        int y = OUTER_PADDING + CONTENT_PADDING + TITLE_TOP_OFFSET;
         for (String line : titleLines) {
             graphics.drawString(line, textX, y);
-            y += titleMetrics.getHeight() + 8;
+            y += titleMetrics.getHeight() + TITLE_LINE_GAP;
         }
-        graphics.setColor(new Color(173, 188, 210));
+        graphics.setColor(SUBTITLE_COLOR);
         graphics.setFont(new Font("SansSerif", Font.PLAIN, SUBTITLE_FONT_SIZE));
         FontMetrics subtitleMetrics = graphics.getFontMetrics();
         List<String> subtitleLines = wrapText(subtitleMetrics, subtitle, maxTextWidth, 2, "");
-        int subtitleY = y + 30;
+        int subtitleY = y + SUBTITLE_GAP;
         for (String line : subtitleLines) {
             if (!StringUtils.hasText(line)) {
                 continue;
             }
             graphics.drawString(line, textX, subtitleY);
-            subtitleY += subtitleMetrics.getHeight() + 4;
+            subtitleY += subtitleMetrics.getHeight() + SUBTITLE_LINE_GAP;
         }
     }
 
@@ -191,12 +213,12 @@ public class BookOpenGraphPngRenderer {
             int drawHeight = Math.max(1, (int) Math.round((double) logoImage.getHeight() * drawWidth / logoImage.getWidth()));
             int x = CANVAS_WIDTH - rightInset - drawWidth;
             int y = CANVAS_HEIGHT - bottomInset - drawHeight;
-            graphics.setComposite(AlphaComposite.SrcOver.derive(0.92f));
+            graphics.setComposite(AlphaComposite.SrcOver.derive(LOGO_OPACITY));
             graphics.drawImage(logoImage, x, y, drawWidth, drawHeight, null);
             graphics.setComposite(AlphaComposite.SrcOver);
             return;
         }
-        graphics.setColor(new Color(203, 213, 225));
+        graphics.setColor(BRAND_TEXT_COLOR);
         graphics.setFont(new Font("SansSerif", Font.PLAIN, BRAND_FONT_SIZE));
         int y = CANVAS_HEIGHT - bottomInset;
         int textWidth = graphics.getFontMetrics().stringWidth(BRAND_LABEL);

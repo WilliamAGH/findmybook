@@ -33,6 +33,9 @@ public final class BookDomainMapper {
     private static final String SUPPRESSED_FLAG_KEY = "cover.suppressed";
     private static final String SUPPRESSED_REASON_KEY = "cover.suppressed.reason";
     private static final String SUPPRESSED_MIN_HEIGHT_KEY = "cover.suppressed.minHeight";
+    private static final List<String> IMAGE_LINK_PRIORITY_ORDER = List.of(
+        "extraLarge", "large", "medium", "small", "thumbnail", "smallThumbnail"
+    );
 
     private BookDomainMapper() {
     }
@@ -358,7 +361,7 @@ public final class BookDomainMapper {
         }
 
         Map<String, String> links = identifiers.getImageLinks();
-        List<String> priorityOrder = List.of("extraLarge", "large", "medium", "small", "thumbnail", "smallThumbnail");
+        List<String> priorityOrder = IMAGE_LINK_PRIORITY_ORDER;
 
         String primary = null;
         String secondary = null;

@@ -63,6 +63,14 @@ public class RecommendationService {
             "which", "its", "into", "then", "also"
     ));
 
+    private static final double AUTHOR_MATCH_SCORE = 4.0;
+    private static final int MAX_MAIN_CATEGORIES = 3;
+    private static final double BASE_CATEGORY_SCORE = 0.5;
+    private static final double CATEGORY_SCORE_BASE = 1.0;
+    private static final double CATEGORY_SCORE_RANGE = 2.0;
+    private static final int MAX_EXTRACTED_KEYWORDS = 10;
+    private static final double TEXT_MATCH_SCORE_MULTIPLIER = 2.0;
+
     private static final String REASON_AUTHOR = "AUTHOR";
     private static final String REASON_CATEGORY = "CATEGORY";
     private static final String REASON_TEXT = "TEXT";
@@ -274,10 +282,6 @@ public class RecommendationService {
 
                 sourceBook.addRecommendationIds(newRecommendationIds);
 
-                Mono<Void> cacheIndividualRecommendedBooksMono = Flux.fromIterable(orderedBooks)
-                    .flatMap(recommendedBook -> Mono.just(recommendedBook))
-                    .then();
-
                 Set<String> limitedIds = limitedRecommendations.stream()
                     .map(Book::getId)
                     .filter(Objects::nonNull)
@@ -295,7 +299,7 @@ public class RecommendationService {
                         })
                     : Mono.empty();
 
-                return Mono.when(cacheIndividualRecommendedBooksMono, persistenceMono)
+                return Mono.when(persistenceMono)
                     .then(Mono.fromRunnable(() -> log.info("Updated cachedRecommendationIds for book {} with {} new IDs and cached {} individual recommended books.",
                             sourceBook.getId(), newRecommendationIds.size(), orderedBooks.size())))
                     .thenReturn(limitedRecommendations)
@@ -363,7 +367,7 @@ public class RecommendationService {
         return Flux.fromIterable(sourceBook.getAuthors())
             .flatMap(author -> searchBooks("inauthor:" + author, langCode, MAX_SEARCH_RESULTS)
                 .flatMapMany(Flux::fromIterable)
-                .map(book -> new ScoredBook(book, 4.0, REASON_AUTHOR))
+                .map(book -> new ScoredBook(book, AUTHOR_MATCH_SCORE, REASON_AUTHOR))
                 .onErrorMap(error -> new IllegalStateException(
                     "RecommendationService.findBooksByAuthorsReactive author=" + author,
                     error
@@ -387,7 +391,7 @@ public class RecommendationService {
         List<String> mainCategories = sourceBook.getCategories().stream()
             .map(category -> category.split("\\s*/\\s*")[0])
             .distinct()
-            .limit(3)
+            .limit(MAX_MAIN_CATEGORIES)
             .collect(Collectors.toList());
 
         if (mainCategories.isEmpty()) {
@@ -423,7 +427,7 @@ public class RecommendationService {
     private double calculateCategoryOverlapScore(Book sourceBook, Book candidateBook) {
         if (ValidationUtils.isNullOrEmpty(sourceBook.getCategories()) ||
             ValidationUtils.isNullOrEmpty(candidateBook.getCategories())) {
-            return 0.5; // Some basic score if it can't calculate
+            return BASE_CATEGORY_SCORE; // Some basic score if it can't calculate
         }
         
         Set<String> sourceCategories = normalizeCategories(sourceBook.getCategories());
@@ -438,7 +442,7 @@ public class RecommendationService {
                 PagingUtils.atLeast(Math.min(sourceCategories.size(), candidateCategories.size()), 1);
         
         // Scale to range 1.0 - 3.0
-        return 1.0 + (overlapRatio * 2.0);
+        return CATEGORY_SCORE_BASE + (overlapRatio * CATEGORY_SCORE_RANGE);
     }
     
     /**
@@ -479,7 +483,7 @@ public class RecommendationService {
         for (String token : tokens) {
             if (token.length() > 2 && !STOP_WORDS.contains(token)) {
                 keywords.add(token);
-                if (keywords.size() >= 10) break;
+                if (keywords.size() >= MAX_EXTRACTED_KEYWORDS) break;
             }
         }
 
@@ -503,7 +507,7 @@ public class RecommendationService {
                     }
                 }
                 if (matchCount > 0) {
-                    double score = 2.0 * matchCount;
+                    double score = TEXT_MATCH_SCORE_MULTIPLIER * matchCount;
                     return Mono.just(new ScoredBook(book, score, REASON_TEXT));
                 }
                 return Mono.empty();

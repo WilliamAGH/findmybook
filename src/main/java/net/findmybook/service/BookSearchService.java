@@ -274,12 +274,14 @@ public class BookSearchService {
             for (Map.Entry<String, String> entry : externalIds.entrySet()) {
                 String source = entry.getKey();
                 String externalId = entry.getValue();
-                backfillCoordinator.enqueue(source, externalId, 3);
+                backfillCoordinator.enqueue(source, externalId, SEARCH_BACKFILL_PRIORITY);
             }
         }
 
         log.debug("Enqueued backfill for {} search results", results.size());
     }
+
+    private static final int SEARCH_BACKFILL_PRIORITY = 3;
 
     /**
      * Value object representing a Postgres search hit.

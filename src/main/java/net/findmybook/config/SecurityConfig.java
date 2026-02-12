@@ -48,6 +48,17 @@ public class SecurityConfig {
     private static final String SIMPLE_ANALYTICS_QUEUE_ORIGIN = "https://queue.simpleanalyticscdn.com";
     private static final String GOOGLE_BOOKS_ORIGIN = "https://books.google.com";
     private static final String GOOGLE_BOOKS_CONTENT_ORIGIN = "https://books.googleusercontent.com";
+    private static final String CLICKY_STATIC_HTTPS = "https://static.getclicky.com";
+    private static final String CLICKY_STATIC_HTTP = "http://static.getclicky.com";
+    private static final String CLICKY_IN_HTTPS = "https://in.getclicky.com";
+    private static final String CLICKY_IN_HTTP = "http://in.getclicky.com";
+    private static final String CLICKY_ROOT_HTTPS = "https://clicky.com";
+    private static final String CLICKY_ROOT_HTTP = "http://clicky.com";
+    private static final String CDN_JSDELIVR = "https://cdn.jsdelivr.net";
+    private static final String CDN_CLOUDFLARE = "https://cdnjs.cloudflare.com";
+    private static final String CDN_TAILWIND = "https://cdn.tailwindcss.com";
+    private static final String FONTS_GOOGLEAPIS = "https://fonts.googleapis.com";
+    private static final String FONTS_GSTATIC = "https://fonts.gstatic.com";
 
     private final AuthenticationEntryPoint customBasicAuthenticationEntryPoint;
     private final Environment environment;
@@ -140,10 +151,10 @@ public class SecurityConfig {
         // Note: HTTP allowed because some providers (e.g., Google Books API) return HTTP URLs.
         StringBuilder imgSrcDirective = new StringBuilder("'self' data: blob: https: http: ");
         StringBuilder scriptSrcDirective = new StringBuilder(
-            "'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://cdn.tailwindcss.com 'unsafe-inline' blob:"
+            "'self' " + CDN_JSDELIVR + " " + CDN_CLOUDFLARE + " " + CDN_TAILWIND + " 'unsafe-inline' blob:"
         );
         StringBuilder connectSrcDirective = new StringBuilder(
-            "'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com "
+            "'self' " + CDN_JSDELIVR + " " + CDN_CLOUDFLARE + " "
                 + GOOGLE_BOOKS_ORIGIN + " " + GOOGLE_BOOKS_CONTENT_ORIGIN
         );
 
@@ -157,16 +168,19 @@ public class SecurityConfig {
         if (clickyEnabled) {
             // Add Clicky Analytics domains for script-src, connect-src, and img-src.
             // Include both HTTP and HTTPS as Clicky may use either depending on page protocol.
-            scriptSrcDirective.append(" https://static.getclicky.com http://static.getclicky.com https://in.getclicky.com http://in.getclicky.com https://clicky.com http://clicky.com");
-            connectSrcDirective.append(" https://static.getclicky.com http://static.getclicky.com https://in.getclicky.com http://in.getclicky.com https://clicky.com http://clicky.com");
-            imgSrcDirective.append(" https://in.getclicky.com http://in.getclicky.com");
+            String clickyScriptAndConnect = " " + CLICKY_STATIC_HTTPS + " " + CLICKY_STATIC_HTTP
+                + " " + CLICKY_IN_HTTPS + " " + CLICKY_IN_HTTP
+                + " " + CLICKY_ROOT_HTTPS + " " + CLICKY_ROOT_HTTP;
+            scriptSrcDirective.append(clickyScriptAndConnect);
+            connectSrcDirective.append(clickyScriptAndConnect);
+            imgSrcDirective.append(" ").append(CLICKY_IN_HTTPS).append(" ").append(CLICKY_IN_HTTP);
         }
 
         return "default-src 'self'; "
             + "script-src " + scriptSrcDirective + "; "
-            + "style-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.googleapis.com 'unsafe-inline'; "
+            + "style-src 'self' " + CDN_JSDELIVR + " " + CDN_CLOUDFLARE + " " + FONTS_GOOGLEAPIS + " 'unsafe-inline'; "
             + "img-src " + imgSrcDirective.toString().trim() + "; "
-            + "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; "
+            + "font-src 'self' " + FONTS_GSTATIC + " " + CDN_CLOUDFLARE + "; "
             + "connect-src " + connectSrcDirective + "; "
             + "frame-src 'self'; "
             + "object-src 'none'";

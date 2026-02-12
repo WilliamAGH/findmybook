@@ -43,6 +43,8 @@ public class WebConfig implements WebMvcConfigurer {
     private static final int PAGE_ROUTE_CANONICALIZATION_FILTER_ORDER =
         SecurityFilterProperties.DEFAULT_FILTER_ORDER - 1;
 
+    private static final int COVER_CACHE_PERIOD_SECONDS = 3600 * 24 * 30;
+
     private final String coverCacheDirName;
 
     public WebConfig(@Value("${app.cover-cache.dir:book-covers}") String coverCacheDirName) {
@@ -83,7 +85,7 @@ public class WebConfig implements WebMvcConfigurer {
         // For example, if coverCacheDirName is "covers", this handles "/covers/**".
         registry.addResourceHandler("/" + coverCacheDirName + "/**")
                 .addResourceLocations(resourceLocation)
-                .setCachePeriod(3600 * 24 * 30); // Cache for 30 days in browser
+                .setCachePeriod(COVER_CACHE_PERIOD_SECONDS); // 30 days in browser
 
         // Spring Boot 4 WebMvcAutoConfiguration registers /** and /webjars/** handlers
         // with the spring.web.resources YAML cache/versioning settings applied automatically.
