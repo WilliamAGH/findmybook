@@ -150,9 +150,21 @@ public class CoverS3UploadCoordinator {
             .retryWhen(buildRetrySpec(bookId))
             .switchIfEmpty(emptyUploadResult(bookId, canonicalImageUrl))
             .publishOn(Schedulers.boundedElastic())
+            .handle((details, sink) -> {
+                validateAndPersistUpload(details, bookId, bookUuid);
+                sink.next(details);
+            })
+            .onErrorResume(error -> {
+                recordUploadFailureInDatabase(error, bookUuid, bookId);
+                return Mono.error(error);
+            })
+            .doFinally(_ -> sample.stop(s3UploadDuration))
             .subscribe(
-                details -> handleUploadSuccess(details, bookId, bookUuid, sample),
-                error -> handleUploadError(error, bookId, bookUuid, sample)
+                _ -> s3UploadSuccesses.increment(),
+                error -> {
+                    s3UploadFailures.increment();
+                    handleUploadError(error, bookId);
+                }
             );
     }
 
@@ -220,17 +232,16 @@ public class CoverS3UploadCoordinator {
         });
     }
 
-    private void handleUploadSuccess(ImageDetails details, String bookId, UUID bookUuid, Timer.Sample sample) {
-        sample.stop(s3UploadDuration);
-
+    private void validateAndPersistUpload(ImageDetails details, String bookId, UUID bookUuid) {
         if (details == null || !StringUtils.hasText(details.getStorageKey())) {
-            s3UploadFailures.increment();
+            String storageKey = details != null ? details.getStorageKey() : null;
             logger.error("S3 upload returned non-persistable details for book {} [code={}]: reason={}. storageKey='{}'",
                 bookId,
                 CODE_S3_NON_PERSISTABLE_DETAILS,
                 "missing-storage-key",
-                details != null ? details.getStorageKey() : null);
-            return;
+                storageKey);
+            throw new IllegalStateException(
+                "S3 upload returned non-persistable details for book '" + bookId + "': missing storage key");
         }
 
         CoverPersistenceService.PersistenceResult persistenceResult = coverPersistenceService.updateAfterS3Upload(
@@ -246,22 +257,38 @@ public class CoverS3UploadCoordinator {
         );
 
         if (!persistenceResult.success()) {
-            s3UploadFailures.increment();
             logger.error("S3 upload metadata persistence reported unsuccessful status for book {} and key {} [code={}]: reason={}",
                 bookId,
                 details.getStorageKey(),
                 CODE_S3_METADATA_PERSIST_FAILED,
                 "metadata-persistence-unsuccessful");
-            return;
+            throw new IllegalStateException(
+                "S3 upload metadata persistence failed for book '" + bookId + "' and key '" + details.getStorageKey() + "'");
         }
-
-        s3UploadSuccesses.increment();
     }
 
-    private void handleUploadError(Throwable error, String bookId, UUID bookUuid, Timer.Sample sample) {
-        sample.stop(s3UploadDuration);
-        s3UploadFailures.increment();
+    /**
+     * Records an upload failure in the database so the error is persisted beyond logs.
+     *
+     * <p>If the secondary persistence itself fails, the failure is attached to the primary
+     * error via {@link Throwable#addSuppressed} so both failures remain observable.</p>
+     *
+     * <p>Errors that are not recordable (e.g. runtime config skips) produce an empty
+     * {@link Optional} from {@link #resolveRecordableErrorMessage}, skipping the DB write.</p>
+     */
+    private void recordUploadFailureInDatabase(Throwable primaryError, UUID bookUuid, String bookId) {
+        resolveRecordableErrorMessage(primaryError).ifPresent(recordableError -> {
+            try {
+                coverPersistenceService.recordDownloadError(bookUuid, recordableError);
+            } catch (RuntimeException persistenceFailure) {
+                logger.error("Failed to persist download error for book {} (secondary failure): {}",
+                    bookId, persistenceFailure.getMessage(), persistenceFailure);
+                primaryError.addSuppressed(persistenceFailure);
+            }
+        });
+    }
 
+    private void handleUploadError(Throwable error, String bookId) {
         switch (error) {
             case CoverDownloadException downloadException -> {
                 String causeMessage = downloadException.getCause() != null
@@ -302,39 +329,31 @@ public class CoverS3UploadCoordinator {
                     }
                 }
         }
-
-        // Record error in database so failure isn't silent
-        String recordableError = resolveRecordableErrorMessage(error);
-        if (recordableError != null) {
-            try {
-                coverPersistenceService.recordDownloadError(bookUuid, recordableError);
-            } catch (IllegalStateException persistenceFailure) {
-                logger.error("Failed to persist download error for book {} (secondary failure): {}", bookId, persistenceFailure.getMessage(), persistenceFailure);
-            }
-        }
     }
 
     /**
-     * Maps an upload error to the message that should be recorded in the database,
-     * or {@code null} when the error should not be persisted (e.g. runtime config skips).
+     * Maps an upload error to the message that should be recorded in the database.
+     *
+     * <p>Returns empty for errors that should not be persisted — specifically
+     * {@link S3UploadException}, which represents a runtime configuration skip
+     * rather than a recordable failure.</p>
      */
-    @jakarta.annotation.Nullable
-    private String resolveRecordableErrorMessage(Throwable error) {
+    private Optional<String> resolveRecordableErrorMessage(Throwable error) {
         return switch (error) {
             case CoverDownloadException downloadException -> {
                 String causeMessage = downloadException.getCause() != null
                     ? downloadException.getCause().getMessage()
                     : "Unknown cause";
-                yield "DownloadFailed: " + causeMessage;
+                yield Optional.of("DownloadFailed: " + causeMessage);
             }
             case CoverProcessingException processingException ->
-                processingException.getRejectionReason() != null
+                Optional.of(processingException.getRejectionReason() != null
                     ? processingException.getRejectionReason().name()
-                    : resolveFailureReason(processingException);
-            case CoverTooLargeException _ -> "TooLarge";
-            case UnsafeUrlException _ -> "UnsafeUrl";
-            case S3UploadException _ -> null;
-            default -> resolveFailureReason(error);
+                    : resolveFailureReason(processingException));
+            case CoverTooLargeException _ -> Optional.of("TooLarge");
+            case UnsafeUrlException _ -> Optional.of("UnsafeUrl");
+            case S3UploadException _ -> Optional.empty();
+            default -> Optional.of(resolveFailureReason(error));
         };
     }
 

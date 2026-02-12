@@ -219,6 +219,7 @@ class CoverS3UploadCoordinatorTest {
         coordinator.triggerUpload(event);
 
         verify(coverPersistenceService, timeout(1000).times(1)).updateAfterS3Upload(eq(bookId), any());
+        verify(coverPersistenceService, timeout(1000).times(1)).recordDownloadError(eq(bookId), any());
         assertCounterEventuallyEquals("book.cover.s3.upload.success", 0.0d);
         assertCounterEventuallyEquals("book.cover.s3.upload.failure", 1.0d);
     }
@@ -262,6 +263,7 @@ class CoverS3UploadCoordinatorTest {
             "GOOGLE_BOOKS"
         );
         verify(coverPersistenceService, never()).updateAfterS3Upload(any(), any());
+        verify(coverPersistenceService, timeout(1000).times(1)).recordDownloadError(eq(bookId), any());
         assertCounterEventuallyEquals("book.cover.s3.upload.success", 0.0d);
         assertCounterEventuallyEquals("book.cover.s3.upload.failure", 1.0d);
     }
