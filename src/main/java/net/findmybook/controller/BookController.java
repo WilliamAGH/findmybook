@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import net.findmybook.application.book.BookDetailResponseUseCase;
-import net.findmybook.application.book.RecommendationCardResponseUseCase;
+import net.findmybook.application.book.SimilarBooksResponseUseCase;
 import net.findmybook.controller.dto.BookDto;
 import net.findmybook.controller.dto.BookDtoMapper;
 import net.findmybook.controller.dto.search.AuthorSearchResponse;
@@ -36,6 +36,8 @@ import net.findmybook.util.UuidUtils;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
+import org.springframework.context.annotation.Bean;
+import org.springframework.stereotype.Component;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -52,7 +54,7 @@ public class BookController {
     private final BookIdentifierResolver bookIdentifierResolver;
     private final SearchPaginationService searchPaginationService;
     private final BookDetailResponseUseCase bookDetailResponseUseCase;
-    private final RecommendationCardResponseUseCase recommendationCardResponseUseCase;
+    private final SimilarBooksResponseUseCase similarBooksResponseUseCase;
     /**
      * The book data orchestrator, may be null when disabled.
      */
@@ -60,27 +62,46 @@ public class BookController {
 
     /**
      * Constructs BookController with optional orchestrator.
-     *
-     * @param bookSearchService the book search service
-     * @param bookIdentifierResolver the identifier resolver
-     * @param searchPaginationService the pagination service
-     * @param bookDetailResponseUseCase use case for detail response enrichment and side effects
-     * @param recommendationCardResponseUseCase use case for recommendation DTO ordering/mapping
-     * @param bookDataOrchestrator the data orchestrator, or null when disabled
      */
-    public BookController(BookSearchService bookSearchService,
-                          BookIdentifierResolver bookIdentifierResolver,
-                          SearchPaginationService searchPaginationService,
-                          BookDetailResponseUseCase bookDetailResponseUseCase,
-                          RecommendationCardResponseUseCase recommendationCardResponseUseCase,
-                          BookDataOrchestrator bookDataOrchestrator) {
-        this.bookSearchService = bookSearchService;
-        this.bookIdentifierResolver = bookIdentifierResolver;
-        this.searchPaginationService = searchPaginationService;
-        this.bookDetailResponseUseCase = bookDetailResponseUseCase;
-        this.recommendationCardResponseUseCase = recommendationCardResponseUseCase;
-        this.bookDataOrchestrator = bookDataOrchestrator;
+    public BookController(BookControllerServices services) {
+        this.bookSearchService = services.bookSearchService();
+        this.bookIdentifierResolver = services.bookIdentifierResolver();
+        this.searchPaginationService = services.searchPaginationService();
+        this.bookDetailResponseUseCase = services.bookDetailResponseUseCase();
+        this.similarBooksResponseUseCase = services.similarBooksResponseUseCase();
+        this.bookDataOrchestrator = services.bookDataOrchestrator();
     }
+
+    @Component
+    public static class ConfigLoader {
+        @Bean
+        public BookControllerServices bookControllerServices(
+            BookSearchService bookSearchService,
+            BookIdentifierResolver bookIdentifierResolver,
+            SearchPaginationService searchPaginationService,
+            BookDetailResponseUseCase bookDetailResponseUseCase,
+            SimilarBooksResponseUseCase similarBooksResponseUseCase,
+            BookDataOrchestrator bookDataOrchestrator
+        ) {
+            return new BookControllerServices(
+                bookSearchService,
+                bookIdentifierResolver,
+                searchPaginationService,
+                bookDetailResponseUseCase,
+                similarBooksResponseUseCase,
+                bookDataOrchestrator
+            );
+        }
+    }
+
+    public record BookControllerServices(
+        BookSearchService bookSearchService,
+        BookIdentifierResolver bookIdentifierResolver,
+        SearchPaginationService searchPaginationService,
+        BookDetailResponseUseCase bookDetailResponseUseCase,
+        SimilarBooksResponseUseCase similarBooksResponseUseCase,
+        BookDataOrchestrator bookDataOrchestrator
+    ) {}
 
     /**
      * Searches books using offset-based pagination and deterministic provider ordering.
@@ -137,6 +158,13 @@ public class BookController {
             });
     }
 
+    /**
+     * Searches authors by name prefix using Postgres full-text search.
+     *
+     * @param query raw author name query
+     * @param limit maximum number of author results to return
+     * @return author search results wrapped in a reactive ResponseEntity
+     */
     @GetMapping("/authors/search")
     public Mono<ResponseEntity<AuthorSearchResponse>> searchAuthors(@RequestParam String query,
                                                                     @RequestParam(name = "limit", defaultValue = "10") int limit) {
@@ -164,6 +192,13 @@ public class BookController {
             });
     }
 
+    /**
+     * Resolves a single book by any supported identifier (UUID, slug, ISBN, or Google Books ID).
+     *
+     * @param identifier client-supplied book identifier
+     * @param viewWindow optional time window for view-count tracking
+     * @return the resolved book DTO, or 404 if no match is found
+     */
     @GetMapping("/{identifier}")
     public Mono<ResponseEntity<BookDto>> getBookByIdentifier(@PathVariable String identifier,
                                                               @RequestParam(name = "viewWindow", required = false) String viewWindow) {
@@ -190,6 +225,14 @@ public class BookController {
         );
     }
 
+    /**
+     * Returns similar books for the given source identifier, using cached recommendations
+     * when available and regenerating them when stale or absent.
+     *
+     * @param identifier client-supplied source book identifier
+     * @param limit maximum number of similar books to return
+     * @return list of similar book DTOs
+     */
     @GetMapping("/{identifier}/similar")
     public Mono<ResponseEntity<List<BookDto>>> getSimilarBooks(@PathVariable String identifier,
                                                                @RequestParam(name = "limit", defaultValue = "5") int limit) {
@@ -204,9 +247,8 @@ public class BookController {
             if (maybeUuid.isEmpty()) {
                 return Mono.<List<BookDto>>empty();
             }
-            return Mono.fromCallable(() -> bookSearchService.fetchRecommendationCards(maybeUuid.get(), safeLimit))
-                .subscribeOn(Schedulers.boundedElastic())
-                .map(recommendationCardResponseUseCase::mapRecommendationCards);
+            UUID sourceUuid = maybeUuid.get();
+            return similarBooksResponseUseCase.resolveSimilarBooks(identifier, sourceUuid, safeLimit);
         });
 
         return ReactiveControllerUtils.withErrorHandling(

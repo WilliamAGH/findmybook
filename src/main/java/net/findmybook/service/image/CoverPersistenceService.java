@@ -98,14 +98,16 @@ public class CoverPersistenceService {
             String imageType = entry.getKey();
             String url = entry.getValue();
             
-            if (url == null || url.isBlank()) {
-                continue;
+            // Skip null/blank URLs and normalize to HTTPS in one pass
+            String httpsUrl = null;
+            if (url != null && !url.isBlank()) {
+                httpsUrl = UrlUtils.validateAndNormalize(url);
             }
             
-            // Normalize to HTTPS
-            String httpsUrl = UrlUtils.validateAndNormalize(url);
             if (!StringUtils.hasText(httpsUrl)) {
-                log.warn("Skipping invalid image URL for book {} type {}: {}", bookId, imageType, url);
+                if (url != null && !url.isBlank()) {
+                    log.warn("Skipping invalid image URL for book {} type {}: {}", bookId, imageType, url);
+                }
                 continue;
             }
             
@@ -126,26 +128,22 @@ public class CoverPersistenceService {
                     canonicalHeight = estimate.height();
                     canonicalHighRes = estimate.highRes();
                 }
-                
-            } catch (IllegalArgumentException ex) {
-                log.warn("Failed to persist image link for book {} type {}: {}",
-                    bookId, imageType, ex.getMessage());
-            } catch (DataAccessException ex) {
-                log.error("Failed to persist image link for book {} type {} due to database error: {}",
+            } catch (IllegalArgumentException | DataAccessException ex) {
+                log.error("Failed to persist image link for book {} type {}: {}",
                     bookId, imageType, ex.getMessage(), ex);
-                throw ex;
+                throw new IllegalStateException("Failed to persist image link for book " + bookId + " type " + imageType, ex);
             }
         }
         
         // Canonical cover now represented via highest-priority book_image_links row
         if (canonicalCoverUrl != null) {
-            CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
+            CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(new CoverUrlResolver.ResolveContext(
                 canonicalCoverUrl,
                 canonicalCoverUrl,
                 canonicalWidth,
                 canonicalHeight,
                 canonicalHighRes
-            );
+            ));
 
             upsertImageLink(new ImageLinkParams(bookId, "canonical", resolved.url(), source, resolved.width(), resolved.height(), resolved.highResolution()));
 
@@ -191,6 +189,30 @@ public class CoverPersistenceService {
                               CoverImageSource source) {
             this(s3Key, s3CdnUrl, width, height, null, source);
         }
+
+        public static Builder builder() {
+            return new Builder();
+        }
+
+        public static class Builder {
+            private String s3Key;
+            private String s3CdnUrl;
+            private Integer width;
+            private Integer height;
+            private Boolean isGrayscale;
+            private CoverImageSource source;
+
+            public Builder s3Key(String s3Key) { this.s3Key = s3Key; return this; }
+            public Builder s3CdnUrl(String s3CdnUrl) { this.s3CdnUrl = s3CdnUrl; return this; }
+            public Builder width(Integer width) { this.width = width; return this; }
+            public Builder height(Integer height) { this.height = height; return this; }
+            public Builder isGrayscale(Boolean isGrayscale) { this.isGrayscale = isGrayscale; return this; }
+            public Builder source(CoverImageSource source) { this.source = source; return this; }
+
+            public S3UploadResult build() {
+                return new S3UploadResult(s3Key, s3CdnUrl, width, height, isGrayscale, source);
+            }
+        }
     }
 
     /**
@@ -211,7 +233,7 @@ public class CoverPersistenceService {
         boolean highRes = ImageDimensionUtils.isHighResolution(width, height);
         String canonicalUrl = s3CdnUrl;
         if (!StringUtils.hasText(canonicalUrl)) {
-            CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(s3Key, null, width, height, highRes);
+            CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(new CoverUrlResolver.ResolveContext(s3Key, null, width, height, highRes));
             canonicalUrl = resolved.url();
             width = resolved.width();
             height = resolved.height();
@@ -237,19 +259,14 @@ public class CoverPersistenceService {
 
             return new PersistenceResult(true, canonicalUrl, width, height, highRes);
 
-        } catch (IllegalArgumentException ex) {
+        } catch (IllegalArgumentException | DataAccessException ex) {
             log.error("Failed to update cover metadata after S3 upload for book {} (S3 object may be orphaned: s3Key={}): {}",
                 bookId, s3Key, ex.getMessage(), ex);
-            throw ex;
-        } catch (DataAccessException ex) {
-            log.error("Failed to update cover metadata after S3 upload for book {} due to database error: {}",
-                bookId, ex.getMessage(), ex);
-            throw ex;
+            throw new IllegalStateException("Failed to update cover metadata after S3 upload for book " + bookId + " (s3Key=" + s3Key + ")", ex);
         }
     }
-    
+
     /**
-     * Persists external cover URL with estimated or actual dimensions.
      * Used for non-Google sources or when directly persisting external URLs.
      * 
      * @param bookId Canonical book UUID
@@ -278,13 +295,13 @@ public class CoverPersistenceService {
             return new PersistenceResult(false, null, null, null, false);
         }
 
-        CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
+        CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(new CoverUrlResolver.ResolveContext(
             httpsUrl,
             httpsUrl,
             width,
             height,
             null
-        );
+        ));
 
         try {
             upsertImageLink(new ImageLinkParams(bookId, "canonical", resolved.url(), source,
@@ -295,12 +312,9 @@ public class CoverPersistenceService {
 
             return new PersistenceResult(true, resolved.url(), resolved.width(), resolved.height(), resolved.highResolution());
 
-        } catch (IllegalArgumentException ex) {
+        } catch (IllegalArgumentException | DataAccessException ex) {
             log.error("Failed to persist external cover for book {}: {}", bookId, ex.getMessage(), ex);
-            throw ex;
-        } catch (DataAccessException ex) {
-            log.error("Failed to persist external cover for book {} due to database error: {}", bookId, ex.getMessage(), ex);
-            throw ex;
+            throw new IllegalStateException("Failed to persist external cover for book " + bookId, ex);
         }
     }
     
@@ -467,10 +481,6 @@ public class CoverPersistenceService {
                         Integer width, Integer height, Boolean highRes) {
             this(bookId, imageType, url, source, width, height, highRes, null, null);
         }
-
-        ImageLinkParams(UUID bookId, String imageType, String url, String source,
-                        Integer width, Integer height, Boolean highRes, String s3ImagePath) {
-            this(bookId, imageType, url, source, width, height, highRes, s3ImagePath, null);
-        }
     }
 }
+

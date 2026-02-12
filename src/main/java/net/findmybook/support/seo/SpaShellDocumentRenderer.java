@@ -4,7 +4,6 @@ import net.findmybook.domain.seo.SeoMetadata;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 
 /**
  * Renders the server-side SPA shell HTML document from route-level SEO metadata.

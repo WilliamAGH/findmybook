@@ -27,6 +27,29 @@ public final class CoverQuality {
      * Scores a cover using separate S3 key and external URL candidates,
      * with grayscale awareness.
      *
+     * @param context ranking context containing all cover attributes
+     * @return quality tier between 0 and 5 inclusive
+     */
+    public static int rank(RankingContext context) {
+        boolean hasS3 = isRenderable(context.s3Path());
+        boolean hasExternal = isRenderable(context.externalUrl());
+        if (!hasS3 && !hasExternal) {
+            return 0;
+        }
+        String preferred = hasS3 ? context.s3Path() : context.externalUrl();
+        return rankFromUrl(new UrlRankingContext(
+            preferred,
+            context.width(),
+            context.height(),
+            context.highResolution(),
+            context.grayscale()
+        ));
+    }
+
+    /**
+     * Scores a cover using separate S3 key and external URL candidates,
+     * with grayscale awareness.
+     *
      * @param s3Path         S3 object key (nullable)
      * @param externalUrl    external cover URL (nullable)
      * @param width          image width in pixels (nullable)
@@ -41,13 +64,7 @@ public final class CoverQuality {
                            Integer height,
                            Boolean highResolution,
                            Boolean grayscale) {
-        boolean hasS3 = isRenderable(s3Path);
-        boolean hasExternal = isRenderable(externalUrl);
-        if (!hasS3 && !hasExternal) {
-            return 0;
-        }
-        String preferred = hasS3 ? s3Path : externalUrl;
-        return rankFromUrl(preferred, width, height, highResolution, grayscale);
+        return rank(new RankingContext(s3Path, externalUrl, width, height, highResolution, grayscale));
     }
 
     /**
@@ -58,7 +75,44 @@ public final class CoverQuality {
                            Integer width,
                            Integer height,
                            Boolean highResolution) {
-        return rank(s3Path, externalUrl, width, height, highResolution, null);
+        return rank(new RankingContext(s3Path, externalUrl, width, height, highResolution, null));
+    }
+
+    /**
+     * Scores a cover when only a single resolved URL is available,
+     * with grayscale awareness.
+     *
+     * @param context url ranking context
+     * @return quality tier between 0 and 5 inclusive
+     */
+    public static int rankFromUrl(UrlRankingContext context) {
+        String url = context.url();
+        if (!isRenderable(url)) {
+            return 0;
+        }
+
+        if (!CoverUrlValidator.isLikelyCoverImage(url)) {
+            return 0;
+        }
+
+        if (hasKnownBadAspectRatio(context.width(), context.height())) {
+            return 0;
+        }
+
+        if (Boolean.TRUE.equals(context.grayscale())) {
+            return 1;
+        }
+
+        boolean fromS3 = url != null && !(url.startsWith("http://") || url.startsWith("https://"));
+        boolean hasCdn = fromS3 || CoverUrlResolver.isCdnUrl(url);
+        boolean resolvedHighRes = Boolean.TRUE.equals(context.highResolution())
+            || ImageDimensionUtils.isHighResolution(context.width(), context.height());
+        boolean meetsDisplay = ImageDimensionUtils.meetsSearchDisplayThreshold(context.width(), context.height());
+
+        if (hasCdn && resolvedHighRes) return 5;
+        if (resolvedHighRes)           return 4;
+        if (hasCdn || meetsDisplay)    return 3;
+        return 2;
     }
 
     /**
@@ -77,32 +131,7 @@ public final class CoverQuality {
                                   Integer height,
                                   Boolean highResolution,
                                   Boolean grayscale) {
-        if (!isRenderable(url)) {
-            return 0;
-        }
-
-        if (!CoverUrlValidator.isLikelyCoverImage(url)) {
-            return 0;
-        }
-
-        if (hasKnownBadAspectRatio(width, height)) {
-            return 0;
-        }
-
-        if (Boolean.TRUE.equals(grayscale)) {
-            return 1;
-        }
-
-        boolean fromS3 = url != null && !(url.startsWith("http://") || url.startsWith("https://"));
-        boolean hasCdn = fromS3 || CoverUrlResolver.isCdnUrl(url);
-        boolean resolvedHighRes = Boolean.TRUE.equals(highResolution)
-            || ImageDimensionUtils.isHighResolution(width, height);
-        boolean meetsDisplay = ImageDimensionUtils.meetsSearchDisplayThreshold(width, height);
-
-        if (hasCdn && resolvedHighRes) return 5;
-        if (resolvedHighRes)           return 4;
-        if (hasCdn || meetsDisplay)    return 3;
-        return 2;
+        return rankFromUrl(new UrlRankingContext(url, width, height, highResolution, grayscale));
     }
 
     /**
@@ -112,8 +141,25 @@ public final class CoverQuality {
                                   Integer width,
                                   Integer height,
                                   Boolean highResolution) {
-        return rankFromUrl(url, width, height, highResolution, null);
+        return rankFromUrl(new UrlRankingContext(url, width, height, highResolution, null));
     }
+
+    public record RankingContext(
+        String s3Path,
+        String externalUrl,
+        Integer width,
+        Integer height,
+        Boolean highResolution,
+        Boolean grayscale
+    ) {}
+
+    public record UrlRankingContext(
+        String url,
+        Integer width,
+        Integer height,
+        Boolean highResolution,
+        Boolean grayscale
+    ) {}
 
     /**
      * Returns {@code true} when dimensions are known and the aspect ratio

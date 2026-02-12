@@ -58,3 +58,30 @@ make cluster-books
 ```
 
 During this failure mode, the scheduler skips Google canonical clustering for that cycle and continues ISBN clustering.
+
+## Weekly Refresh Failures (NYT + Recommendations)
+
+If weekly catalog refresh logs show `Weekly catalog refresh ... failed`:
+
+1. Manually rerun the orchestrator:
+```bash
+curl -u admin:$APP_ADMIN_PASSWORD -X POST "http://localhost:${SERVER_PORT}/admin/trigger-weekly-refresh"
+```
+2. Check phase-level errors in server logs:
+   - `Weekly catalog refresh NYT phase failed.`
+   - `Weekly catalog refresh recommendation phase failed.`
+3. Run phases independently to isolate root cause:
+```bash
+curl -u admin:$APP_ADMIN_PASSWORD -X POST "http://localhost:${SERVER_PORT}/admin/trigger-nyt-bestsellers"
+curl -u admin:$APP_ADMIN_PASSWORD -X POST "http://localhost:${SERVER_PORT}/admin/trigger-recommendation-refresh"
+```
+
+### NYT External ID Upsert SQL Error
+
+If logs include `BadSqlGrammarException` during NYT ingest for `book_external_ids`, verify the deployed code uses schema-aligned upsert conflict handling:
+
+- `NytBestsellerPersistenceCollaborator.upsertNytExternalIdentifiers(...)` must use:
+  - `ON CONFLICT (source, external_id) DO UPDATE`
+- The fallback external ID must always be non-null (ISBN13 -> ISBN10 -> `book_uri` -> canonical UUID string).
+
+Without that, weekly refresh can fail NYT phase and return `500` from `/admin/trigger-weekly-refresh`.

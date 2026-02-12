@@ -215,16 +215,20 @@ public class BookSeoMetadataUseCase {
         }
         try {
             UUID bookId = UUID.fromString(book.getId().trim());
-            try {
-                return bookSeoMetadataSnapshotReader.fetchCurrent(bookId);
-            } catch (DataAccessException dataAccessException) {
-                log.error("Failed reading persisted book SEO metadata for {}. Falling back to legacy SEO metadata.",
-                    bookId,
-                    dataAccessException
-                );
-                return Optional.empty();
-            }
-        } catch (IllegalArgumentException invalidUuid) {
+            return fetchSeoSnapshotWithFallback(bookId);
+        } catch (IllegalArgumentException _) {
+            return Optional.empty();
+        }
+    }
+
+    private Optional<BookSeoMetadataSnapshot> fetchSeoSnapshotWithFallback(UUID bookId) {
+        try {
+            return bookSeoMetadataSnapshotReader.fetchCurrent(bookId);
+        } catch (DataAccessException dataAccessException) {
+            log.error("Failed reading persisted book SEO metadata for {}. Falling back to legacy SEO metadata.",
+                bookId,
+                dataAccessException
+            );
             return Optional.empty();
         }
     }

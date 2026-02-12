@@ -48,6 +48,10 @@ public class PageViewEventRepository {
      * @param pageKey stable page key (for example: {@code homepage})
      * @param viewedAt timestamp for the event; {@link Instant#now()} when null
      * @param source optional source label (for example: {@code api})
+     *
+     * <p>This is a best-effort analytics write path. Failures are logged with
+     * context and intentionally not rethrown because callers do not observe
+     * exceptions from {@code @Async void} methods.</p>
      */
     @Async
     public void recordView(String pageKey, @Nullable Instant viewedAt, @Nullable String source) {
@@ -76,7 +80,6 @@ public class PageViewEventRepository {
             );
         } catch (DataAccessException ex) {
             log.error("Failed to record page view for pageKey '{}': {}", pageKey, ex.getMessage(), ex);
-            throw new IllegalStateException("Failed to record page view for pageKey '" + pageKey + "'", ex);
         }
     }
 }

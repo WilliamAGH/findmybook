@@ -92,6 +92,12 @@ public class NytBestsellerPersistenceCollaborator {
 
         UUID canonicalUuid = UUID.fromString(canonicalId);
         String externalId = payloadMapper.nullIfBlank(isbn13 != null ? isbn13 : isbn10);
+        if (!StringUtils.hasText(externalId)) {
+            externalId = payloadMapper.nullIfBlank(payloadMapper.firstNonEmptyText(bookNode, "book_uri"));
+        }
+        if (!StringUtils.hasText(externalId)) {
+            externalId = canonicalId;
+        }
         String infoLink = payloadMapper.nullIfBlank(
             payloadMapper.firstNonEmptyText(bookNode, "book_review_link", "sunday_review_link", "article_chapter_link")
         );
@@ -99,34 +105,6 @@ public class NytBestsellerPersistenceCollaborator {
         String webReaderLink = payloadMapper.nullIfBlank(payloadMapper.firstNonEmptyText(bookNode, "article_chapter_link"));
         String purchaseLink = payloadMapper.nullIfBlank(payloadMapper.firstNonEmptyText(bookNode, "amazon_product_url"));
         String canonicalVolumeLink = payloadMapper.nullIfBlank(payloadMapper.firstNonEmptyText(bookNode, "book_uri"));
-
-        int updatedRows = jdbcTemplate.update(
-            """
-            UPDATE book_external_ids
-            SET external_id = COALESCE(book_external_ids.external_id, ?),
-                provider_isbn13 = COALESCE(book_external_ids.provider_isbn13, ?),
-                provider_isbn10 = COALESCE(book_external_ids.provider_isbn10, ?),
-                info_link = COALESCE(NULLIF(book_external_ids.info_link, ''), ?),
-                preview_link = COALESCE(NULLIF(book_external_ids.preview_link, ''), ?),
-                web_reader_link = COALESCE(NULLIF(book_external_ids.web_reader_link, ''), ?),
-                purchase_link = COALESCE(NULLIF(book_external_ids.purchase_link, ''), ?),
-                canonical_volume_link = COALESCE(NULLIF(book_external_ids.canonical_volume_link, ''), ?),
-                last_updated = NOW()
-            WHERE book_id = ? AND source = 'NEW_YORK_TIMES'
-            """,
-            externalId,
-            isbn13,
-            isbn10,
-            infoLink,
-            previewLink,
-            webReaderLink,
-            purchaseLink,
-            canonicalVolumeLink,
-            canonicalUuid
-        );
-        if (updatedRows > 0) {
-            return;
-        }
 
         jdbcTemplate.update(
             """
@@ -146,6 +124,16 @@ public class NytBestsellerPersistenceCollaborator {
                 created_at
             )
             VALUES (?, ?, 'NEW_YORK_TIMES', ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+            ON CONFLICT (source, external_id) DO UPDATE
+            SET book_id = EXCLUDED.book_id,
+                provider_isbn13 = COALESCE(NULLIF(book_external_ids.provider_isbn13, ''), EXCLUDED.provider_isbn13),
+                provider_isbn10 = COALESCE(NULLIF(book_external_ids.provider_isbn10, ''), EXCLUDED.provider_isbn10),
+                info_link = COALESCE(NULLIF(book_external_ids.info_link, ''), EXCLUDED.info_link),
+                preview_link = COALESCE(NULLIF(book_external_ids.preview_link, ''), EXCLUDED.preview_link),
+                web_reader_link = COALESCE(NULLIF(book_external_ids.web_reader_link, ''), EXCLUDED.web_reader_link),
+                purchase_link = COALESCE(NULLIF(book_external_ids.purchase_link, ''), EXCLUDED.purchase_link),
+                canonical_volume_link = COALESCE(NULLIF(book_external_ids.canonical_volume_link, ''), EXCLUDED.canonical_volume_link),
+                last_updated = NOW()
             """,
             IdGenerator.generateLong(),
             canonicalUuid,
@@ -163,10 +151,7 @@ public class NytBestsellerPersistenceCollaborator {
     public void assignCoreTags(String bookId,
                                NytListContext listContext,
                                JsonNode bookNode,
-                               @Nullable Integer rank,
-                               @Nullable Integer weeksOnList,
-                               @Nullable Integer rankLastWeek,
-                               @Nullable Integer peakPosition) {
+                               RankingStats stats) {
         String naturalListLabel = payloadMapper.resolveNaturalListLabel(
             listContext.listDisplayName(),
             listContext.listName(),
@@ -175,10 +160,7 @@ public class NytBestsellerPersistenceCollaborator {
         Map<String, Object> metadata = buildNytTagMetadata(
             listContext,
             bookNode,
-            rank,
-            weeksOnList,
-            rankLastWeek,
-            peakPosition,
+            stats,
             naturalListLabel
         );
 
@@ -191,10 +173,7 @@ public class NytBestsellerPersistenceCollaborator {
 
     private Map<String, Object> buildNytTagMetadata(NytListContext listContext,
                                                      JsonNode bookNode,
-                                                     @Nullable Integer rank,
-                                                     @Nullable Integer weeksOnList,
-                                                     @Nullable Integer rankLastWeek,
-                                                     @Nullable Integer peakPosition,
+                                                     RankingStats stats,
                                                      String naturalListLabel) {
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("list_code", listContext.listCode());
@@ -204,18 +183,12 @@ public class NytBestsellerPersistenceCollaborator {
         putIfHasText(metadata, "updated_frequency", listContext.updatedFrequency());
         putIfHasText(metadata, "published_date", formatDate(listContext.publishedDate()));
         putIfHasText(metadata, "bestsellers_date", formatDate(listContext.bestsellersDate()));
-        if (rank != null) {
-            metadata.put("rank", rank);
-        }
-        if (weeksOnList != null) {
-            metadata.put("weeks_on_list", weeksOnList);
-        }
-        if (rankLastWeek != null) {
-            metadata.put("rank_last_week", rankLastWeek);
-        }
-        if (peakPosition != null) {
-            metadata.put("peak_position", peakPosition);
-        }
+        
+        if (stats.rank() != null) metadata.put("rank", stats.rank());
+        if (stats.weeksOnList() != null) metadata.put("weeks_on_list", stats.weeksOnList());
+        if (stats.rankLastWeek() != null) metadata.put("rank_last_week", stats.rankLastWeek());
+        if (stats.peakPosition() != null) metadata.put("peak_position", stats.peakPosition());
+
         putIfHasText(metadata, "title", payloadMapper.firstNonEmptyText(bookNode, "title", "book_title"));
         putIfHasText(metadata, "description", payloadMapper.firstNonEmptyText(bookNode, "description", "summary"));
         putIfHasText(metadata, "author", payloadMapper.firstNonEmptyText(bookNode, "author"));
@@ -255,6 +228,8 @@ public class NytBestsellerPersistenceCollaborator {
         }
         return metadata;
     }
+
+    public record RankingStats(@Nullable Integer rank, @Nullable Integer weeksOnList, @Nullable Integer rankLastWeek, @Nullable Integer peakPosition) {}
 
     @Nullable
     private static String formatDate(@Nullable LocalDate date) {

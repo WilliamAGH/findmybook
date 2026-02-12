@@ -4,6 +4,8 @@ import net.findmybook.application.cover.BackfillMode;
 import net.findmybook.application.cover.BackfillProgress;
 import net.findmybook.application.cover.CoverBackfillService;
 import net.findmybook.application.cover.SourceAttemptStatus;
+import net.findmybook.application.book.RecommendationCacheRefreshUseCase;
+import net.findmybook.boot.scheduler.WeeklyCatalogRefreshScheduler;
 import net.findmybook.scheduler.BookCacheWarmingScheduler;
 import net.findmybook.scheduler.NewYorkTimesBestsellerScheduler;
 import net.findmybook.service.ApiCircuitBreakerService;
@@ -50,6 +52,12 @@ class AdminControllerTest {
     private NewYorkTimesBestsellerScheduler newYorkTimesBestsellerScheduler;
 
     @Mock
+    private WeeklyCatalogRefreshScheduler weeklyCatalogRefreshScheduler;
+
+    @Mock
+    private RecommendationCacheRefreshUseCase recommendationCacheRefreshUseCase;
+
+    @Mock
     private BackfillCoordinator backfillCoordinator;
 
     @Mock
@@ -71,15 +79,20 @@ class AdminControllerTest {
     void setUp() {
         when(s3CoverCleanupServiceProvider.getIfAvailable()).thenReturn(s3CoverCleanupService);
         when(backfillCoordinatorProvider.getIfAvailable()).thenReturn(backfillCoordinator);
-        adminController = new AdminController(
+        AdminController.AdminServices adminServices = new AdminController.AdminServices(
             s3CoverCleanupServiceProvider,
             newYorkTimesBestsellerScheduler,
+            weeklyCatalogRefreshScheduler,
+            recommendationCacheRefreshUseCase,
             bookCacheWarmingScheduler,
-            apiCircuitBreakerService,
+            apiCircuitBreakerService
+        );
+        AdminController.S3CleanupConfig s3CleanupConfig = new AdminController.S3CleanupConfig(
             TEST_S3_PREFIX,
             TEST_BATCH_LIMIT,
             TEST_QUARANTINE_PREFIX
         );
+        adminController = new AdminController(adminServices, s3CleanupConfig);
         backfillAdminController = new BackfillAdminController(
             backfillCoordinatorProvider,
             coverBackfillService
@@ -151,9 +164,10 @@ class AdminControllerTest {
 
     @Test
     void triggerNytBestsellerProcessing_shouldReturnBadRequest_WhenRerunAllAndDateProvided() {
+        LocalDate requestedDate = LocalDate.parse("2026-02-09");
         ResponseStatusException exception = assertThrows(
             ResponseStatusException.class,
-            () -> adminController.triggerNytBestsellerProcessing(LocalDate.parse("2026-02-09"), true)
+            () -> adminController.triggerNytBestsellerProcessing(requestedDate, true)
         );
 
         assertEquals(HttpStatus.BAD_REQUEST, exception.getStatusCode());
@@ -169,6 +183,73 @@ class AdminControllerTest {
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertTrue(response.getBody().contains("2026-02-09"));
         verify(newYorkTimesBestsellerScheduler).forceProcessNewYorkTimesBestsellers(requestedDate);
+    }
+
+    @Test
+    void should_ReturnSummary_When_RecommendationRefreshSucceeds() {
+        when(recommendationCacheRefreshUseCase.refreshAllRecommendations())
+            .thenReturn(new RecommendationCacheRefreshUseCase.RefreshSummary(
+                100L,
+                0L,
+                100,
+                100L,
+                30
+            ));
+
+        var response = adminController.triggerRecommendationRefresh();
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertNotNull(response.getBody());
+        assertTrue(response.getBody().contains("refreshedRows=100"));
+        verify(recommendationCacheRefreshUseCase).refreshAllRecommendations();
+    }
+
+    @Test
+    void should_ReturnInternalServerError_When_RecommendationRefreshFails() {
+        when(recommendationCacheRefreshUseCase.refreshAllRecommendations())
+            .thenThrow(new IllegalStateException("refresh failed"));
+
+        ResponseStatusException exception = assertThrows(
+            ResponseStatusException.class,
+            () -> adminController.triggerRecommendationRefresh()
+        );
+
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, exception.getStatusCode());
+        assertEquals("Failed to trigger recommendation refresh.", exception.getReason());
+    }
+
+    @Test
+    void should_ReturnSummary_When_WeeklyRefreshSucceeds() {
+        WeeklyCatalogRefreshScheduler.WeeklyRefreshSummary summary =
+            new WeeklyCatalogRefreshScheduler.WeeklyRefreshSummary(
+                true,
+                true,
+                java.util.Optional.of(new RecommendationCacheRefreshUseCase.RefreshSummary(200L, 0L, 200, 200L, 30)),
+                List.of()
+            );
+        when(weeklyCatalogRefreshScheduler.forceRunWeeklyRefreshCycle()).thenReturn(summary);
+
+        var response = adminController.triggerWeeklyRefresh();
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertNotNull(response.getBody());
+        assertTrue(response.getBody().contains("nytTriggered=true"));
+        assertTrue(response.getBody().contains("recommendationTriggered=true"));
+        verify(weeklyCatalogRefreshScheduler).forceRunWeeklyRefreshCycle();
+    }
+
+    @Test
+    void should_ReturnInternalServerError_When_WeeklyRefreshFails() {
+        when(weeklyCatalogRefreshScheduler.forceRunWeeklyRefreshCycle())
+            .thenThrow(new IllegalStateException("weekly failed"));
+
+        ResponseStatusException exception = assertThrows(
+            ResponseStatusException.class,
+            () -> adminController.triggerWeeklyRefresh()
+        );
+
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, exception.getStatusCode());
+        assertEquals("Failed to trigger weekly refresh.", exception.getReason());
     }
 
     @Test

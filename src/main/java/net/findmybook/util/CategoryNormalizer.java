@@ -33,8 +33,8 @@ public final class CategoryNormalizer {
     /** Matches strings that are purely numeric, Dewey Decimal, or numeric codes (e.g., "823.7", "3248", ".001"). */
     private static final Pattern GARBAGE_NUMERIC = Pattern.compile("^[.\\d][\\d.\\-\\s]*[a-z]?$", Pattern.CASE_INSENSITIVE);
 
-    /** Matches MARC-like codes (e.g., "700=aacr2", "04b044sinebk"). */
-    private static final Pattern GARBAGE_MARC = Pattern.compile("^\\d+[=a-z].*$", Pattern.CASE_INSENSITIVE);
+    /** Matches MARC-like codes (e.g., "700=aacr2", "04b044sinebk") but not human-readable subjects like "20th Century". */
+    private static final Pattern GARBAGE_MARC = Pattern.compile("^\\d+[=a-z]\\S*$", Pattern.CASE_INSENSITIVE);
 
     /** Matches classification-style codes with numeric prefix (e.g., "89.70 international relations"). */
     private static final Pattern GARBAGE_CLASSIFICATION = Pattern.compile("^\\d+\\.\\d+\\s+\\S.*$");

@@ -109,7 +109,8 @@ public class CoverBackfillService {
             }
             progressTracker.reset(candidates.size());
 
-            int found = 0, notFound = 0;
+            int found = 0;
+            int notFound = 0;
             BackfillCandidate lastCompletedCandidate = null;
             Boolean lastCompletedFound = null;
             List<SourceAttemptStatus> lastCompletedAttempts = List.of();
@@ -208,7 +209,7 @@ public class CoverBackfillService {
         } catch (RuntimeException unexpectedException) {
             log.error("Cover backfill failed unexpectedly: mode={}, limit={}, processed={}", mode, limit, processed, unexpectedException);
             progressTracker.updateProgress(0, processed, 0, 0, false, null, List.of(), null, null, List.of());
-            throw unexpectedException;
+            throw new IllegalStateException("Cover backfill failed: mode=" + mode + ", processed=" + processed, unexpectedException);
         } finally {
             backfillRunning.set(false);
         }
@@ -309,14 +310,15 @@ public class CoverBackfillService {
                     source, bookId, title, isbn, result.detail());
             }
             case FAILURE -> {
-                int failures = consecutiveFailures.merge(source, 1, Integer::sum);
+                int currentFailures = consecutiveFailures.getOrDefault(source, 0) + 1;
+                consecutiveFailures.put(source, currentFailures);
                 log.warn("{} failed for book {} title=\"{}\" isbn={} (consecutiveFailures={}): {}",
-                    source, bookId, title, isbn, failures, result.detail());
-                if (failures >= CONSECUTIVE_FAILURES_PAUSE_THRESHOLD) {
+                    source, bookId, title, isbn, currentFailures, result.detail());
+                if (currentFailures >= CONSECUTIVE_FAILURES_PAUSE_THRESHOLD) {
                     pausedUntil.put(source, Instant.now().plus(API_PAUSE_DURATION));
                     consecutiveFailures.put(source, 0);
                     log.warn("{} paused for {} after {} consecutive failures",
-                        source, API_PAUSE_DURATION, failures);
+                        source, API_PAUSE_DURATION, currentFailures);
                 }
             }
             case SKIPPED -> log.info("{} skipped for book {} title=\"{}\" isbn={}: {}",
@@ -328,7 +330,7 @@ public class CoverBackfillService {
     private void sleepSafely(Duration duration) {
         try {
             Thread.sleep(duration.toMillis());
-        } catch (InterruptedException ex) {
+        } catch (InterruptedException _) {
             Thread.currentThread().interrupt();
             cancelled = true;
             log.info("Cover backfill sleep interrupted; treating as cancellation");

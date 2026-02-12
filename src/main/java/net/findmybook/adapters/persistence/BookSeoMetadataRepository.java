@@ -1,12 +1,12 @@
 package net.findmybook.adapters.persistence;
 
 import java.sql.Timestamp;
-import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import net.findmybook.domain.seo.BookSeoMetadataSnapshot;
 import net.findmybook.domain.seo.BookSeoMetadataSnapshotReader;
 import net.findmybook.util.IdGenerator;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,8 +22,17 @@ public class BookSeoMetadataRepository implements BookSeoMetadataSnapshotReader 
 
     private final JdbcTemplate jdbcTemplate;
 
-    public BookSeoMetadataRepository(JdbcTemplate jdbcTemplate) {
+    /**
+     * Lazy self-reference so {@code insertNewCurrentVersion} can invoke
+     * {@link #fetchCurrent} through the transactional proxy.
+     * {@code @Lazy} defers resolution until first use, breaking the circular
+     * dependency that Spring Boot 4.x otherwise prohibits at startup.
+     */
+    private final BookSeoMetadataSnapshotReader self;
+
+    public BookSeoMetadataRepository(JdbcTemplate jdbcTemplate, @Lazy BookSeoMetadataSnapshotReader self) {
         this.jdbcTemplate = jdbcTemplate;
+        this.self = self;
     }
 
     /**
@@ -90,10 +99,7 @@ public class BookSeoMetadataRepository implements BookSeoMetadataSnapshotReader 
             rs -> rs.next() ? rs.getString("prompt_hash") : null,
             bookId
         );
-        if (promptHash == null || promptHash.isBlank()) {
-            return Optional.empty();
-        }
-        return Optional.of(promptHash);
+        return Optional.ofNullable(promptHash).filter(s -> !s.isBlank());
     }
 
     /**
@@ -153,18 +159,18 @@ public class BookSeoMetadataRepository implements BookSeoMetadataSnapshotReader 
             promptHash
         );
 
-        return fetchCurrent(bookId)
+        return self.fetchCurrent(bookId)
             .orElseThrow(() -> new IllegalStateException("Inserted SEO metadata could not be reloaded for book " + bookId));
     }
 
     private void lockBook(UUID bookId) {
-        UUID lockedBookId = jdbcTemplate.query(
+        java.util.List<UUID> lockedBookIds = jdbcTemplate.query(
             "SELECT id FROM books WHERE id = ? FOR UPDATE",
-            rs -> rs.next() ? rs.getObject("id", UUID.class) : null,
+            (rs, rowNum) -> rs.getObject("id", UUID.class),
             bookId
         );
-        if (lockedBookId == null) {
-            throw new IllegalStateException("Cannot lock missing book row for SEO metadata versioning: " + bookId);
+        if (lockedBookIds.isEmpty()) {
+            throw new IllegalStateException("Book not found for SEO metadata versioning: " + bookId);
         }
     }
 

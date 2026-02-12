@@ -24,11 +24,14 @@ class BookSearchServiceBlankQueryTest {
 
     @BeforeEach
     void initService() {
+        BookSearchService.SearchDependencies deps = new BookSearchService.SearchDependencies(
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty()
+        );
         bookSearchService = new BookSearchService(
             jdbcTemplate,
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
+            deps,
             false
         );
     }

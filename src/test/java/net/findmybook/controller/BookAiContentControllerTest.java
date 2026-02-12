@@ -178,9 +178,10 @@ class BookAiContentControllerTest {
             .getResponse()
             .getContentAsString();
 
-        assertThat(responseBody).contains("event:error");
-        assertThat(responseBody).contains("Book not found");
-        assertThat(responseBody).contains("\"code\":\"book_not_found\"");
+        assertThat(responseBody)
+            .contains("event:error")
+            .contains("Book not found")
+            .contains("\"code\":\"book_not_found\"");
     }
 
     @Test
@@ -198,9 +199,10 @@ class BookAiContentControllerTest {
             .getResponse()
             .getContentAsString();
 
-        assertThat(responseBody).contains("event:error");
-        assertThat(responseBody).contains("not configured");
-        assertThat(responseBody).contains("\"code\":\"service_unavailable\"");
+        assertThat(responseBody)
+            .contains("event:error")
+            .contains("not configured")
+            .contains("\"code\":\"service_unavailable\"");
     }
 
     @Test
@@ -211,10 +213,11 @@ class BookAiContentControllerTest {
             "Book description is missing or too short for faithful AI generation (bookId=fixed, length=0, minimum=50)"
         ));
 
-        assertThat(responseBody).contains("event:error");
-        assertThat(responseBody).contains("\"code\":\"description_too_short\"");
-        assertThat(responseBody).contains("AI content is unavailable for this book");
-        assertThat(responseBody).doesNotContain("length=0");
+        assertThat(responseBody)
+            .contains("event:error")
+            .contains("\"code\":\"description_too_short\"")
+            .contains("AI content is unavailable for this book")
+            .doesNotContain("length=0");
     }
 
     @Test
@@ -225,10 +228,11 @@ class BookAiContentControllerTest {
             "Book description is missing or too short for faithful AI generation (bookId=fixed, length=0, minimum=50)"
         ));
 
-        assertThat(responseBody).contains("event:error");
-        assertThat(responseBody).contains("\"code\":\"description_too_short\"");
-        assertThat(responseBody).contains("missing or too short");
-        assertThat(responseBody).contains("length=0");
+        assertThat(responseBody)
+            .contains("event:error")
+            .contains("\"code\":\"description_too_short\"")
+            .contains("missing or too short")
+            .contains("length=0");
     }
 
     @Test
@@ -237,9 +241,10 @@ class BookAiContentControllerTest {
         Object executorField = ReflectionTestUtils.getField(controller, "queueTickerExecutor");
         assertThat(executorField).isInstanceOf(ScheduledThreadPoolExecutor.class);
 
-        ScheduledThreadPoolExecutor executor = (ScheduledThreadPoolExecutor) executorField;
-        assertThat(executor.getCorePoolSize()).isEqualTo(BookAiContentController.determineQueueTickerThreadCount());
-        assertThat(executor.getCorePoolSize()).isGreaterThan(1);
+        try (ScheduledThreadPoolExecutor executor = (ScheduledThreadPoolExecutor) executorField) {
+            assertThat(executor.getCorePoolSize()).isEqualTo(BookAiContentController.determineQueueTickerThreadCount());
+            assertThat(executor.getCorePoolSize()).isGreaterThan(1);
+        }
     }
 
     /**

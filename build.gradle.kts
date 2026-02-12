@@ -170,6 +170,18 @@ val frontendBuild by tasks.registering(Exec::class) {
     enabled = !skipFrontend
 }
 
+// Copy web icons (favicon, apple-touch-icon, manifest) from the frontend source of truth
+// to the Spring Boot static root so they are served at root paths (e.g. /favicon.svg).
+// Always runs regardless of -PskipFrontend since it's a cheap file copy with no npm dependency.
+val copyWebIcons by tasks.registering(Copy::class) {
+    from("frontend/public") {
+        include("favicon*")
+        include("apple-touch-icon*")
+        include("site.webmanifest")
+    }
+    into("src/main/resources/static")
+}
+
 val verifyNoFrontendFallbackHtml by tasks.registering {
     if (!skipFrontend) {
         dependsOn(frontendBuild)
@@ -186,7 +198,7 @@ val verifyNoFrontendFallbackHtml by tasks.registering {
 }
 
 tasks.named("processResources") {
-    dependsOn(verifyNoFrontendFallbackHtml)
+    dependsOn(copyWebIcons, verifyNoFrontendFallbackHtml)
 }
 
 tasks.named("check") {

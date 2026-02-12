@@ -52,17 +52,18 @@ class BookCollectionPersistenceServiceTest {
                 any(), any(), any(), any(), any(), any(), any(), any(), any(), any()
         )).thenReturn("collection-123");
 
-        Optional<String> result = service.upsertBestsellerCollection(
+        BookCollectionPersistenceService.BestsellerCollectionDto dto = new BookCollectionPersistenceService.BestsellerCollectionDto(
                 "nyt-fiction-2024-38",
                 "hardcover-fiction",
                 "NYT Hardcover Fiction",
-                null,
+                "hardcover-fiction",
                 "Latest weekly update",
                 LocalDate.of(2024, 9, 1),
                 LocalDate.of(2024, 9, 8),
                 "WEEKLY",
                 raw
         );
+        Optional<String> result = service.upsertBestsellerCollection(dto);
 
         assertThat(result).contains("collection-123");
 
@@ -92,7 +93,7 @@ class BookCollectionPersistenceServiceTest {
             any(), any(), any(), any(), any(), any(), any(), any(), any(), any()
         )).thenReturn("collection-456");
 
-        service.upsertBestsellerCollection(
+        BookCollectionPersistenceService.BestsellerCollectionDto dto = new BookCollectionPersistenceService.BestsellerCollectionDto(
             "nyt-nonfiction-2024-40",
             "hardcover-nonfiction",
             "NYT Hardcover Nonfiction",
@@ -103,6 +104,7 @@ class BookCollectionPersistenceServiceTest {
             "WEEKLY",
             objectMapper.createObjectNode()
         );
+        service.upsertBestsellerCollection(dto);
 
         ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
         verify(jdbcTemplate).queryForObject(
@@ -116,7 +118,7 @@ class BookCollectionPersistenceServiceTest {
 
     @Test
     void upsertBestsellerMembership_usesIdempotentConflictKey_WhenPersistingDuplicateRows() {
-        service.upsertBestsellerMembership(
+        BookCollectionPersistenceService.BestsellerMembershipDto dto = new BookCollectionPersistenceService.BestsellerMembershipDto(
             "collection-1",
             UUID.randomUUID().toString(),
             1,
@@ -128,6 +130,7 @@ class BookCollectionPersistenceServiceTest {
             "https://amazon.example/item",
             "{\"title\":\"Example\"}"
         );
+        service.upsertBestsellerMembership(dto);
 
         verify(jdbcTemplate).update(
             startsWith("UPDATE book_collections_join SET position = NULL"),

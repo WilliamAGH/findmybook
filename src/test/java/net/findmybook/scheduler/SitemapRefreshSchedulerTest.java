@@ -44,7 +44,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
-import static org.mockito.Mockito.lenient;
 
 @ExtendWith(MockitoExtension.class)
 class SitemapRefreshSchedulerTest {
@@ -111,6 +110,7 @@ class NewYorkTimesBestsellerSchedulerTest {
     @Mock
     private BookUpsertService bookUpsertService;
 
+    private NytBestsellerPersistenceCollaborator persistenceCollaborator;
     private NewYorkTimesBestsellerScheduler scheduler;
     private ObjectMapper objectMapper;
 
@@ -118,26 +118,61 @@ class NewYorkTimesBestsellerSchedulerTest {
     void setUp() {
         objectMapper = new ObjectMapper();
         NytBestsellerPayloadMapper payloadMapper = new NytBestsellerPayloadMapper(objectMapper);
-        NytBestsellerPersistenceCollaborator persistenceCollaborator = new NytBestsellerPersistenceCollaborator(
+        persistenceCollaborator = new NytBestsellerPersistenceCollaborator(
             jdbcTemplate,
             supplementalPersistenceService,
             payloadMapper
         );
-        scheduler = new NewYorkTimesBestsellerScheduler(
+        NewYorkTimesBestsellerScheduler.NytIngestServices services = new NewYorkTimesBestsellerScheduler.NytIngestServices(
             newYorkTimesService,
             bookLookupService,
             jdbcTemplate,
             collectionPersistenceService,
             bookUpsertService,
             payloadMapper,
-            persistenceCollaborator,
-            true,
-            true
+            persistenceCollaborator
+        );
+        NewYorkTimesBestsellerScheduler.SchedulerConfig config = new NewYorkTimesBestsellerScheduler.SchedulerConfig(true, true, true);
+        scheduler = new NewYorkTimesBestsellerScheduler(services, config);
+    }
+
+    @Test
+    void should_UseAtomicUpsertStatement_When_UpsertingNytExternalIdentifiers() throws Exception {
+        JsonNode bookNode = objectMapper.readTree(
+            """
+            {
+              "book_review_link": "https://example.com/review",
+              "first_chapter_link": "https://example.com/preview",
+              "amazon_product_url": "https://example.com/buy",
+              "book_uri": "https://example.com/book"
+            }
+            """
+        );
+
+        persistenceCollaborator.upsertNytExternalIdentifiers(
+            UUID.randomUUID().toString(),
+            bookNode,
+            "9780316769488",
+            "0316769487"
+        );
+
+        verify(jdbcTemplate, times(1)).update(
+            org.mockito.ArgumentMatchers.contains("ON CONFLICT (source, external_id) DO UPDATE"),
+            any(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any()
         );
     }
 
     @Test
-    void processNewYorkTimesBestsellers_shouldIgnoreMissingOptionalListFields_WhenOverviewContainsPartialData() throws Exception {
+    void should_IgnoreMissingOptionalListFields_When_OverviewContainsPartialData() throws Exception {
         JsonNode overview = objectMapper.readTree(
             """
             {
@@ -156,29 +191,13 @@ class NewYorkTimesBestsellerSchedulerTest {
         );
         when(newYorkTimesService.fetchBestsellerListOverview(nullable(LocalDate.class))).thenReturn(Mono.just(overview));
         when(collectionPersistenceService.upsertBestsellerCollection(
-            nullable(String.class),
-            eq("hardcover-fiction"),
-            eq("hardcover fiction"),
-            eq("hardcover-fiction"),
-            nullable(String.class),
-            nullable(LocalDate.class),
-            eq(LocalDate.parse("2026-02-08")),
-            eq("WEEKLY"),
-            any(JsonNode.class)
+            any(BookCollectionPersistenceService.BestsellerCollectionDto.class)
         )).thenReturn(Optional.of("collection-1"));
 
         assertDoesNotThrow(() -> scheduler.processNewYorkTimesBestsellers());
 
         verify(collectionPersistenceService).upsertBestsellerCollection(
-            nullable(String.class),
-            eq("hardcover-fiction"),
-            eq("hardcover fiction"),
-            eq("hardcover-fiction"),
-            nullable(String.class),
-            nullable(LocalDate.class),
-            eq(LocalDate.parse("2026-02-08")),
-            eq("WEEKLY"),
-            any(JsonNode.class)
+            any(BookCollectionPersistenceService.BestsellerCollectionDto.class)
         );
         verifyNoInteractions(bookLookupService, supplementalPersistenceService, bookUpsertService);
     }
@@ -200,53 +219,16 @@ class NewYorkTimesBestsellerSchedulerTest {
         );
         when(newYorkTimesService.fetchBestsellerListOverview(nullable(LocalDate.class))).thenReturn(Mono.just(overview));
         when(collectionPersistenceService.upsertBestsellerCollection(
-            nullable(String.class),
-            eq("hardcover-fiction"),
-            eq("Hardcover Fiction"),
-            eq("hardcover-fiction"),
-            nullable(String.class),
-            nullable(LocalDate.class),
-            eq(LocalDate.parse("2026-02-08")),
-            eq("WEEKLY"),
-            any(JsonNode.class)
-        )).thenThrow(new IllegalStateException("collection upsert failure"));
-        when(collectionPersistenceService.upsertBestsellerCollection(
-            nullable(String.class),
-            eq("hardcover-nonfiction"),
-            eq("Hardcover Nonfiction"),
-            eq("hardcover-nonfiction"),
-            nullable(String.class),
-            nullable(LocalDate.class),
-            eq(LocalDate.parse("2026-02-08")),
-            eq("WEEKLY"),
-            any(JsonNode.class)
-        )).thenReturn(Optional.of("collection-2"));
+            any(BookCollectionPersistenceService.BestsellerCollectionDto.class)
+        )).thenThrow(new IllegalStateException("collection upsert failure"))
+            .thenReturn(Optional.of("collection-2"));
 
         IllegalStateException thrown = assertThrows(IllegalStateException.class,
             () -> scheduler.processNewYorkTimesBestsellers());
         assertThat(thrown.getMessage()).contains("1 of 2 list(s) failed");
 
-        verify(collectionPersistenceService).upsertBestsellerCollection(
-            nullable(String.class),
-            eq("hardcover-fiction"),
-            eq("Hardcover Fiction"),
-            eq("hardcover-fiction"),
-            nullable(String.class),
-            nullable(LocalDate.class),
-            eq(LocalDate.parse("2026-02-08")),
-            eq("WEEKLY"),
-            any(JsonNode.class)
-        );
-        verify(collectionPersistenceService).upsertBestsellerCollection(
-            nullable(String.class),
-            eq("hardcover-nonfiction"),
-            eq("Hardcover Nonfiction"),
-            eq("hardcover-nonfiction"),
-            nullable(String.class),
-            nullable(LocalDate.class),
-            eq(LocalDate.parse("2026-02-08")),
-            eq("WEEKLY"),
-            any(JsonNode.class)
+        verify(collectionPersistenceService, times(2)).upsertBestsellerCollection(
+            any(BookCollectionPersistenceService.BestsellerCollectionDto.class)
         );
     }
 
@@ -290,15 +272,7 @@ class NewYorkTimesBestsellerSchedulerTest {
         );
         when(newYorkTimesService.fetchBestsellerListOverview(nullable(LocalDate.class))).thenReturn(Mono.just(overview));
         when(collectionPersistenceService.upsertBestsellerCollection(
-            nullable(String.class),
-            eq("hardcover-fiction"),
-            eq("Hardcover Fiction"),
-            eq("hardcover-fiction"),
-            nullable(String.class),
-            nullable(LocalDate.class),
-            eq(LocalDate.parse("2026-02-08")),
-            nullable(String.class),
-            any(JsonNode.class)
+            any(BookCollectionPersistenceService.BestsellerCollectionDto.class)
         )).thenReturn(Optional.of("collection-1"));
         when(bookLookupService.resolveCanonicalBookId("9780316769488", null)).thenReturn(null);
         when(bookLookupService.resolveCanonicalBookId("9780140177398", null)).thenReturn(existingBookId.toString());
@@ -310,16 +284,7 @@ class NewYorkTimesBestsellerSchedulerTest {
         assertThat(thrown.getMessage()).contains("1 of 1 list(s) failed");
 
         verify(collectionPersistenceService, times(1)).upsertBestsellerMembership(
-            eq("collection-1"),
-            eq(existingBookId.toString()),
-            eq(2),
-            eq(3),
-            eq(5),
-            eq(2),
-            eq("9780140177398"),
-            eq((String) null),
-            eq((String) null),
-            any(String.class)
+            any(BookCollectionPersistenceService.BestsellerMembershipDto.class)
         );
     }
 
@@ -347,15 +312,7 @@ class NewYorkTimesBestsellerSchedulerTest {
         );
         when(newYorkTimesService.fetchBestsellerListOverview(nullable(LocalDate.class))).thenReturn(Mono.just(overview));
         when(collectionPersistenceService.upsertBestsellerCollection(
-            nullable(String.class),
-            eq("hardcover-fiction"),
-            eq("Hardcover Fiction"),
-            eq("hardcover-fiction"),
-            nullable(String.class),
-            nullable(LocalDate.class),
-            eq(LocalDate.parse("2026-02-08")),
-            nullable(String.class),
-            any(JsonNode.class)
+            any(BookCollectionPersistenceService.BestsellerCollectionDto.class)
         )).thenReturn(Optional.of("collection-1"));
         when(bookLookupService.resolveCanonicalBookId(null, "0140177396")).thenReturn(existingBookId.toString());
 
@@ -363,16 +320,7 @@ class NewYorkTimesBestsellerSchedulerTest {
 
         verify(bookLookupService, times(1)).resolveCanonicalBookId(null, "0140177396");
         verify(collectionPersistenceService, times(1)).upsertBestsellerMembership(
-            eq("collection-1"),
-            eq(existingBookId.toString()),
-            eq(1),
-            eq((Integer) null),
-            eq((Integer) null),
-            eq(1),
-            eq((String) null),
-            eq("0140177396"),
-            eq((String) null),
-            any(String.class)
+            any(BookCollectionPersistenceService.BestsellerMembershipDto.class)
         );
     }
 
@@ -431,15 +379,7 @@ class NewYorkTimesBestsellerSchedulerTest {
         );
         when(newYorkTimesService.fetchBestsellerListOverview(nullable(LocalDate.class))).thenReturn(Mono.just(overview));
         when(collectionPersistenceService.upsertBestsellerCollection(
-            nullable(String.class),
-            eq("young-adult-hardcover"),
-            eq("Young Adult Hardcover"),
-            eq("young-adult-hardcover"),
-            eq("Young Adult Hardcover"),
-            eq(LocalDate.parse("2026-02-01")),
-            eq(LocalDate.parse("2026-02-08")),
-            eq("WEEKLY"),
-            any(JsonNode.class)
+            any(BookCollectionPersistenceService.BestsellerCollectionDto.class)
         )).thenReturn(Optional.of("collection-1"));
         when(bookLookupService.resolveCanonicalBookId("9780316769488", "0316769487")).thenReturn(existingBookId.toString());
 
@@ -542,15 +482,7 @@ class NewYorkTimesBestsellerSchedulerTest {
         );
         when(newYorkTimesService.fetchBestsellerListOverview(nullable(LocalDate.class))).thenReturn(Mono.just(overview));
         when(collectionPersistenceService.upsertBestsellerCollection(
-            nullable(String.class),
-            eq("hardcover-fiction"),
-            eq("Hardcover Fiction"),
-            eq("hardcover-fiction"),
-            nullable(String.class),
-            nullable(LocalDate.class),
-            eq(LocalDate.parse("2026-02-08")),
-            nullable(String.class),
-            any(JsonNode.class)
+            any(BookCollectionPersistenceService.BestsellerCollectionDto.class)
         )).thenReturn(Optional.of("collection-1"));
         when(bookLookupService.resolveCanonicalBookId("9780140177398", null)).thenReturn(null);
         when(bookUpsertService.upsert(any(BookAggregate.class))).thenReturn(
@@ -578,16 +510,7 @@ class NewYorkTimesBestsellerSchedulerTest {
         assertThat(capturedAggregate.getIdentifiers().getImageLinks())
             .containsEntry("thumbnail", "https://nytimes.example/new.jpg");
         verify(collectionPersistenceService, times(1)).upsertBestsellerMembership(
-            eq("collection-1"),
-            eq(createdBookId.toString()),
-            eq(1),
-            eq((Integer) null),
-            eq((Integer) null),
-            eq(1),
-            eq("9780140177398"),
-            eq((String) null),
-            eq("https://amazon.example/new"),
-            any(String.class)
+            any(BookCollectionPersistenceService.BestsellerMembershipDto.class)
         );
         verify(supplementalPersistenceService, times(2)).assignTag(
             eq(createdBookId.toString()),
@@ -642,48 +565,16 @@ class NewYorkTimesBestsellerSchedulerTest {
         );
         when(newYorkTimesService.fetchBestsellerListOverview(nullable(LocalDate.class))).thenReturn(Mono.just(overview));
         when(collectionPersistenceService.upsertBestsellerCollection(
-            nullable(String.class),
-            eq("hardcover-fiction"),
-            eq("Hardcover Fiction"),
-            eq("hardcover-fiction"),
-            nullable(String.class),
-            nullable(LocalDate.class),
-            eq(LocalDate.parse("2026-02-08")),
-            nullable(String.class),
-            any(JsonNode.class)
+            any(BookCollectionPersistenceService.BestsellerCollectionDto.class)
         )).thenReturn(Optional.of("collection-1"));
         when(bookLookupService.resolveCanonicalBookId("9780316769488", null)).thenReturn(existingBookId.toString());
-        lenient().when(jdbcTemplate.update(
-            org.mockito.ArgumentMatchers.contains("UPDATE book_external_ids"),
-            any(),
-            any(),
-            any(),
-            any(),
-            any(),
-            any(),
-            any(),
-            any(),
-            eq(existingBookId)
-        )).thenReturn(1);
 
         assertDoesNotThrow(() -> scheduler.processNewYorkTimesBestsellers());
 
         verify(jdbcTemplate, times(1)).update(
-            org.mockito.ArgumentMatchers.contains("UPDATE book_external_ids"),
+            org.mockito.ArgumentMatchers.contains("ON CONFLICT (source, external_id) DO UPDATE"),
             any(),
-            any(),
-            any(),
-            any(),
-            any(),
-            any(),
-            any(),
-            any(),
-            eq(existingBookId)
-        );
-        verify(jdbcTemplate, never()).update(
-            org.mockito.ArgumentMatchers.contains("INSERT INTO book_external_ids"),
-            any(),
-            any(),
+            eq(existingBookId),
             any(),
             any(),
             any(),
@@ -724,15 +615,7 @@ class NewYorkTimesBestsellerSchedulerTest {
         );
         when(newYorkTimesService.fetchBestsellerListOverview(nullable(LocalDate.class))).thenReturn(Mono.just(overview));
         when(collectionPersistenceService.upsertBestsellerCollection(
-            nullable(String.class),
-            eq("hardcover-fiction"),
-            eq("Hardcover Fiction"),
-            eq("hardcover-fiction"),
-            nullable(String.class),
-            nullable(LocalDate.class),
-            eq(LocalDate.parse("2026-02-08")),
-            nullable(String.class),
-            any(JsonNode.class)
+            any(BookCollectionPersistenceService.BestsellerCollectionDto.class)
         )).thenReturn(Optional.of("collection-1"));
         when(bookLookupService.resolveCanonicalBookId("9780316769488", "0316769487")).thenReturn(existingBookId.toString());
 
@@ -740,16 +623,7 @@ class NewYorkTimesBestsellerSchedulerTest {
 
         verify(bookLookupService, times(1)).resolveCanonicalBookId("9780316769488", "0316769487");
         verify(collectionPersistenceService, times(1)).upsertBestsellerMembership(
-            eq("collection-1"),
-            eq(existingBookId.toString()),
-            eq(1),
-            eq((Integer) null),
-            eq((Integer) null),
-            eq(1),
-            eq("9780316769488"),
-            eq("0316769487"),
-            eq((String) null),
-            any(String.class)
+            any(BookCollectionPersistenceService.BestsellerMembershipDto.class)
         );
     }
 }

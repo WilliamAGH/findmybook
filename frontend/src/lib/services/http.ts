@@ -68,3 +68,25 @@ export async function postJson<TRequest extends object, TResponse>(
   }
   return result.data;
 }
+
+export async function postMultipart<TResponse>(
+  url: string,
+  formData: FormData,
+  responseSchema: z.ZodType<TResponse>,
+  recordId: string,
+): Promise<TResponse> {
+  const response = await fetch(
+    url,
+    withCsrf({
+      method: "POST",
+      credentials: "same-origin",
+      body: formData,
+    }),
+  );
+
+  const result = await validateFetchJson(response, responseSchema, recordId);
+  if (!result.success) {
+    throw new Error(result.error);
+  }
+  return result.data;
+}

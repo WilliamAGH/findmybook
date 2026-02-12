@@ -3,7 +3,10 @@ package net.findmybook.util.cover;
 import net.findmybook.dto.BookCard;
 import net.findmybook.model.Book;
 import org.springframework.util.StringUtils;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Comparator;
+import java.util.Date;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -18,6 +21,13 @@ public final class CoverPrioritizer {
 
     private static final int MIN_COLOR_COVER_SCORE = 2;
 
+    public static final int RANK_EXCELLENT = 0;
+    public static final int RANK_GOOD = 1;
+    public static final int RANK_ACCEPTABLE = 2;
+    public static final int RANK_FALLBACK = 3;
+    public static final int RANK_POOR = 4;
+    public static final int RANK_NONE = 5;
+
     private CoverPrioritizer() {
     }
 
@@ -25,14 +35,14 @@ public final class CoverPrioritizer {
         if (book == null) {
             return 0;
         }
-        return CoverQuality.rank(
+        return CoverQuality.rank(new CoverQuality.RankingContext(
             book.getS3ImagePath(),
             book.getExternalImageUrl(),
             book.getCoverImageWidth(),
             book.getCoverImageHeight(),
             book.getIsCoverHighResolution(),
             book.getIsCoverGrayscale()
-        );
+        ));
     }
 
     public static int score(BookCard card) {
@@ -47,13 +57,13 @@ public final class CoverPrioritizer {
             primary,
             card.fallbackCoverUrl()
         );
-        return CoverQuality.rankFromUrl(
+        return CoverQuality.rankFromUrl(new CoverQuality.UrlRankingContext(
             resolved.url(),
             resolved.width(),
             resolved.height(),
             resolved.highResolution(),
             card.coverGrayscale()
-        );
+        ));
     }
 
     /**
@@ -84,23 +94,15 @@ public final class CoverPrioritizer {
             .thenComparing(primarySort)
             .thenComparingInt(CoverPrioritizer::sourceRank)
             .thenComparingInt(CoverPrioritizer::matchTypeRank)
-            .thenComparing(Comparator.<Book>comparingDouble(CoverPrioritizer::relevanceScore).reversed())
-            .thenComparing(Comparator.<Book>comparingInt(CoverPrioritizer::score).reversed())
-            .thenComparing(Comparator.<Book>comparingLong(book -> ImageDimensionUtils.totalPixels(
-                book.getCoverImageWidth(),
-                book.getCoverImageHeight()
-            )).reversed())
-            .thenComparing(Comparator.<Book>comparingInt(book -> Optional.ofNullable(book.getCoverImageHeight()).orElse(0)).reversed())
-            .thenComparing(Comparator.<Book>comparingInt(book -> Optional.ofNullable(book.getCoverImageWidth()).orElse(0)).reversed())
-            .thenComparing(Comparator.<Book, Boolean>comparing(book -> Boolean.TRUE.equals(book.getInPostgres()), Comparator.reverseOrder()))
-            .thenComparing(bookInsertionComparator(insertionOrder))
-            .thenComparing(book -> Optional.ofNullable(book.getTitle()).orElse(""));
+            .thenComparing(Comparator.<Book>comparingDouble(CoverPrioritizer::relevanceScore).reversed());
+
+        comparator = appendSecondaryTiebreakers(comparator, insertionOrder);
 
         return Comparator.nullsLast(comparator);
     }
 
     public static Comparator<Book> bookComparator(Map<String, Integer> insertionOrder,
-                                                  Comparator<Book> orderSpecific) {
+                                                   Comparator<Book> orderSpecific) {
         Comparator<Book> comparator = Comparator
             .comparingInt(CoverPrioritizer::coverPresenceRank)
             .thenComparingInt(CoverPrioritizer::sourceRank)
@@ -111,7 +113,19 @@ public final class CoverPrioritizer {
             comparator = comparator.thenComparing(orderSpecific);
         }
 
-        comparator = comparator
+        comparator = appendSecondaryTiebreakers(comparator, insertionOrder);
+
+        return Comparator.nullsLast(comparator);
+    }
+
+    /**
+     * Appends the shared tiebreaker chain common to all book comparators:
+     * publishedDate → score → totalPixels → height → width → inPostgres → insertionOrder → title.
+     */
+    private static Comparator<Book> appendSecondaryTiebreakers(Comparator<Book> base,
+                                                                Map<String, Integer> insertionOrder) {
+        return base
+            .thenComparing(Comparator.<Book>comparingLong(CoverPrioritizer::publishedDateEpochDay).reversed())
             .thenComparing(Comparator.<Book>comparingInt(CoverPrioritizer::score).reversed())
             .thenComparing(Comparator.<Book>comparingLong(book -> ImageDimensionUtils.totalPixels(
                 book.getCoverImageWidth(),
@@ -122,15 +136,14 @@ public final class CoverPrioritizer {
             .thenComparing(Comparator.<Book, Boolean>comparing(book -> Boolean.TRUE.equals(book.getInPostgres()), Comparator.reverseOrder()))
             .thenComparing(bookInsertionComparator(insertionOrder))
             .thenComparing(book -> Optional.ofNullable(book.getTitle()).orElse(""));
-
-        return Comparator.nullsLast(comparator);
     }
 
     public static Comparator<BookCard> cardComparator(Map<String, Integer> originalOrder) {
         Comparator<BookCard> comparator = Comparator
             .comparingInt((BookCard card) -> CoverPrioritizer.score(card))
             .reversed()
-            .thenComparing(card -> CoverUrlResolver.isCdnUrl(card.coverUrl()), Comparator.reverseOrder());
+            .thenComparing(card -> CoverUrlResolver.isCdnUrl(card.coverUrl()), Comparator.reverseOrder())
+            .thenComparing(Comparator.<BookCard>comparingLong(CoverPrioritizer::cardPublishedDateEpochDay).reversed());
 
         comparator = comparator.thenComparing(cardOrderComparator(originalOrder));
 
@@ -153,28 +166,28 @@ public final class CoverPrioritizer {
     }
 
     private static int coverPresenceRank(Book book) {
-        if (hasColorCover(book)) return 0; // color cover
+        if (hasColorCover(book)) return RANK_EXCELLENT; // color cover
         int quality = score(book);
-        if (quality == 1) return 1;   // grayscale cover
-        return 2;                     // no cover
+        if (quality == 1) return RANK_GOOD;   // grayscale cover
+        return RANK_ACCEPTABLE;                     // no cover
     }
 
     private static int sourceRank(Book book) {
         if (book == null) {
-            return 5;
+            return RANK_NONE;
         }
         if (Boolean.TRUE.equals(book.getInPostgres())) {
-            return 0;
+            return RANK_EXCELLENT;
         }
         String provider = resolveExternalProvider(book);
         if ("OPEN_LIBRARY".equals(provider) || "OPEN_LIBRARY_API".equals(provider)) {
-            return 1;
+            return RANK_GOOD;
         }
         if ("GOOGLE_BOOKS".equals(provider) || "GOOGLE_BOOKS_API".equals(provider) || "GOOGLE_API".equals(provider)) {
-            return 2;
+            return RANK_ACCEPTABLE;
         }
         String source = qualifierAsString(book, "search.source");
-        return "EXTERNAL_FALLBACK".equals(source) ? 3 : 4;
+        return "EXTERNAL_FALLBACK".equals(source) ? RANK_FALLBACK : RANK_POOR;
     }
 
     private static String resolveExternalProvider(Book book) {
@@ -197,15 +210,15 @@ public final class CoverPrioritizer {
     private static int matchTypeRank(Book book) {
         String matchType = qualifierAsString(book, "search.matchType");
         if (matchType == null) {
-            return 4;
+            return RANK_POOR;
         }
         String normalized = matchType.toUpperCase(Locale.ROOT);
         return switch (normalized) {
-            case "EXACT_TITLE", "TITLE", "EXACT" -> 0;
-            case "FULLTEXT", "TEXT" -> 1;
-            case "AUTHOR", "AUTHORS" -> 2;
-            case "FUZZY" -> 3;
-            default -> 4;
+            case "EXACT_TITLE", "TITLE", "EXACT" -> RANK_EXCELLENT;
+            case "SUBSTRING" -> RANK_GOOD;
+            case "FUZZY" -> RANK_ACCEPTABLE;
+            case "AUTHOR" -> RANK_FALLBACK;
+            default -> RANK_POOR;
         };
     }
 
@@ -238,5 +251,34 @@ public final class CoverPrioritizer {
             return null;
         }
         return qualifiers.get(key);
+    }
+
+    /**
+     * Converts a book's published date to epoch day for recency comparison.
+     * Returns {@code Long.MIN_VALUE} when no date is available so null dates
+     * sort after all dated books.
+     */
+    private static long publishedDateEpochDay(Book book) {
+        Date published = book == null ? null : book.getPublishedDate();
+        if (published == null) {
+            return Long.MIN_VALUE;
+        }
+        return published.toInstant()
+            .atZone(ZoneId.systemDefault())
+            .toLocalDate()
+            .toEpochDay();
+    }
+
+    /**
+     * Converts a card's published date to epoch day for recency comparison.
+     * Returns {@code Long.MIN_VALUE} when no date is available so null dates
+     * sort after all dated cards.
+     */
+    private static long cardPublishedDateEpochDay(BookCard card) {
+        LocalDate published = card == null ? null : card.publishedDate();
+        if (published == null) {
+            return Long.MIN_VALUE;
+        }
+        return published.toEpochDay();
     }
 }

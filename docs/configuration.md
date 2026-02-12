@@ -15,6 +15,12 @@ Key variables in `.env`:
 | `AI_DEFAULT_MAX_PARALLEL` | Max concurrent outbound AI requests (queue executor cap) |
 | `APP_AI_QUEUE_BACKGROUND_MAX_PENDING` | Max pending background ingestion AI jobs (default `100000`) |
 | `APP_SEO_MAX_DESCRIPTION_LENGTH` | Fallback book meta description truncation length when no persisted SEO row exists (default `160`) |
+| `APP_WEEKLY_REFRESH_ENABLED` | Enables the weekly orchestrator that runs NYT ingest + recommendation refresh |
+| `APP_WEEKLY_REFRESH_CRON` | Weekly orchestrator cron expression (default `0 0 4 * * SUN`) |
+| `APP_WEEKLY_REFRESH_NYT_PHASE_ENABLED` | Enables/disables the NYT phase inside the weekly orchestrator |
+| `APP_WEEKLY_REFRESH_RECOMMENDATION_PHASE_ENABLED` | Enables/disables recommendation-cache refresh inside the weekly orchestrator |
+| `APP_RECOMMENDATIONS_REFRESH_TTL_DAYS` | TTL days applied during full recommendation refresh (`book_recommendations.expires_at`) |
+| `APP_NYT_SCHEDULER_STANDALONE_ENABLED` | Enables standalone NYT `@Scheduled` execution when not using the weekly orchestrator |
 | `GOOGLE_BOOKS_API_KEY` | Book data source |
 | `S3_*` | S3 storage (if used) |
 | `S3_WRITE_ENABLED` | Enables/disables S3 cover uploads at runtime (`false` skips upload attempts) |
@@ -66,3 +72,11 @@ Startup now fails fast with a clear error when database-required profiles are ac
 - Foreground Svelte-triggered AI requests are always dequeued before ingestion/background requests.
 - Background ingestion jobs are bounded by `APP_AI_QUEUE_BACKGROUND_MAX_PENDING` and are dropped with explicit warnings when the cap is reached.
 - Foreground page-load AI requests are not blocked by the background pending cap.
+
+## Weekly Catalog Refresh
+
+- Weekly orchestration is driven by `app.weekly-refresh.*`.
+- Default behavior runs both phases in one cron cycle:
+  - NYT ingest (`NewYorkTimesBestsellerScheduler.forceProcessNewYorkTimesBestsellers(null)`).
+  - Recommendation expiry refresh (`RecommendationCacheRefreshUseCase.refreshAllRecommendations()`).
+- `app.nyt.scheduler.standalone-enabled` defaults to `false` so NYT ingest is not scheduled twice when weekly orchestration is enabled.

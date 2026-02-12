@@ -9,7 +9,10 @@ import java.util.Optional;
 import java.util.UUID;
 import net.findmybook.application.book.BookDetailResponseUseCase;
 import net.findmybook.application.book.RecommendationCardResponseUseCase;
+import net.findmybook.application.book.SimilarBooksResponseUseCase;
 import net.findmybook.application.ai.BookAiContentService;
+import net.findmybook.application.cover.BookCoverResolutionService;
+import net.findmybook.application.cover.BrowserCoverIngestUseCase;
 import net.findmybook.dto.BookDetail;
 import net.findmybook.dto.EditionSummary;
 import net.findmybook.model.Book;
@@ -18,8 +21,13 @@ import net.findmybook.model.image.CoverImages;
 import net.findmybook.service.BookDataOrchestrator;
 import net.findmybook.service.BookIdentifierResolver;
 import net.findmybook.service.BookSearchService;
+import net.findmybook.service.RecommendationService;
 import net.findmybook.service.RecentlyViewedService;
 import net.findmybook.service.SearchPaginationService;
+import net.findmybook.service.image.CoverPersistenceService;
+import net.findmybook.service.image.CoverUrlSafetyValidator;
+import net.findmybook.service.image.ImageProcessingService;
+import net.findmybook.service.image.S3BookCoverService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -32,6 +40,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import reactor.core.publisher.Mono;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.lenient;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 
@@ -57,10 +66,25 @@ abstract class AbstractBookControllerMvcTest {
     protected SearchPaginationService searchPaginationService;
 
     @Mock
+    protected RecommendationService recommendationService;
+
+    @Mock
     protected BookAiContentService bookAiContentService;
 
     @Mock
     protected RecentlyViewedService recentlyViewedService;
+
+    @Mock
+    protected S3BookCoverService s3BookCoverService;
+
+    @Mock
+    protected ImageProcessingService imageProcessingService;
+
+    @Mock
+    protected CoverPersistenceService coverPersistenceService;
+
+    @Mock
+    protected CoverUrlSafetyValidator coverUrlSafetyValidator;
 
     protected MockMvc mockMvc;
     protected Book fixtureBook;
@@ -71,18 +95,32 @@ abstract class AbstractBookControllerMvcTest {
             new BookDetailResponseUseCase(bookAiContentService, recentlyViewedService);
         RecommendationCardResponseUseCase recommendationCardResponseUseCase =
             new RecommendationCardResponseUseCase();
-        BookController bookController = new BookController(
+        SimilarBooksResponseUseCase similarBooksResponseUseCase =
+            new SimilarBooksResponseUseCase(bookSearchService, recommendationCardResponseUseCase, recommendationService);
+        BookController.BookControllerServices services = new BookController.BookControllerServices(
             bookSearchService,
             bookIdentifierResolver,
             searchPaginationService,
             bookDetailResponseUseCase,
-            recommendationCardResponseUseCase,
+            similarBooksResponseUseCase,
             bookDataOrchestrator
         );
-        BookCoverController bookCoverController = new BookCoverController(
+        BookController bookController = new BookController(services);
+        BookCoverResolutionService bookCoverResolutionService = new BookCoverResolutionService(
             bookSearchService,
             bookIdentifierResolver,
-            bookDataOrchestrator
+            Optional.of(bookDataOrchestrator)
+        );
+        BrowserCoverIngestUseCase browserCoverIngestUseCase = new BrowserCoverIngestUseCase(
+            bookCoverResolutionService,
+            s3BookCoverService,
+            imageProcessingService,
+            coverPersistenceService,
+            coverUrlSafetyValidator
+        );
+        BookCoverController bookCoverController = new BookCoverController(
+            bookCoverResolutionService,
+            browserCoverIngestUseCase
         );
 
         mockMvc = MockMvcBuilders.standaloneSetup(bookController, bookCoverController).build();
@@ -96,8 +134,12 @@ abstract class AbstractBookControllerMvcTest {
             .thenReturn(Optional.empty());
         lenient().when(bookSearchService.fetchBookEditions(any(UUID.class)))
             .thenReturn(List.of());
+        lenient().when(bookSearchService.hasActiveRecommendationCards(any(UUID.class)))
+            .thenReturn(true);
         lenient().when(bookAiContentService.findCurrent(any(UUID.class)))
             .thenReturn(Optional.empty());
+        lenient().when(recommendationService.regenerateSimilarBooks(any(), anyInt()))
+            .thenReturn(Mono.just(List.of()));
     }
 
     protected Book buildBook(String id, String slug) {

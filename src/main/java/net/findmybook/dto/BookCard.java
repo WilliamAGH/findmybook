@@ -2,6 +2,7 @@ package net.findmybook.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import org.springframework.util.StringUtils;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
@@ -61,7 +62,10 @@ public record BookCard(
     Map<String, Object> tags,
 
     @JsonProperty("cover_grayscale")
-    Boolean coverGrayscale
+    Boolean coverGrayscale,
+
+    @JsonProperty("published_date")
+    LocalDate publishedDate
 ) {
     /**
      * Compact constructor ensuring defensive copies for immutability
@@ -76,7 +80,22 @@ public record BookCard(
         coverGrayscale = Boolean.TRUE.equals(coverGrayscale) ? Boolean.TRUE : null;
     }
 
-    /** Backward-compatible constructor without coverGrayscale (defaults null). */
+    /** Backward-compatible constructor without publishedDate (defaults null). */
+    public BookCard(String id,
+                    String slug,
+                    String title,
+                    List<String> authors,
+                    String coverUrl,
+                    String coverS3Key,
+                    String fallbackCoverUrl,
+                    Double averageRating,
+                    Integer ratingsCount,
+                    Map<String, Object> tags,
+                    Boolean coverGrayscale) {
+        this(id, slug, title, authors, coverUrl, coverS3Key, fallbackCoverUrl, averageRating, ratingsCount, tags, coverGrayscale, null);
+    }
+
+    /** Backward-compatible constructor without coverGrayscale or publishedDate (defaults null). */
     public BookCard(String id,
                     String slug,
                     String title,
@@ -87,10 +106,10 @@ public record BookCard(
                     Double averageRating,
                     Integer ratingsCount,
                     Map<String, Object> tags) {
-        this(id, slug, title, authors, coverUrl, coverS3Key, fallbackCoverUrl, averageRating, ratingsCount, tags, null);
+        this(id, slug, title, authors, coverUrl, coverS3Key, fallbackCoverUrl, averageRating, ratingsCount, tags, null, null);
     }
 
-    /** Convenience constructor for external sources (no S3, no fallback, no grayscale). */
+    /** Convenience constructor for external sources (no S3, no fallback, no grayscale, no date). */
     public BookCard(String id,
                     String slug,
                     String title,
@@ -99,7 +118,7 @@ public record BookCard(
                     Double averageRating,
                     Integer ratingsCount,
                     Map<String, Object> tags) {
-        this(id, slug, title, authors, coverUrl, null, coverUrl, averageRating, ratingsCount, tags, null);
+        this(id, slug, title, authors, coverUrl, null, coverUrl, averageRating, ratingsCount, tags, null, null);
     }
     
     /**

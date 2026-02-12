@@ -13,6 +13,7 @@ import net.findmybook.util.LoggingUtils;
 import lombok.extern.slf4j.Slf4j;
 import jakarta.annotation.Nullable;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -38,35 +39,83 @@ public class NewYorkTimesBestsellerScheduler {
     private final NytBestsellerPayloadMapper payloadMapper;
     private final NytBestsellerPersistenceCollaborator persistenceCollaborator;
     private final boolean schedulerEnabled;
+    private final boolean standaloneScheduleEnabled;
     private final boolean nytOnly;
 
-    public NewYorkTimesBestsellerScheduler(NewYorkTimesService newYorkTimesService,
-                                           BookLookupService bookLookupService,
-                                           JdbcTemplate jdbcTemplate,
-                                           BookCollectionPersistenceService collectionPersistenceService,
-                                           BookUpsertService bookUpsertService,
-                                           NytBestsellerPayloadMapper payloadMapper,
-                                           NytBestsellerPersistenceCollaborator persistenceCollaborator,
-                                           @Value("${app.nyt.scheduler.enabled:true}") boolean schedulerEnabled,
-                                           @Value("${app.nyt.scheduler.nyt-only:true}") boolean nytOnly) {
-        this.newYorkTimesService = newYorkTimesService;
-        this.bookLookupService = bookLookupService;
-        this.jdbcTemplate = jdbcTemplate;
-        this.collectionPersistenceService = collectionPersistenceService;
-        this.bookUpsertService = bookUpsertService;
-        this.payloadMapper = payloadMapper;
-        this.persistenceCollaborator = persistenceCollaborator;
-        this.schedulerEnabled = schedulerEnabled;
-        this.nytOnly = nytOnly;
+    public NewYorkTimesBestsellerScheduler(NytIngestServices services,
+                                           SchedulerConfig config) {
+        this.newYorkTimesService = services.newYorkTimesService();
+        this.bookLookupService = services.bookLookupService();
+        this.jdbcTemplate = services.jdbcTemplate();
+        this.collectionPersistenceService = services.collectionPersistenceService();
+        this.bookUpsertService = services.bookUpsertService();
+        this.payloadMapper = services.payloadMapper();
+        this.persistenceCollaborator = services.persistenceCollaborator();
+        this.schedulerEnabled = config.schedulerEnabled();
+        this.standaloneScheduleEnabled = config.standaloneScheduleEnabled();
+        this.nytOnly = config.nytOnly();
     }
+
+    @Component
+    public static class ConfigLoader {
+        @Bean
+        public SchedulerConfig nytSchedulerConfig(
+            @Value("${app.nyt.scheduler.enabled:true}") boolean schedulerEnabled,
+            @Value("${app.nyt.scheduler.standalone-enabled:false}") boolean standaloneScheduleEnabled,
+            @Value("${app.nyt.scheduler.nyt-only:true}") boolean nytOnly
+        ) {
+            return new SchedulerConfig(schedulerEnabled, standaloneScheduleEnabled, nytOnly);
+        }
+
+        @Bean
+        public NytIngestServices nytIngestServices(
+            NewYorkTimesService newYorkTimesService,
+            BookLookupService bookLookupService,
+            JdbcTemplate jdbcTemplate,
+            BookCollectionPersistenceService collectionPersistenceService,
+            BookUpsertService bookUpsertService,
+            NytBestsellerPayloadMapper payloadMapper,
+            NytBestsellerPersistenceCollaborator persistenceCollaborator
+        ) {
+            return new NytIngestServices(
+                newYorkTimesService,
+                bookLookupService,
+                jdbcTemplate,
+                collectionPersistenceService,
+                bookUpsertService,
+                payloadMapper,
+                persistenceCollaborator
+            );
+        }
+    }
+
+    public record SchedulerConfig(boolean schedulerEnabled, boolean standaloneScheduleEnabled, boolean nytOnly) {}
+
+    public record NytIngestServices(
+        NewYorkTimesService newYorkTimesService,
+        BookLookupService bookLookupService,
+        JdbcTemplate jdbcTemplate,
+        BookCollectionPersistenceService collectionPersistenceService,
+        BookUpsertService bookUpsertService,
+        NytBestsellerPayloadMapper payloadMapper,
+        NytBestsellerPersistenceCollaborator persistenceCollaborator
+    ) {}
 
     @Scheduled(cron = "${app.nyt.scheduler.cron:0 0 4 * * SUN}")
     public void processNewYorkTimesBestsellers() {
+        if (!standaloneScheduleEnabled) {
+            log.info("Skipping standalone NYT scheduler execution because weekly catalog refresh owns this run.");
+            return;
+        }
         processNewYorkTimesBestsellers(null, false);
     }
 
     public void processNewYorkTimesBestsellers(@Nullable LocalDate requestedDate) {
         processNewYorkTimesBestsellers(requestedDate, false);
+    }
+
+    public void forceProcessNewYorkTimesBestsellers() {
+        processNewYorkTimesBestsellers(null, true);
     }
 
     public void forceProcessNewYorkTimesBestsellers(@Nullable LocalDate requestedDate) {
@@ -87,7 +136,7 @@ public class NewYorkTimesBestsellerScheduler {
         List<LocalDate> publishedDates = loadHistoricalPublishedDates();
         if (publishedDates.isEmpty()) {
             log.info("No historical NYT published dates found in Postgres. Running latest overview once instead.");
-            forceProcessNewYorkTimesBestsellers(null);
+            forceProcessNewYorkTimesBestsellers();
             return new HistoricalRerunSummary(0, 1, 0, List.of());
         }
 
@@ -194,7 +243,7 @@ public class NewYorkTimesBestsellerScheduler {
         }
 
         String collectionId = collectionPersistenceService
-            .upsertBestsellerCollection(
+            .upsertBestsellerCollection(new BookCollectionPersistenceService.BestsellerCollectionDto(
                 providerListId,
                 listCode,
                 naturalListLabel,
@@ -204,7 +253,7 @@ public class NewYorkTimesBestsellerScheduler {
                 listPublishedDate,
                 updatedFrequency,
                 listNode
-            )
+            ))
             .orElse(null);
 
         if (collectionId == null) {
@@ -271,7 +320,7 @@ public class NewYorkTimesBestsellerScheduler {
         String providerRef = payloadMapper.firstNonEmptyText(bookNode, "amazon_product_url");
         String rawItem = payloadMapper.serializeBookNode(bookNode);
 
-        collectionPersistenceService.upsertBestsellerMembership(
+        collectionPersistenceService.upsertBestsellerMembership(new BookCollectionPersistenceService.BestsellerMembershipDto(
             listContext.collectionId(),
             canonicalId,
             rank,
@@ -282,16 +331,18 @@ public class NewYorkTimesBestsellerScheduler {
             isbn10,
             providerRef,
             rawItem
-        );
+        ));
 
         persistenceCollaborator.assignCoreTags(
             canonicalId,
             listContext,
             bookNode,
-            rank,
-            weeksOnList,
-            rankLastWeek,
-            peakPosition
+            new NytBestsellerPersistenceCollaborator.RankingStats(
+                rank,
+                weeksOnList,
+                rankLastWeek,
+                peakPosition
+            )
         );
     }
 
@@ -356,8 +407,8 @@ public class NewYorkTimesBestsellerScheduler {
             SELECT DISTINCT published_date
             FROM book_collections
             WHERE source = 'NYT'
-              AND collection_type = 'BESTSELLER_LIST'
-              AND published_date IS NOT NULL
+            AND collection_type = 'BESTSELLER_LIST'
+            AND published_date IS NOT NULL
             ORDER BY published_date ASC
             """,
             (resultSet, rowNum) -> resultSet.getObject("published_date", LocalDate.class)

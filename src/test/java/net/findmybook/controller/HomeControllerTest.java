@@ -1,6 +1,7 @@
 package net.findmybook.controller;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
@@ -212,13 +213,40 @@ class HomeControllerTest {
     }
 
     @Test
+    void should_RenderDynamicBookOpenGraphTags_When_BookRouteResolvesSuccessfully() {
+        Book book = new Book();
+        book.setId("book-id");
+        book.setSlug("the-hobbit");
+        book.setTitle("The Hobbit");
+        book.setDescription("Bilbo Baggins embarks on an unexpected adventure.");
+        when(homePageSectionsService.locateBook("the-hobbit")).thenReturn(Mono.just(book));
+
+        webTestClient.get().uri("/book/the-hobbit")
+            .exchange()
+            .expectStatus().isOk()
+            .expectHeader().contentTypeCompatibleWith(MediaType.TEXT_HTML)
+            .expectBody(String.class)
+            .value(body -> {
+                assertTrue(body.contains("<meta property=\"og:type\" content=\"book\">"));
+                assertTrue(body.contains(
+                    "<meta property=\"og:image\" content=\"https://findmybook.net/api/pages/og/book/the-hobbit\">"));
+                assertTrue(body.contains(
+                    "<meta name=\"twitter:image\" content=\"https://findmybook.net/api/pages/og/book/the-hobbit\">"));
+                assertFalse(body.contains(
+                    "<meta property=\"og:image\" content=\"https://findmybook.net/api/pages/og/route\">"));
+                assertFalse(body.contains(
+                    "<meta name=\"twitter:image\" content=\"https://findmybook.net/api/pages/og/route\">"));
+            });
+    }
+
+    @Test
     void should_EscapeScriptSensitiveCharacters_When_BookPathContainsHtmlLikeSegment() {
         String html = bookSeoMetadataService.renderSpaShell(
             bookSeoMetadataService.notFoundMetadata("/book/<svg>")
         );
 
-        assertTrue(!html.contains("window.__FMB_INITIAL_CONTEXT__"));
-        assertTrue(!html.contains("<svg>"));
+        assertFalse(html.contains("window.__FMB_INITIAL_CONTEXT__"));
+        assertFalse(html.contains("<svg>"));
     }
 
     @Test
@@ -247,24 +275,24 @@ class HomeControllerTest {
         assertTrue(html.contains("\"isbn\":\"9780316769488\""));
         assertTrue(html.contains("\"numberOfPages\":214"));
         assertTrue(html.contains("\"name\":\"J.D. Salinger\""));
-        assertTrue(!html.contains("\"isbn13\":"));
+        assertFalse(html.contains("\"isbn13\":"));
     }
 
     @Test
     void should_GenerateRouteSpecificSitemapMetadata_When_CanonicalPathIncludesViewBucketAndPage() {
         SeoMetadata metadata = bookSeoMetadataService.sitemapMetadata("/sitemap/books/B/3");
 
-        assertTrue(metadata.title().equals("Books Sitemap: B Page 3"));
+        assertEquals("Books Sitemap: B Page 3", metadata.title());
         assertTrue(metadata.description().contains("books indexed under B on page 3"));
-        assertTrue(metadata.canonicalUrl().equals("https://findmybook.net/sitemap/books/B/3"));
+        assertEquals("https://findmybook.net/sitemap/books/B/3", metadata.canonicalUrl());
     }
 
     @Test
     void should_CanonicalizeNotFoundMetadataTo404Route_When_RequestPathIsUnknown() {
         SeoMetadata metadata = bookSeoMetadataService.notFoundMetadata("/book/missing-book");
 
-        assertTrue(metadata.canonicalUrl().equals("https://findmybook.net/404"));
-        assertTrue(metadata.robots().equals("noindex, nofollow, noarchive"));
+        assertEquals("https://findmybook.net/404", metadata.canonicalUrl());
+        assertEquals("noindex, nofollow, noarchive", metadata.robots());
     }
 
     @Test

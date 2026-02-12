@@ -3,8 +3,11 @@ package net.findmybook.util.cover;
 import net.findmybook.dto.BookCard;
 import net.findmybook.model.Book;
 import net.findmybook.util.ApplicationConstants;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -273,5 +276,79 @@ class CoverPrioritizerTest {
         book.setIsCoverHighResolution(highResolution);
         book.setInPostgres(true);
         return book;
+    }
+
+    @Test
+    @DisplayName("bookComparator prefers newer published date among same-quality covers")
+    void should_PreferNewerBook_When_CoverQualityIsEqual() {
+        Book older = book("older", "https://cdn.test/covers/a.jpg", null, 900, 1400, true);
+        older.setPublishedDate(toDate(LocalDate.of(2010, 1, 1)));
+
+        Book newer = book("newer", "https://cdn.test/covers/b.jpg", null, 900, 1400, true);
+        newer.setPublishedDate(toDate(LocalDate.of(2024, 6, 15)));
+
+        List<Book> books = new ArrayList<>(List.of(older, newer));
+        Map<String, Integer> insertionOrder = new LinkedHashMap<>();
+        insertionOrder.put("older", 0);
+        insertionOrder.put("newer", 1);
+
+        books.sort(CoverPrioritizer.bookComparator(insertionOrder));
+
+        assertThat(books)
+            .extracting(Book::getId)
+            .containsExactly("newer", "older");
+    }
+
+    @Test
+    @DisplayName("bookComparator ranks null published date after dated books")
+    void should_DemoteNullDate_When_OtherBookHasDate() {
+        Book dated = book("dated", "https://cdn.test/covers/a.jpg", null, 900, 1400, true);
+        dated.setPublishedDate(toDate(LocalDate.of(2020, 3, 10)));
+
+        Book undated = book("undated", "https://cdn.test/covers/b.jpg", null, 900, 1400, true);
+        // publishedDate stays null
+
+        List<Book> books = new ArrayList<>(List.of(undated, dated));
+        Map<String, Integer> insertionOrder = new LinkedHashMap<>();
+        insertionOrder.put("undated", 0);
+        insertionOrder.put("dated", 1);
+
+        books.sort(CoverPrioritizer.bookComparator(insertionOrder));
+
+        assertThat(books)
+            .extracting(Book::getId)
+            .containsExactly("dated", "undated");
+    }
+
+    @Test
+    @DisplayName("cardComparator prefers newer published date among same-quality cards")
+    void should_PreferNewerCard_When_CoverQualityIsEqual() {
+        BookCard olderCard = new BookCard(
+            "1", "older", "Older Book", List.of("Author"),
+            "https://cdn.test/covers/old.jpg", "covers/old.jpg", "https://cdn.test/covers/old.jpg",
+            4.0, 10, Map.<String, Object>of(), null,
+            LocalDate.of(2010, 1, 1)
+        );
+        BookCard newerCard = new BookCard(
+            "2", "newer", "Newer Book", List.of("Author"),
+            "https://cdn.test/covers/new.jpg", "covers/new.jpg", "https://cdn.test/covers/new.jpg",
+            4.0, 10, Map.<String, Object>of(), null,
+            LocalDate.of(2024, 6, 15)
+        );
+
+        List<BookCard> cards = new ArrayList<>(List.of(olderCard, newerCard));
+        Map<String, Integer> originalOrder = new LinkedHashMap<>();
+        originalOrder.put("1", 0);
+        originalOrder.put("2", 1);
+
+        cards.sort(CoverPrioritizer.cardComparator(originalOrder));
+
+        assertThat(cards)
+            .extracting(BookCard::id)
+            .containsExactly("2", "1");
+    }
+
+    private static Date toDate(LocalDate localDate) {
+        return Date.from(localDate.atStartOfDay(ZoneId.systemDefault()).toInstant());
     }
 }

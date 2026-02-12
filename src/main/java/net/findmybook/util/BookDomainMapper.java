@@ -33,6 +33,9 @@ public final class BookDomainMapper {
     private static final String SUPPRESSED_FLAG_KEY = "cover.suppressed";
     private static final String SUPPRESSED_REASON_KEY = "cover.suppressed.reason";
     private static final String SUPPRESSED_MIN_HEIGHT_KEY = "cover.suppressed.minHeight";
+    private static final List<String> IMAGE_LINK_PRIORITY_ORDER = List.of(
+        "extraLarge", "large", "medium", "small", "thumbnail", "smallThumbnail"
+    );
 
     private BookDomainMapper() {
     }
@@ -66,15 +69,15 @@ public final class BookDomainMapper {
         if (!StringUtils.hasText(fallback)) {
             fallback = detail.coverUrl();
         }
-        CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
+        CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(new CoverUrlResolver.ResolveContext(
             primaryCover,
             fallback,
             detail.coverWidth(),
             detail.coverHeight(),
             detail.coverHighResolution()
-        );
+        ));
         setCoverImages(book, resolved, fallback);
-        applyCoverMetadata(book, resolved.width(), resolved.height(), resolved.highResolution(), false);
+        applyCoverMetadata(book, new CoverMetadataContext(resolved.width(), resolved.height(), resolved.highResolution()), false);
         book.setIsCoverGrayscale(detail.coverGrayscale());
         book.setDataSource(detail.dataSource());
         book.setRetrievedFrom("POSTGRES");
@@ -89,6 +92,7 @@ public final class BookDomainMapper {
         Book book = base(card.id(), card.slug(), card.title(), card.authors());
         book.setAverageRating(card.averageRating());
         book.setRatingsCount(card.ratingsCount());
+        book.setPublishedDate(toDate(card.publishedDate()));
         book.setQualifiers(copyMap(card.tags()));
         String primaryCover = StringUtils.hasText(card.coverS3Key())
             ? card.coverS3Key()
@@ -101,7 +105,7 @@ public final class BookDomainMapper {
             fallback
         );
         setCoverImages(book, resolved, fallback);
-        applyCoverMetadata(book, resolved.width(), resolved.height(), resolved.highResolution(), true);
+        applyCoverMetadata(book, new CoverMetadataContext(resolved.width(), resolved.height(), resolved.highResolution()), true);
         book.setIsCoverGrayscale(card.coverGrayscale());
         book.setRetrievedFrom("POSTGRES");
         book.setInPostgres(true);
@@ -135,15 +139,15 @@ public final class BookDomainMapper {
         String fallback = StringUtils.hasText(item.coverFallbackUrl())
             ? item.coverFallbackUrl()
             : item.coverUrl();
-        CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
+        CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(new CoverUrlResolver.ResolveContext(
             primaryCover,
             fallback,
             item.coverWidth(),
             item.coverHeight(),
             item.coverHighResolution()
-        );
+        ));
         setCoverImages(book, resolved, fallback);
-        applyCoverMetadata(book, resolved.width(), resolved.height(), resolved.highResolution(), true);
+        applyCoverMetadata(book, new CoverMetadataContext(resolved.width(), resolved.height(), resolved.highResolution()), true);
         book.setIsCoverGrayscale(item.coverGrayscale());
         book.setRetrievedFrom("POSTGRES");
         book.setInPostgres(true);
@@ -199,10 +203,10 @@ public final class BookDomainMapper {
 
         CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(images.preferred(), images.fallback());
         setCoverImages(book, resolved, images.fallback());
-        // External fallback results must honor the same display requirements as
+        // external fallback results must honor the same display requirements as
         // postgres-backed search items so we never render obviously invalid
         // aspect ratios (e.g., 10:1 landscape thumbnails masquerading as covers).
-        applyCoverMetadata(book, resolved.width(), resolved.height(), resolved.highResolution(), true);
+        applyCoverMetadata(book, new CoverMetadataContext(resolved.width(), resolved.height(), resolved.highResolution()), true);
 
         book.setEditionNumber(aggregate.getEditionNumber());
         // Task #6: editionGroupKey removed - replaced by work_clusters system
@@ -255,9 +259,7 @@ public final class BookDomainMapper {
     }
 
     private static void applyCoverMetadata(Book book,
-                                           Integer width,
-                                           Integer height,
-                                           Boolean highResolution,
+                                           CoverMetadataContext context,
                                            boolean enforceSearchThreshold) {
         if (book == null) {
             return;
@@ -271,6 +273,10 @@ public final class BookDomainMapper {
             suppressCover(book, "cover-url-failed-validation");
             return;
         }
+
+        Integer width = context.width();
+        Integer height = context.height();
+        Boolean highResolution = context.highResolution();
 
         book.setCoverImageWidth(width);
         book.setCoverImageHeight(height);
@@ -286,6 +292,8 @@ public final class BookDomainMapper {
             suppressCover(book, dimensionsInvalid ? "image-invalid-dimensions" : "image-invalid-aspect-ratio");
         }
     }
+
+    private record CoverMetadataContext(Integer width, Integer height, Boolean highResolution) {}
 
     private static void suppressCover(Book book, String reason) {
         if (book == null) {
@@ -357,7 +365,7 @@ public final class BookDomainMapper {
         }
 
         Map<String, String> links = identifiers.getImageLinks();
-        List<String> priorityOrder = List.of("extraLarge", "large", "medium", "small", "thumbnail", "smallThumbnail");
+        List<String> priorityOrder = IMAGE_LINK_PRIORITY_ORDER;
 
         String primary = null;
         String secondary = null;

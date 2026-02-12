@@ -3,6 +3,7 @@ package net.findmybook.service;
 import net.findmybook.application.ai.BookAiContentService;
 import net.findmybook.application.book.BookDetailResponseUseCase;
 import net.findmybook.application.book.RecommendationCardResponseUseCase;
+import net.findmybook.application.book.SimilarBooksResponseUseCase;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import net.findmybook.controller.BookController;
@@ -73,6 +74,9 @@ class BookControllerPaginationIntegrationTest {
 
     @MockitoBean
     private RecentlyViewedService recentlyViewedService;
+
+    @MockitoBean
+    private SimilarBooksResponseUseCase similarBooksResponseUseCase;
 
     private final List<UUID> bookIds = new ArrayList<>();
     private final List<BookSearchService.SearchResult> searchResults = new ArrayList<>();

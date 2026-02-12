@@ -14,10 +14,7 @@ covers/
 .settings
 .springBeans
 .sts4-cache
-node
-node_modules
 
-!og-logo.png
 ### IntelliJ IDEA ###
 .idea
 *.iws
@@ -26,6 +23,7 @@ node_modules
 
 *.jpg
 *.png
+!og-logo.png
 *.webp
 *.svg
 .dev-cache
@@ -34,13 +32,16 @@ node_modules
 ### FORCE INCLUDE ALL STATIC IMAGES ###
 !src/main/resources/static/images/*
 
-### FORCE INCLUDE FAVICONS & WEB ICONS ###
-!src/main/resources/static/favicon*.png
-!src/main/resources/static/favicon.svg
-!src/main/resources/static/apple-touch-icon.png
+### FORCE INCLUDE FAVICONS & WEB ICONS (source of truth in frontend/public/) ###
 !frontend/public/favicon*.png
 !frontend/public/favicon.svg
 !frontend/public/apple-touch-icon.png
+
+### BUILD-GENERATED WEB ICONS (copied from frontend/public/ by Gradle copyWebIcons) ###
+src/main/resources/static/favicon*.png
+src/main/resources/static/favicon.svg
+src/main/resources/static/apple-touch-icon.png
+src/main/resources/static/site.webmanifest
 
 ### NetBeans ###
 /nbproject/private/
@@ -53,6 +54,8 @@ build/
 !**/src/main/**/build/
 !**/src/test/**/build/
 .claude
+
+node
 
 ### VS Code ###
 
@@ -85,4 +88,5 @@ node_modules/
 src/main/resources/static/frontend/app.css
 src/main/resources/static/frontend/app.js
 src/main/resources/static/frontend/app.js.map
+src/main/resources/static/frontend/site.webmanifest
 src/main/resources/static/frontend/assets/

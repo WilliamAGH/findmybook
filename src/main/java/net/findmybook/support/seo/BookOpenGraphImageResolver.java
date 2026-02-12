@@ -1,9 +1,7 @@
 package net.findmybook.support.seo;
 
 import java.awt.image.BufferedImage;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Locale;
 import net.findmybook.model.Book;
 import net.findmybook.service.image.LocalDiskCoverCacheService;
@@ -22,6 +20,7 @@ public class BookOpenGraphImageResolver {
     private static final String PLACEHOLDER_COVER_MARKER = "placeholder-book-cover";
     private static final String HTTP_SCHEME_PREFIX = "http";
     private static final String DEFAULT_CARD_TITLE = "Book Details";
+    private static final int MAX_TITLE_LENGTH = 96;
 
     private final LocalDiskCoverCacheService localDiskCoverCacheService;
     private final BookOpenGraphCoverImageLoader bookOpenGraphCoverImageLoader;
@@ -68,13 +67,13 @@ public class BookOpenGraphImageResolver {
             primaryCandidate = book.getS3ImagePath();
         }
 
-        String coverUrl = CoverUrlResolver.resolve(
+        String coverUrl = CoverUrlResolver.resolve(new CoverUrlResolver.ResolveContext(
             primaryCandidate,
             fallbackCandidate,
             book.getCoverImageWidth(),
             book.getCoverImageHeight(),
             book.getIsCoverHighResolution()
-        ).url();
+        )).url();
 
         String placeholder = localDiskCoverCacheService.getLocalPlaceholderPath();
         if (isSocialPreviewImage(coverUrl, placeholder)) {
@@ -96,9 +95,8 @@ public class BookOpenGraphImageResolver {
         }
         String title = resolveTitle(book, identifier);
         String subtitle = resolveSubtitle(book);
-        List<String> badges = resolveBadges(book);
         BufferedImage coverImage = loadCoverImage(book);
-        return bookOpenGraphPngRenderer.render(title, subtitle, badges, coverImage);
+        return bookOpenGraphPngRenderer.render(title, subtitle, coverImage);
     }
 
     /**
@@ -112,7 +110,6 @@ public class BookOpenGraphImageResolver {
         return bookOpenGraphPngRenderer.render(
             DEFAULT_CARD_TITLE,
             normalizedIdentifier,
-            List.of("Book"),
             null
         );
     }
@@ -128,10 +125,10 @@ public class BookOpenGraphImageResolver {
 
     private String resolveTitle(Book book, String identifier) {
         if (book != null && StringUtils.hasText(book.getTitle())) {
-            return truncate(book.getTitle().trim(), 96);
+            return truncate(book.getTitle().trim(), MAX_TITLE_LENGTH);
         }
         if (StringUtils.hasText(identifier)) {
-            return truncate(identifier.trim(), 96);
+            return truncate(identifier.trim(), MAX_TITLE_LENGTH);
         }
         return DEFAULT_CARD_TITLE;
     }
@@ -159,34 +156,6 @@ public class BookOpenGraphImageResolver {
             }
         }
         return "";
-    }
-
-    private List<String> resolveBadges(Book book) {
-        List<String> badges = new ArrayList<>();
-        if (book == null) {
-            badges.add("Book");
-            return badges;
-        }
-        if (Boolean.TRUE.equals(book.getPdfAvailable())) {
-            badges.add("PDF");
-        }
-        if (Boolean.TRUE.equals(book.getEpubAvailable())) {
-            badges.add("EPUB");
-        }
-        if (book.getCategories() != null) {
-            String category = book.getCategories().stream()
-                .filter(StringUtils::hasText)
-                .map(String::trim)
-                .findFirst()
-                .orElse("");
-            if (StringUtils.hasText(category)) {
-                badges.add(category);
-            }
-        }
-        if (badges.isEmpty()) {
-            badges.add("Book");
-        }
-        return badges.stream().distinct().limit(3).toList();
     }
 
     private String truncate(String value, int maxLength) {

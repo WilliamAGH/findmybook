@@ -61,6 +61,11 @@ spring:
         # period: 7d 
         # use-cache-control-header: true # Ensure Cache-Control header is used
 
+  servlet:
+    multipart:
+      max-file-size: 5MB          # Aligns with app.cover-cache.max-file-size-bytes (5242880)
+      max-request-size: 6MB       # Slightly above file limit to cover multipart overhead
+
   codec: # Correctly nested under spring
     max-in-memory-size: 10MB # Configure global max buffer size for WebClient
 
@@ -78,6 +83,17 @@ app:
   ai:
     queue:
       background-max-pending: ${APP_AI_QUEUE_BACKGROUND_MAX_PENDING:100000}
+  recommendations:
+    refresh:
+      ttl-days: ${APP_RECOMMENDATIONS_REFRESH_TTL_DAYS:30}
+  weekly-refresh:
+    enabled: ${APP_WEEKLY_REFRESH_ENABLED:true}
+    cron: ${APP_WEEKLY_REFRESH_CRON:0 0 4 * * SUN}
+    nyt-phase-enabled: ${APP_WEEKLY_REFRESH_NYT_PHASE_ENABLED:true}
+    recommendation-phase-enabled: ${APP_WEEKLY_REFRESH_RECOMMENDATION_PHASE_ENABLED:true}
+  nyt:
+    scheduler:
+      standalone-enabled: ${APP_NYT_SCHEDULER_STANDALONE_ENABLED:false}
   security:
     admin:
       password: ${APP_ADMIN_PASSWORD}
@@ -88,7 +104,7 @@ app:
         enabled: true
   cache:
     enabled: true
-    book: # Corresponds to app.redis.cache.book.ttl
+    book: # Caffeine in-memory cache TTL for book entries
       ttl: 24h # Default TTL for book cache entries
   cover-cache:
     dir: book-covers # Directory name for serving cached cover images
@@ -187,6 +203,10 @@ resilience4j:
         timeoutDuration: 0ms
       bookAiContentRateLimiter:
         limitForPeriod: 10          # 10 AI requests per minute
+        limitRefreshPeriod: 1m
+        timeoutDuration: 0ms        # Fail fast when limit exceeded
+      coverRelayRateLimiter:
+        limitForPeriod: 10          # 10 browser cover relays per minute (app-wide, not per-client)
         limitRefreshPeriod: 1m
         timeoutDuration: 0ms        # Fail fast when limit exceeded
   bulkhead:

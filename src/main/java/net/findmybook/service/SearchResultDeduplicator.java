@@ -72,7 +72,7 @@ final class SearchResultDeduplicator {
             BookSearchService.SearchResult existing = byCluster.get(canonicalId);
             if (existing == null) {
                 byCluster.put(canonicalId, new BookSearchService.SearchResult(
-                        canonicalId, result.relevanceScore(), result.matchType(), editionCount, clusterId));
+                        canonicalId, result.relevanceScore(), result.matchType(), new BookSearchService.ClusterInfo(editionCount, clusterId)));
             } else {
                 byCluster.put(canonicalId, mergeResults(existing, result, editionCount, clusterId));
             }
@@ -121,7 +121,7 @@ final class SearchResultDeduplicator {
                 UUID canonicalId = bestScore == existing.relevanceScore() ? existing.bookId() : result.bookId();
                 UUID clusterId = existing.clusterId() != null ? existing.clusterId() : result.clusterId();
                 byTitleAuthor.put(key.normalizedKey(),
-                        new BookSearchService.SearchResult(canonicalId, bestScore, matchType, combinedEditionCount, clusterId));
+                        new BookSearchService.SearchResult(canonicalId, bestScore, matchType, new BookSearchService.ClusterInfo(combinedEditionCount, clusterId)));
             }
         }
         return List.copyOf(byTitleAuthor.values());
@@ -136,7 +136,7 @@ final class SearchResultDeduplicator {
         String matchType = bestScore == existing.relevanceScore() ? existing.matchType() : incoming.matchType();
         int combinedEditionCount = Math.max(existing.editionCount(), editionCount);
         UUID effectiveClusterId = existing.clusterId() != null ? existing.clusterId() : clusterId;
-        return new BookSearchService.SearchResult(existing.bookId(), bestScore, matchType, combinedEditionCount, effectiveClusterId);
+        return new BookSearchService.SearchResult(existing.bookId(), bestScore, matchType, new BookSearchService.ClusterInfo(combinedEditionCount, effectiveClusterId));
     }
 
     private Map<UUID, TitleAuthorKey> fetchTitleAuthorKeys(List<UUID> bookIds) {

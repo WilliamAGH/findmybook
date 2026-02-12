@@ -20,6 +20,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.stereotype.Component;
 import org.springframework.core.env.Environment;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -46,6 +47,22 @@ public class SecurityConfig {
     private static final Logger log = LoggerFactory.getLogger(SecurityConfig.class);
     private static final String SIMPLE_ANALYTICS_SCRIPT_ORIGIN = "https://scripts.simpleanalyticscdn.com";
     private static final String SIMPLE_ANALYTICS_QUEUE_ORIGIN = "https://queue.simpleanalyticscdn.com";
+    private static final String GOOGLE_BOOKS_ORIGIN = "https://books.google.com";
+    private static final String GOOGLE_BOOKS_CONTENT_ORIGIN = "https://books.googleusercontent.com";
+    private static final String CLICKY_STATIC_HTTPS = "https://static.getclicky.com";
+    private static final String CLICKY_STATIC_HTTP = "http://static.getclicky.com";
+    private static final String CLICKY_IN_HTTPS = "https://in.getclicky.com";
+    private static final String CLICKY_IN_HTTP = "http://in.getclicky.com";
+    private static final String CLICKY_ROOT_HTTPS = "https://clicky.com";
+    private static final String CLICKY_ROOT_HTTP = "http://clicky.com";
+    private static final String CDN_JSDELIVR = "https://cdn.jsdelivr.net";
+    private static final String CDN_CLOUDFLARE = "https://cdnjs.cloudflare.com";
+    private static final String CDN_TAILWIND = "https://cdn.tailwindcss.com";
+    private static final String FONTS_GOOGLEAPIS = "https://fonts.googleapis.com";
+    private static final String FONTS_GSTATIC = "https://fonts.gstatic.com";
+
+    private static final String ROLE_ADMIN = "ADMIN";
+    private static final String ROLE_USER = "USER";
 
     private final AuthenticationEntryPoint customBasicAuthenticationEntryPoint;
     private final Environment environment;
@@ -59,24 +76,38 @@ public class SecurityConfig {
      *
      * @param customBasicAuthenticationEntryPoint entry point for admin auth failures
      * @param environment Spring environment for property resolution
-     * @param cspEnabled whether Content Security Policy headers are enabled
-     * @param referrerPolicy the Referrer-Policy header value
-     * @param clickyEnabled whether Clicky analytics are enabled (affects CSP)
-     * @param simpleAnalyticsEnabled whether Simple Analytics are enabled (affects CSP)
+     * @param toggles the security feature toggles configuration
      */
     public SecurityConfig(CustomBasicAuthenticationEntryPoint customBasicAuthenticationEntryPoint,
                           Environment environment,
-                          @Value("${app.security.headers.content-security-policy.enabled:true}") boolean cspEnabled,
-                          @Value("${app.security.headers.referrer-policy:ORIGIN_WHEN_CROSS_ORIGIN}") String referrerPolicy,
-                          @Value("${app.clicky.enabled:true}") boolean clickyEnabled,
-                          @Value("${app.simple-analytics.enabled:true}") boolean simpleAnalyticsEnabled) {
+                          SecurityFeatureToggles toggles) {
         this.customBasicAuthenticationEntryPoint = customBasicAuthenticationEntryPoint;
         this.environment = environment;
-        this.cspEnabled = cspEnabled;
-        this.referrerPolicy = referrerPolicy;
-        this.clickyEnabled = clickyEnabled;
-        this.simpleAnalyticsEnabled = simpleAnalyticsEnabled;
+        this.cspEnabled = toggles.cspEnabled();
+        this.referrerPolicy = toggles.referrerPolicy();
+        this.clickyEnabled = toggles.clickyEnabled();
+        this.simpleAnalyticsEnabled = toggles.simpleAnalyticsEnabled();
     }
+
+    @Component
+    public static class ConfigLoader {
+        @Bean
+        public SecurityFeatureToggles securityFeatureToggles(
+            @Value("${app.security.headers.content-security-policy.enabled:true}") boolean cspEnabled,
+            @Value("${app.security.headers.referrer-policy:ORIGIN_WHEN_CROSS_ORIGIN}") String referrerPolicy,
+            @Value("${app.clicky.enabled:true}") boolean clickyEnabled,
+            @Value("${app.simple-analytics.enabled:true}") boolean simpleAnalyticsEnabled
+        ) {
+            return new SecurityFeatureToggles(cspEnabled, referrerPolicy, clickyEnabled, simpleAnalyticsEnabled);
+        }
+    }
+
+    public record SecurityFeatureToggles(
+        boolean cspEnabled,
+        String referrerPolicy,
+        boolean clickyEnabled,
+        boolean simpleAnalyticsEnabled
+    ) {}
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -138,9 +169,12 @@ public class SecurityConfig {
         // Note: HTTP allowed because some providers (e.g., Google Books API) return HTTP URLs.
         StringBuilder imgSrcDirective = new StringBuilder("'self' data: blob: https: http: ");
         StringBuilder scriptSrcDirective = new StringBuilder(
-            "'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://cdn.tailwindcss.com 'unsafe-inline' blob:"
+            "'self' " + CDN_JSDELIVR + " " + CDN_CLOUDFLARE + " " + CDN_TAILWIND + " 'unsafe-inline' blob:"
         );
-        StringBuilder connectSrcDirective = new StringBuilder("'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com");
+        StringBuilder connectSrcDirective = new StringBuilder(
+            "'self' " + CDN_JSDELIVR + " " + CDN_CLOUDFLARE + " "
+                + GOOGLE_BOOKS_ORIGIN + " " + GOOGLE_BOOKS_CONTENT_ORIGIN
+        );
 
         if (simpleAnalyticsEnabled) {
             scriptSrcDirective.append(" ").append(SIMPLE_ANALYTICS_SCRIPT_ORIGIN);
@@ -152,16 +186,19 @@ public class SecurityConfig {
         if (clickyEnabled) {
             // Add Clicky Analytics domains for script-src, connect-src, and img-src.
             // Include both HTTP and HTTPS as Clicky may use either depending on page protocol.
-            scriptSrcDirective.append(" https://static.getclicky.com http://static.getclicky.com https://in.getclicky.com http://in.getclicky.com https://clicky.com http://clicky.com");
-            connectSrcDirective.append(" https://static.getclicky.com http://static.getclicky.com https://in.getclicky.com http://in.getclicky.com https://clicky.com http://clicky.com");
-            imgSrcDirective.append(" https://in.getclicky.com http://in.getclicky.com");
+            String clickyScriptAndConnect = " " + CLICKY_STATIC_HTTPS + " " + CLICKY_STATIC_HTTP
+                + " " + CLICKY_IN_HTTPS + " " + CLICKY_IN_HTTP
+                + " " + CLICKY_ROOT_HTTPS + " " + CLICKY_ROOT_HTTP;
+            scriptSrcDirective.append(clickyScriptAndConnect);
+            connectSrcDirective.append(clickyScriptAndConnect);
+            imgSrcDirective.append(" ").append(CLICKY_IN_HTTPS).append(" ").append(CLICKY_IN_HTTP);
         }
 
         return "default-src 'self'; "
             + "script-src " + scriptSrcDirective + "; "
-            + "style-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.googleapis.com 'unsafe-inline'; "
+            + "style-src 'self' " + CDN_JSDELIVR + " " + CDN_CLOUDFLARE + " " + FONTS_GOOGLEAPIS + " 'unsafe-inline'; "
             + "img-src " + imgSrcDirective.toString().trim() + "; "
-            + "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; "
+            + "font-src 'self' " + FONTS_GSTATIC + " " + CDN_CLOUDFLARE + "; "
             + "connect-src " + connectSrcDirective + "; "
             + "frame-src 'self'; "
             + "object-src 'none'";
@@ -187,7 +224,7 @@ public class SecurityConfig {
             UserDetails admin = User.builder()
                 .username(adminUsername)
                 .password(passwordEncoder.encode(adminPassword))
-                .roles("ADMIN", "USER")
+                .roles(ROLE_ADMIN, ROLE_USER)
                 .build();
             userDetailsManager.createUser(admin);
             adminRegistered = true;
@@ -199,7 +236,7 @@ public class SecurityConfig {
             UserDetails regularUser = User.builder()
                 .username(userUsername)
                 .password(passwordEncoder.encode(userPassword))
-                .roles("USER")
+                .roles(ROLE_USER)
                 .build();
             userDetailsManager.createUser(regularUser);
             userRegistered = true;

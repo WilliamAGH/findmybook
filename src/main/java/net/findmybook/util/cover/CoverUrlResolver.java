@@ -45,9 +45,13 @@ public final class CoverUrlResolver {
                                         Integer width,
                                         Integer height,
                                         Boolean highResolution) {
-        UrlResolution urlResolution = resolveUrl(primary, fallbackExternal);
-        Dimensions resolvedDimensions = resolveDimensions(urlResolution.url(), width, height);
-        boolean resolvedHighRes = Boolean.TRUE.equals(highResolution)
+        return resolve(new ResolveContext(primary, fallbackExternal, width, height, highResolution));
+    }
+
+    public static ResolvedCover resolve(ResolveContext context) {
+        UrlResolution urlResolution = resolveUrl(context.primary(), context.fallbackExternal());
+        Dimensions resolvedDimensions = resolveDimensions(urlResolution.url(), context.width(), context.height());
+        boolean resolvedHighRes = Boolean.TRUE.equals(context.highResolution())
             || (!resolvedDimensions.defaulted()
                 && ImageDimensionUtils.isHighResolution(resolvedDimensions.width(), resolvedDimensions.height()));
 
@@ -60,6 +64,14 @@ public final class CoverUrlResolver {
             resolvedHighRes
         );
     }
+
+    public record ResolveContext(
+        String primary,
+        String fallbackExternal,
+        Integer width,
+        Integer height,
+        Boolean highResolution
+    ) {}
 
     public static boolean isCdnUrl(String url) {
         String cdnBase = currentCdnBase();

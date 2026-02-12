@@ -9,8 +9,6 @@ import org.springframework.stereotype.Component;
 @Component
 public class RouteStructuredDataRenderer {
 
-    private static final String DEFAULT_WEB_PAGE_TYPE = "WebPage";
-
     /**
      * Builds a WebSite + WebPage JSON-LD graph for a canonical route.
      *

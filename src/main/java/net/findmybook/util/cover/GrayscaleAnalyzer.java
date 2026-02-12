@@ -24,8 +24,8 @@ public final class GrayscaleAnalyzer {
     /** Fraction of sampled pixels that must be gray to classify the whole image. */
     static final double GRAY_PIXEL_FRACTION = 0.95;
 
-    /** Human-readable percentage for Javadoc references. */
-    private static final int GRAY_PIXEL_FRACTION_PERCENT = 95;
+    /** Human-readable percentage for Javadoc references and validation messages. */
+    public static final int GRAY_PIXEL_FRACTION_PERCENT = 95;
 
     /** Sample every Nth pixel in each dimension. */
     static final int SAMPLE_STEP = 5;

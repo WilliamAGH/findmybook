@@ -5,7 +5,10 @@
 - **Health Check:** `/actuator/health`
 - **Book API:**
   - `GET /api/books/search?query={keyword}`
-  - `GET /api/books/{id}`
+  - `GET /api/books/{identifier}`
+  - `GET /api/books/{identifier}/similar?limit={n}`
+  - `GET /api/covers/{identifier}`
+  - `POST /api/covers/{identifier}/ingest`
   - `GET /api/books/ai/content/queue`
   - `POST /api/books/{identifier}/ai/content/stream?refresh={true|false}`
   - `GET /api/books/authors/search?query={author}`
@@ -56,12 +59,22 @@
 - `GET /api/books/{identifier}` and `GET /api/books/slug/{slug}` support:
   - `viewWindow` (optional, one of `30d`, `90d`, `all`)
   - Invalid `viewWindow` returns `400 Bad Request`.
+- `GET /api/books/{identifier}/similar` supports:
+  - `limit` (optional; defaults `5`)
+  - Returns source-prioritized recommendation cards for the canonical book/work cluster.
+  - Runtime behavior:
+    - First checks persisted recommendation rows.
+    - If active rows are missing/stale, it triggers recommendation regeneration and then returns refreshed cards when available.
+    - If regeneration cannot immediately persist refreshed cards, it may return older persisted rows as an explicit fallback.
 - Unsupported `orderBy` values return `400 Bad Request`.
 - Response includes deterministic pagination metadata plus `queryHash` for realtime routing.
 - Search result ordering always applies cover tier first:
   - color covers first,
   - grayscale covers after color,
   - no-cover entries last.
+- Within each cover tier, a recency bias favors more recently published books
+  as a tiebreaker when other ranking signals (relevance, source, match type)
+  are equal.
 - `GET /api/books/{identifier}` and search hit payloads include canonical description fields:
   - `description` (legacy string; retained for backward compatibility)
   - `descriptionContent` (backend-formatted source of truth):
@@ -86,6 +99,35 @@
   - `viewMetrics` (nullable object)
     - `window: "30d" | "90d" | "all"`
     - `totalViews: number`
+
+## Cover API Contract
+- `GET /api/covers/{identifier}`
+  - Returns resolved cover metadata for the canonical book:
+    - `bookId`, `requestedSourcePreference`, `cover`, `coverUrl`, `preferredUrl`, `fallbackUrl`
+  - Unknown identifiers return `404 application/problem+json`.
+- `POST /api/covers/{identifier}/ingest`
+  - Purpose:
+    - Persist a browser-fetched cover image (for example a Google Books cover already rendered in UI) into S3 and canonical cover metadata.
+  - Request content type:
+    - `multipart/form-data`
+  - Required fields:
+    - `image` (binary image payload fetched by the browser)
+    - `sourceUrl` (exact rendered URL the browser fetched bytes from)
+  - Optional fields:
+    - `source` (provider hint, for example `GOOGLE_BOOKS`)
+  - Validation rules:
+    - `sourceUrl` must be an allowlisted external cover host.
+    - `sourceUrl` must match one of the book’s current resolved cover candidates.
+    - Image must pass server-side processing/rejection rules.
+  - Successful response:
+    - `200 application/json`
+    - Payload: `{ bookId, storedCoverUrl, storageKey, source, width, height, highResolution }`
+  - Error responses:
+    - `400` for invalid/mismatched `sourceUrl` or invalid multipart payload.
+    - `404` when the book identifier cannot be resolved.
+    - `413` when processed image exceeds configured upload limits.
+    - `422` when image processing rejects the payload as non-usable cover content.
+    - `503` when S3 upload runtime configuration is unavailable.
 
 ## Book AI Content Streaming Contract
 - `GET /api/books/ai/content/queue`
@@ -143,6 +185,9 @@
     - `recentBooks: BookCard[]`
     - `popularBooks: BookCard[]`
     - `popularWindow: string`
+    - `BookCard` includes: `id`, `slug`, `title`, `authors`, `cover_url`, `cover_s3_key`,
+      `fallback_cover_url`, `average_rating`, `ratings_count`, `tags`, `cover_grayscale`,
+      `published_date` (ISO-8601 date or null).
   - Side effect:
     - Each request appends a `page_view_events` row with `page_key = "homepage"`.
   - Home payload enforces cover-bearing cards only:
@@ -267,6 +312,30 @@ Admin endpoints require HTTP Basic Authentication.
   - Notes:
     - `outcome` values are `SUCCESS`, `NOT_FOUND`, `FAILURE`, `SKIPPED`.
     - `currentBookId` is retained for compatibility with existing polling clients.
+- `POST /admin/trigger-cache-warming`
+  - Triggers the book cache warming scheduler immediately.
+  - Response:
+    - `200 OK` with plain-text acknowledgement.
+- `GET /admin/s3-cleanup/dry-run`
+  - Scans S3 book-cover keys and reports orphaned or flagged entries without modifying data.
+  - Query params:
+    - `prefix` (optional): S3 key prefix to limit scan scope
+    - `limit` (optional, default `100`): max keys to scan
+  - Response:
+    - `200 OK` with summary of flagged keys, orphan counts, and sample paths.
+- `POST /admin/s3-cleanup/move-flagged`
+  - Moves flagged S3 book-cover keys to a quarantine prefix.
+  - Query params:
+    - `prefix` (optional): S3 key prefix to limit scope
+    - `limit` (optional, default `100`): max keys to process
+    - `quarantinePrefix` (optional): target prefix for quarantined keys
+  - Response:
+    - `200 OK` with summary of moved keys.
+    - `500 Internal Server Error` on failure.
+- `GET /admin/circuit-breaker/status`
+  - Returns the current state of all Resilience4j circuit breakers.
+  - Response:
+    - `200 OK` with JSON circuit breaker state map.
 - `POST /admin/trigger-nyt-bestsellers`
   - Triggers NYT ingest processing.
   - Query params:
@@ -278,6 +347,20 @@ Admin endpoints require HTTP Basic Authentication.
   - Response:
     - `200 OK` with plain-text acknowledgement when the ingest trigger succeeds.
     - `400 Bad Request` when NYT processing is disabled/rejected.
+- `POST /admin/trigger-recommendation-refresh`
+  - Triggers a full recommendation-cache refresh by extending `book_recommendations.expires_at` for all rows.
+  - Response:
+    - `200 OK` with plain-text summary (`totalRows`, `activeBefore`, `refreshedRows`, `activeAfter`, `ttlDays`).
+    - `500 Internal Server Error` when refresh fails.
+- `POST /admin/trigger-weekly-refresh`
+  - Triggers the weekly catalog orchestrator immediately.
+  - Runtime behavior:
+    - Runs NYT ingest phase.
+    - Runs recommendation-cache refresh phase.
+    - Logs `ERROR` and returns failure when any phase throws.
+  - Response:
+    - `200 OK` with plain-text summary (`nytTriggered`, `recommendationTriggered`, optional recommendation row stats).
+    - `500 Internal Server Error` when any phase fails.
 
 ### Example Request
 ```bash

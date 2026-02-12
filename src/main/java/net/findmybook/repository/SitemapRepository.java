@@ -1,5 +1,6 @@
 package net.findmybook.repository;
 
+import net.findmybook.support.sitemap.SitemapBookLastModifiedSqlSupport;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -26,6 +27,9 @@ public class SitemapRepository {
             "ELSE '0-9' END";
 
     private static final String BOOK_UPDATED_AT_ALIAS = "book_updated_at";
+    private static final String SQL_EPOCH_TIMESTAMP = "TIMESTAMP 'epoch'";
+    private static final String BOOK_CHANGE_EVENTS_CTE =
+            SitemapBookLastModifiedSqlSupport.globalBookLastModifiedCte(BOOK_UPDATED_AT_ALIAS);
 
     private static final RowMapper<BookRow> BOOK_ROW_MAPPER = (rs, rowNum) -> new BookRow(
             rs.getString("id"),
@@ -73,9 +77,10 @@ public class SitemapRepository {
     }
 
     public List<BookRow> fetchBooksForXml(int limit, int offset) {
-        String sql = "SELECT id, slug, title, COALESCE(updated_at, created_at, NOW()) AS " + BOOK_UPDATED_AT_ALIAS +
-                     " FROM books WHERE slug IS NOT NULL " +
-                     "ORDER BY COALESCE(updated_at, created_at, NOW()) ASC NULLS LAST, " +
+        String sql = BOOK_CHANGE_EVENTS_CTE +
+                     "SELECT id, slug, title, " + BOOK_UPDATED_AT_ALIAS + " " +
+                     "FROM book_last_modified " +
+                     "ORDER BY " + BOOK_UPDATED_AT_ALIAS + " ASC NULLS LAST, " +
                      "         lower(title) ASC NULLS LAST, " +
                      "         slug ASC NULLS LAST, " +
                      "         id ASC " +
@@ -117,13 +122,11 @@ public class SitemapRepository {
         if (authorIds == null || authorIds.isEmpty()) {
             return Map.of();
         }
-        String sql = "SELECT baj.author_id, b.id, b.slug, b.title, COALESCE(b.updated_at, b.created_at, NOW()) AS " + BOOK_UPDATED_AT_ALIAS +
-                     " FROM book_authors_join baj " +
-                     " JOIN books b ON b.id = baj.book_id " +
-                     " WHERE baj.author_id IN (%s) AND b.slug IS NOT NULL " +
-                     " ORDER BY baj.author_id, lower(b.title), b.slug";
         String placeholders = authorIds.stream().map(id -> "?").collect(Collectors.joining(","));
-        String resolvedSql = sql.formatted(placeholders);
+        String resolvedSql = SitemapBookLastModifiedSqlSupport.scopedAuthorBookLastModifiedQuery(
+                placeholders,
+                BOOK_UPDATED_AT_ALIAS
+        );
         Object[] params = authorIds.toArray();
         return jdbcTemplate.query(resolvedSql, rs -> {
             Map<String, List<BookRow>> results = new LinkedHashMap<>();
@@ -145,14 +148,14 @@ public class SitemapRepository {
         if (pageSize <= 0) {
             throw new IllegalArgumentException("Page size must be positive, got: " + pageSize);
         }
-        String sql = "WITH ordered AS (" +
-                "    SELECT COALESCE(updated_at, created_at, NOW()) AS " + BOOK_UPDATED_AT_ALIAS + "," +
-                "           row_number() OVER (ORDER BY COALESCE(updated_at, created_at, NOW()) ASC NULLS LAST, " +
+        String sql = BOOK_CHANGE_EVENTS_CTE +
+                ", ordered AS (" +
+                "    SELECT " + BOOK_UPDATED_AT_ALIAS + "," +
+                "           row_number() OVER (ORDER BY " + BOOK_UPDATED_AT_ALIAS + " ASC NULLS LAST, " +
                 "                                       lower(title) ASC NULLS LAST, " +
                 "                                       slug ASC NULLS LAST, " +
                 "                                       id ASC) AS rn" +
-                "    FROM books" +
-                "    WHERE slug IS NOT NULL" +
+                "    FROM book_last_modified" +
                 ") " +
                 "SELECT CAST(FLOOR((rn - 1) / ?::numeric) AS bigint) + 1 AS page_number, " +
                 "       MAX(" + BOOK_UPDATED_AT_ALIAS + ") AS last_modified " +
@@ -164,9 +167,10 @@ public class SitemapRepository {
     }
 
     public DatasetFingerprint fetchBookFingerprint() {
-        String sql = "SELECT COUNT(*) AS total_records, " +
-                "COALESCE(MAX(updated_at), MAX(created_at), TIMESTAMP 'epoch') AS last_modified " +
-                "FROM books WHERE slug IS NOT NULL";
+        String sql = BOOK_CHANGE_EVENTS_CTE +
+                "SELECT COUNT(*) AS total_records, " +
+                "COALESCE(MAX(" + BOOK_UPDATED_AT_ALIAS + "), " + SQL_EPOCH_TIMESTAMP + ") AS last_modified " +
+                "FROM book_last_modified";
         return jdbcTemplate.queryForObject(sql, (rs, rowNum) -> new DatasetFingerprint(
                 rs.getInt("total_records"),
                 rs.getTimestamp("last_modified").toInstant()

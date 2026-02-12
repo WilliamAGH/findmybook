@@ -37,7 +37,7 @@ class AiContentQualityValidator {
         try {
             validate(content);
             return true;
-        } catch (IllegalStateException ignored) {
+        } catch (IllegalStateException _) {
             return false;
         }
     }
@@ -152,7 +152,7 @@ class AiContentQualityValidator {
         var charCounts = new java.util.HashMap<Character, Integer>();
         for (int i = 0; i < text.length(); i++) {
             char ch = text.charAt(i);
-            charCounts.merge(ch, 1, Integer::sum);
+            charCounts.put(ch, charCounts.getOrDefault(ch, 0) + 1);
         }
         int maxCount = 0;
         for (int count : charCounts.values()) {
