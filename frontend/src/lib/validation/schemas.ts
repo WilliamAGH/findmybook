@@ -102,7 +102,7 @@ export const BookAiContentSnapshotSchema = z.object({
   takeaways: z.array(z.string().max(300)).nullable().optional(),
   context: z.string().max(1500).nullable().optional(),
   version: z.number().int().nullable().optional(),
-  generatedAt: z.string().datetime().nullable().optional(),
+  generatedAt: z.string().datetime({ offset: true }).nullable().optional(),
   model: z.string().nullable().optional(),
   provider: z.string().nullable().optional(),
 });
