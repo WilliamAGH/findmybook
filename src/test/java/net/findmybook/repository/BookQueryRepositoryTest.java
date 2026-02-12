@@ -19,10 +19,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Integration test for BookQueryRepository - THE SINGLE SOURCE OF TRUTH for book queries.
- * 
+ *
  * These tests verify that optimized SQL functions work correctly and return
  * exactly what each view needs with minimal queries.
- * 
+ *
  * Tests only run when database is available (not in CI without DB).
  */
 @DbIntegrationTest
@@ -62,8 +62,9 @@ class BookQueryRepositoryTest {
         List<BookCard> cards = bookQueryRepository.fetchBookCards(bookIds);
 
         // Verify we got results
-        assertThat(cards).isNotEmpty();
-        assertThat(cards.size()).isLessThanOrEqualTo(3);
+        assertThat(cards)
+            .isNotEmpty()
+            .hasSizeLessThanOrEqualTo(3);
 
         // Verify each card has required fields
         cards.forEach(card -> {
@@ -105,8 +106,9 @@ class BookQueryRepositoryTest {
         List<BookCard> bestsellers = bookQueryRepository.fetchBookCardsByProviderListCode("hardcover-fiction", 8);
 
         // Should return up to 8 books (or fewer if list is smaller)
-        assertThat(bestsellers).isNotNull();
-        assertThat(bestsellers.size()).isLessThanOrEqualTo(8);
+        assertThat(bestsellers)
+            .isNotNull()
+            .hasSizeLessThanOrEqualTo(8);
 
         if (!bestsellers.isEmpty()) {
             // Verify first book has required fields
@@ -228,8 +230,9 @@ class BookQueryRepositoryTest {
         }
 
         List<RecommendationCard> recommendations = bookQueryRepository.fetchRecommendationCards(sourceBookId, 6);
-        assertThat(recommendations).isNotEmpty();
-        assertThat(recommendations.size()).isLessThanOrEqualTo(6);
+        assertThat(recommendations)
+            .isNotEmpty()
+            .hasSizeLessThanOrEqualTo(6);
         recommendations.forEach(card -> {
             assertThat(card.card()).isNotNull();
             assertThat(card.card().id()).isNotBlank();
@@ -267,7 +270,7 @@ class BookQueryRepositoryTest {
 
         assertThat(editions).isNotNull();
         // May be empty if no other editions, that's OK
-        
+
         if (!editions.isEmpty()) {
             EditionSummary edition = editions.get(0);
             assertThat(edition.id()).isNotBlank();
@@ -296,7 +299,7 @@ class BookQueryRepositoryTest {
         long duration = System.currentTimeMillis() - start;
 
         assertThat(cards).hasSize(bookIds.size());
-        
+
         // Should complete in under 1 second (very generous, typically <100ms)
         assertThat(duration).isLessThan(1000);
     }
