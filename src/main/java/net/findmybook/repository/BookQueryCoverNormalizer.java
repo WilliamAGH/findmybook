@@ -29,6 +29,11 @@ import java.sql.SQLException;
 final class BookQueryCoverNormalizer {
     private static final Logger log = LoggerFactory.getLogger(BookQueryCoverNormalizer.class);
 
+    private static final int MIN_COVER_WIDTH = 180;
+    private static final int MIN_COVER_HEIGHT = 280;
+    private static final double MIN_ASPECT_RATIO = 1.2;
+    private static final double MAX_ASPECT_RATIO = 2.0;
+
     private final JdbcTemplate jdbcTemplate;
     private final BookQueryResultSetSupport resultSetSupport;
 
@@ -176,18 +181,12 @@ final class BookQueryCoverNormalizer {
                   AND (
                       bil.width IS NULL OR bil.height IS NULL
                       OR (
-                          bil.width >= 180
-                          AND bil.height >= 280
-                          AND (bil.height::float / NULLIF(bil.width, 0)) BETWEEN 1.2 AND 2.0
+                          bil.width >= %d
+                          AND bil.height >= %d
+                          AND (bil.height::float / NULLIF(bil.width, 0)) BETWEEN %.1f AND %.1f
                       )
                   )
-                ORDER BY bil.book_id,
-                         cover_image_priority(
-                             bil.s3_image_path, bil.is_high_resolution, bil.url,
-                             bil.width, bil.height, bil.image_type, bil.is_grayscale
-                         ),
-                         bil.created_at DESC
-                """;
+                """.formatted(MIN_COVER_WIDTH, MIN_COVER_HEIGHT, MIN_ASPECT_RATIO, MAX_ASPECT_RATIO);
 
             UUID[] idsArray = bookIds.toArray(new UUID[0]);
 

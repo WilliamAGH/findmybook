@@ -87,24 +87,15 @@ public final class CoverPrioritizer {
             .thenComparing(primarySort)
             .thenComparingInt(CoverPrioritizer::sourceRank)
             .thenComparingInt(CoverPrioritizer::matchTypeRank)
-            .thenComparing(Comparator.<Book>comparingDouble(CoverPrioritizer::relevanceScore).reversed())
-            .thenComparing(Comparator.<Book>comparingLong(CoverPrioritizer::publishedDateEpochDay).reversed())
-            .thenComparing(Comparator.<Book>comparingInt(CoverPrioritizer::score).reversed())
-            .thenComparing(Comparator.<Book>comparingLong(book -> ImageDimensionUtils.totalPixels(
-                book.getCoverImageWidth(),
-                book.getCoverImageHeight()
-            )).reversed())
-            .thenComparing(Comparator.<Book>comparingInt(book -> Optional.ofNullable(book.getCoverImageHeight()).orElse(0)).reversed())
-            .thenComparing(Comparator.<Book>comparingInt(book -> Optional.ofNullable(book.getCoverImageWidth()).orElse(0)).reversed())
-            .thenComparing(Comparator.<Book, Boolean>comparing(book -> Boolean.TRUE.equals(book.getInPostgres()), Comparator.reverseOrder()))
-            .thenComparing(bookInsertionComparator(insertionOrder))
-            .thenComparing(book -> Optional.ofNullable(book.getTitle()).orElse(""));
+            .thenComparing(Comparator.<Book>comparingDouble(CoverPrioritizer::relevanceScore).reversed());
+
+        comparator = appendSecondaryTiebreakers(comparator, insertionOrder);
 
         return Comparator.nullsLast(comparator);
     }
 
     public static Comparator<Book> bookComparator(Map<String, Integer> insertionOrder,
-                                                  Comparator<Book> orderSpecific) {
+                                                   Comparator<Book> orderSpecific) {
         Comparator<Book> comparator = Comparator
             .comparingInt(CoverPrioritizer::coverPresenceRank)
             .thenComparingInt(CoverPrioritizer::sourceRank)
@@ -115,7 +106,18 @@ public final class CoverPrioritizer {
             comparator = comparator.thenComparing(orderSpecific);
         }
 
-        comparator = comparator
+        comparator = appendSecondaryTiebreakers(comparator, insertionOrder);
+
+        return Comparator.nullsLast(comparator);
+    }
+
+    /**
+     * Appends the shared tiebreaker chain common to all book comparators:
+     * publishedDate → score → totalPixels → height → width → inPostgres → insertionOrder → title.
+     */
+    private static Comparator<Book> appendSecondaryTiebreakers(Comparator<Book> base,
+                                                                Map<String, Integer> insertionOrder) {
+        return base
             .thenComparing(Comparator.<Book>comparingLong(CoverPrioritizer::publishedDateEpochDay).reversed())
             .thenComparing(Comparator.<Book>comparingInt(CoverPrioritizer::score).reversed())
             .thenComparing(Comparator.<Book>comparingLong(book -> ImageDimensionUtils.totalPixels(
@@ -127,8 +129,6 @@ public final class CoverPrioritizer {
             .thenComparing(Comparator.<Book, Boolean>comparing(book -> Boolean.TRUE.equals(book.getInPostgres()), Comparator.reverseOrder()))
             .thenComparing(bookInsertionComparator(insertionOrder))
             .thenComparing(book -> Optional.ofNullable(book.getTitle()).orElse(""));
-
-        return Comparator.nullsLast(comparator);
     }
 
     public static Comparator<BookCard> cardComparator(Map<String, Integer> originalOrder) {
