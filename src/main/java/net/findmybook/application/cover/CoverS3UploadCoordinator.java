@@ -4,6 +4,7 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import java.time.Duration;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import net.findmybook.exception.CoverDownloadException;
@@ -243,8 +244,9 @@ public class CoverS3UploadCoordinator {
     }
 
     private void validateAndPersistUpload(ImageDetails details, String bookId, UUID bookUuid) {
-        if (details == null || !StringUtils.hasText(details.getStorageKey())) {
-            String storageKey = details != null ? details.getStorageKey() : null;
+        Objects.requireNonNull(details, "ImageDetails must be non-null");
+        if (!StringUtils.hasText(details.getStorageKey())) {
+            String storageKey = details.getStorageKey();
             logger.error("S3 upload returned non-persistable details for book {} [code={}]: reason={}. storageKey='{}'",
                 bookId,
                 S3UploadErrorCode.NON_PERSISTABLE_DETAILS.code(),
