@@ -60,7 +60,7 @@
    * Combines: renderable URL + non-placeholder + valid aspect ratio + no runtime failure.
    */
   function hasDisplayableCover(book: Book): boolean {
-    const url = activeCoverUrlsByBookId.get(book.id) ?? book.cover?.preferredUrl ?? null;
+    const url = activeCoverUrlsByBookId.get(book.id) ?? book.cover?.displayUrl ?? null;
     if (!url || url.trim().length === 0) {
       return false;
     }
@@ -123,7 +123,7 @@
 
   $effect(() => {
     const nextSignature = books
-      .map((book) => `${book.id}:${book.cover?.preferredUrl ?? ""}`)
+      .map((book) => `${book.id}:${book.cover?.displayUrl ?? ""}`)
       .join("|");
     if (nextSignature === coverStateSignature) {
       return;
@@ -135,7 +135,7 @@
 
     const nextCoverUrlsByBookId = new Map<string, string>();
     for (const book of books) {
-      const url = book.cover?.preferredUrl ?? null;
+      const url = book.cover?.displayUrl ?? null;
       if (url && url.trim().length > 0) {
         nextCoverUrlsByBookId.set(book.id, url);
       }
@@ -157,10 +157,10 @@
       {#each displayableBooks as book (book.id)}
         <a href={bookHref(book)} class="group block">
           <div
-            class="flex aspect-[2/3] items-center justify-center overflow-hidden rounded-lg bg-linen-100 p-3 transition-all duration-300 group-hover:-translate-y-0.5 group-hover:shadow-book dark:bg-slate-800/60"
+            class="flex aspect-2/3 items-center justify-center overflow-hidden rounded-lg bg-linen-100 p-3 transition-all duration-300 group-hover:-translate-y-0.5 group-hover:shadow-book dark:bg-slate-800/60"
           >
             <img
-              src={activeCoverUrlsByBookId.get(book.id) ?? book.cover?.preferredUrl}
+              src={activeCoverUrlsByBookId.get(book.id) ?? book.cover?.displayUrl}
               alt={`${book.title ?? "Book"} cover`}
               class="max-h-full w-auto rounded-book object-contain transition-transform duration-300 group-hover:scale-[1.03]"
               loading="lazy"
