@@ -1,7 +1,6 @@
 package net.findmybook.adapters.persistence;
 
 import java.sql.Timestamp;
-import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import net.findmybook.domain.seo.BookSeoMetadataSnapshot;
@@ -21,6 +20,14 @@ import org.springframework.transaction.annotation.Transactional;
 public class BookSeoMetadataRepository implements BookSeoMetadataSnapshotReader {
 
     private final JdbcTemplate jdbcTemplate;
+
+    /**
+     * Self-reference for transactional method invocation within the same class.
+     * Required because Spring's @Transactional uses proxies, and direct 'this' calls
+     * bypass the proxy and don't participate in the transaction.
+     */
+    @jakarta.annotation.Resource
+    private BookSeoMetadataSnapshotReader self;
 
     public BookSeoMetadataRepository(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
@@ -90,10 +97,7 @@ public class BookSeoMetadataRepository implements BookSeoMetadataSnapshotReader 
             rs -> rs.next() ? rs.getString("prompt_hash") : null,
             bookId
         );
-        if (promptHash == null || promptHash.isBlank()) {
-            return Optional.empty();
-        }
-        return Optional.of(promptHash);
+        return Optional.ofNullable(promptHash).filter(s -> !s.isBlank());
     }
 
     /**
@@ -153,18 +157,19 @@ public class BookSeoMetadataRepository implements BookSeoMetadataSnapshotReader 
             promptHash
         );
 
-        return fetchCurrent(bookId)
+        // Invoke via self-reference to ensure @Transactional proxy is applied
+        return self.fetchCurrent(bookId)
             .orElseThrow(() -> new IllegalStateException("Inserted SEO metadata could not be reloaded for book " + bookId));
     }
 
     private void lockBook(UUID bookId) {
-        UUID lockedBookId = jdbcTemplate.query(
+        java.util.List<UUID> lockedBookIds = jdbcTemplate.query(
             "SELECT id FROM books WHERE id = ? FOR UPDATE",
-            rs -> rs.next() ? rs.getObject("id", UUID.class) : null,
+            (rs, rowNum) -> rs.getObject("id", UUID.class),
             bookId
         );
-        if (lockedBookId == null) {
-            throw new IllegalStateException("Cannot lock missing book row for SEO metadata versioning: " + bookId);
+        if (lockedBookIds.isEmpty()) {
+            throw new IllegalStateException("Book not found for SEO metadata versioning: " + bookId);
         }
     }
 

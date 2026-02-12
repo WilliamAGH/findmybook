@@ -71,7 +71,7 @@ public class CoverS3UploadCoordinator {
     public CoverS3UploadCoordinator(Optional<S3BookCoverService> s3BookCoverService,
                                     CoverPersistenceService coverPersistenceService,
                                     MeterRegistry meterRegistry) {
-        this.s3BookCoverService = s3BookCoverService != null ? s3BookCoverService : Optional.empty();
+        this.s3BookCoverService = s3BookCoverService;
         this.coverPersistenceService = coverPersistenceService;
 
         this.s3UploadAttempts = meterRegistry.counter("book.cover.s3.upload.attempts");
@@ -124,7 +124,7 @@ public class CoverS3UploadCoordinator {
         UUID bookUuid;
         try {
             bookUuid = UUID.fromString(event.getBookId());
-        } catch (IllegalArgumentException uuidParseFailure) {
+        } catch (IllegalArgumentException _) {
             logger.warn("BookUpsertEvent contains non-UUID bookId '{}' [code={}]: reason={}",
                 event.getBookId(),
                 CODE_S3_EVENT_INVALID_BOOK_ID,
@@ -274,10 +274,7 @@ public class CoverS3UploadCoordinator {
                     downloadException.getImageUrl());
             }
             case CoverProcessingException processingException ->
-                logger.error("S3 upload failed for book {} (non-retryable) [code={}]: reason={}",
-                    bookId,
-                    CODE_S3_PROCESSING_FAILED,
-                    resolveFailureReason(processingException));
+                logProcessingFailure(bookId, processingException);
             case CoverTooLargeException tooLargeException ->
                 logger.error("S3 upload failed for book {} (non-retryable) [code={}]: reason=image-too-large actual={} max={}",
                     bookId,
@@ -290,19 +287,20 @@ public class CoverS3UploadCoordinator {
                     CODE_S3_UNSAFE_URL,
                     unsafeUrlException.getImageUrl());
             case S3UploadException s3UploadException ->
-                logger.warn("S3 upload skipped for book {} due to runtime configuration [code={}]: reason={}",
-                    bookId,
-                    CODE_S3_RUNTIME_CONFIGURATION,
-                    resolveFailureReason(s3UploadException));
+                logRuntimeConfigurationSkip(bookId, s3UploadException);
             default ->
-                logger.error("S3 upload failed for book {} after retries [code={}]: reason={}. Metrics: attempts={}, successes={}, failures={}",
-                    bookId,
-                    CODE_S3_UNEXPECTED_FAILURE,
-                    resolveFailureReason(error),
-                    s3UploadAttempts.count(),
-                    s3UploadSuccesses.count(),
-                    s3UploadFailures.count(),
-                    error);
+                {
+                    if (logger.isErrorEnabled()) {
+                        logger.error("S3 upload failed for book {} after retries [code={}]: reason={}. Metrics: attempts={}, successes={}, failures={}",
+                            bookId,
+                            CODE_S3_UNEXPECTED_FAILURE,
+                            resolveFailureReason(error),
+                            s3UploadAttempts.count(),
+                            s3UploadSuccesses.count(),
+                            s3UploadFailures.count(),
+                            error);
+                    }
+                }
         }
 
         // Record error in database so failure isn't silent
@@ -333,20 +331,20 @@ public class CoverS3UploadCoordinator {
                 processingException.getRejectionReason() != null
                     ? processingException.getRejectionReason().name()
                     : resolveFailureReason(processingException);
-            case CoverTooLargeException ignored -> "TooLarge";
-            case UnsafeUrlException ignored -> "UnsafeUrl";
-            case S3UploadException ignored -> null;
+            case CoverTooLargeException _ -> "TooLarge";
+            case UnsafeUrlException _ -> "UnsafeUrl";
+            case S3UploadException _ -> null;
             default -> resolveFailureReason(error);
         };
     }
 
     String classifyS3FailureCode(Throwable error) {
         return switch (error) {
-            case CoverDownloadException ignored -> CODE_S3_DOWNLOAD_FAILED;
-            case CoverProcessingException ignored -> CODE_S3_PROCESSING_FAILED;
-            case CoverTooLargeException ignored -> CODE_S3_TOO_LARGE;
-            case UnsafeUrlException ignored -> CODE_S3_UNSAFE_URL;
-            case S3UploadException ignored -> CODE_S3_RUNTIME_CONFIGURATION;
+            case CoverDownloadException _ -> CODE_S3_DOWNLOAD_FAILED;
+            case CoverProcessingException _ -> CODE_S3_PROCESSING_FAILED;
+            case CoverTooLargeException _ -> CODE_S3_TOO_LARGE;
+            case UnsafeUrlException _ -> CODE_S3_UNSAFE_URL;
+            case S3UploadException _ -> CODE_S3_RUNTIME_CONFIGURATION;
             default -> CODE_S3_UNEXPECTED_FAILURE;
         };
     }
@@ -360,5 +358,25 @@ public class CoverS3UploadCoordinator {
             return error.getClass().getSimpleName();
         }
         return message;
+    }
+
+    private void logProcessingFailure(String bookId, CoverProcessingException processingException) {
+        if (!logger.isErrorEnabled()) {
+            return;
+        }
+        logger.error("S3 upload failed for book {} (non-retryable) [code={}]: reason={}",
+            bookId,
+            CODE_S3_PROCESSING_FAILED,
+            resolveFailureReason(processingException));
+    }
+
+    private void logRuntimeConfigurationSkip(String bookId, S3UploadException s3UploadException) {
+        if (!logger.isWarnEnabled()) {
+            return;
+        }
+        logger.warn("S3 upload skipped for book {} due to runtime configuration [code={}]: reason={}",
+            bookId,
+            CODE_S3_RUNTIME_CONFIGURATION,
+            resolveFailureReason(s3UploadException));
     }
 }

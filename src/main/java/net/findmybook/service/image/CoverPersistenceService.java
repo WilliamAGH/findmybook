@@ -98,14 +98,16 @@ public class CoverPersistenceService {
             String imageType = entry.getKey();
             String url = entry.getValue();
             
-            if (url == null || url.isBlank()) {
-                continue;
+            // Skip null/blank URLs and normalize to HTTPS in one pass
+            String httpsUrl = null;
+            if (url != null && !url.isBlank()) {
+                httpsUrl = UrlUtils.validateAndNormalize(url);
             }
             
-            // Normalize to HTTPS
-            String httpsUrl = UrlUtils.validateAndNormalize(url);
             if (!StringUtils.hasText(httpsUrl)) {
-                log.warn("Skipping invalid image URL for book {} type {}: {}", bookId, imageType, url);
+                if (url != null && !url.isBlank()) {
+                    log.warn("Skipping invalid image URL for book {} type {}: {}", bookId, imageType, url);
+                }
                 continue;
             }
             
@@ -126,13 +128,10 @@ public class CoverPersistenceService {
                     canonicalHeight = estimate.height();
                     canonicalHighRes = estimate.highRes();
                 }
-            } catch (IllegalArgumentException ex) {
-                log.warn("Failed to persist image link for book {} type {}: {}",
-                    bookId, imageType, ex.getMessage());
-            } catch (DataAccessException ex) {
-                log.error("Failed to persist image link for book {} type {} due to database error: {}",
+            } catch (IllegalArgumentException | DataAccessException ex) {
+                log.error("Failed to persist image link for book {} type {}: {}",
                     bookId, imageType, ex.getMessage(), ex);
-                throw ex;
+                throw new IllegalStateException("Failed to persist image link for book " + bookId + " type " + imageType, ex);
             }
         }
         
@@ -260,14 +259,10 @@ public class CoverPersistenceService {
 
             return new PersistenceResult(true, canonicalUrl, width, height, highRes);
 
-        } catch (IllegalArgumentException ex) {
+        } catch (IllegalArgumentException | DataAccessException ex) {
             log.error("Failed to update cover metadata after S3 upload for book {} (S3 object may be orphaned: s3Key={}): {}",
                 bookId, s3Key, ex.getMessage(), ex);
-            throw ex;
-        } catch (DataAccessException ex) {
-            log.error("Failed to update cover metadata after S3 upload for book {} due to database error: {}",
-                bookId, ex.getMessage(), ex);
-            throw ex;
+            throw new IllegalStateException("Failed to update cover metadata after S3 upload for book " + bookId + " (s3Key=" + s3Key + ")", ex);
         }
     }
 
@@ -317,12 +312,9 @@ public class CoverPersistenceService {
 
             return new PersistenceResult(true, resolved.url(), resolved.width(), resolved.height(), resolved.highResolution());
 
-        } catch (IllegalArgumentException ex) {
+        } catch (IllegalArgumentException | DataAccessException ex) {
             log.error("Failed to persist external cover for book {}: {}", bookId, ex.getMessage(), ex);
-            throw ex;
-        } catch (DataAccessException ex) {
-            log.error("Failed to persist external cover for book {} due to database error: {}", bookId, ex.getMessage(), ex);
-            throw ex;
+            throw new IllegalStateException("Failed to persist external cover for book " + bookId, ex);
         }
     }
     
@@ -489,10 +481,6 @@ public class CoverPersistenceService {
                         Integer width, Integer height, Boolean highRes) {
             this(bookId, imageType, url, source, width, height, highRes, null, null);
         }
-
-        ImageLinkParams(UUID bookId, String imageType, String url, String source,
-                        Integer width, Integer height, Boolean highRes, String s3ImagePath) {
-            this(bookId, imageType, url, source, width, height, highRes, s3ImagePath, null);
-        }
     }
 }
+
