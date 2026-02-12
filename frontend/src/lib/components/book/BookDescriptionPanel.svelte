@@ -202,12 +202,12 @@
   }
 
   .book-description-content :global(a) {
-    color: #0b5ea7;
+    color: var(--description-link-color, #0b5ea7);
     text-decoration: underline;
     text-underline-offset: 2px;
   }
 
   :global([data-theme="dark"]) .book-description-content :global(a) {
-    color: #60a5fa;
+    --description-link-color: #60a5fa;
   }
 </style>
