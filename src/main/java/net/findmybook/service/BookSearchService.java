@@ -15,6 +15,8 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
+import org.springframework.context.annotation.Bean;
+import org.springframework.stereotype.Component;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -42,18 +44,34 @@ public class BookSearchService {
 
     public BookSearchService(
         JdbcTemplate jdbcTemplate,
-        Optional<ExternalBookIdResolver> externalBookIdResolver,
-        Optional<BackfillCoordinator> backfillCoordinator,
-        Optional<BookQueryRepository> bookQueryRepository,
+        SearchDependencies deps,
         @Value("${app.features.async-backfill.enabled:false}") boolean asyncBackfillEnabled
     ) {
         this.jdbcTemplate = jdbcTemplate;
-        this.externalBookIdResolver = externalBookIdResolver.orElse(null);
-        this.backfillCoordinator = backfillCoordinator.orElse(null);
-        this.bookQueryRepository = bookQueryRepository.orElse(null);
+        this.externalBookIdResolver = deps.externalBookIdResolver().orElse(null);
+        this.backfillCoordinator = deps.backfillCoordinator().orElse(null);
+        this.bookQueryRepository = deps.bookQueryRepository().orElse(null);
         this.deduplicator = new SearchResultDeduplicator(jdbcTemplate);
         this.asyncBackfillEnabled = asyncBackfillEnabled;
     }
+
+    @Component
+    public static class ConfigLoader {
+        @Bean
+        public SearchDependencies searchDependencies(
+            Optional<ExternalBookIdResolver> externalBookIdResolver,
+            Optional<BackfillCoordinator> backfillCoordinator,
+            Optional<BookQueryRepository> bookQueryRepository
+        ) {
+            return new SearchDependencies(externalBookIdResolver, backfillCoordinator, bookQueryRepository);
+        }
+    }
+
+    public record SearchDependencies(
+        Optional<ExternalBookIdResolver> externalBookIdResolver,
+        Optional<BackfillCoordinator> backfillCoordinator,
+        Optional<BookQueryRepository> bookQueryRepository
+    ) {}
 
     public List<SearchResult> searchBooks(String query, Integer limit) {
         if (jdbcTemplate == null) {
