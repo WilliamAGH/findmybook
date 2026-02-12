@@ -9,6 +9,7 @@
     getBook,
     getSimilarBooks,
     persistRenderedCover,
+    DEFAULT_SIMILAR_BOOKS_LIMIT,
   } from "$lib/services/books";
   import {
     mergePersistedCoverIntoBook,
@@ -52,11 +53,13 @@
     return trimmedIdentifier.length > 0 ? trimmedIdentifier : null;
   }
 
+  const HTTP_NOT_FOUND_PREFIX = "HTTP 404";
+
   function isHttpNotFoundError(error: unknown): boolean {
     if (!(error instanceof Error)) {
       return false;
     }
-    return error.message.startsWith("HTTP 404");
+    return error.message.startsWith(HTTP_NOT_FOUND_PREFIX);
   }
 
   async function loadBookWithFallback(identifierFromRoute: string): Promise<Book> {
@@ -95,7 +98,7 @@
         : fallbackIdentifierFromUrl() ?? identifier;
 
       const [similarResult, linksResult] = await Promise.allSettled([
-        getSimilarBooks(relatedIdentifier, 8),
+        getSimilarBooks(relatedIdentifier, DEFAULT_SIMILAR_BOOKS_LIMIT),
         getAffiliateLinks(relatedIdentifier),
       ]);
       if (sequence !== loadSequence) {

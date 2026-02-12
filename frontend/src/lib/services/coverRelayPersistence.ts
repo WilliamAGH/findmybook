@@ -2,6 +2,7 @@ import type { CoverIngestResponse } from "$lib/validation/coverSchemas";
 import type { Book } from "$lib/validation/schemas";
 
 const S3_COVER_PATH_SEGMENT = "/images/book-covers/";
+const PLACEHOLDER_COVER_FILENAME = "placeholder-book-cover.svg";
 
 function normalizeCoverUrl(candidateUrl: string): string | null {
   if (!candidateUrl || candidateUrl.trim().length === 0) {
@@ -15,7 +16,8 @@ function normalizeCoverUrl(candidateUrl: string): string | null {
       return null;
     }
     return parsed.href;
-  } catch {
+  } catch (error) {
+    console.debug("[normalizeCoverUrl] Invalid URL:", candidateUrl, error);
     return null;
   }
 }
@@ -34,7 +36,7 @@ function isPlaceholderCoverUrl(candidateUrl: string, placeholderCoverUrl: string
   const normalized = candidateUrl.toLowerCase();
   const normalizedPlaceholder = placeholderCoverUrl.toLowerCase();
   return normalized === normalizedPlaceholder
-    || normalized.includes("placeholder-book-cover.svg");
+    || normalized.includes(PLACEHOLDER_COVER_FILENAME);
 }
 
 function coverPersistKey(bookId: string, coverUrl: string): string {
