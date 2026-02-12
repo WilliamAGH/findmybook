@@ -219,7 +219,9 @@ class CoverS3UploadCoordinatorTest {
         coordinator.triggerUpload(event);
 
         verify(coverPersistenceService, timeout(1000).times(1)).updateAfterS3Upload(eq(bookId), any());
-        verify(coverPersistenceService, timeout(1000).times(1)).recordDownloadError(eq(bookId), any());
+        // Metadata persistence failures are NOT recorded as download_error (allowlist filtering)
+        // to prevent hiding valid covers from query results
+        verify(coverPersistenceService, never()).recordDownloadError(any(), any());
         assertCounterEventuallyEquals("book.cover.s3.upload.success", 0.0d);
         assertCounterEventuallyEquals("book.cover.s3.upload.failure", 1.0d);
     }
@@ -263,7 +265,9 @@ class CoverS3UploadCoordinatorTest {
             "GOOGLE_BOOKS"
         );
         verify(coverPersistenceService, never()).updateAfterS3Upload(any(), any());
-        verify(coverPersistenceService, timeout(1000).times(1)).recordDownloadError(eq(bookId), any());
+        // Non-persistable details are NOT recorded as download_error (allowlist filtering)
+        // because the download itself succeeded — only the result was malformed
+        verify(coverPersistenceService, never()).recordDownloadError(any(), any());
         assertCounterEventuallyEquals("book.cover.s3.upload.success", 0.0d);
         assertCounterEventuallyEquals("book.cover.s3.upload.failure", 1.0d);
     }
