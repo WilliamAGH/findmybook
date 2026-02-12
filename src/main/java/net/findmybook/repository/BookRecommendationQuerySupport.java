@@ -28,6 +28,7 @@ final class BookRecommendationQuerySupport {
 
     private static final Logger log = LoggerFactory.getLogger(BookRecommendationQuerySupport.class);
     private static final int MAX_PER_SOURCE_PRIORITY = 3;
+    private static final int CANDIDATE_BUFFER_FACTOR = 3;
 
     private final JdbcTemplate jdbcTemplate;
     private final BookQueryResultSetSupport resultSetSupport;
@@ -79,7 +80,7 @@ final class BookRecommendationQuerySupport {
             .map(id -> "?")
             .collect(Collectors.joining(", "));
 
-        int fetchLimit = Math.max(limit, Math.min(limit * candidateSourceIds.size(), limit * 3));
+        int fetchLimit = Math.max(limit, Math.min(limit * candidateSourceIds.size(), limit * CANDIDATE_BUFFER_FACTOR));
 
         // Keep recommendations available even when refresh jobs lag behind expiry.
         // Active rows are ranked first; stale rows remain eligible as a deterministic fallback.

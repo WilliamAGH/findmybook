@@ -22,6 +22,8 @@ import net.findmybook.service.BookRecommendationPersistenceService.Recommendatio
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.context.annotation.Bean;
+import org.springframework.stereotype.Component;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -86,17 +88,47 @@ public class RecommendationService {
      *
      * @implNote Delegates all lookups to BookDataOrchestrator to avoid duplicate tier logic.
      */
-    public RecommendationService(BookDataOrchestrator bookDataOrchestrator,
-                                 BookSearchService bookSearchService,
-                                 BookQueryRepository bookQueryRepository,
-                                 BookRecommendationPersistenceService recommendationPersistenceService,
-                                 @Value("${app.features.external-fallback.enabled:${app.features.google-fallback.enabled:true}}") boolean externalFallbackEnabled) {
-        this.bookDataOrchestrator = bookDataOrchestrator;
-        this.bookSearchService = bookSearchService;
-        this.bookQueryRepository = bookQueryRepository;
-        this.recommendationPersistenceService = recommendationPersistenceService;
-        this.externalFallbackEnabled = externalFallbackEnabled;
+    public RecommendationService(RecommendationServices services, RecommendationConfig config) {
+        this.bookDataOrchestrator = services.bookDataOrchestrator();
+        this.bookSearchService = services.bookSearchService();
+        this.bookQueryRepository = services.bookQueryRepository();
+        this.recommendationPersistenceService = services.recommendationPersistenceService();
+        this.externalFallbackEnabled = config.externalFallbackEnabled();
     }
+
+    @Component
+    public static class ConfigLoader {
+        @Bean
+        public RecommendationConfig recommendationConfig(
+            @Value("${app.features.external-fallback.enabled:${app.features.google-fallback.enabled:true}}") boolean externalFallbackEnabled
+        ) {
+            return new RecommendationConfig(externalFallbackEnabled);
+        }
+
+        @Bean
+        public RecommendationServices recommendationServices(
+            BookDataOrchestrator bookDataOrchestrator,
+            BookSearchService bookSearchService,
+            BookQueryRepository bookQueryRepository,
+            BookRecommendationPersistenceService recommendationPersistenceService
+        ) {
+            return new RecommendationServices(
+                bookDataOrchestrator,
+                bookSearchService,
+                bookQueryRepository,
+                recommendationPersistenceService
+            );
+        }
+    }
+
+    public record RecommendationConfig(boolean externalFallbackEnabled) {}
+
+    public record RecommendationServices(
+        BookDataOrchestrator bookDataOrchestrator,
+        BookSearchService bookSearchService,
+        BookQueryRepository bookQueryRepository,
+        BookRecommendationPersistenceService recommendationPersistenceService
+    ) {}
 
     /**
      * Generates recommendations for books similar to the specified book
@@ -226,8 +258,11 @@ public class RecommendationService {
     }
 
     private Mono<List<Book>> fetchRecommendationsFromApiAndUpdateCache(Book sourceBook, int effectiveCount) {
-        // Run the recommendation strategies even when external fallbacks are disabled.
-        // Downstream searchBooks() already honors externalFallbackEnabled within the orchestrator tier.
+        return collectScoredCandidates(sourceBook)
+            .flatMap(recommendationMap -> processAndPersistRecommendations(sourceBook, recommendationMap, effectiveCount));
+    }
+
+    private Mono<Map<String, ScoredBook>> collectScoredCandidates(Book sourceBook) {
         Flux<ScoredBook> authorsFlux = findBooksByAuthorsReactive(sourceBook);
         Flux<ScoredBook> categoriesFlux = findBooksByCategoriesReactive(sourceBook);
         Flux<ScoredBook> textFlux = findBooksByTextReactive(sourceBook);
@@ -241,76 +276,90 @@ public class RecommendationService {
                     return sb1;
                 },
                 HashMap::new
-            ))
-            .flatMap(recommendationMap -> {
-                String sourceLang = sourceBook.getLanguage();
-                boolean filterByLanguage = StringUtils.hasText(sourceLang);
+            ));
+    }
 
-                Comparator<ScoredBook> comparator = Comparator
-                    .comparingInt((ScoredBook scored) -> CoverPrioritizer.score(scored.getBook()) > 0 ? 1 : 0)
-                    .reversed()
-                    .thenComparing(ScoredBook::getScore, Comparator.reverseOrder())
-                    .thenComparing(scored -> CoverPrioritizer.score(scored.getBook()), Comparator.reverseOrder());
+    private Mono<List<Book>> processAndPersistRecommendations(Book sourceBook, 
+                                                              Map<String, ScoredBook> recommendationMap, 
+                                                              int effectiveCount) {
+        List<ScoredBook> orderedCandidates = sortAndFilterCandidates(sourceBook, recommendationMap);
 
-                List<ScoredBook> orderedCandidates = recommendationMap.values().stream()
-                    .filter(scored -> isEligibleRecommendation(sourceBook, scored.getBook(), filterByLanguage, sourceLang))
-                    .sorted(comparator)
-                    .collect(Collectors.toList());
+        if (orderedCandidates.isEmpty()) {
+            log.info("No recommendations generated from API for book ID: {}", sourceBook.getId());
+            return Mono.just(Collections.<Book>emptyList());
+        }
 
-                if (orderedCandidates.isEmpty()) {
-                    log.info("No recommendations generated from API for book ID: {}", sourceBook.getId());
-                    return Mono.just(Collections.<Book>emptyList());
-                }
+        List<Book> orderedBooks = orderedCandidates.stream()
+            .map(ScoredBook::getBook)
+            .collect(Collectors.toList());
 
-                List<Book> orderedBooks = orderedCandidates.stream()
-                    .map(ScoredBook::getBook)
-                    .collect(Collectors.toList());
+        List<Book> limitedRecommendations = orderedBooks.stream()
+            .limit(effectiveCount)
+            .collect(Collectors.toList());
 
-                List<Book> limitedRecommendations = orderedBooks.stream()
-                    .limit(effectiveCount)
-                    .collect(Collectors.toList());
-                if (bookDataOrchestrator != null) {
-                    // Persist recommendations opportunistically to Postgres
-                    bookDataOrchestrator.persistBooksAsync(limitedRecommendations, "RECOMMENDATION");
-                }
+        return persistRecommendations(sourceBook, orderedCandidates, orderedBooks, limitedRecommendations);
+    }
 
-                List<String> newRecommendationIds = orderedBooks.stream()
-                    .map(Book::getId)
-                    .filter(Objects::nonNull)
-                    .distinct()
-                    .collect(Collectors.toList());
+    private List<ScoredBook> sortAndFilterCandidates(Book sourceBook, Map<String, ScoredBook> recommendationMap) {
+        String sourceLang = sourceBook.getLanguage();
+        boolean filterByLanguage = StringUtils.hasText(sourceLang);
 
-                sourceBook.addRecommendationIds(newRecommendationIds);
+        Comparator<ScoredBook> comparator = Comparator
+            .comparingInt((ScoredBook scored) -> CoverPrioritizer.score(scored.getBook()) > 0 ? 1 : 0)
+            .reversed()
+            .thenComparing(ScoredBook::getScore, Comparator.reverseOrder())
+            .thenComparing(scored -> CoverPrioritizer.score(scored.getBook()), Comparator.reverseOrder());
 
-                Set<String> limitedIds = limitedRecommendations.stream()
-                    .map(Book::getId)
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toCollection(LinkedHashSet::new));
+        return recommendationMap.values().stream()
+            .filter(scored -> isEligibleRecommendation(sourceBook, scored.getBook(), filterByLanguage, sourceLang))
+            .sorted(comparator)
+            .collect(Collectors.toList());
+    }
 
-                Mono<Void> persistenceMono = recommendationPersistenceService != null
-                    ? recommendationPersistenceService
-                        .persistPipelineRecommendations(sourceBook, buildPersistenceRecords(orderedCandidates, limitedIds))
-                        .onErrorMap(ex -> {
-                            LoggingUtils.warn(log, ex, "Failed to persist recommendations for {}", sourceBook.getId());
-                            return new IllegalStateException(
-                                "Failed to persist recommendations for " + sourceBook.getId(),
-                                ex
-                            );
-                        })
-                    : Mono.empty();
+    private Mono<List<Book>> persistRecommendations(Book sourceBook,
+                                                    List<ScoredBook> orderedCandidates,
+                                                    List<Book> orderedBooks,
+                                                    List<Book> limitedRecommendations) {
+        if (bookDataOrchestrator != null) {
+            bookDataOrchestrator.persistBooksAsync(limitedRecommendations, "RECOMMENDATION");
+        }
 
-                return Mono.when(persistenceMono)
-                    .then(Mono.fromRunnable(() -> log.info("Updated cachedRecommendationIds for book {} with {} new IDs and cached {} individual recommended books.",
-                            sourceBook.getId(), newRecommendationIds.size(), orderedBooks.size())))
-                    .thenReturn(limitedRecommendations)
-                    .doOnSuccess(finalList -> log.info("Fetched {} total potential recommendations for book ID {} from API, updated cache. Returning {} recommendations.", orderedBooks.size(), sourceBook.getId(), finalList.size()))
-                    .onErrorMap(e -> {
-                        LoggingUtils.error(log, e, "Error completing recommendation pipeline for book {}", sourceBook.getId());
-                        return new IllegalStateException(
-                            "Error completing recommendation pipeline for " + sourceBook.getId(),
-                            e
-                        );
-                    });
+        List<String> newRecommendationIds = orderedBooks.stream()
+            .map(Book::getId)
+            .filter(Objects::nonNull)
+            .distinct()
+            .collect(Collectors.toList());
+
+        sourceBook.addRecommendationIds(newRecommendationIds);
+
+        Set<String> limitedIds = limitedRecommendations.stream()
+            .map(Book::getId)
+            .filter(Objects::nonNull)
+            .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        Mono<Void> persistenceMono = recommendationPersistenceService != null
+            ? recommendationPersistenceService
+                .persistPipelineRecommendations(sourceBook, buildPersistenceRecords(orderedCandidates, limitedIds))
+                .onErrorMap(ex -> {
+                    LoggingUtils.warn(log, ex, "Failed to persist recommendations for {}", sourceBook.getId());
+                    return new IllegalStateException(
+                        "Failed to persist recommendations for " + sourceBook.getId(),
+                        ex
+                    );
+                })
+            : Mono.empty();
+
+        return Mono.when(persistenceMono)
+            .then(Mono.fromRunnable(() -> log.info("Updated cachedRecommendationIds for book {} with {} new IDs and cached {} individual recommended books.",
+                    sourceBook.getId(), newRecommendationIds.size(), orderedBooks.size())))
+            .thenReturn(limitedRecommendations)
+            .doOnSuccess(finalList -> log.info("Fetched {} total potential recommendations for book ID {} from API, updated cache. Returning {} recommendations.", orderedBooks.size(), sourceBook.getId(), finalList.size()))
+            .onErrorMap(e -> {
+                LoggingUtils.error(log, e, "Error completing recommendation pipeline for book {}", sourceBook.getId());
+                return new IllegalStateException(
+                    "Error completing recommendation pipeline for " + sourceBook.getId(),
+                    e
+                );
             });
     }
 
