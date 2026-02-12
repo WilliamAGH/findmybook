@@ -137,6 +137,13 @@ public class BookController {
             });
     }
 
+    /**
+     * Searches authors by name prefix using Postgres full-text search.
+     *
+     * @param query raw author name query
+     * @param limit maximum number of author results to return
+     * @return author search results wrapped in a reactive ResponseEntity
+     */
     @GetMapping("/authors/search")
     public Mono<ResponseEntity<AuthorSearchResponse>> searchAuthors(@RequestParam String query,
                                                                     @RequestParam(name = "limit", defaultValue = "10") int limit) {
@@ -164,6 +171,13 @@ public class BookController {
             });
     }
 
+    /**
+     * Resolves a single book by any supported identifier (UUID, slug, ISBN, or Google Books ID).
+     *
+     * @param identifier client-supplied book identifier
+     * @param viewWindow optional time window for view-count tracking
+     * @return the resolved book DTO, or 404 if no match is found
+     */
     @GetMapping("/{identifier}")
     public Mono<ResponseEntity<BookDto>> getBookByIdentifier(@PathVariable String identifier,
                                                               @RequestParam(name = "viewWindow", required = false) String viewWindow) {
@@ -190,6 +204,14 @@ public class BookController {
         );
     }
 
+    /**
+     * Returns similar books for the given source identifier, using cached recommendations
+     * when available and regenerating them when stale or absent.
+     *
+     * @param identifier client-supplied source book identifier
+     * @param limit maximum number of similar books to return
+     * @return list of similar book DTOs
+     */
     @GetMapping("/{identifier}/similar")
     public Mono<ResponseEntity<List<BookDto>>> getSimilarBooks(@PathVariable String identifier,
                                                                @RequestParam(name = "limit", defaultValue = "5") int limit) {
