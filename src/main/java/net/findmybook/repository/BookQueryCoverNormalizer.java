@@ -40,10 +40,11 @@ final class BookQueryCoverNormalizer {
     private static final String ANY_LOCAL_IP_PREFIX = "://0.0.0.0";
     private static final String COVER_PATH_SEGMENT = "/images/book-covers/";
 
-    /** Google Books non-content page patterns excluded from cover fallback queries. */
-    private static final String PRINTSEC_TITLEPAGE_PATTERN = "printsec=titlepage";
-    private static final String PRINTSEC_COPYRIGHT_PATTERN = "printsec=copyright";
-    private static final String PRINTSEC_TOC_PATTERN = "printsec=toc";
+    /** SQL LIKE patterns with wildcards pre-baked for direct use in queries. */
+    private static final String PLACEHOLDER_COVER_LIKE = "%" + PLACEHOLDER_COVER_PATTERN + "%";
+    private static final String PRINTSEC_TITLEPAGE_LIKE = "%printsec=titlepage%";
+    private static final String PRINTSEC_COPYRIGHT_LIKE = "%printsec=copyright%";
+    private static final String PRINTSEC_TOC_LIKE = "%printsec=toc%";
 
     private final JdbcTemplate jdbcTemplate;
     private final BookQueryResultSetSupport resultSetSupport;
@@ -187,12 +188,12 @@ final class BookQueryCoverNormalizer {
                   (bil.url IS NOT NULL AND bil.url <> '')
                   OR (bil.s3_image_path IS NOT NULL AND bil.s3_image_path <> '')
               )
-              AND (bil.url IS NULL OR bil.url NOT LIKE '%%%s%%')
-              AND (bil.s3_image_path IS NULL OR bil.s3_image_path NOT LIKE '%%%s%%')
+              AND (bil.url IS NULL OR bil.url NOT LIKE '%s')
+              AND (bil.s3_image_path IS NULL OR bil.s3_image_path NOT LIKE '%s')
               AND (bil.url IS NULL OR (
-                  bil.url NOT LIKE '%%%s%%'
-                  AND bil.url NOT LIKE '%%%s%%'
-                  AND bil.url NOT LIKE '%%%s%%'
+                  bil.url NOT LIKE '%s'
+                  AND bil.url NOT LIKE '%s'
+                  AND bil.url NOT LIKE '%s'
               ))
               AND (
                   bil.width IS NULL OR bil.height IS NULL
@@ -203,8 +204,8 @@ final class BookQueryCoverNormalizer {
                   )
               )
             """.formatted(
-                PLACEHOLDER_COVER_PATTERN, PLACEHOLDER_COVER_PATTERN,
-                PRINTSEC_TITLEPAGE_PATTERN, PRINTSEC_COPYRIGHT_PATTERN, PRINTSEC_TOC_PATTERN,
+                PLACEHOLDER_COVER_LIKE, PLACEHOLDER_COVER_LIKE,
+                PRINTSEC_TITLEPAGE_LIKE, PRINTSEC_COPYRIGHT_LIKE, PRINTSEC_TOC_LIKE,
                 MIN_COVER_WIDTH, MIN_COVER_HEIGHT, MIN_ASPECT_RATIO, MAX_ASPECT_RATIO);
 
         UUID[] idsArray = bookIds.toArray(new UUID[0]);
