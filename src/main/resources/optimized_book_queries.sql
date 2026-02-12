@@ -721,7 +721,8 @@ RETURNS TABLE (
     cover_is_grayscale BOOLEAN,
     average_rating NUMERIC,
     ratings_count INTEGER,
-    tags JSONB
+    tags JSONB,
+    published_date DATE
 ) AS $$
 BEGIN
     RETURN QUERY
@@ -736,7 +737,8 @@ BEGIN
         bc.cover_is_grayscale,
         bc.average_rating,
         bc.ratings_count,
-        bc.tags
+        bc.tags,
+        bc.published_date
     FROM book_collections_join bcj
     CROSS JOIN LATERAL get_book_cards(ARRAY[bcj.book_id]) AS bc(
         id,
@@ -749,7 +751,8 @@ BEGIN
         cover_is_grayscale,
         average_rating,
         ratings_count,
-        tags
+        tags,
+        published_date
     )
     WHERE bcj.collection_id = collection_id_param
     ORDER BY COALESCE(bcj.position, 2147483647), bcj.created_at ASC
@@ -767,46 +770,6 @@ COMMENT ON FUNCTION get_book_cards_by_collection IS 'Fetch book cards for a spec
 -- book_authors_join indexes
 CREATE INDEX IF NOT EXISTS idx_book_authors_book_id ON book_authors_join(book_id);
 CREATE INDEX IF NOT EXISTS idx_book_authors_position ON book_authors_join(book_id, position) WHERE position IS NOT NULL;
-
--- book_collections_join indexes
-CREATE INDEX IF NOT EXISTS idx_book_collections_join_book_id ON book_collections_join(book_id);
-CREATE INDEX IF NOT EXISTS idx_book_collections_join_collection_id ON book_collections_join(collection_id);
-CREATE INDEX IF NOT EXISTS idx_book_collections_join_position ON book_collections_join(collection_id, position) WHERE position IS NOT NULL;
-
--- book_image_links indexes
-CREATE INDEX IF NOT EXISTS idx_book_image_links_book_id ON book_image_links(book_id);
-CREATE INDEX IF NOT EXISTS idx_book_image_links_type_priority ON book_image_links(book_id, image_type);
-
--- book_tag_assignments indexes
-CREATE INDEX IF NOT EXISTS idx_book_tag_assignments_book_id ON book_tag_assignments(book_id);
-CREATE INDEX IF NOT EXISTS idx_book_tag_assignments_tag_id ON book_tag_assignments(tag_id);
-
--- book_external_ids indexes (already exist but verify)
-CREATE INDEX IF NOT EXISTS idx_book_external_ids_book_source ON book_external_ids(book_id, source);
-
--- work_cluster_members indexes
-CREATE INDEX IF NOT EXISTS idx_work_cluster_members_book_id ON work_cluster_members(book_id);
-CREATE INDEX IF NOT EXISTS idx_work_cluster_members_cluster_id ON work_cluster_members(cluster_id);
-
--- ============================================================================
--- VERIFICATION QUERIES
--- Run these to verify the functions work correctly
--- ============================================================================
-
--- Test get_book_cards with a few books
--- SELECT * FROM get_book_cards(ARRAY[
---     (SELECT id FROM books LIMIT 1)::UUID,
---     (SELECT id FROM books OFFSET 1 LIMIT 1)::UUID
--- ]);
-
--- Test get_book_detail
--- SELECT * FROM get_book_detail((SELECT id FROM books LIMIT 1)::UUID);
-
--- Test get_book_cards_by_collection (if you have collections)
--- SELECT * FROM get_book_cards_by_collection(
---     (SELECT id FROM book_collections WHERE collection_type = 'BESTSELLER_LIST' LIMIT 1),
---     8
--- );
 
 -- ============================================================================
 -- END OF OPTIMIZED BOOK QUERY FUNCTIONS
