@@ -228,7 +228,7 @@ public class RecommendationService {
             .collect(Collectors.toMap(
                 scoredBook -> scoredBook.getBook().getId(),
                 scoredBook -> scoredBook,
-                (sb1, sb2) -> sb1.mergeWith(sb2),
+                ScoredBook::mergeWith,
                 HashMap::new
             ));
     }
