@@ -77,9 +77,13 @@ void main(String[] args) {
             try {
                 runAiContentBackfill(aiContentService, bookId, options.force());
             } catch (BookAiGenerationException generationFailure) {
+                // DESCRIPTION_TOO_SHORT is an expected data-quality condition, not a failure:
+                // the SQL filter selects books whose own description meets the minimum, but
+                // cluster resolution may remap to a primary edition with a shorter description.
+                // Warn on stderr so operators can enrich the primary edition's description and re-run.
                 if (generationFailure.errorCode() == BookAiGenerationException.ErrorCode.DESCRIPTION_TOO_SHORT) {
                     skipped += 1;
-                    System.out.printf("AI summary skipped (description too short): bookId=%s%n", bookId);
+                    System.err.printf("WARNING: AI summary skipped (description too short): bookId=%s — enrich this book's description and re-run%n", bookId);
                 } else {
                     failures += 1;
                     System.err.printf("AI backfill failed for bookId=%s: %s%n", bookId, generationFailure.getMessage());
