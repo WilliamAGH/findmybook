@@ -74,4 +74,22 @@ describe("mergeSearchHits", () => {
     expect(merged).toHaveLength(2);
     expect(merged.map((hit) => hit.id)).toEqual(["book-1", "book-2"]);
   });
+
+  it("should_ClassifyProviderUsingDisplayUrl_When_PreferredUrlBlank", () => {
+    const openLibrary = createSearchHit("book-1", {
+      title: "Same Title",
+      source: null,
+      cover: buildCover({ preferredUrl: "https://covers.openlibrary.org/b/id/1-L.jpg" }),
+    });
+    const google = createSearchHit("book-2", {
+      title: "Same Title",
+      source: null,
+      cover: buildCover({ preferredUrl: "", externalImageUrl: "https://books.google.com/books/content?id=1" }),
+    });
+
+    const merged = mergeSearchHits([], [google, openLibrary], "title");
+
+    // Open Library hits should rank ahead of Google hits when all other keys tie.
+    expect(merged.map((hit) => hit.id)).toEqual(["book-1", "book-2"]);
+  });
 });

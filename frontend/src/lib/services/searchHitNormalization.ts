@@ -45,6 +45,14 @@ function normalizeProvider(value: string | null | undefined): string | null {
   return value.trim().toUpperCase();
 }
 
+function normalizeUrlCandidate(value: string | null | undefined): string | null {
+  if (value == null) {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 function resolveProvider(hit: SearchHit): string {
   const sourceFromPayload = normalizeProvider(hit.source);
   if (sourceFromPayload) {
@@ -56,12 +64,13 @@ function resolveProvider(hit: SearchHit): string {
     return sourceFromCover;
   }
 
-  const coverUrl =
-    hit.cover?.preferredUrl
-    ?? hit.cover?.externalImageUrl
-    ?? hit.cover?.fallbackUrl
-    ?? null;
-  const normalizedUrl = coverUrl?.toLowerCase() ?? "";
+  // Provider inference needs to treat blank/whitespace URLs as absent; otherwise a blank
+  // preferredUrl can short-circuit the chain and prevent URL-based provider detection.
+  const inferredUrl = normalizeUrlCandidate(hit.cover?.preferredUrl)
+    ?? normalizeUrlCandidate(hit.cover?.externalImageUrl)
+    ?? normalizeUrlCandidate(hit.cover?.fallbackUrl)
+    ?? "";
+  const normalizedUrl = inferredUrl.toLowerCase();
   if (normalizedUrl.includes("covers.openlibrary.org")) {
     return PROVIDER_OPEN_LIBRARY;
   }
