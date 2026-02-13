@@ -6,6 +6,14 @@ describe("resolveCoverDisplayUrl", () => {
     expect(resolveCoverDisplayUrl("preferred", "s3", "external")).toBe("preferred");
   });
 
+  it("should_SkipBlankPreferredUrl_When_S3Present", () => {
+    expect(resolveCoverDisplayUrl("", "s3", "external")).toBe("s3");
+  });
+
+  it("should_SkipWhitespacePreferredUrl_When_S3Present", () => {
+    expect(resolveCoverDisplayUrl("   ", "s3", "external")).toBe("s3");
+  });
+
   it("should_ReturnS3ImagePath_When_PreferredUrlNull", () => {
     expect(resolveCoverDisplayUrl(null, "s3", "external")).toBe("s3");
   });
