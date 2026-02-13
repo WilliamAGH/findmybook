@@ -11,11 +11,16 @@ package net.findmybook.service;
 
 import net.findmybook.model.Book;
 import net.findmybook.service.BookRecommendationPersistenceService.RecommendationRecord;
+import net.findmybook.util.LoggingUtils;
+import net.findmybook.util.cover.CoverPrioritizer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Service;
 import org.springframework.context.annotation.Bean;
+import org.springframework.stereotype.Service;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -27,12 +32,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
-
-import net.findmybook.util.LoggingUtils;
-import org.springframework.util.StringUtils;
-import net.findmybook.util.cover.CoverPrioritizer;
-import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
 @Service
 @Slf4j
 public class RecommendationService {
@@ -50,8 +49,7 @@ public class RecommendationService {
      *
      * @implNote Delegates scoring and search orchestration to strategy components.
      */
-    public RecommendationService(RecommendationServices services, RecommendationConfig config,
-                                RecommendationStrategyChain strategyChain) {
+    public RecommendationService(RecommendationServices services, RecommendationConfig config, RecommendationStrategyChain strategyChain) {
         this.bookDataOrchestrator = services.bookDataOrchestrator();
         this.recommendationPersistenceService = services.recommendationPersistenceService();
         this.strategyChain = strategyChain;
@@ -81,10 +79,8 @@ public class RecommendationService {
 
     public record RecommendationConfig(boolean externalFallbackEnabled) {}
 
-    public record RecommendationServices(
-        BookDataOrchestrator bookDataOrchestrator,
-        BookRecommendationPersistenceService recommendationPersistenceService
-    ) {}
+    public record RecommendationServices(BookDataOrchestrator bookDataOrchestrator,
+                                         BookRecommendationPersistenceService recommendationPersistenceService) {}
 
     /**
      * Generates recommendations for books similar to the specified book
@@ -342,11 +338,7 @@ public class RecommendationService {
         return Objects.equals(sourceLang, candidate.getLanguage());
     }
 
-    private record PersistableRecommendations(
-        List<ScoredBook> orderedCandidates,
-        List<Book> orderedBooks,
-        List<Book> limitedRecommendations
-    ) {}
+    private record PersistableRecommendations(List<ScoredBook> orderedCandidates, List<Book> orderedBooks, List<Book> limitedRecommendations) {}
 
     private IllegalStateException logAndWrapError(Throwable cause, String context) {
         LoggingUtils.error(log, cause, "{}", context);
