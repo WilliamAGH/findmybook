@@ -39,6 +39,7 @@ final class BookQueryCoverNormalizer {
     private static final String LOOPBACK_IP_PREFIX = "://127.0.0.1";
     private static final String ANY_LOCAL_IP_PREFIX = "://0.0.0.0";
     private static final String COVER_PATH_SEGMENT = System.getProperty("app.cover.path.segment", "/images/book-covers/");
+    private static final String COVER_PATH_SEGMENT_LOWER = COVER_PATH_SEGMENT.toLowerCase();
 
     /** SQL LIKE patterns with wildcards pre-baked for direct use in queries. */
     private static final String PLACEHOLDER_COVER_LIKE = "%" + PLACEHOLDER_COVER_PATTERN + "%";
@@ -269,7 +270,7 @@ final class BookQueryCoverNormalizer {
         if (lower.contains(LOCALHOST_PREFIX) || lower.contains(LOOPBACK_IP_PREFIX) || lower.contains(ANY_LOCAL_IP_PREFIX)) {
             return true;
         }
-        if (lower.contains(COVER_PATH_SEGMENT.toLowerCase()) && !CoverUrlResolver.isCdnUrl(url)) {
+        if (lower.contains(COVER_PATH_SEGMENT_LOWER) && !CoverUrlResolver.isCdnUrl(url)) {
             return true;
         }
         return !(url.startsWith("http://") || url.startsWith("https://"));
