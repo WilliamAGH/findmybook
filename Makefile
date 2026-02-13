@@ -46,6 +46,8 @@ lint:
 	else \
 	  echo "spotlessApply task not configured; skipping."; \
 	fi
+	@echo "Running frontend oxlint..."
+	@npm --prefix frontend run lint:ox
 
 
 # Fast S3 -> Postgres books migration (standalone Node.js script - v2 refactored)

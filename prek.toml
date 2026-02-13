@@ -15,6 +15,7 @@ hooks = [
 repo = "local"
 hooks = [
   { id = "gradle-check", name = "Gradle compile + test", language = "system", entry = "./gradlew check -PskipFrontend", stages = ["pre-push"], pass_filenames = false, files = "\\.java$|\\.kts$|build\\.gradle" },
+  { id = "frontend-lint", name = "Frontend oxlint", language = "system", entry = "npm --prefix frontend run lint:ox", stages = ["pre-push"], pass_filenames = false, files = "^frontend/" },
   { id = "frontend-check", name = "Svelte/TS type check", language = "system", entry = "npm --prefix frontend run check", stages = ["pre-push"], pass_filenames = false, files = "^frontend/" },
   { id = "frontend-test", name = "Frontend Vitest suite", language = "system", entry = "npm --prefix frontend run test", stages = ["pre-push"], pass_filenames = false, files = "^frontend/" },
 ]
