@@ -71,12 +71,12 @@ backfill-ai-seo:
 		psql "$$PGURL" -At -c "SELECT b.id FROM books b WHERE (b.id::text = '$$ESCAPED_IDENTIFIER' OR b.slug = '$$ESCAPED_IDENTIFIER' OR b.isbn10 = '$$ESCAPED_IDENTIFIER' OR b.isbn13 = '$$ESCAPED_IDENTIFIER') AND length(btrim(COALESCE(b.description, ''))) >= $(AI_MIN_DESCRIPTION_LENGTH) LIMIT 1;" > "$$ID_FILE"; \
 	else \
 		if [ "$(BACKFILL_MISSING_ONLY)" = "true" ]; then \
-			psql "$$PGURL" -At -c "SELECT b.id FROM books b WHERE length(btrim(COALESCE(b.description, ''))) >= $(AI_MIN_DESCRIPTION_LENGTH) AND NOT EXISTS (SELECT 1 FROM book_seo_metadata s WHERE s.book_id = b.id AND s.is_current = TRUE) ORDER BY b.created_at DESC$$LIMIT_CLAUSE;" > "$$ID_FILE"; \
+			psql "$$PGURL" -At -c "SELECT b.id FROM books b WHERE length(btrim(COALESCE(b.description, ''))) >= $(AI_MIN_DESCRIPTION_LENGTH) AND (NOT EXISTS (SELECT 1 FROM work_cluster_members wcm WHERE wcm.book_id = b.id) OR EXISTS (SELECT 1 FROM work_cluster_members wcm WHERE wcm.book_id = b.id AND wcm.is_primary = true)) AND NOT EXISTS (SELECT 1 FROM book_seo_metadata s WHERE s.book_id = b.id AND s.is_current = TRUE) ORDER BY b.created_at DESC$$LIMIT_CLAUSE;" > "$$ID_FILE"; \
 		else \
-			psql "$$PGURL" -At -c "SELECT b.id FROM books b WHERE length(btrim(COALESCE(b.description, ''))) >= $(AI_MIN_DESCRIPTION_LENGTH) ORDER BY b.created_at DESC$$LIMIT_CLAUSE;" > "$$ID_FILE"; \
+			psql "$$PGURL" -At -c "SELECT b.id FROM books b WHERE length(btrim(COALESCE(b.description, ''))) >= $(AI_MIN_DESCRIPTION_LENGTH) AND (NOT EXISTS (SELECT 1 FROM work_cluster_members wcm WHERE wcm.book_id = b.id) OR EXISTS (SELECT 1 FROM work_cluster_members wcm WHERE wcm.book_id = b.id AND wcm.is_primary = true)) ORDER BY b.created_at DESC$$LIMIT_CLAUSE;" > "$$ID_FILE"; \
 		fi; \
 	fi; \
-	echo "Eligibility filter: description length >= $(AI_MIN_DESCRIPTION_LENGTH)"; \
+	echo "Eligibility filter: description length >= $(AI_MIN_DESCRIPTION_LENGTH), standalone or primary edition only"; \
 	MATCHED_COUNT=$$(grep -cve '^[[:space:]]*$$' "$$ID_FILE" || true); \
 	if [ "$$MATCHED_COUNT" -eq 0 ]; then \
 		echo "No books matched the current selection (must satisfy description length >= $(AI_MIN_DESCRIPTION_LENGTH))."; \
