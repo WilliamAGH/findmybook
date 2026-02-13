@@ -36,6 +36,9 @@ describe("BookAiContentPanel production behavior", () => {
 
   beforeEach(() => {
     getBookAiContentQueueStatsMock.mockReset();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "info").mockImplementation(() => {});
     getBookAiContentQueueStatsMock.mockResolvedValue({
       running: 0,
       pending: 0,

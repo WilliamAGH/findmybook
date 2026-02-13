@@ -73,7 +73,7 @@ export async function ensureRealtimeClient(): Promise<Client> {
       connection = { status: "idle" };
       reject(new Error(frame.body || "STOMP connection failed"));
     };
-    client.onWebSocketError = (event) => {
+    client.onWebSocketError = (_event) => {
       connection = { status: "idle" };
       reject(new Error("WebSocket connection failed"));
     };

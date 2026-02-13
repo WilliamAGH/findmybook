@@ -5,8 +5,13 @@ import { initializeRouteManifest } from "$lib/router/router";
 
 await initializeRouteManifest();
 
+const target = document.getElementById("app");
+if (!target) {
+  throw new Error("Missing #app element");
+}
+
 const app = mount(App, {
-  target: document.getElementById("app")!,
+  target,
 });
 
 export default app;

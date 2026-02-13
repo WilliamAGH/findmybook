@@ -23,6 +23,9 @@ vi.mock("$lib/services/realtime", () => ({
 
 beforeEach(() => {
   getHomePagePayloadMock.mockReset();
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  vi.spyOn(console, "info").mockImplementation(() => {});
   getHomePagePayloadMock.mockResolvedValue({
     currentBestsellers: [],
     recentBooks: [],
@@ -89,7 +92,7 @@ describe("component rendering", () => {
       },
     });
 
-    const cover = screen.getByAltText("Fallback Case cover") as HTMLImageElement;
+    const cover = screen.getByAltText("Fallback Case cover");
     expect(cover.getAttribute("src")).toContain("preferred-cover.jpg");
 
     await fireEvent.error(cover);
@@ -114,7 +117,7 @@ describe("component rendering", () => {
       },
     });
 
-    const cover = screen.getByAltText("Fallback Placeholder Case cover") as HTMLImageElement;
+    const cover = screen.getByAltText("Fallback Placeholder Case cover");
     expect(cover.getAttribute("src")).toContain("preferred-cover.jpg");
 
     await fireEvent.error(cover);

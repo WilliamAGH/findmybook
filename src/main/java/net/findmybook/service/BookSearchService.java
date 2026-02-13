@@ -25,6 +25,12 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.util.StringUtils;
 
+/**
+ * Postgres-first book search and detail projection service.
+ *
+ * @implNote LOC1 split plan (383 lines): extract {@code SearchBackfillCoordinator}
+ *     (external search backfill orchestration).
+ */
 @Service
 @Slf4j
 public class BookSearchService {
@@ -101,7 +107,7 @@ public class BookSearchService {
                         new ClusterInfo(rs.getInt("edition_count"), rs.getObject("cluster_id", UUID.class)));
                 }
             ).stream()
-             .filter(result -> result != null)
+             .filter(Objects::nonNull)
              .toList();
 
         List<SearchResult> deduplicated = deduplicator.deduplicate(rawResults);
@@ -183,7 +189,7 @@ public class BookSearchService {
             MIN_CATEGORY_FACET_LIMIT,
             MAX_LIMIT
         );
-        int safeMinBooks = minBooks == null ? 1 : Math.max(0, Math.min(minBooks, MAX_CATEGORY_FACET_MIN_BOOKS));
+        int safeMinBooks = minBooks == null ? 1 : Math.clamp(minBooks, 0, MAX_CATEGORY_FACET_MIN_BOOKS);
         String sql = """
             SELECT category_name,
                    book_count::int AS book_count
@@ -269,7 +275,7 @@ public class BookSearchService {
             log.warn("Non-critical: Failed to refresh book_search_view: {}", ex.getMessage());
         }
     }
-    
+
     /**
      * Enqueue backfill tasks for search results that might need data enrichment.
      * <p>
@@ -328,7 +334,7 @@ public class BookSearchService {
         public SearchResult(UUID bookId, double relevanceScore, String matchType, int editionCount) {
             this(bookId, relevanceScore, matchType, new ClusterInfo(editionCount, null));
         }
-        
+
 
 
         public int editionCount() {
@@ -368,16 +374,16 @@ public class BookSearchService {
                                    IsbnInfo isbns,
                                    java.util.Date publishedDate,
                                    String publisher) {
-        
 
-        
+
+
         public String title() { return metadata.title(); }
         public String subtitle() { return metadata.subtitle(); }
         public String authors() { return metadata.authors(); }
         public String isbn13() { return isbns.isbn13(); }
         public String isbn10() { return isbns.isbn10(); }
     }
-    
+
     public record BookMetadata(String title, String subtitle, String authors) {}
     public record IsbnInfo(String isbn13, String isbn10) {}
 }

@@ -15,10 +15,10 @@ export const CollectionSchema = z.object({
 
 export const TagSchema = z.object({
   key: z.string(),
-  attributes: z.record(z.string(), z.unknown()).optional().default({}),
+  attributes: z.record(z.string(), z.unknown()).default({}),
 });
 
-export const CoverSchema = z.object({
+const RawCoverSchema = z.object({
   s3ImagePath: z.string().nullable().optional(),
   externalImageUrl: z.string().nullable().optional(),
   width: z.number().nullable().optional(),
@@ -28,6 +28,62 @@ export const CoverSchema = z.object({
   fallbackUrl: z.string().nullable().optional(),
   source: z.string().nullable().optional(),
 });
+
+/**
+ * Resolves the best available display URL from cover fields.
+ * Priority: preferredUrl (backend-computed best) → s3ImagePath (persisted CDN key) → externalImageUrl (provider).
+ * Blank/whitespace strings are treated as absent.
+ */
+function normalizeCoverUrl(value: string | null | undefined): string | null {
+  if (value == null) {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+export function resolveCoverDisplayUrl(
+  preferredUrl: string | null | undefined,
+  s3ImagePath: string | null | undefined,
+  externalImageUrl: string | null | undefined,
+): string | null {
+  return (
+    normalizeCoverUrl(preferredUrl)
+    ?? normalizeCoverUrl(s3ImagePath)
+    ?? normalizeCoverUrl(externalImageUrl)
+    ?? null
+  );
+}
+
+/**
+ * Cover schema with computed displayUrl derived from the resolution priority chain.
+ * Consumers read cover.displayUrl instead of re-implementing the resolution logic.
+ */
+export const CoverSchema = RawCoverSchema.transform((cover) => ({
+  ...cover,
+  displayUrl: resolveCoverDisplayUrl(cover.preferredUrl, cover.s3ImagePath, cover.externalImageUrl),
+}));
+
+/** Wire-format input type for Cover (without computed displayUrl). */
+export type CoverInput = z.input<typeof CoverSchema>;
+
+/**
+ * Constructs a Cover with computed displayUrl outside of Zod parse.
+ * Use at manual construction sites (normalization, persistence merge, test fixtures).
+ */
+export function buildCover(input: CoverInput): Cover {
+  return {
+    s3ImagePath: input.s3ImagePath ?? null,
+    externalImageUrl: input.externalImageUrl ?? null,
+    width: input.width ?? null,
+    height: input.height ?? null,
+    highResolution: input.highResolution ?? null,
+    preferredUrl: input.preferredUrl ?? null,
+    fallbackUrl: input.fallbackUrl ?? null,
+    source: input.source ?? null,
+    displayUrl: resolveCoverDisplayUrl(input.preferredUrl, input.s3ImagePath, input.externalImageUrl),
+  };
+}
 
 export const EditionSchema = z.object({
   googleBooksId: z.string().nullable().optional(),
@@ -48,19 +104,19 @@ export const PublicationSchema = z.object({
 
 export const DescriptionContentSchema = z.object({
   raw: z.string().nullable().optional(),
-  format: z.enum(["HTML", "MARKDOWN", "PLAIN_TEXT", "UNKNOWN"]).optional().default("UNKNOWN"),
-  html: z.string().optional().default(""),
-  text: z.string().optional().default(""),
+  format: z.enum(["HTML", "MARKDOWN", "PLAIN_TEXT", "UNKNOWN"]).default("UNKNOWN"),
+  html: z.string().default(""),
+  text: z.string().default(""),
 });
 
 export const BookAiContentSnapshotSchema = z.object({
   summary: z.string().max(2000),
   readerFit: z.string().max(1500).nullable().optional(),
-  keyThemes: z.array(z.string().max(300)).optional().default([]),
+  keyThemes: z.array(z.string().max(300)).default([]),
   takeaways: z.array(z.string().max(300)).nullable().optional(),
   context: z.string().max(1500).nullable().optional(),
-  version: z.number().int().nullable().optional(),
-  generatedAt: z.string().datetime().nullable().optional(),
+  version: z.int().nullable().optional(),
+  generatedAt: z.iso.datetime({ offset: true }).nullable().optional(),
   model: z.string().nullable().optional(),
   provider: z.string().nullable().optional(),
 });
@@ -78,14 +134,14 @@ export const BookSchema = z.object({
   description: z.string().nullable().optional(),
   descriptionContent: DescriptionContentSchema.nullable().optional(),
   publication: PublicationSchema.nullable().optional(),
-  authors: z.array(AuthorSchema).optional().default([]),
-  categories: z.array(z.string()).optional().default([]),
-  collections: z.array(CollectionSchema).optional().default([]),
-  tags: z.array(TagSchema).optional().default([]),
+  authors: z.array(AuthorSchema).default([]),
+  categories: z.array(z.string()).default([]),
+  collections: z.array(CollectionSchema).default([]),
+  tags: z.array(TagSchema).default([]),
   cover: CoverSchema.nullable().optional(),
-  editions: z.array(EditionSchema).optional().default([]),
-  recommendationIds: z.array(z.string()).optional().default([]),
-  extras: z.record(z.string(), z.unknown()).optional().default({}),
+  editions: z.array(EditionSchema).default([]),
+  recommendationIds: z.array(z.string()).default([]),
+  extras: z.record(z.string(), z.unknown()).default({}),
   aiContent: BookAiContentSnapshotSchema.nullable().optional(),
   viewMetrics: ViewMetricsSchema.nullable().optional(),
 });
@@ -116,32 +172,32 @@ export const BookCardSchema = z.object({
   id: z.string(),
   slug: z.string().nullable().optional(),
   title: z.string(),
-  authors: z.array(z.string()).optional().default([]),
+  authors: z.array(z.string()).default([]),
   cover_url: z.string().nullable().optional(),
   cover_s3_key: z.string().nullable().optional(),
   fallback_cover_url: z.string().nullable().optional(),
   average_rating: z.number().nullable().optional(),
   ratings_count: z.number().nullable().optional(),
-  tags: z.record(z.string(), z.unknown()).optional().default({}),
+  tags: z.record(z.string(), z.unknown()).default({}),
 });
 
 export const HomePayloadSchema = z.object({
   currentBestsellers: z.array(BookCardSchema),
   recentBooks: z.array(BookCardSchema),
-  popularBooks: z.array(BookCardSchema).optional().default([]),
-  popularWindow: z.enum(["30d", "90d", "all"]).optional().default("30d"),
+  popularBooks: z.array(BookCardSchema).default([]),
+  popularWindow: z.enum(["30d", "90d", "all"]).default("30d"),
 });
 
 export const CategoryFacetSchema = z.object({
   name: z.string(),
-  bookCount: z.number().int().nonnegative(),
+  bookCount: z.int().nonnegative(),
 });
 
 export const CategoriesFacetsPayloadSchema = z.object({
   genres: z.array(CategoryFacetSchema),
   generatedAt: z.string(),
-  limit: z.number().int().positive(),
-  minBooks: z.number().int().nonnegative(),
+  limit: z.int().positive(),
+  minBooks: z.int().nonnegative(),
 });
 
 export const OpenGraphPropertySchema = z.object({
@@ -156,10 +212,10 @@ export const PageMetadataSchema = z.object({
   keywords: z.string(),
   ogImage: z.string(),
   robots: z.string(),
-  openGraphType: z.string().optional().default("website"),
-  openGraphProperties: z.array(OpenGraphPropertySchema).optional().default([]),
-  structuredDataJson: z.string().optional().default(""),
-  statusCode: z.number().int(),
+  openGraphType: z.string().default("website"),
+  openGraphProperties: z.array(OpenGraphPropertySchema).default([]),
+  structuredDataJson: z.string().default(""),
+  statusCode: z.int(),
 });
 
 export const RouteNameSchema = z.enum(["home", "search", "book", "sitemap", "explore", "categories", "notFound", "error"]);
@@ -175,7 +231,7 @@ export const RouteDefinitionSchema = z.object({
 });
 
 export const RouteManifestSchema = z.object({
-  version: z.number().int(),
+  version: z.int(),
   publicRoutes: z.array(RouteDefinitionSchema),
   passthroughPrefixes: z.array(z.string()),
 });
@@ -196,14 +252,14 @@ export const SitemapAuthorSchema = z.object({
 
 export const SitemapPayloadSchema = z.object({
   viewType: z.enum(["authors", "books"]),
-  activeLetter: z.string(),
   pageNumber: z.number(),
   totalPages: z.number(),
   totalItems: z.number(),
   letters: z.array(z.string()),
-  baseUrl: z.string(),
-  books: z.array(SitemapBookSchema).optional().default([]),
-  authors: z.array(SitemapAuthorSchema).optional().default([]),
+  activeLetter: z.string(),
+  baseUrl: z.url(),
+  books: z.array(SitemapBookSchema).default([]),
+  authors: z.array(SitemapAuthorSchema).default([]),
 });
 
 export const ThemePreferenceSchema = z.object({
@@ -211,14 +267,14 @@ export const ThemePreferenceSchema = z.object({
   source: z.string(),
 });
 
-export const AffiliateLinksSchema = z.record(z.string(), z.string()).optional().default({});
+export const AffiliateLinksSchema = z.record(z.string(), z.string()).default({});
 
 export const SearchProgressEventSchema = z.object({
   message: z.string().optional(),
 });
 
 export const SearchResultsEventSchema = z.object({
-  newResults: z.array(z.unknown()).optional().default([]),
+  newResults: z.array(z.unknown()).default([]),
 });
 
 export const BookCoverUpdateEventSchema = z.object({
@@ -226,27 +282,27 @@ export const BookCoverUpdateEventSchema = z.object({
 });
 
 export const BookAiContentQueueStatsSchema = z.object({
-  running: z.number().int().nonnegative(),
-  pending: z.number().int().nonnegative(),
-  maxParallel: z.number().int().positive(),
+  running: z.int().nonnegative(),
+  pending: z.int().nonnegative(),
+  maxParallel: z.int().positive(),
   available: z.boolean(),
-  environmentMode: z.string().optional().default("production"),
+  environmentMode: z.string().default("production"),
 });
 
 export const BookAiContentQueueUpdateSchema = z.union([
   z.object({
     event: z.enum(["queued", "queue"]),
-    position: z.number().int().nullable().optional(),
-    running: z.number().int().nonnegative(),
-    pending: z.number().int().nonnegative(),
-    maxParallel: z.number().int().positive(),
+    position: z.int().nullable().optional(),
+    running: z.int().nonnegative(),
+    pending: z.int().nonnegative(),
+    maxParallel: z.int().positive(),
   }),
   z.object({
     event: z.literal("started"),
-    running: z.number().int().nonnegative(),
-    pending: z.number().int().nonnegative(),
-    maxParallel: z.number().int().positive(),
-    queueWaitMs: z.number().int().nonnegative(),
+    running: z.int().nonnegative(),
+    pending: z.int().nonnegative(),
+    maxParallel: z.int().positive(),
+    queueWaitMs: z.int().nonnegative(),
   }),
 ]);
 
@@ -280,8 +336,8 @@ export const BookAiErrorCodeSchema = z.enum([
 
 export const BookAiContentStreamErrorSchema = z.object({
   error: z.string(),
-  code: BookAiErrorCodeSchema.optional().default("generation_failed"),
-  retryable: z.boolean().optional().default(true),
+  code: BookAiErrorCodeSchema.default("generation_failed"),
+  retryable: z.boolean().default(true),
 });
 
 export const BookAiContentModelStreamUpdateSchema = z.union([
@@ -310,8 +366,8 @@ export const RealtimeSearchHitCandidateSchema = z.object({
   title: z.string().optional(),
   source: z.string().optional(),
   description: z.string().nullable().optional(),
-  authors: z.array(z.string()).optional().default([]),
-  categories: z.array(z.string()).optional().default([]),
+  authors: z.array(z.string()).default([]),
+  categories: z.array(z.string()).default([]),
   publishedDate: z.union([z.string(), z.number()]).optional(),
   language: z.string().optional(),
   pageCount: z.number().optional(),
@@ -329,6 +385,7 @@ export const RealtimeSearchHitCandidateSchema = z.object({
   relevanceScore: z.number().optional(),
 });
 
+export type Cover = z.infer<typeof CoverSchema>;
 export type Book = z.infer<typeof BookSchema>;
 export type ViewMetrics = z.infer<typeof ViewMetricsSchema>;
 export type BookAiContentSnapshot = z.infer<typeof BookAiContentSnapshotSchema>;

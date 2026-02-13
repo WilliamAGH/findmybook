@@ -12,6 +12,7 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -38,7 +39,34 @@ final class BookQueryCoverNormalizer {
     private static final String LOCALHOST_PREFIX = "://localhost";
     private static final String LOOPBACK_IP_PREFIX = "://127.0.0.1";
     private static final String ANY_LOCAL_IP_PREFIX = "://0.0.0.0";
-    private static final String COVER_PATH_SEGMENT = "/images/book-covers/";
+    private static final String COVER_PATH_SEGMENT_PROPERTY = "app.cover.path.segment";
+    private static final String DEFAULT_COVER_PATH_SEGMENT = "/images/book-covers/";
+    private static final String COVER_PATH_SEGMENT = resolveCoverPathSegment();
+    private static final String COVER_PATH_SEGMENT_LOWER = COVER_PATH_SEGMENT.toLowerCase(Locale.ROOT);
+
+    static String normalizeCoverPathSegment(String configuredSegment) {
+        if (!StringUtils.hasText(configuredSegment)) {
+            return DEFAULT_COVER_PATH_SEGMENT;
+        }
+        return configuredSegment.trim();
+    }
+
+    private static String resolveCoverPathSegment() {
+        String configuredSegment = System.getProperty(COVER_PATH_SEGMENT_PROPERTY, DEFAULT_COVER_PATH_SEGMENT);
+        String resolved = normalizeCoverPathSegment(configuredSegment);
+        if (!StringUtils.hasText(configuredSegment)) {
+            log.warn("System property {} was blank; defaulting to '{}'.",
+                COVER_PATH_SEGMENT_PROPERTY,
+                DEFAULT_COVER_PATH_SEGMENT);
+        }
+        return resolved;
+    }
+
+    /** SQL LIKE patterns with wildcards pre-baked for direct use in queries. */
+    private static final String PLACEHOLDER_COVER_LIKE = "%" + PLACEHOLDER_COVER_PATTERN + "%";
+    private static final String PRINTSEC_TITLEPAGE_LIKE = "%printsec=titlepage%";
+    private static final String PRINTSEC_COPYRIGHT_LIKE = "%printsec=copyright%";
+    private static final String PRINTSEC_TOC_LIKE = "%printsec=toc%";
 
     private final JdbcTemplate jdbcTemplate;
     private final BookQueryResultSetSupport resultSetSupport;
@@ -182,12 +210,12 @@ final class BookQueryCoverNormalizer {
                   (bil.url IS NOT NULL AND bil.url <> '')
                   OR (bil.s3_image_path IS NOT NULL AND bil.s3_image_path <> '')
               )
-              AND (bil.url IS NULL OR bil.url NOT LIKE '%%placeholder-book-cover.svg%%')
-              AND (bil.s3_image_path IS NULL OR bil.s3_image_path NOT LIKE '%%placeholder-book-cover.svg%%')
+              AND (bil.url IS NULL OR bil.url NOT LIKE '%s')
+              AND (bil.s3_image_path IS NULL OR bil.s3_image_path NOT LIKE '%s')
               AND (bil.url IS NULL OR (
-                  bil.url NOT LIKE '%%printsec=titlepage%%'
-                  AND bil.url NOT LIKE '%%printsec=copyright%%'
-                  AND bil.url NOT LIKE '%%printsec=toc%%'
+                  bil.url NOT LIKE '%s'
+                  AND bil.url NOT LIKE '%s'
+                  AND bil.url NOT LIKE '%s'
               ))
               AND (
                   bil.width IS NULL OR bil.height IS NULL
@@ -197,7 +225,10 @@ final class BookQueryCoverNormalizer {
                       AND (bil.height::float / NULLIF(bil.width, 0)) BETWEEN %.1f AND %.1f
                   )
               )
-            """.formatted(MIN_COVER_WIDTH, MIN_COVER_HEIGHT, MIN_ASPECT_RATIO, MAX_ASPECT_RATIO);
+            """.formatted(
+                PLACEHOLDER_COVER_LIKE, PLACEHOLDER_COVER_LIKE,
+                PRINTSEC_TITLEPAGE_LIKE, PRINTSEC_COPYRIGHT_LIKE, PRINTSEC_TOC_LIKE,
+                MIN_COVER_WIDTH, MIN_COVER_HEIGHT, MIN_ASPECT_RATIO, MAX_ASPECT_RATIO);
 
         UUID[] idsArray = bookIds.toArray(new UUID[0]);
 
@@ -260,7 +291,7 @@ final class BookQueryCoverNormalizer {
         if (lower.contains(LOCALHOST_PREFIX) || lower.contains(LOOPBACK_IP_PREFIX) || lower.contains(ANY_LOCAL_IP_PREFIX)) {
             return true;
         }
-        if (lower.contains(COVER_PATH_SEGMENT) && !CoverUrlResolver.isCdnUrl(url)) {
+        if (lower.contains(COVER_PATH_SEGMENT_LOWER) && !CoverUrlResolver.isCdnUrl(url)) {
             return true;
         }
         return !(url.startsWith("http://") || url.startsWith("https://"));

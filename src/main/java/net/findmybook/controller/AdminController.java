@@ -30,6 +30,12 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.LocalDate;
 import java.util.function.Supplier;
 
+/**
+ * REST controller for administrative operations.
+ *
+ * @implNote LOC1 split plan (376 lines): extract {@code SchedulerTriggerHandler}
+ *     (manual scheduler trigger endpoints).
+ */
 @RestController
 @RequestMapping("/admin")
 @Slf4j
@@ -164,7 +170,7 @@ public class AdminController {
             log.error(errorMsg + " Source: '{}', Quarantine: '{}'", sourcePrefixToUse, quarantinePrefixToUse);
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, errorMsg);
         }
-        
+
         log.info("Admin move-flagged invoked. source='{}', limit={}, quarantine='{}'",
                 sourcePrefixToUse, batchLimitToUse, quarantinePrefixToUse);
 
@@ -204,7 +210,7 @@ public class AdminController {
         log.info("Admin endpoint /admin/trigger-nyt-bestsellers invoked. publishedDate={}, rerunAll={}",
             publishedDate,
             rerunAll);
-        
+
         if (newYorkTimesBestsellerScheduler == null) {
             String errorMessage = "New York Times Bestseller Scheduler is not available. S3 integration may be disabled.";
             log.warn(errorMessage);
@@ -217,7 +223,7 @@ public class AdminController {
                 "Cannot combine rerunAll=true with a specific publishedDate."
             );
         }
-        
+
         try {
             String successMessage;
             if (rerunAll) {
@@ -313,8 +319,8 @@ public class AdminController {
      */
     @GetMapping(value = "/circuit-breaker/status", produces = MediaType.TEXT_PLAIN_VALUE)
     public ResponseEntity<String> getCircuitBreakerStatus() {
-        return executeAdminAction("circuit-breaker/status", "circuit breaker status retrieval", () ->
-            apiCircuitBreakerService.getCircuitStatus()
+        return executeAdminAction("circuit-breaker/status", "circuit breaker status retrieval",
+            apiCircuitBreakerService::getCircuitStatus
         );
     }
 
@@ -327,7 +333,7 @@ public class AdminController {
     public ResponseEntity<String> resetCircuitBreaker() {
         return executeAdminAction("circuit-breaker/reset", "circuit breaker reset", () -> {
             apiCircuitBreakerService.reset();
-            return "Successfully reset API circuit breaker to CLOSED state.";
+            return "Circuit breaker reset to CLOSED.";
         });
     }
 

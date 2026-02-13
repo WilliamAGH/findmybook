@@ -16,27 +16,32 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
 /**
  * Single Source of Truth for ALL book cover image persistence operations.
- * 
+ *
  * Consolidates and replaces logic from:
  * - CoverImageService (metadata persistence)
  * - Legacy background upload orchestrators
  * - S3BookCoverService (direct S3 upload handling)
  * - Scattered book_image_links INSERT/UPDATE statements
- * 
+ *
  * Responsibilities:
  * 1. Persist cover metadata to book_image_links table
  * 2. Persist canonical cover metadata directly into book_image_links
  * 3. Handle both initial estimates and post-upload actual dimensions
  * 4. Provide idempotent upsert operations
- * 
+ *
  * Phase 1: Metadata persistence (this implementation)
  * Phase 2: Integration with S3 upload workflows (next iteration)
- * 
+ *
+ * @implNote LOC1 split plan (486 lines): extract {@code GoogleBooksImagePersister}
+ *     (Google Books-specific download/persist pipeline) and {@code S3CoverMetadataPersister}
+ *     (S3 metadata update/sync operations).
+ *
  * @author William Callahan
  */
 @Service
@@ -47,14 +52,14 @@ public class CoverPersistenceService {
     private static final Set<String> DISALLOWED_IMAGE_TYPES = Set.of("preferred", "fallback", "s3");
 
     private final JdbcTemplate jdbcTemplate;
-    
+
     public CoverPersistenceService(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
     }
-    
+
     /**
      * Result record for cover persistence operations.
-     * 
+     *
      * @param success Whether the operation succeeded
      * @param s3Key S3 object key if applicable, or external URL
      * @param width Image width in pixels
@@ -68,13 +73,13 @@ public class CoverPersistenceService {
         Integer height,
         Boolean highRes
     ) {}
-    
+
     /**
      * Persists all image variants from Google Books imageLinks and sets the best as primary.
-     * 
+     *
      * This method handles the initial persistence when a book is first fetched from the API,
      * using estimated dimensions based on Google's image type classifications.
-     * 
+     *
      * @param bookId Canonical book UUID
      * @param imageLinks Map from Google Books volumeInfo.imageLinks
      * @param source Provider name (e.g., "GOOGLE_BOOKS")
@@ -86,55 +91,37 @@ public class CoverPersistenceService {
             log.debug("No image links provided for book {}", bookId);
             return new PersistenceResult(false, null, null, null, false);
         }
-        
+
         String canonicalCoverUrl = null;
         Integer canonicalWidth = null;
         Integer canonicalHeight = null;
         Boolean canonicalHighRes = false;
         int bestPriority = Integer.MAX_VALUE;
-        
-        // Process all image types
+
         for (Map.Entry<String, String> entry : imageLinks.entrySet()) {
-            String imageType = entry.getKey();
-            String url = entry.getValue();
-            
-            // Skip null/blank URLs and normalize to HTTPS in one pass
-            String httpsUrl = null;
-            if (url != null && !url.isBlank()) {
-                httpsUrl = UrlUtils.validateAndNormalize(url);
-            }
-            
-            if (!StringUtils.hasText(httpsUrl)) {
-                if (url != null && !url.isBlank()) {
-                    log.warn("Skipping invalid image URL for book {} type {}: {}", bookId, imageType, url);
-                }
+            Optional<GoogleImageEntry> validated = validateGoogleImageEntry(bookId, entry.getKey(), entry.getValue());
+            if (validated.isEmpty()) {
                 continue;
             }
-            
-            // Estimate dimensions based on Google's image type
-            ImageDimensionUtils.DimensionEstimate estimate = 
-                ImageDimensionUtils.estimateFromGoogleType(imageType);
-            
+            GoogleImageEntry entryDetails = validated.get();
             try {
-                // Upsert book_image_links row
-                upsertImageLink(new ImageLinkParams(bookId, imageType, httpsUrl, source, estimate.width(), estimate.height(), estimate.highRes()));
-                
-                // Track best quality image for canonical cover
-                int priority = ImageDimensionUtils.getTypePriority(imageType);
-                if (priority < bestPriority) {
-                    bestPriority = priority;
-                    canonicalCoverUrl = httpsUrl;
-                    canonicalWidth = estimate.width();
-                    canonicalHeight = estimate.height();
-                    canonicalHighRes = estimate.highRes();
+                upsertImageLink(new ImageLinkParams(bookId, entry.getKey(), entryDetails.url(), source,
+                    entryDetails.width(), entryDetails.height(), entryDetails.highRes()));
+
+                if (entryDetails.priority() < bestPriority) {
+                    bestPriority = entryDetails.priority();
+                    canonicalCoverUrl = entryDetails.url();
+                    canonicalWidth = entryDetails.width();
+                    canonicalHeight = entryDetails.height();
+                    canonicalHighRes = entryDetails.highRes();
                 }
             } catch (IllegalArgumentException | DataAccessException ex) {
                 log.error("Failed to persist image link for book {} type {}: {}",
-                    bookId, imageType, ex.getMessage(), ex);
-                throw new IllegalStateException("Failed to persist image link for book " + bookId + " type " + imageType, ex);
+                    bookId, entry.getKey(), ex.getMessage(), ex);
+                throw new IllegalStateException("Failed to persist image link for book " + bookId + " type " + entry.getKey(), ex);
             }
         }
-        
+
         // Canonical cover now represented via highest-priority book_image_links row
         if (canonicalCoverUrl != null) {
             CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(new CoverUrlResolver.ResolveContext(
@@ -155,7 +142,7 @@ public class CoverPersistenceService {
 
         return new PersistenceResult(false, null, null, null, false);
     }
-    
+
     /**
      * Captures the result of a successful S3 cover upload for persistence.
      *
@@ -268,7 +255,7 @@ public class CoverPersistenceService {
 
     /**
      * Used for non-Google sources or when directly persisting external URLs.
-     * 
+     *
      * @param bookId Canonical book UUID
      * @param externalUrl External image URL
      * @param source Source identifier
@@ -288,7 +275,7 @@ public class CoverPersistenceService {
             log.warn("Cannot persist external cover for book {}: URL is null/blank", bookId);
             return new PersistenceResult(false, null, null, null, false);
         }
-        
+
         String httpsUrl = UrlUtils.validateAndNormalize(externalUrl);
         if (!StringUtils.hasText(httpsUrl)) {
             log.warn("Cannot persist external cover for book {}: URL is invalid ({})", bookId, externalUrl);
@@ -317,7 +304,7 @@ public class CoverPersistenceService {
             throw new IllegalStateException("Failed to persist external cover for book " + bookId, ex);
         }
     }
-    
+
     /**
      * Records a download error for the canonical image link of a book.
      *
@@ -327,6 +314,7 @@ public class CoverPersistenceService {
     @Transactional
     public void recordDownloadError(UUID bookId, String error) {
         if (bookId == null || !StringUtils.hasText(error)) {
+            log.warn("Skipping download error recording: bookId={}, error='{}'", bookId, error);
             return;
         }
         try {
@@ -344,7 +332,7 @@ public class CoverPersistenceService {
             throw new IllegalStateException("Failed to persist download error for book " + bookId, e);
         }
     }
-    
+
     /**
      * Propagates a non-null grayscale flag to all sibling rows for the same book
      * that have not yet been independently analyzed ({@code is_grayscale IS NULL}).
@@ -371,6 +359,32 @@ public class CoverPersistenceService {
             log.info("Propagated is_grayscale={} to {} sibling rows for book {}",
                 isGrayscale, updated, bookId);
         }
+    }
+
+    /** Validated Google image entry ready for persistence, with its type priority. */
+    private record GoogleImageEntry(String url, Integer width, Integer height, Boolean highRes, int priority) {}
+
+    /**
+     * Validates and normalizes a raw Google Books image URL into a persistable entry.
+     *
+     * <p>Pure validation — no side effects. The caller is responsible for persisting
+     * the result via {@link #upsertImageLink(ImageLinkParams)}.
+     *
+     * @return validated entry with estimated dimensions and priority, or empty if the URL was invalid/blank
+     */
+    private Optional<GoogleImageEntry> validateGoogleImageEntry(UUID bookId, String imageType, String rawUrl) {
+        String httpsUrl = rawUrl != null && !rawUrl.isBlank() ? UrlUtils.validateAndNormalize(rawUrl) : null;
+
+        if (!StringUtils.hasText(httpsUrl)) {
+            if (rawUrl != null && !rawUrl.isBlank()) {
+                log.warn("Skipping invalid image URL for book {} type {}: {}", bookId, imageType, rawUrl);
+            }
+            return Optional.empty();
+        }
+
+        ImageDimensionUtils.DimensionEstimate estimate = ImageDimensionUtils.estimateFromGoogleType(imageType);
+        return Optional.of(new GoogleImageEntry(httpsUrl, estimate.width(), estimate.height(), estimate.highRes(),
+            ImageDimensionUtils.getTypePriority(imageType)));
     }
 
     /**
@@ -401,6 +415,7 @@ public class CoverPersistenceService {
                     WHEN EXCLUDED.s3_image_path IS NOT NULL THEN NOW()
                     ELSE book_image_links.s3_uploaded_at
                 END,
+                download_error = NULL,
                 updated_at = NOW()
             """,
             IdGenerator.generate(),
@@ -483,4 +498,3 @@ public class CoverPersistenceService {
         }
     }
 }
-

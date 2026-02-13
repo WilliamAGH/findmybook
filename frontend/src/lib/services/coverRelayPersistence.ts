@@ -7,7 +7,7 @@
  * keys have been reserved, and these functions mutate that Set as a side effect.
  */
 import type { CoverIngestResponse } from "$lib/validation/coverSchemas";
-import type { Book } from "$lib/validation/schemas";
+import { type Book, buildCover } from "$lib/validation/schemas";
 
 const PLACEHOLDER_COVER_FILENAME = "placeholder-book-cover.svg";
 const PERSISTED_COVER_PATH_SEGMENT = "images/book-covers/";
@@ -25,7 +25,7 @@ export function normalizeCoverUrl(candidateUrl: string): string | null {
     }
     return parsed.href;
   } catch (error) {
-    console.debug("[normalizeCoverUrl] Invalid URL:", candidateUrl, error);
+    console.warn("[normalizeCoverUrl] Invalid URL:", candidateUrl, error);
     return null;
   }
 }
@@ -116,20 +116,11 @@ export function mergePersistedCoverIntoBook(
   persistedCover: CoverIngestResponse,
   fallbackRenderedUrl: string,
 ): Book {
-  const existingCover = book.cover ?? {
-    s3ImagePath: null,
-    externalImageUrl: null,
-    width: null,
-    height: null,
-    highResolution: null,
-    preferredUrl: null,
-    fallbackUrl: null,
-    source: null,
-  };
+  const existingCover = book.cover ?? buildCover({});
 
   return {
     ...book,
-    cover: {
+    cover: buildCover({
       ...existingCover,
       preferredUrl: persistedCover.storedCoverUrl,
       fallbackUrl: existingCover.fallbackUrl ?? fallbackRenderedUrl,
@@ -138,6 +129,6 @@ export function mergePersistedCoverIntoBook(
       width: persistedCover.width ?? existingCover.width ?? null,
       height: persistedCover.height ?? existingCover.height ?? null,
       highResolution: persistedCover.highResolution ?? existingCover.highResolution ?? null,
-    },
+    }),
   };
 }

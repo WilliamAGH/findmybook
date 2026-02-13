@@ -1,9 +1,10 @@
 import { startIndexFromPage } from "$lib/services/searchConfig";
 import type { PopularWindow } from "$lib/services/pages";
-import type {
-  BookCard as ApiBookCard,
-  SearchHit,
-  SearchResponse,
+import {
+  type BookCard as ApiBookCard,
+  type SearchHit,
+  type SearchResponse,
+  buildCover,
 } from "$lib/validation/schemas";
 
 export const EXPLORE_DEFAULT_POPULAR_WINDOW: PopularWindow = "90d";
@@ -41,16 +42,13 @@ function mapPopularCardToSearchHit(card: ApiBookCard, window: PopularWindow): Se
     categories: [],
     collections: [],
     tags: [],
-    cover: {
-      s3ImagePath: card.cover_s3_key ?? null,
-      externalImageUrl: card.cover_url ?? null,
-      width: null,
-      height: null,
-      highResolution: null,
-      preferredUrl: card.cover_url ?? null,
+    cover: buildCover({
+      s3ImagePath: card.cover_s3_key,
+      externalImageUrl: card.cover_url,
+      preferredUrl: card.cover_url,
       fallbackUrl: card.fallback_cover_url ?? "/images/placeholder-book-cover.svg",
       source: "POSTGRES",
-    },
+    }),
     editions: [],
     recommendationIds: [],
     extras: {},

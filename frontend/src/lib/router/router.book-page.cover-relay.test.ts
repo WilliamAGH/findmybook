@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import BookPage from "$lib/pages/BookPage.svelte";
+import { buildCover } from "$lib/validation/schemas";
 
 const {
   getBookMock,
@@ -13,7 +14,7 @@ const {
   getSimilarBooksMock: vi.fn(),
   getAffiliateLinksMock: vi.fn(),
   persistRenderedCoverMock: vi.fn(),
-  subscribeToBookCoverUpdatesMock: vi.fn(async () => () => {}),
+  subscribeToBookCoverUpdatesMock: vi.fn(),
 }));
 
 vi.mock("$lib/services/books", () => ({
@@ -116,16 +117,11 @@ describe("BookPage cover relay persistence", () => {
       createBookPayload({
         id: "book-1",
         title: "Browser Cover Book",
-        cover: {
+        cover: buildCover({
           preferredUrl: "https://books.google.com/books/content?id=abc&printsec=frontcover&img=1&zoom=1",
           fallbackUrl: "https://books.google.com/books/content?id=abc&printsec=frontcover&img=1&zoom=1",
           source: "GOOGLE_BOOKS",
-          s3ImagePath: null,
-          externalImageUrl: null,
-          width: null,
-          height: null,
-          highResolution: null,
-        },
+        }),
       }),
     );
 
@@ -156,16 +152,15 @@ describe("BookPage cover relay persistence", () => {
       createBookPayload({
         id: "book-1",
         title: "Stored Cover Book",
-        cover: {
+        cover: buildCover({
           preferredUrl: "https://cdn.example.com/images/book-covers/book-1-lg-google-books.jpg",
           fallbackUrl: "https://cdn.example.com/images/book-covers/book-1-lg-google-books.jpg",
           source: "S3_CACHE",
           s3ImagePath: "images/book-covers/book-1-lg-google-books.jpg",
-          externalImageUrl: null,
           width: 600,
           height: 900,
           highResolution: true,
-        },
+        }),
       }),
     );
 

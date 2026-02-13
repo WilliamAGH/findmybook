@@ -3,10 +3,12 @@ package net.findmybook.service;
 import net.findmybook.dto.BookDetail;
 import net.findmybook.repository.BookQueryRepository;
 import net.findmybook.util.UuidUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.util.StringUtils;
 import java.util.Optional;
 import java.util.UUID;
-import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -16,6 +18,8 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class BookIdentifierResolver {
+
+    private static final Logger log = LoggerFactory.getLogger(BookIdentifierResolver.class);
 
     private final BookLookupService bookLookupService;
     private final BookQueryRepository bookQueryRepository;
@@ -79,8 +83,9 @@ public class BookIdentifierResolver {
             return Optional.of(bookId);
         }
 
+        String primaryId;
         try {
-            String primaryId = jdbcTemplate.query(
+            primaryId = jdbcTemplate.query(
                 """
                 SELECT primary_wcm.book_id::text
                 FROM work_cluster_members wcm
@@ -93,12 +98,14 @@ public class BookIdentifierResolver {
                 rs -> rs.next() ? rs.getString(1) : null,
                 uuid
             );
-
-            if (StringUtils.hasText(primaryId)) {
-                return Optional.of(primaryId);
-            }
         } catch (DataAccessException ex) {
+            log.warn("Primary-edition cluster lookup failed for bookId={}; using original identifier. error={}",
+                bookId, ex.getMessage());
             return Optional.of(bookId);
+        }
+
+        if (StringUtils.hasText(primaryId)) {
+            return Optional.of(primaryId);
         }
 
         return Optional.of(bookId);

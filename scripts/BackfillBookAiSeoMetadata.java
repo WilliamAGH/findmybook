@@ -25,6 +25,7 @@ import java.util.Optional;
 import java.util.UUID;
 import net.findmybook.FindmybookApplication;
 import net.findmybook.application.ai.BookAiContentService;
+import net.findmybook.application.ai.BookAiGenerationException;
 import net.findmybook.application.seo.BookSeoMetadataGenerationService;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
@@ -59,22 +60,49 @@ void main(String[] args) {
         }
 
         int failures = 0;
+        int skipped = 0;
         int processed = 0;
         for (String identifier : identifiers) {
             processed += 1;
+            UUID bookId;
             try {
                 System.out.printf("Backfilling %s (%d)...%n", identifier, processed);
-                UUID bookId = resolveBookId(aiContentService, identifier);
+                bookId = resolveBookId(aiContentService, identifier);
                 System.out.printf("Resolved identifier '%s' to bookId=%s%n", identifier, bookId);
-                runAiContentBackfill(aiContentService, bookId, options.force());
-                runSeoMetadataBackfill(seoMetadataGenerationService, bookId, options.force());
-            } catch (RuntimeException runtimeException) {
+            } catch (IllegalArgumentException resolveFailure) {
                 failures += 1;
-                System.err.printf("Backfill failed for identifier '%s': %s%n", identifier, runtimeException.getMessage());
-                runtimeException.printStackTrace(System.err);
+                System.err.printf("Backfill failed for identifier '%s': %s%n", identifier, resolveFailure.getMessage());
+                continue;
+            }
+            try {
+                runAiContentBackfill(aiContentService, bookId, options.force());
+            } catch (BookAiGenerationException generationFailure) {
+                // DESCRIPTION_TOO_SHORT is an expected data-quality condition, not a failure:
+                // the SQL filter selects books whose own description meets the minimum, but
+                // cluster resolution may remap to a primary edition with a shorter description.
+                // Warn on stderr so operators can enrich the primary edition's description and re-run.
+                if (generationFailure.errorCode() == BookAiGenerationException.ErrorCode.DESCRIPTION_TOO_SHORT) {
+                    skipped += 1;
+                    System.err.printf("WARNING: AI summary skipped (description too short): bookId=%s — enrich this book's description and re-run%n", bookId);
+                } else {
+                    failures += 1;
+                    System.err.printf("AI backfill failed for bookId=%s: %s%n", bookId, generationFailure.getMessage());
+                    generationFailure.printStackTrace(System.err);
+                }
+            } catch (RuntimeException aiFailure) {
+                failures += 1;
+                System.err.printf("AI backfill failed for bookId=%s: %s%n", bookId, aiFailure.getMessage());
+                aiFailure.printStackTrace(System.err);
+            }
+            try {
+                runSeoMetadataBackfill(seoMetadataGenerationService, bookId, options.force());
+            } catch (RuntimeException seoFailure) {
+                failures += 1;
+                System.err.printf("SEO backfill failed for bookId=%s: %s%n", bookId, seoFailure.getMessage());
+                seoFailure.printStackTrace(System.err);
             }
         }
-        System.out.printf("Backfill complete. processed=%d failures=%d%n", processed, failures);
+        System.out.printf("Backfill complete. processed=%d skipped=%d failures=%d%n", processed, skipped, failures);
         if (failures > 0) {
             System.exit(1);
         }

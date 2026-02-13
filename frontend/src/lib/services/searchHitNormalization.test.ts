@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { mergeSearchHits } from "$lib/services/searchHitNormalization";
-import type { SearchHit } from "$lib/validation/schemas";
+import { type SearchHit, buildCover } from "$lib/validation/schemas";
 
 function createSearchHit(id: string, overrides: Partial<SearchHit> = {}): SearchHit {
   const base: SearchHit = {
@@ -19,16 +19,7 @@ function createSearchHit(id: string, overrides: Partial<SearchHit> = {}): Search
     categories: [],
     collections: [],
     tags: [],
-    cover: {
-      s3ImagePath: null,
-      externalImageUrl: null,
-      width: null,
-      height: null,
-      highResolution: null,
-      preferredUrl: null,
-      fallbackUrl: null,
-      source: null,
-    },
+    cover: buildCover({}),
     editions: [],
     recommendationIds: [],
     extras: {},
@@ -36,11 +27,15 @@ function createSearchHit(id: string, overrides: Partial<SearchHit> = {}): Search
     relevanceScore: 0,
   };
 
-  const mergedCover = overrides.cover === undefined
-    ? base.cover
-    : overrides.cover === null
-      ? null
-      : { ...(base.cover ?? {}), ...overrides.cover };
+  let mergedCover: SearchHit["cover"];
+  if (overrides.cover === undefined) {
+    mergedCover = base.cover;
+  } else if (overrides.cover === null) {
+    mergedCover = null;
+  } else {
+    const baseCoverProps = base.cover ?? {};
+    mergedCover = buildCover({ ...baseCoverProps, ...overrides.cover });
+  }
 
   return {
     ...base,
@@ -54,12 +49,12 @@ describe("mergeSearchHits", () => {
     const existing = createSearchHit("book-1", {
       title: "Backend Title",
       relevanceScore: 5,
-      cover: { preferredUrl: "https://cdn.example.com/backend.jpg" },
+      cover: buildCover({ preferredUrl: "https://cdn.example.com/backend.jpg" }),
     });
     const incoming = createSearchHit("book-1", {
       title: "WebSocket Title",
       relevanceScore: 9,
-      cover: { preferredUrl: "https://cdn.example.com/ws.jpg" },
+      cover: buildCover({ preferredUrl: "https://cdn.example.com/ws.jpg" }),
     });
 
     const merged = mergeSearchHits([existing], [incoming], "relevance");
@@ -77,6 +72,24 @@ describe("mergeSearchHits", () => {
     const merged = mergeSearchHits([existing], [incoming], "title");
 
     expect(merged).toHaveLength(2);
+    expect(merged.map((hit) => hit.id)).toEqual(["book-1", "book-2"]);
+  });
+
+  it("should_ClassifyProviderUsingDisplayUrl_When_PreferredUrlBlank", () => {
+    const openLibrary = createSearchHit("book-1", {
+      title: "Same Title",
+      source: null,
+      cover: buildCover({ preferredUrl: "https://covers.openlibrary.org/b/id/1-L.jpg" }),
+    });
+    const google = createSearchHit("book-2", {
+      title: "Same Title",
+      source: null,
+      cover: buildCover({ preferredUrl: "", externalImageUrl: "https://books.google.com/books/content?id=1" }),
+    });
+
+    const merged = mergeSearchHits([], [google, openLibrary], "title");
+
+    // Open Library hits should rank ahead of Google hits when all other keys tie.
     expect(merged.map((hit) => hit.id)).toEqual(["book-1", "book-2"]);
   });
 });

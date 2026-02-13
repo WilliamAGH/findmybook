@@ -120,4 +120,15 @@ class BookQueryCoverNormalizerTest {
         List<BookCard> result = normalizer.normalizeBookCardCovers(null);
         assertThat(result).isEmpty();
     }
+
+    @Test
+    void should_DefaultCoverPathSegment_When_ConfiguredBlank() {
+        assertThat(BookQueryCoverNormalizer.normalizeCoverPathSegment("")).isEqualTo("/images/book-covers/");
+        assertThat(BookQueryCoverNormalizer.normalizeCoverPathSegment("   ")).isEqualTo("/images/book-covers/");
+    }
+
+    @Test
+    void should_TrimCoverPathSegment_When_ConfiguredWithWhitespace() {
+        assertThat(BookQueryCoverNormalizer.normalizeCoverPathSegment(" /images/book-covers/ ")).isEqualTo("/images/book-covers/");
+    }
 }
