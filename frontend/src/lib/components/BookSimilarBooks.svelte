@@ -157,7 +157,7 @@
       {#each displayableBooks as book (book.id)}
         <a href={bookHref(book)} class="group block">
           <div
-            class="flex aspect-2/3 items-center justify-center overflow-hidden rounded-lg bg-linen-100 p-3 transition-all duration-300 group-hover:-translate-y-0.5 group-hover:shadow-book dark:bg-slate-800/60"
+            class="flex aspect-[2/3] items-center justify-center overflow-hidden rounded-lg bg-linen-100 p-3 transition-all duration-300 group-hover:-translate-y-0.5 group-hover:shadow-book dark:bg-slate-800/60"
           >
             <img
               src={activeCoverUrlsByBookId.get(book.id) ?? book.cover?.displayUrl}
