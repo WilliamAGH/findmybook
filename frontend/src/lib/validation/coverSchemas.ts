@@ -5,8 +5,8 @@ export const CoverIngestResponseSchema = z.object({
   storedCoverUrl: z.string(),
   storageKey: z.string(),
   source: z.string(),
-  width: z.number().int().positive().nullable().optional(),
-  height: z.number().int().positive().nullable().optional(),
+  width: z.int().positive().nullable().optional(),
+  height: z.int().positive().nullable().optional(),
   highResolution: z.boolean().nullable().optional(),
 });
 

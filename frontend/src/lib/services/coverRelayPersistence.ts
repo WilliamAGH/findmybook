@@ -25,7 +25,7 @@ export function normalizeCoverUrl(candidateUrl: string): string | null {
     }
     return parsed.href;
   } catch (error) {
-    console.debug("[normalizeCoverUrl] Invalid URL:", candidateUrl, error);
+    console.warn("[normalizeCoverUrl] Invalid URL:", candidateUrl, error);
     return null;
   }
 }
