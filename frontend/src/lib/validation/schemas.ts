@@ -32,13 +32,27 @@ const RawCoverSchema = z.object({
 /**
  * Resolves the best available display URL from cover fields.
  * Priority: preferredUrl (backend-computed best) → s3ImagePath (persisted CDN key) → externalImageUrl (provider).
+ * Blank/whitespace strings are treated as absent.
  */
+function normalizeCoverUrl(value: string | null | undefined): string | null {
+  if (value == null) {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 export function resolveCoverDisplayUrl(
   preferredUrl: string | null | undefined,
   s3ImagePath: string | null | undefined,
   externalImageUrl: string | null | undefined,
 ): string | null {
-  return preferredUrl ?? s3ImagePath ?? externalImageUrl ?? null;
+  return (
+    normalizeCoverUrl(preferredUrl)
+    ?? normalizeCoverUrl(s3ImagePath)
+    ?? normalizeCoverUrl(externalImageUrl)
+    ?? null
+  );
 }
 
 /**
