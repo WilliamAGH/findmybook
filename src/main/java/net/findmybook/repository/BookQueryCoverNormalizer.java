@@ -12,6 +12,7 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -38,8 +39,28 @@ final class BookQueryCoverNormalizer {
     private static final String LOCALHOST_PREFIX = "://localhost";
     private static final String LOOPBACK_IP_PREFIX = "://127.0.0.1";
     private static final String ANY_LOCAL_IP_PREFIX = "://0.0.0.0";
-    private static final String COVER_PATH_SEGMENT = System.getProperty("app.cover.path.segment", "/images/book-covers/");
-    private static final String COVER_PATH_SEGMENT_LOWER = COVER_PATH_SEGMENT.toLowerCase();
+    private static final String COVER_PATH_SEGMENT_PROPERTY = "app.cover.path.segment";
+    private static final String DEFAULT_COVER_PATH_SEGMENT = "/images/book-covers/";
+    private static final String COVER_PATH_SEGMENT = resolveCoverPathSegment();
+    private static final String COVER_PATH_SEGMENT_LOWER = COVER_PATH_SEGMENT.toLowerCase(Locale.ROOT);
+
+    static String normalizeCoverPathSegment(String configuredSegment) {
+        if (!StringUtils.hasText(configuredSegment)) {
+            return DEFAULT_COVER_PATH_SEGMENT;
+        }
+        return configuredSegment.trim();
+    }
+
+    private static String resolveCoverPathSegment() {
+        String configuredSegment = System.getProperty(COVER_PATH_SEGMENT_PROPERTY, DEFAULT_COVER_PATH_SEGMENT);
+        String resolved = normalizeCoverPathSegment(configuredSegment);
+        if (!StringUtils.hasText(configuredSegment)) {
+            log.warn("System property {} was blank; defaulting to '{}'.",
+                COVER_PATH_SEGMENT_PROPERTY,
+                DEFAULT_COVER_PATH_SEGMENT);
+        }
+        return resolved;
+    }
 
     /** SQL LIKE patterns with wildcards pre-baked for direct use in queries. */
     private static final String PLACEHOLDER_COVER_LIKE = "%" + PLACEHOLDER_COVER_PATTERN + "%";
