@@ -8,23 +8,22 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 /**
- * Immutable value object tracking a book with its calculated recommendation score.
+ * Value object tracking a book with its calculated recommendation score.
  *
- * <p>Encapsulates:
- * <ul>
- *   <li>Book object with all its metadata</li>
- *   <li>Similarity score that accumulates across multiple recommendation strategies</li>
- *   <li>Reasons why the book was recommended (author match, category match, text match)</li>
- * </ul>
- *
- * <p>Used for ranking recommendations by relevance and allows scores to be
- * combined when a book is found by multiple strategies.</p>
+ * <p>Record fields are shallowly immutable: the {@code reasons} set is always wrapped
+ * in {@link Collections#unmodifiableSet}, but the contained {@link Book} is a mutable
+ * model class shared with callers.</p>
  *
  * @param book the recommended book
  * @param score the accumulated similarity score (higher = more relevant)
- * @param reasons set of reasons for recommendation (AUTHOR, CATEGORY, TEXT)
+ * @param reasons unmodifiable set of reasons for recommendation (AUTHOR, CATEGORY, TEXT)
  */
 public record ScoredBook(Book book, double score, Set<String> reasons) {
+
+    /** Compact constructor enforcing unmodifiable reasons on every construction path. */
+    public ScoredBook {
+        reasons = Collections.unmodifiableSet(new LinkedHashSet<>(reasons));
+    }
 
     /**
      * Creates a scored book with a single reason.
@@ -38,12 +37,11 @@ public record ScoredBook(Book book, double score, Set<String> reasons) {
         if (StringUtils.hasText(reason)) {
             set.add(reason);
         }
-        return Collections.unmodifiableSet(set);
+        return set;
     }
 
     /**
-     * Merges another scored book's score and reasons into this one.
-     * Used when the same book is found through multiple recommendation strategies.
+     * Merges this scored book with another, accumulating scores and unioning reasons.
      *
      * @param other the other scored book to merge
      * @return a new ScoredBook with combined score and merged reasons
@@ -51,27 +49,6 @@ public record ScoredBook(Book book, double score, Set<String> reasons) {
     public ScoredBook mergeWith(ScoredBook other) {
         Set<String> mergedReasons = new LinkedHashSet<>(this.reasons);
         mergedReasons.addAll(other.reasons);
-        return new ScoredBook(this.book, this.score + other.score, Collections.unmodifiableSet(mergedReasons));
-    }
-
-    /**
-     * Returns an unmodifiable view of the recommendation reasons.
-     */
-    public Set<String> getReasons() {
-        return reasons;
-    }
-
-    /**
-     * Returns the book being recommended.
-     */
-    public Book getBook() {
-        return book;
-    }
-
-    /**
-     * Returns the accumulated similarity score.
-     */
-    public double getScore() {
-        return score;
+        return new ScoredBook(this.book, this.score + other.score, mergedReasons);
     }
 }
