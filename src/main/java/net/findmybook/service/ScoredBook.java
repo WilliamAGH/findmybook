@@ -38,7 +38,7 @@ public record ScoredBook(Book book, double score, Set<String> reasons) {
         if (StringUtils.hasText(reason)) {
             set.add(reason);
         }
-        return set;
+        return Collections.unmodifiableSet(set);
     }
 
     /**
