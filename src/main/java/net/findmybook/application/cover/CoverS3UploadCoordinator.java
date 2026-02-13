@@ -318,7 +318,9 @@ public class CoverS3UploadCoordinator {
     private UploadFailureDetail resolveUploadFailureDetail(Throwable error) {
         return switch (error) {
             case CoverDownloadException e -> {
-                String cause = e.getCause() != null ? e.getCause().getMessage() : "Unknown cause";
+                String cause = e.getCause() != null && e.getCause().getMessage() != null
+                    ? e.getCause().getMessage()
+                    : "Unknown cause";
                 yield new UploadFailureDetail(S3UploadErrorCode.DOWNLOAD_FAILED,
                     cause + " imageUrl=" + e.getImageUrl(), false);
             }
