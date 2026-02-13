@@ -355,7 +355,7 @@ public class CoverS3UploadCoordinator {
     private Optional<String> resolveRecordableErrorMessage(Throwable error) {
         UploadFailureDetail detail = resolveUploadFailureDetail(error);
         return switch (detail.code()) {
-            case DOWNLOAD_FAILED, PROCESSING_FAILED, TOO_LARGE, UNSAFE_URL, EMPTY_UPLOAD_RESULT, UNEXPECTED_FAILURE ->
+            case DOWNLOAD_FAILED, PROCESSING_FAILED, TOO_LARGE, UNSAFE_URL ->
                 Optional.of(detail.reason());
             default -> Optional.empty();
         };
