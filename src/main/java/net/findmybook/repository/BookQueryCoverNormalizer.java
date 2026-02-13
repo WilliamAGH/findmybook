@@ -269,7 +269,7 @@ final class BookQueryCoverNormalizer {
         if (lower.contains(LOCALHOST_PREFIX) || lower.contains(LOOPBACK_IP_PREFIX) || lower.contains(ANY_LOCAL_IP_PREFIX)) {
             return true;
         }
-        if (lower.contains(COVER_PATH_SEGMENT) && !CoverUrlResolver.isCdnUrl(url)) {
+        if (lower.contains(COVER_PATH_SEGMENT.toLowerCase()) && !CoverUrlResolver.isCdnUrl(url)) {
             return true;
         }
         return !(url.startsWith("http://") || url.startsWith("https://"));
