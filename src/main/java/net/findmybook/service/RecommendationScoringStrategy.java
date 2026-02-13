@@ -29,14 +29,6 @@ public class RecommendationScoringStrategy {
     private static final String REASON_CATEGORY = "CATEGORY";
     private static final String REASON_TEXT = "TEXT";
 
-    /**
-     * Spring component constructor - intentionally empty as this service has no external dependencies.
-     * All configuration is via static constants; instantiation is managed by Spring's component scanning.
-     */
-    public RecommendationScoringStrategy() {
-        // No dependencies to inject; constants defined above provide all configuration.
-    }
-
     /** Stop words for keyword extraction from title/description. */
     private static final Set<String> STOP_WORDS = Set.of(
         "the", "and", "for", "with", "are", "was", "from", "that", "this", "but", "not",
