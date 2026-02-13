@@ -115,7 +115,7 @@ public class RecommendationService {
                         log.warn("Cache miss for book {}. Initiating legacy fallback pipeline.", bookId);
                         return fetchLegacyRecommendations(bookId, effectiveCount);
                     }
-                    log.debug("Cache miss for book {}. External fallback disabled - returning empty.", bookId);
+                    log.info("Cache miss for book {}. External fallback disabled — returning empty.", bookId);
                     return Mono.just(Collections.emptyList());
                 }))
                 .onErrorMap(ex -> logAndWrapError(ex, "Failed to assemble recommendations for " + bookId));
@@ -171,13 +171,11 @@ public class RecommendationService {
     }
 
     private Mono<Book> fetchCanonicalBook(String identifier) {
-        if (!StringUtils.hasText(identifier) || bookDataOrchestrator == null) {
+        if (!StringUtils.hasText(identifier)) {
             return Mono.empty();
         }
-        Mono<Book> canonical = bookDataOrchestrator.fetchCanonicalBookReactive(identifier);
-        return canonical == null
-                ? Mono.empty()
-                : canonical.onErrorMap(error -> new IllegalStateException(
+        return bookDataOrchestrator.fetchCanonicalBookReactive(identifier)
+                .onErrorMap(error -> new IllegalStateException(
                     "RecommendationService.fetchCanonicalBook(" + identifier + ")",
                     error
                 ));
@@ -226,7 +224,7 @@ public class RecommendationService {
                 strategyChain.findByText(sourceBook)
             )
             .collect(Collectors.toMap(
-                scoredBook -> scoredBook.getBook().getId(),
+                scoredBook -> scoredBook.book().getId(),
                 scoredBook -> scoredBook,
                 ScoredBook::mergeWith,
                 HashMap::new
@@ -244,7 +242,7 @@ public class RecommendationService {
         }
 
         List<Book> orderedBooks = orderedCandidates.stream()
-            .map(ScoredBook::getBook)
+            .map(ScoredBook::book)
             .toList();
 
         List<Book> limitedRecommendations = orderedBooks.stream()
@@ -260,13 +258,13 @@ public class RecommendationService {
         boolean filterByLanguage = StringUtils.hasText(sourceLang);
 
         Comparator<ScoredBook> comparator = Comparator
-            .comparingInt((ScoredBook scored) -> CoverPrioritizer.score(scored.getBook()) > 0 ? 1 : 0)
+            .comparingInt((ScoredBook scored) -> CoverPrioritizer.score(scored.book()) > 0 ? 1 : 0)
             .reversed()
-            .thenComparing(ScoredBook::getScore, Comparator.reverseOrder())
-            .thenComparing(scored -> CoverPrioritizer.score(scored.getBook()), Comparator.reverseOrder());
+            .thenComparing(ScoredBook::score, Comparator.reverseOrder())
+            .thenComparing(scored -> CoverPrioritizer.score(scored.book()), Comparator.reverseOrder());
 
         return recommendationMap.values().stream()
-            .filter(scored -> isEligibleRecommendation(sourceBook, scored.getBook(), filterByLanguage, sourceLang))
+            .filter(scored -> isEligibleRecommendation(sourceBook, scored.book(), filterByLanguage, sourceLang))
             .sorted(comparator)
             .toList();
     }
@@ -276,9 +274,7 @@ public class RecommendationService {
         List<ScoredBook> orderedCandidates = recommendations.orderedCandidates();
         List<Book> orderedBooks = recommendations.orderedBooks();
         List<Book> limitedRecommendations = recommendations.limitedRecommendations();
-        if (bookDataOrchestrator != null) {
-            bookDataOrchestrator.persistBooksAsync(limitedRecommendations, "RECOMMENDATION");
-        }
+        bookDataOrchestrator.persistBooksAsync(limitedRecommendations, "RECOMMENDATION");
 
         List<String> newRecommendationIds = orderedBooks.stream()
             .map(Book::getId)
@@ -293,8 +289,7 @@ public class RecommendationService {
             .filter(Objects::nonNull)
             .collect(Collectors.toCollection(LinkedHashSet::new));
 
-        Mono<Void> persistenceMono = recommendationPersistenceService != null
-            ? recommendationPersistenceService
+        Mono<Void> persistenceMono = recommendationPersistenceService
                 .persistPipelineRecommendations(sourceBook, buildPersistenceRecords(orderedCandidates, limitedIds))
                 .onErrorMap(ex -> {
                     LoggingUtils.warn(log, ex, "Failed to persist recommendations for {}", sourceBook.getId());
@@ -302,8 +297,7 @@ public class RecommendationService {
                         "Failed to persist recommendations for " + sourceBook.getId(),
                         ex
                     );
-                })
-            : Mono.empty();
+                });
 
         return Mono.when(persistenceMono)
             .then(Mono.fromRunnable(() -> log.info("Updated cachedRecommendationIds for book {} with {} new IDs and cached {} individual recommended books.",
@@ -314,19 +308,19 @@ public class RecommendationService {
     }
 
     private List<RecommendationRecord> buildPersistenceRecords(List<ScoredBook> orderedCandidates, Set<String> limitedIds) {
-        if (recommendationPersistenceService == null || limitedIds.isEmpty()) {
+        if (limitedIds.isEmpty()) {
             return List.of();
         }
 
         return orderedCandidates.stream()
             .filter(scored -> {
-                Book candidate = scored.getBook();
+                Book candidate = scored.book();
                 return candidate != null && candidate.getId() != null && limitedIds.contains(candidate.getId());
             })
             .map(scored -> new RecommendationRecord(
-                scored.getBook(),
-                scored.getScore(),
-                new ArrayList<>(scored.getReasons())))
+                scored.book(),
+                scored.score(),
+                new ArrayList<>(scored.reasons())))
             .toList();
     }
 
