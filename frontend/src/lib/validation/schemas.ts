@@ -102,7 +102,7 @@ export const BookAiContentSnapshotSchema = z.object({
   takeaways: z.array(z.string().max(300)).nullable().optional(),
   context: z.string().max(1500).nullable().optional(),
   version: z.number().int().nullable().optional(),
-  generatedAt: z.string().datetime({ offset: true }).nullable().optional(),
+  generatedAt: z.iso.datetime({ offset: true }).nullable().optional(),
   model: z.string().nullable().optional(),
   provider: z.string().nullable().optional(),
 });
@@ -238,12 +238,11 @@ export const SitemapAuthorSchema = z.object({
 
 export const SitemapPayloadSchema = z.object({
   viewType: z.enum(["authors", "books"]),
-  activeLetter: z.string(),
   pageNumber: z.number(),
   totalPages: z.number(),
   totalItems: z.number(),
   letters: z.array(z.string()),
-  baseUrl: z.string(),
+  baseUrl: z.url(),
   books: z.array(SitemapBookSchema).optional().default([]),
   authors: z.array(SitemapAuthorSchema).optional().default([]),
 });
