@@ -303,8 +303,10 @@ public class CoverS3UploadCoordinator {
     private void handleUploadError(Throwable error, String bookId) {
         UploadFailureDetail detail = resolveUploadFailureDetail(error);
         if (detail.useWarnLevel()) {
+            // Intentionally includes error for stack trace — warn-level failures
+            // (e.g. S3UploadException/runtime config) still need diagnostic context.
             logger.warn("S3 upload skipped for book {} [code={}]: reason={}",
-                bookId, detail.code().code(), detail.reason());
+                bookId, detail.code().code(), detail.reason(), error);
         } else {
             logger.error("S3 upload failed for book {} [code={}]: reason={}",
                 bookId, detail.code().code(), detail.reason(), error);
@@ -353,7 +355,7 @@ public class CoverS3UploadCoordinator {
     private Optional<String> resolveRecordableErrorMessage(Throwable error) {
         UploadFailureDetail detail = resolveUploadFailureDetail(error);
         return switch (detail.code()) {
-            case DOWNLOAD_FAILED, PROCESSING_FAILED, TOO_LARGE, UNSAFE_URL, EMPTY_UPLOAD_RESULT ->
+            case DOWNLOAD_FAILED, PROCESSING_FAILED, TOO_LARGE, UNSAFE_URL, EMPTY_UPLOAD_RESULT, UNEXPECTED_FAILURE ->
                 Optional.of(detail.reason());
             default -> Optional.empty();
         };
