@@ -242,6 +242,7 @@ export const SitemapPayloadSchema = z.object({
   totalPages: z.number(),
   totalItems: z.number(),
   letters: z.array(z.string()),
+  activeLetter: z.string(),
   baseUrl: z.url(),
   books: z.array(SitemapBookSchema).optional().default([]),
   authors: z.array(SitemapAuthorSchema).optional().default([]),
