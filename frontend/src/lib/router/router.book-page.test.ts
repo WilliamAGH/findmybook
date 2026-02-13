@@ -28,6 +28,9 @@ vi.mock("$lib/services/realtime", () => ({
 
 beforeEach(() => {
   getBookMock.mockReset();
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  vi.spyOn(console, "info").mockImplementation(() => {});
   getBookMock.mockResolvedValue({
     id: "book-1",
     slug: "book-1",
@@ -173,7 +176,7 @@ describe("BookPage fallback lookup", () => {
     const currentUrl = new URL(
       "https://findmybook.net/book/book-1?bookId=book-1&popularWindow=90d&page=2&orderBy=newest&view=grid",
     );
-    window.history.replaceState(null, "", `${currentUrl.pathname}${currentUrl.search}`);
+    globalThis.history.replaceState(null, "", `${currentUrl.pathname}${currentUrl.search}`);
 
     render(BookPage, {
       props: {

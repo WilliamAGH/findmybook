@@ -14,7 +14,7 @@ const {
   getSimilarBooksMock: vi.fn(),
   getAffiliateLinksMock: vi.fn(),
   persistRenderedCoverMock: vi.fn(),
-  subscribeToBookCoverUpdatesMock: vi.fn(async () => () => {}),
+  subscribeToBookCoverUpdatesMock: vi.fn(),
 }));
 
 vi.mock("$lib/services/books", () => ({
