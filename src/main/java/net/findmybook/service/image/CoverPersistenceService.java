@@ -314,6 +314,7 @@ public class CoverPersistenceService {
     @Transactional
     public void recordDownloadError(UUID bookId, String error) {
         if (bookId == null || !StringUtils.hasText(error)) {
+            log.warn("Skipping download error recording: bookId={}, error='{}'", bookId, error);
             return;
         }
         try {
