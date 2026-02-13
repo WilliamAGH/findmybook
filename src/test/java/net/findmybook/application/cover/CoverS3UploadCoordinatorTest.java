@@ -273,6 +273,37 @@ class CoverS3UploadCoordinatorTest {
     }
 
     @Test
+    void should_RecordDownloadError_When_UploadFailsWithRecordableException() {
+        UUID bookId = UUID.randomUUID();
+        String bookIdString = bookId.toString();
+
+        BookUpsertEvent event = new BookUpsertEvent(
+            bookIdString,
+            "legacy-code",
+            "Legacy Code",
+            false,
+            "GOOGLE_BOOKS",
+            Map.of("thumbnail", "https://covers.example.com/thumb.jpg"),
+            null,
+            "GOOGLE_BOOKS"
+        );
+
+        when(s3BookCoverService.uploadCoverToS3Async(
+            "https://covers.example.com/thumb.jpg",
+            bookIdString,
+            "GOOGLE_BOOKS"
+        )).thenReturn(Mono.error(
+            new UnsafeUrlException(bookIdString, "https://covers.example.com/thumb.jpg")));
+
+        coordinator.triggerUpload(event);
+
+        ArgumentCaptor<String> errorCaptor = ArgumentCaptor.forClass(String.class);
+        verify(coverPersistenceService, timeout(2000).times(1))
+            .recordDownloadError(eq(bookId), errorCaptor.capture());
+        assertThat(errorCaptor.getValue()).contains("unsafe-url");
+    }
+
+    @Test
     void should_ClassifyKnownS3FailureCodes_When_ExceptionTypesAreMapped() {
         assertThat(coordinator.classifyS3FailureCode(
             new CoverDownloadException("book-1", "https://example.com/a.jpg", new RuntimeException("timeout"))
