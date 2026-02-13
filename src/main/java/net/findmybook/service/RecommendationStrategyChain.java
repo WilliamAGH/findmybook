@@ -1,20 +1,28 @@
 package net.findmybook.service;
 
+import net.findmybook.dto.BookListItem;
 import net.findmybook.model.Book;
 import net.findmybook.repository.BookQueryRepository;
+import net.findmybook.util.BookDomainMapper;
 import net.findmybook.util.ValidationUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Strategy chain for orchestrating author, category, and text-based book searches.
@@ -39,9 +47,9 @@ public class RecommendationStrategyChain {
     public RecommendationStrategyChain(BookSearchService bookSearchService,
                                         BookQueryRepository bookQueryRepository,
                                         RecommendationScoringStrategy scoringStrategy) {
-        this.bookSearchService = bookSearchService;
-        this.bookQueryRepository = bookQueryRepository;
-        this.scoringStrategy = scoringStrategy;
+        this.bookSearchService = Objects.requireNonNull(bookSearchService, "bookSearchService");
+        this.bookQueryRepository = Objects.requireNonNull(bookQueryRepository, "bookQueryRepository");
+        this.scoringStrategy = Objects.requireNonNull(scoringStrategy, "scoringStrategy");
     }
 
     /**
@@ -105,7 +113,7 @@ public class RecommendationStrategyChain {
             .take(MAX_SEARCH_RESULTS)
             .flatMap(book -> {
                 String candidateText = ((book.getTitle() != null ? book.getTitle() : "") + " " +
-                                      (book.getDescription() != null ? book.getDescription() : "")).toLowerCase(java.util.Locale.ROOT);
+                                      (book.getDescription() != null ? book.getDescription() : "")).toLowerCase(Locale.ROOT);
                 int matchCount = 0;
                 for (String kw : keywords) {
                     if (candidateText.contains(kw)) {
@@ -125,18 +133,14 @@ public class RecommendationStrategyChain {
     }
 
     private Mono<List<Book>> searchBooks(String query, int limit) {
-        if (!org.springframework.util.StringUtils.hasText(query)) {
+        if (!StringUtils.hasText(query)) {
             return Mono.just(Collections.emptyList());
-        }
-        if (bookSearchService == null || bookQueryRepository == null) {
-            return Mono.error(new IllegalStateException(
-                "RecommendationStrategyChain is missing required search dependencies"));
         }
 
         final int safeLimit = Math.max(limit, 1);
 
         Mono<List<BookSearchService.SearchResult>> searchMono = Mono.fromCallable(() -> bookSearchService.searchBooks(query, safeLimit))
-            .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic());
+            .subscribeOn(Schedulers.boundedElastic());
 
         return searchMono.flatMap(results -> {
             if (results == null || results.isEmpty()) {
@@ -155,28 +159,28 @@ public class RecommendationStrategyChain {
             }
 
             return Mono.fromCallable(() -> bookQueryRepository.fetchBookListItems(orderedIds))
-                .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
+                .subscribeOn(Schedulers.boundedElastic())
                 .map(items -> orderBooksBySearchResults(results, items, safeLimit));
         });
     }
 
     private List<Book> orderBooksBySearchResults(List<BookSearchService.SearchResult> results,
-                                                  List<net.findmybook.dto.BookListItem> items,
+                                                  List<BookListItem> items,
                                                   int limit) {
         if (items == null || items.isEmpty()) {
             return List.of();
         }
 
-        java.util.Map<String, Book> booksById = net.findmybook.util.BookDomainMapper.fromListItems(items).stream()
+        Map<String, Book> booksById = BookDomainMapper.fromListItems(items).stream()
             .filter(Objects::nonNull)
-            .filter(book -> org.springframework.util.StringUtils.hasText(book.getId()))
-            .collect(Collectors.toMap(Book::getId, book -> book, (first, second) -> first, java.util.LinkedHashMap::new));
+            .filter(book -> StringUtils.hasText(book.getId()))
+            .collect(Collectors.toMap(Book::getId, book -> book, (first, second) -> first, LinkedHashMap::new));
 
         if (booksById.isEmpty()) {
             return List.of();
         }
 
-        List<Book> ordered = new java.util.ArrayList<>(Math.min(limit, booksById.size()));
+        List<Book> ordered = new ArrayList<>(Math.min(limit, booksById.size()));
 
         for (BookSearchService.SearchResult result : results) {
             UUID bookId = result.bookId();
