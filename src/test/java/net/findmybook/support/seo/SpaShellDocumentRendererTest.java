@@ -108,8 +108,8 @@ class SpaShellDocumentRendererTest {
 
         String html = renderer.render(minimalContext());
 
-        assertTrue(html.contains("data-id=\"101484793\""), "Expected site ID attribute in rendered HTML");
-        assertTrue(html.contains("src=\"//static.getclicky.com/js\""), "Expected Clicky CDN script src");
+        assertTrue(html.contains("clicky_site_ids.push(101484793)"), "Expected site ID in clicky_site_ids initialization");
+        assertTrue(html.contains("src=\"https://static.getclicky.com/js\""), "Expected Clicky HTTPS CDN script src");
     }
 
     @Test
@@ -124,7 +124,7 @@ class SpaShellDocumentRendererTest {
         String html = renderer.render(minimalContext());
 
         assertFalse(html.contains("getclicky"), "Clicky script should not appear when disabled");
-        assertFalse(html.contains("data-id=\"101484793\""), "Clicky site ID should not appear when disabled");
+        assertFalse(html.contains("clicky_site_ids"), "Clicky site ID should not appear when disabled");
     }
 
     private static SpaShellRenderContext minimalContext() {
