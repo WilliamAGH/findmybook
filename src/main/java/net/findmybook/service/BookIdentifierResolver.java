@@ -15,6 +15,10 @@ import org.springframework.stereotype.Service;
 /**
  * Resolves user-facing identifiers (slug, ISBN, external ID) to canonical UUIDs.
  * Centralizing this logic prevents duplicate lookup heuristics across controllers.
+ *
+ * <p><strong>Exception strategy:</strong> {@link DataAccessException} from cluster
+ * lookups propagates uncaught. Spring Boot's default error handling converts it to
+ * an HTTP 500 response. Callers that need graceful degradation must catch explicitly.
  */
 @Service
 public class BookIdentifierResolver {
@@ -33,13 +37,27 @@ public class BookIdentifierResolver {
         this.jdbcTemplate = jdbcTemplate;
     }
 
-    public Optional<UUID> resolveToUuid(String identifier) {
+    /**
+     * Resolves a user-facing identifier to a canonical UUID.
+     *
+     * @param identifier slug, ISBN, external ID, or UUID string
+     * @return resolved UUID, or empty if the identifier cannot be matched
+     * @throws DataAccessException if the work-cluster database lookup fails
+     */
+    public Optional<UUID> resolveToUuid(String identifier) throws DataAccessException {
         return resolveCanonicalId(identifier)
             .map(UuidUtils::parseUuidOrNull)
             .filter(uuid -> uuid != null);
     }
 
-    public Optional<String> resolveCanonicalId(String identifier) {
+    /**
+     * Resolves a user-facing identifier to a canonical book ID string.
+     *
+     * @param identifier slug, ISBN, external ID, or UUID string
+     * @return canonical book ID, or empty if the identifier cannot be matched
+     * @throws DataAccessException if the work-cluster database lookup fails
+     */
+    public Optional<String> resolveCanonicalId(String identifier) throws DataAccessException {
         if (!StringUtils.hasText(identifier)) {
             return Optional.empty();
         }
@@ -83,26 +101,19 @@ public class BookIdentifierResolver {
             return Optional.of(bookId);
         }
 
-        String primaryId;
-        try {
-            primaryId = jdbcTemplate.query(
-                """
-                SELECT primary_wcm.book_id::text
-                FROM work_cluster_members wcm
-                JOIN work_cluster_members primary_wcm
-                  ON primary_wcm.cluster_id = wcm.cluster_id
-                 AND primary_wcm.is_primary = true
-                WHERE wcm.book_id = ?::uuid
-                LIMIT 1
-                """,
-                rs -> rs.next() ? rs.getString(1) : null,
-                uuid
-            );
-        } catch (DataAccessException ex) {
-            log.warn("Primary-edition cluster lookup failed for bookId={}; using original identifier. error={}",
-                bookId, ex.getMessage());
-            return Optional.of(bookId);
-        }
+        String primaryId = jdbcTemplate.query(
+            """
+            SELECT primary_wcm.book_id::text
+            FROM work_cluster_members wcm
+            JOIN work_cluster_members primary_wcm
+              ON primary_wcm.cluster_id = wcm.cluster_id
+             AND primary_wcm.is_primary = true
+            WHERE wcm.book_id = ?::uuid
+            LIMIT 1
+            """,
+            rs -> rs.next() ? rs.getString(1) : null,
+            uuid
+        );
 
         if (StringUtils.hasText(primaryId)) {
             return Optional.of(primaryId);

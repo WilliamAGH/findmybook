@@ -50,11 +50,7 @@ public class SecurityConfig {
     private static final String GOOGLE_BOOKS_ORIGIN = "https://books.google.com";
     private static final String GOOGLE_BOOKS_CONTENT_ORIGIN = "https://books.googleusercontent.com";
     private static final String CLICKY_STATIC_HTTPS = "https://static.getclicky.com";
-    private static final String CLICKY_STATIC_HTTP = "http://static.getclicky.com";
     private static final String CLICKY_IN_HTTPS = "https://in.getclicky.com";
-    private static final String CLICKY_IN_HTTP = "http://in.getclicky.com";
-    private static final String CLICKY_ROOT_HTTPS = "https://clicky.com";
-    private static final String CLICKY_ROOT_HTTP = "http://clicky.com";
     private static final String CDN_JSDELIVR = "https://cdn.jsdelivr.net";
     private static final String CDN_CLOUDFLARE = "https://cdnjs.cloudflare.com";
     private static final String CDN_TAILWIND = "https://cdn.tailwindcss.com";
@@ -139,7 +135,7 @@ public class SecurityConfig {
         if (cspEnabled) {
             configureSecurity(http);
         }
-            
+
         return http.build();
     }
 
@@ -184,14 +180,10 @@ public class SecurityConfig {
         }
 
         if (clickyEnabled) {
-            // Add Clicky Analytics domains for script-src, connect-src, and img-src.
-            // Include both HTTP and HTTPS as Clicky may use either depending on page protocol.
-            String clickyScriptAndConnect = " " + CLICKY_STATIC_HTTPS + " " + CLICKY_STATIC_HTTP
-                + " " + CLICKY_IN_HTTPS + " " + CLICKY_IN_HTTP
-                + " " + CLICKY_ROOT_HTTPS + " " + CLICKY_ROOT_HTTP;
-            scriptSrcDirective.append(clickyScriptAndConnect);
-            connectSrcDirective.append(clickyScriptAndConnect);
-            imgSrcDirective.append(" ").append(CLICKY_IN_HTTPS).append(" ").append(CLICKY_IN_HTTP);
+            scriptSrcDirective.append(" ").append(CLICKY_STATIC_HTTPS);
+            connectSrcDirective.append(" ").append(CLICKY_STATIC_HTTPS)
+                .append(" ").append(CLICKY_IN_HTTPS);
+            imgSrcDirective.append(" ").append(CLICKY_IN_HTTPS);
         }
 
         return "default-src 'self'; "

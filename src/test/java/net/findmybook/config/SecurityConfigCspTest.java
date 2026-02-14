@@ -7,7 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Verifies the Content Security Policy header built by {@link SecurityConfig}
- * includes the directives required for the cover relay feature.
+ * includes the directives required for the cover relay feature and analytics.
  */
 class SecurityConfigCspTest {
 
@@ -40,11 +40,19 @@ class SecurityConfigCspTest {
     }
 
     @Test
-    @DisplayName("connect-src includes Clicky origins when Clicky is enabled")
+    @DisplayName("CSP includes Clicky HTTPS origins when Clicky is enabled")
     void should_IncludeClickyOrigins_When_ClickyEnabled() {
         String csp = SecurityConfig.buildContentSecurityPolicy(true, false);
 
-        assertThat(csp).contains("https://in.getclicky.com");
         assertThat(csp).contains("https://static.getclicky.com");
+        assertThat(csp).contains("https://in.getclicky.com");
+    }
+
+    @Test
+    @DisplayName("CSP excludes Clicky origins when Clicky is disabled")
+    void should_ExcludeClickyOrigins_When_ClickyDisabled() {
+        String csp = SecurityConfig.buildContentSecurityPolicy(false, false);
+
+        assertThat(csp).doesNotContain("getclicky.com");
     }
 }

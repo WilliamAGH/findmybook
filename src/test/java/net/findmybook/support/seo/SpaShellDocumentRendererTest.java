@@ -5,9 +5,14 @@ import net.findmybook.domain.seo.OpenGraphProperty;
 import net.findmybook.domain.seo.SeoMetadata;
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SpaShellDocumentRendererTest {
+
+    private static final SeoMarkupFormatter FORMATTER = new SeoMarkupFormatter();
+    private static final OpenGraphHeadTagRenderer OG_RENDERER = new OpenGraphHeadTagRenderer(FORMATTER);
+    private static final CanonicalUrlResolver URL_RESOLVER = new CanonicalUrlResolver();
 
     @Test
     void should_RenderBookOpenGraphAndStructuredData_When_MetadataContainsExtensions() {
@@ -90,5 +95,52 @@ class SpaShellDocumentRendererTest {
         String html = renderer.render(ctx);
         assertTrue(html.contains("<title>The Pragmatic Programmer - Book Details | findmybook.net</title>"));
         assertTrue(!html.contains("| findmybook.net | findmybook"));
+    }
+
+    @Test
+    void should_RenderClickyDirectScript_When_ClickyEnabled() {
+        SpaShellDocumentRenderer renderer = new SpaShellDocumentRenderer(
+            FORMATTER, OG_RENDERER, URL_RESOLVER,
+            SeoMetadataDevValidator.disabled(),
+            false, "",
+            true, "101484793"
+        );
+
+        String html = renderer.render(minimalContext());
+
+        assertTrue(html.contains("clicky_site_ids.push(101484793)"), "Expected site ID in clicky_site_ids initialization");
+        assertTrue(html.contains("src=\"https://static.getclicky.com/js\""), "Expected Clicky HTTPS CDN script src");
+    }
+
+    @Test
+    void should_OmitClickyScript_When_ClickyDisabled() {
+        SpaShellDocumentRenderer renderer = new SpaShellDocumentRenderer(
+            FORMATTER, OG_RENDERER, URL_RESOLVER,
+            SeoMetadataDevValidator.disabled(),
+            false, "",
+            false, "101484793"
+        );
+
+        String html = renderer.render(minimalContext());
+
+        assertFalse(html.contains("getclicky"), "Clicky script should not appear when disabled");
+        assertFalse(html.contains("clicky_site_ids"), "Clicky site ID should not appear when disabled");
+    }
+
+    private static SpaShellRenderContext minimalContext() {
+        SeoMetadata metadata = new SeoMetadata(
+            "Test Page", "Test description.",
+            "https://findmybook.net/test", "test",
+            "https://findmybook.net/images/test.jpg",
+            "index, follow", "website", List.of(),
+            "{\"@context\":\"https://schema.org\"}"
+        );
+        return new SpaShellRenderContext(
+            metadata, metadata, " | findmybook", "findmybook",
+            "Default description", "default keywords",
+            "index, follow", "website",
+            "findmybook social preview image", "#fdfcfa",
+            "{\"version\":1}", "https://findmybook.net"
+        );
     }
 }
