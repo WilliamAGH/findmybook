@@ -3,10 +3,9 @@ package net.findmybook.service;
 import net.findmybook.dto.BookDetail;
 import net.findmybook.repository.BookQueryRepository;
 import net.findmybook.util.UuidUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
 import org.springframework.util.StringUtils;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -22,8 +21,6 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class BookIdentifierResolver {
-
-    private static final Logger log = LoggerFactory.getLogger(BookIdentifierResolver.class);
 
     private final BookLookupService bookLookupService;
     private final BookQueryRepository bookQueryRepository;
@@ -47,7 +44,7 @@ public class BookIdentifierResolver {
     public Optional<UUID> resolveToUuid(String identifier) throws DataAccessException {
         return resolveCanonicalId(identifier)
             .map(UuidUtils::parseUuidOrNull)
-            .filter(uuid -> uuid != null);
+            .filter(Objects::nonNull);
     }
 
     /**

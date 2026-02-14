@@ -40,7 +40,7 @@ final class BookQueryCoverNormalizer {
     private static final String LOOPBACK_IP_PREFIX = "://127.0.0.1";
     private static final String ANY_LOCAL_IP_PREFIX = "://0.0.0.0";
     private static final String COVER_PATH_SEGMENT_PROPERTY = "app.cover.path.segment";
-    private static final String DEFAULT_COVER_PATH_SEGMENT = "/images/book-covers/";
+    private static final String DEFAULT_COVER_PATH_SEGMENT = "/images/book-covers/"; // NOSONAR S1075 -- overridable via system property app.cover.path.segment
     private static final String COVER_PATH_SEGMENT = resolveCoverPathSegment();
     private static final String COVER_PATH_SEGMENT_LOWER = COVER_PATH_SEGMENT.toLowerCase(Locale.ROOT);
 
