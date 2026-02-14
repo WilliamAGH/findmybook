@@ -20,6 +20,9 @@ public class SpaShellDocumentRenderer {
     private static final boolean DEFAULT_SIMPLE_ANALYTICS_ENABLED = true;
     private static final String DEFAULT_SIMPLE_ANALYTICS_SCRIPT_URL =
         "https://scripts.simpleanalyticscdn.com/latest.js";
+    private static final boolean DEFAULT_CLICKY_ENABLED = true;
+    private static final String DEFAULT_CLICKY_SITE_ID = "101484793";
+    private static final String CLICKY_SCRIPT_URL = "//static.getclicky.com/js";
 
     private final SeoMarkupFormatter seoMarkupFormatter;
     private final OpenGraphHeadTagRenderer openGraphHeadTagRenderer;
@@ -27,6 +30,8 @@ public class SpaShellDocumentRenderer {
     private final SeoMetadataDevValidator seoMetadataDevValidator;
     private final boolean simpleAnalyticsEnabled;
     private final String simpleAnalyticsScriptUrl;
+    private final boolean clickyEnabled;
+    private final String clickySiteId;
 
     /**
      * Backward-compatible constructor used by manual wiring in tests and utility contexts.
@@ -44,7 +49,9 @@ public class SpaShellDocumentRenderer {
             canonicalUrlResolver,
             SeoMetadataDevValidator.disabled(),
             DEFAULT_SIMPLE_ANALYTICS_ENABLED,
-            DEFAULT_SIMPLE_ANALYTICS_SCRIPT_URL
+            DEFAULT_SIMPLE_ANALYTICS_SCRIPT_URL,
+            DEFAULT_CLICKY_ENABLED,
+            DEFAULT_CLICKY_SITE_ID
         );
     }
 
@@ -54,13 +61,17 @@ public class SpaShellDocumentRenderer {
                                     CanonicalUrlResolver canonicalUrlResolver,
                                     SeoMetadataDevValidator seoMetadataDevValidator,
                                     @Value("${app.simple-analytics.enabled:true}") boolean simpleAnalyticsEnabled,
-                                    @Value("${app.simple-analytics.script-url:https://scripts.simpleanalyticscdn.com/latest.js}") String simpleAnalyticsScriptUrl) {
+                                    @Value("${app.simple-analytics.script-url:https://scripts.simpleanalyticscdn.com/latest.js}") String simpleAnalyticsScriptUrl,
+                                    @Value("${app.clicky.enabled:true}") boolean clickyEnabled,
+                                    @Value("${app.clicky.site-id:101484793}") String clickySiteId) {
         this.seoMarkupFormatter = seoMarkupFormatter;
         this.openGraphHeadTagRenderer = openGraphHeadTagRenderer;
         this.canonicalUrlResolver = canonicalUrlResolver;
         this.seoMetadataDevValidator = seoMetadataDevValidator;
         this.simpleAnalyticsEnabled = simpleAnalyticsEnabled;
         this.simpleAnalyticsScriptUrl = simpleAnalyticsScriptUrl;
+        this.clickyEnabled = clickyEnabled;
+        this.clickySiteId = clickySiteId;
     }
 
     /**
@@ -107,6 +118,7 @@ public class SpaShellDocumentRenderer {
         String structuredDataJson = effectiveMetadata.structuredDataJson();
         String escapedStructuredData = seoMarkupFormatter.escapeInlineScriptJson(structuredDataJson);
         String simpleAnalyticsTag = simpleAnalyticsEnabled ? "<script async src=\"%s\"></script>".formatted(simpleAnalyticsScriptUrl) : "";
+        String clickyTag = clickyEnabled ? buildClickyScriptTag() : "";
 
         return """
             <!doctype html>
@@ -212,8 +224,18 @@ public class SpaShellDocumentRenderer {
             escapedOgImage,
             escapedOgImageAlt,
             escapedStructuredData,
-            simpleAnalyticsTag,
+            simpleAnalyticsTag + clickyTag,
             escapedRouteManifestJson
+        );
+    }
+
+    /**
+     * Builds the Clicky analytics script tag using direct CDN loading.
+     */
+    private String buildClickyScriptTag() {
+        return "<script async data-id=\"%s\" src=\"%s\"></script>".formatted(
+            seoMarkupFormatter.escapeHtml(clickySiteId),
+            CLICKY_SCRIPT_URL
         );
     }
 }
