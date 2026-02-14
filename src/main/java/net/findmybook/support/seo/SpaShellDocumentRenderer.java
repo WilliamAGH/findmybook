@@ -1,15 +1,20 @@
 package net.findmybook.support.seo;
 
 import net.findmybook.domain.seo.SeoMetadata;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 /**
  * Renders the server-side SPA shell HTML document from route-level SEO metadata.
  */
 @Component
 public class SpaShellDocumentRenderer {
+
+    private static final Logger log = LoggerFactory.getLogger(SpaShellDocumentRenderer.class);
 
     private static final String OPEN_GRAPH_IMAGE_TYPE = "image/png";
     private static final int OPEN_GRAPH_IMAGE_WIDTH = 1200;
@@ -22,7 +27,7 @@ public class SpaShellDocumentRenderer {
         "https://scripts.simpleanalyticscdn.com/latest.js";
     private static final boolean DEFAULT_CLICKY_ENABLED = true;
     private static final String DEFAULT_CLICKY_SITE_ID = "101484793";
-    private static final String CLICKY_SCRIPT_URL = "//static.getclicky.com/js";
+    private static final String CLICKY_SCRIPT_URL = "https://static.getclicky.com/js";
 
     private final SeoMarkupFormatter seoMarkupFormatter;
     private final OpenGraphHeadTagRenderer openGraphHeadTagRenderer;
@@ -70,8 +75,15 @@ public class SpaShellDocumentRenderer {
         this.seoMetadataDevValidator = seoMetadataDevValidator;
         this.simpleAnalyticsEnabled = simpleAnalyticsEnabled;
         this.simpleAnalyticsScriptUrl = simpleAnalyticsScriptUrl;
-        this.clickyEnabled = clickyEnabled;
-        this.clickySiteId = clickySiteId;
+        if (clickyEnabled && !StringUtils.hasText(clickySiteId)) {
+            log.warn("Clicky analytics enabled but site ID is blank; disabling Clicky. "
+                + "Set app.clicky.site-id to re-enable.");
+            this.clickyEnabled = false;
+            this.clickySiteId = "";
+        } else {
+            this.clickyEnabled = clickyEnabled;
+            this.clickySiteId = clickySiteId;
+        }
     }
 
     /**
@@ -230,12 +242,15 @@ public class SpaShellDocumentRenderer {
     }
 
     /**
-     * Builds the Clicky analytics script tag using direct CDN loading.
+     * Builds the Clicky analytics inline initialization and async script loader.
+     *
+     * <p>The standard Clicky CDN script reads the site ID from the {@code clicky_site_ids}
+     * global array. The {@code data-id} attribute is only recognized by anti-adblock proxy
+     * scripts, not the direct CDN bundle.
      */
     private String buildClickyScriptTag() {
-        return "<script async data-id=\"%s\" src=\"%s\"></script>".formatted(
-            seoMarkupFormatter.escapeHtml(clickySiteId),
-            CLICKY_SCRIPT_URL
-        );
+        String escapedSiteId = seoMarkupFormatter.escapeHtml(clickySiteId);
+        return "<script>var clicky_site_ids = clicky_site_ids || []; clicky_site_ids.push(%s);</script>".formatted(escapedSiteId)
+            + "<script async src=\"%s\"></script>".formatted(CLICKY_SCRIPT_URL);
     }
 }
