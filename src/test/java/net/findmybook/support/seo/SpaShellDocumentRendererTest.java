@@ -6,6 +6,7 @@ import net.findmybook.domain.seo.SeoMetadata;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SpaShellDocumentRendererTest {
@@ -125,6 +126,19 @@ class SpaShellDocumentRendererTest {
 
         assertFalse(html.contains("getclicky"), "Clicky script should not appear when disabled");
         assertFalse(html.contains("clicky_site_ids"), "Clicky site ID should not appear when disabled");
+    }
+
+    @Test
+    void should_ThrowIllegalState_When_ClickyEnabledButSiteIdBlank() {
+        assertThrows(IllegalStateException.class, () ->
+            new SpaShellDocumentRenderer(
+                FORMATTER, OG_RENDERER, URL_RESOLVER,
+                SeoMetadataDevValidator.disabled(),
+                false, "",
+                true, ""
+            ),
+            "Enabled Clicky with blank site ID must fail fast"
+        );
     }
 
     private static SpaShellRenderContext minimalContext() {

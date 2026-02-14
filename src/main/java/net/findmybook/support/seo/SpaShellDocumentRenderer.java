@@ -1,8 +1,6 @@
 package net.findmybook.support.seo;
 
 import net.findmybook.domain.seo.SeoMetadata;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -13,8 +11,6 @@ import org.springframework.util.StringUtils;
  */
 @Component
 public class SpaShellDocumentRenderer {
-
-    private static final Logger log = LoggerFactory.getLogger(SpaShellDocumentRenderer.class);
 
     private static final String OPEN_GRAPH_IMAGE_TYPE = "image/png";
     private static final int OPEN_GRAPH_IMAGE_WIDTH = 1200;
@@ -76,14 +72,12 @@ public class SpaShellDocumentRenderer {
         this.simpleAnalyticsEnabled = simpleAnalyticsEnabled;
         this.simpleAnalyticsScriptUrl = simpleAnalyticsScriptUrl;
         if (clickyEnabled && !StringUtils.hasText(clickySiteId)) {
-            log.warn("Clicky analytics enabled but site ID is blank; disabling Clicky. "
-                + "Set app.clicky.site-id to re-enable.");
-            this.clickyEnabled = false;
-            this.clickySiteId = "";
-        } else {
-            this.clickyEnabled = clickyEnabled;
-            this.clickySiteId = clickySiteId;
+            throw new IllegalStateException(
+                "Clicky analytics is enabled (app.clicky.enabled=true) but site ID is blank. "
+                    + "Set app.clicky.site-id or disable Clicky with app.clicky.enabled=false.");
         }
+        this.clickyEnabled = clickyEnabled;
+        this.clickySiteId = clickySiteId;
     }
 
     /**
