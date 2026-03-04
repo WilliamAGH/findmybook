@@ -14,7 +14,7 @@ S3_ACL_PREFIX ?=
 S3_ACL_DRY_RUN ?= false
 S3_ACL_VERBOSE ?= false
 
-.PHONY: run build test lint kill-port migrate-books cluster-books check-s3-in-db fix-s3-acl-public-all db-verify-author-constraints db-verify-book-title-constraints
+.PHONY: run build test lint kill-port hooks migrate-books cluster-books check-s3-in-db fix-s3-acl-public-all db-verify-author-constraints db-verify-book-title-constraints
 
 # Kill any process currently listening on $(PORT)
 kill-port:
@@ -38,6 +38,14 @@ build:
 # Run tests
 test:
 	$(GRADLEW) test
+
+hooks: ## Install git hooks via lefthook
+	@if command -v lefthook >/dev/null 2>&1; then \
+		lefthook install -f; \
+	else \
+		echo "lefthook not found — install with: brew install lefthook"; \
+		echo "Skipping hook installation; commits/pushes will proceed without gates."; \
+	fi
 
 lint:
 	@echo "Running lint/format..."

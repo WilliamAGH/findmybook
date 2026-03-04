@@ -196,6 +196,7 @@
 - [ENV1b] Default local port is `8095` unless explicitly overridden.
 - [ENV1c] Production URL is `https://findmybook.net`.
 - [ENV1d] Primary data store is PostgreSQL; schema reference lives in `src/main/resources/schema.sql`.
+- [ENV1e] Git hooks use lefthook (`brew install lefthook`, then `make hooks`). Pre-commit runs hygiene checks; pre-push runs build/test gates.
 
 ## Meta
 ### [ORG9] Authority & Evolution

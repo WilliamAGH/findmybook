@@ -1,0 +1,33 @@
+pre-commit:
+  parallel: true
+  commands:
+    trailing-whitespace:
+      glob: "*.{java,kts,yml,yaml,json,md,xml,sql,js,ts,svelte,css,html}"
+      run: |
+        for f in {staged_files}; do
+          sed -i '' 's/[[:space:]]*$//' "$f"
+        done
+      stage_fixed: true
+    end-of-file-fixer:
+      glob: "*.{java,kts,yml,yaml,json,md,xml,sql,js,ts,svelte,css,html}"
+      run: |
+        for f in {staged_files}; do
+          if [ -s "$f" ] && [ "$(tail -c1 "$f" | xxd -p)" != "0a" ]; then
+            printf '\n' >> "$f"
+          fi
+        done
+      stage_fixed: true
+    no-commit-to-branch:
+      run: "test $(git rev-parse --abbrev-ref HEAD) != main"
+
+pre-push:
+  piped: true
+  commands:
+    gradle-check:
+      run: ./gradlew check -PskipFrontend
+    frontend-lint:
+      run: npm --prefix frontend run lint:ox
+    frontend-check:
+      run: npm --prefix frontend run check
+    frontend-test:
+      run: npm --prefix frontend run test
