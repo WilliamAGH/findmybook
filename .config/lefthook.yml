@@ -17,6 +17,11 @@ pre-commit:
           fi
         done
       stage_fixed: true
+    frontend-lint-fix:
+      root: "frontend/"
+      glob: "*.{js,ts,svelte}"
+      run: npx oxlint -c config/oxlintrc.json --fix {staged_files}
+      stage_fixed: true
     no-commit-to-branch:
       run: "test $(git rev-parse --abbrev-ref HEAD) != main"
 

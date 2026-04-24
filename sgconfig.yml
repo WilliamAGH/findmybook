@@ -1,0 +1,6 @@
+ruleDirs:
+  - config/ast-grep
+languageGlobs:
+  tsx:
+    - "**/*.tsx"
+    - "**/*.ts"
