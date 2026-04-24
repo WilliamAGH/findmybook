@@ -41,6 +41,7 @@
 - [SRC1b] Verify dependency behavior from `build.gradle`, official docs, or dependency source before usage changes.
 - [SRC1c] Stop and ask the user when evidence is incomplete or conflicting.
 - [SRC1d] Mandatory investigation sequence: read code -> read docs -> verify dependencies -> form/test hypothesis -> implement minimal fix -> run verification.
+- [SRC1e] No empty confirmations ("You're right", "Absolutely") before investigation; verify then cite evidence.
 
 ### [DOC0] Prerequisite Reading by Path
 - [DOC0a] Before editing `src/main/java/**` or `src/test/java/**`, read `docs/development.md`.
@@ -52,6 +53,16 @@
 - [SCO1a] Confirm the objective (bug, feature, constraint) before editing code.
 - [SCO1b] Keep work inside agreed scope and call out scope creep immediately.
 - [SCO1c] Tie implementation notes and summaries directly to the user request.
+
+### [SS1] Single Semantic Owner
+- [SS1a] One semantic owner only: for any governed concept, exactly one file/module may define its field inventory, names, allowed keys, dependency graph, or behavior selection.
+- [SS1b] No mirror owners anywhere: tests, fixtures, docs, examples, generators, templates, frontend schemas, and backend contracts are NOT exempt; they must bind/import/project the canonical owner instead of restating it.
+- [SS1c] Projection rule: every non-canonical location may only project the canonical owner with identical governed names; renaming governed fields in projections is prohibited.
+- [SS1d] No alias surfaces: plural/singular variants, compatibility aliases, label identifiers, alternate display-name identifiers, and convenience transport names for a governed concept are prohibited.
+- [SS1e] Canonical-key parity: catalog-backed request/query/schema fields MUST use the exact canonical key name; transport aliases and convenience plurals are prohibited.
+- [SS1f] Stop-work trigger: if an implementation requires listing the same governed fields/keys/rules in a second place, stop and redesign before editing.
+- [SS1g] No positional-null constructor sludge: constructor/factory calls with repeated placeholder nulls or low-legibility optional argument trains are prohibited; use named factories/builders, parameter objects, or bind/import the canonical owner.
+- [SS1h] If a file "knows the whole list" of a governed concept and it is not the canonical owner, the design is presumed wrong and must be reduced or removed.
 
 ### [FIL1] Controlled File Creation
 - [FIL1a] Search existing implementations before adding files (`rg --files`, `rg`).
@@ -71,6 +82,7 @@
 - [BLK1b] Do not introduce silent fallback behavior that hides failures.
 - [BLK1c] Fallback helpers may only fail explicitly (for example service unavailable); they MUST NOT return fake or placeholder data.
 - [BLK1d] Do not add feature-flagged shadow implementations to hedge uncertainty.
+- [BLK1e] BANNED slop indirection: no `*Adapter`, `*Transformer`, `*Normalizer`, `*Bridge`, `*Converter`, `*Mapper`, `*Compatibility`, `*Transition` modules that exist solely to reshape data between equivalent types; fix the type mismatch at source (architectural adapters at genuine boundaries per [ARC1] are fine)
 
 ### [TYP0] Type Safety & Nullness (Blocking)
 - [TYP0a] Ban `Object`, raw generics, unchecked casts, and `Map<String,Object>` in business code.
@@ -96,11 +108,13 @@
 - [GIT1c] Never change branches without explicit user permission.
 - [GIT1d] Never commit or push unless the user explicitly asks.
 - [GIT1e] Never skip hooks (`--no-verify`, `-n`, `--no-gpg-sign`).
+- [GIT1f] **Repository-Local Writes Only**: NEVER commit or push to this repository from a temporary clone, alternate checkout/worktree, or any other directory copy of the same repo. All git writes must be executed from this exact working tree.
 
 ### [LOC1] File Size Ceiling (Blocking)
 - [LOC1a] Keep new source files under 350 lines.
 - [LOC1b] Start splitting files when they approach 350 lines.
 - [LOC1c] For touched legacy files over 350 lines, include a concrete split plan in the summary.
+- [LOC1d] One canonical type per domain concept: never overload files with unrelated types/records/interfaces; split by domain concept, not by convenience
 
 ## Architecture
 ### [ARC1] Canonical Architecture Direction
@@ -129,6 +143,8 @@
 - [CLN1c] Replace magic literals with named constants.
 - [CLN1d] Avoid catch-all utility buckets (`*Utils`, `*Helper`, `*Common`) for net-new code.
 - [CLN1e] Use platform defaults over custom patterns unless a proven requirement exists.
+- [CLN1f] Tracer bullet: build one tiny end-to-end slice through all layers first; validate it works; then expand — never build horizontal layers in isolation.
+- [CLN1g] KISS: simplest solution that works; achieve by removing, not adding
 
 ### [NAM1] Naming & Language
 - [NAM1a] Use intent-revealing names based on domain language.
@@ -190,6 +206,8 @@
 - [VER1c] Frontend CSS pipeline check is `npm --prefix frontend run build:css`.
 - [VER1d] If a Svelte/Vite app is present, verify with its local `dev`, `test`, `check`, and `build` scripts.
 - [VER1e] For UI changes, verify both desktop and mobile rendering paths for affected pages or routes.
+- [VER1f] Validate each slice: after completing an end-to-end slice ([CLN1f]), run verification checks before starting the next slice.
+- [VER1g] Contract cleanup handoff must name the canonical owner, list each duplicate owner removed, prove that tests/fixtures now bind or import the canonical owner, and explicitly call out any remaining duplicate owner as a blocker.
 
 ### [ENV1] Technology & Runtime Defaults
 - [ENV1a] Backend baseline is Spring Boot 4.0.x with Java 25 idioms.
