@@ -21,6 +21,7 @@ import net.findmybook.domain.similarity.BookSimilaritySectionKey;
 import net.findmybook.domain.similarity.BookSimilaritySourceDocument;
 import net.findmybook.support.ai.BookAiContentRequestQueue;
 import net.findmybook.support.ai.BookAiQueueCapacityExceededException;
+import net.findmybook.support.llm.LlmGatewayTier;
 import net.findmybook.service.event.BookUpsertEvent;
 import net.findmybook.util.HashUtils;
 import org.slf4j.Logger;
@@ -307,7 +308,8 @@ public class BookSimilarityEmbeddingService {
         }
         if (!missingInputs.isEmpty()) {
             List<List<Float>> generatedEmbeddings = embeddingClient.embedSections(
-                missingInputs.stream().map(BookSimilaritySectionInput::text).toList()
+                missingInputs.stream().map(BookSimilaritySectionInput::text).toList(),
+                LlmGatewayTier.BACKGROUND_BATCH
             );
             for (int index = 0; index < missingInputs.size(); index++) {
                 BookSimilaritySectionInput sectionInput = missingInputs.get(index);
