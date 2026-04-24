@@ -52,28 +52,31 @@ public final class SearchPageAssembler {
                                                         List<Book> rawResults,
                                                         PagingUtils.Window window) {
         List<Book> safeRawResults = rawResults == null ? List.of() : rawResults;
+        // Apply cover/resolution filtering before deduplication so a richer candidate later in the
+        // list is not suppressed by an earlier duplicate that fails the filter and ultimately gets
+        // dropped anyway. Dropping during filtering first keeps every key's best remaining candidate.
+        List<Book> preFilterCandidates = new ArrayList<>(safeRawResults.size());
+        for (Book book : safeRawResults) {
+            if (book != null && StringUtils.hasText(book.getId())) {
+                preFilterCandidates.add(book);
+            }
+        }
+        List<Book> eligibleCandidates = applyCoverPreferences(preFilterCandidates, coverSource, resolutionPreference);
+
         LinkedHashMap<String, Book> orderedCandidatesByKey = new LinkedHashMap<>();
         Map<String, Integer> insertionOrder = new LinkedHashMap<>();
         int position = 0;
 
-        for (Book book : safeRawResults) {
-            if (book == null || !StringUtils.hasText(book.getId())) {
-                continue;
-            }
-            Optional<String> candidateKey = CandidateKeyResolver.resolve(book);
-            if (candidateKey.isEmpty()) {
-                continue;
-            }
-            String resolvedKey = candidateKey.get();
-            if (orderedCandidatesByKey.containsKey(resolvedKey)) {
+        for (Book book : eligibleCandidates) {
+            String resolvedKey = CandidateKeyResolver.resolve(book).orElse(null);
+            if (resolvedKey == null || orderedCandidatesByKey.containsKey(resolvedKey)) {
                 continue;
             }
             orderedCandidatesByKey.put(resolvedKey, book);
             insertionOrder.put(book.getId(), position++);
         }
 
-        List<Book> uniqueResults = new ArrayList<>(orderedCandidatesByKey.values());
-        List<Book> filtered = applyCoverPreferences(uniqueResults, coverSource, resolutionPreference);
+        List<Book> filtered = new ArrayList<>(orderedCandidatesByKey.values());
         applyAuthorIntentPenalties(filtered, query);
 
         filtered.sort(buildSearchResultComparator(insertionOrder, orderBy));
