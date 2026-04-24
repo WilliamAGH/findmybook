@@ -49,7 +49,7 @@ class BookAiContentServiceTest {
         when(bookDataOrchestrator.enrichDescriptionForAiIfNeeded(bookId, detail, "short", 50))
             .thenReturn("short");
 
-        assertThatThrownBy(() -> service.generateAndPersist(bookId, delta -> {}))
+        assertThatThrownBy(() -> service.generateAndPersist(bookId, delta -> {}, net.findmybook.support.llm.LlmGatewayTier.LIVE_RENDER))
             .isInstanceOfSatisfying(BookAiGenerationException.class, exception -> {
                 assertThat(exception.errorCode()).isEqualTo(BookAiGenerationException.ErrorCode.DESCRIPTION_TOO_SHORT);
                 assertThat(exception.getMessage()).contains("missing or too short");
@@ -65,7 +65,7 @@ class BookAiContentServiceTest {
         when(bookDataOrchestrator.enrichDescriptionForAiIfNeeded(bookId, detail, "short", 50))
             .thenThrow(new IllegalStateException("All description enrichment providers failed"));
 
-        assertThatThrownBy(() -> service.generateAndPersist(bookId, delta -> {}))
+        assertThatThrownBy(() -> service.generateAndPersist(bookId, delta -> {}, net.findmybook.support.llm.LlmGatewayTier.LIVE_RENDER))
             .isInstanceOfSatisfying(BookAiGenerationException.class, exception -> {
                 assertThat(exception.errorCode()).isEqualTo(BookAiGenerationException.ErrorCode.ENRICHMENT_FAILED);
                 assertThat(exception.getMessage()).contains("enrichment failed");
