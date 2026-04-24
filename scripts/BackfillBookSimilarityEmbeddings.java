@@ -224,7 +224,8 @@ void printNearest(Connection connection, UUID anchorBookId, SimilarityContract c
     try (PreparedStatement statement = connection.prepareStatement(readSql("nearest-similarity-query.sql"))) {
         String profileHash = profileHash(contract, profile); String modelVersion = modelVersion(contract, profile, runtimeConfig.embeddingsModel());
         statement.setObject(1, anchorBookId); statement.setString(2, modelVersion); statement.setString(3, profileHash);
-        statement.setObject(4, anchorBookId); statement.setString(5, modelVersion); statement.setString(6, profileHash); statement.setInt(7, top);
+        statement.setObject(4, anchorBookId); statement.setString(5, modelVersion); statement.setString(6, profileHash);
+        statement.setObject(7, anchorBookId); statement.setInt(8, top);
         try (ResultSet rows = statement.executeQuery()) {
             System.out.println("Nearest fused similarity matches:"); int rank = 1;
             while (rows.next()) System.out.printf("%2d. %.6f  %s — %s%n", rank++, rows.getDouble("similarity"), rows.getString("title"), text(rows.getString("authors")));

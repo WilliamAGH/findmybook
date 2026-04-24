@@ -8,7 +8,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import net.findmybook.application.book.BookDetailResponseUseCase;
-import net.findmybook.application.book.RecommendationCardResponseUseCase;
 import net.findmybook.application.book.SimilarBooksResponseUseCase;
 import net.findmybook.application.ai.BookAiContentService;
 import net.findmybook.application.cover.BookCoverResolutionService;
@@ -97,12 +96,9 @@ abstract class AbstractBookControllerMvcTest {
     void setUpBookControllerSlice() {
         BookDetailResponseUseCase bookDetailResponseUseCase =
             new BookDetailResponseUseCase(bookAiContentService, recentlyViewedService);
-        RecommendationCardResponseUseCase recommendationCardResponseUseCase =
-            new RecommendationCardResponseUseCase();
         SimilarBooksResponseUseCase similarBooksResponseUseCase =
             new SimilarBooksResponseUseCase(
                 bookSearchService,
-                recommendationCardResponseUseCase,
                 recommendationService,
                 bookSimilarityEmbeddingService
             );
@@ -145,6 +141,8 @@ abstract class AbstractBookControllerMvcTest {
             .thenReturn(List.of());
         lenient().when(bookSearchService.hasActiveRecommendationCards(any(UUID.class)))
             .thenReturn(true);
+        lenient().when(bookSimilarityEmbeddingService.findNearestBooks(any(UUID.class), anyInt()))
+            .thenReturn(List.of());
         lenient().when(bookAiContentService.findCurrent(any(UUID.class)))
             .thenReturn(Optional.empty());
         lenient().when(recommendationService.regenerateSimilarBooks(any(), anyInt()))

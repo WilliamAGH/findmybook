@@ -61,9 +61,10 @@
   - Invalid `viewWindow` returns `400 Bad Request`.
 - `GET /api/books/{identifier}/similar` supports:
   - `limit` (optional; defaults `5`)
-  - Returns source-prioritized recommendation cards for the canonical book/work cluster.
+  - Returns recommendation-card DTOs for the canonical book/work cluster.
   - Runtime behavior:
-    - First checks persisted recommendation rows.
+    - First checks persisted book similarity embedding neighbors for the active model/profile contract and returns them in vector rank.
+    - When embedding rows are unavailable, it checks persisted recommendation rows.
     - If active rows are missing/stale, it triggers recommendation regeneration and then returns refreshed cards when available.
     - If regeneration cannot immediately persist refreshed cards, it may return older persisted rows as an explicit fallback.
     - The source book is also enqueued for hash-driven similarity embedding refresh; this side effect does not change the response shape.
