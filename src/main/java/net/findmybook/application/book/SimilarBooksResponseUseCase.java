@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import net.findmybook.controller.dto.RecommendationExtras;
 import net.findmybook.application.similarity.BookSimilarityEmbeddingService;
 import net.findmybook.application.similarity.BookSimilarityEmbeddingService.SimilarBookMatch;
 import net.findmybook.controller.dto.BookDto;
@@ -236,18 +237,10 @@ public class SimilarBooksResponseUseCase {
         return BookDtoMapper.fromCard(card.card(), buildRecommendationExtras(card));
     }
 
-    private static Map<String, Object> buildRecommendationExtras(RecommendationCard card) {
-        Map<String, Object> extras = new LinkedHashMap<>();
-        if (card.score() != null) {
-            extras.put("recommendation.score", card.score());
-        }
-        if (StringUtils.hasText(card.reason())) {
-            extras.put("recommendation.reason", card.reason());
-        }
-        if (StringUtils.hasText(card.source())) {
-            extras.put("recommendation.source", card.source());
-        }
-        return extras;
+    private static RecommendationExtras buildRecommendationExtras(RecommendationCard card) {
+        String reason = StringUtils.hasText(card.reason()) ? card.reason() : null;
+        String source = StringUtils.hasText(card.source()) ? card.source() : null;
+        return new RecommendationExtras(card.score(), reason, source);
     }
 
     private record SimilarCacheSnapshot(List<RecommendationCard> cards, boolean hasActiveRows) {

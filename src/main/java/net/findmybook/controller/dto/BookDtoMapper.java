@@ -167,6 +167,27 @@ public final class BookDtoMapper {
         return fromCard(card, Map.of());
     }
 
+    public static BookDto fromCard(BookCard card, RecommendationExtras extras) {
+        return fromCard(card, extrasToMap(extras));
+    }
+
+    private static Map<String, Object> extrasToMap(RecommendationExtras extras) {
+        if (extras == null || extras.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Object> map = new java.util.LinkedHashMap<>();
+        if (extras.score() != null) {
+            map.put("recommendation.score", extras.score());
+        }
+        if (extras.reason() != null && !extras.reason().isBlank()) {
+            map.put("recommendation.reason", extras.reason());
+        }
+        if (extras.source() != null && !extras.source().isBlank()) {
+            map.put("recommendation.source", extras.source());
+        }
+        return map;
+    }
+
     public static BookDto fromCard(BookCard card, Map<String, Object> extras) {
         if (card == null) {
             return null;
