@@ -17,7 +17,7 @@ import org.springframework.test.context.ActiveProfiles;
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
 @Documented
-@SpringBootTest(properties = "AI_DEFAULT_OPENAI_API_KEY=test")
+@SpringBootTest(properties = "openai.api.key=test")
 @ActiveProfiles("test")
 @EnabledIfEnvironmentVariable(named = "RUN_DB_TESTS", matches = "true")
 public @interface DbIntegrationTest {

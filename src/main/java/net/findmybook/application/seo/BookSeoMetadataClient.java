@@ -15,10 +15,9 @@ import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import net.findmybook.application.ai.BookAiGenerationException;
-import net.findmybook.util.UrlUtils;
+import net.findmybook.boot.OpenAiProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import tools.jackson.databind.ObjectMapper;
@@ -31,11 +30,9 @@ class BookSeoMetadataClient {
 
     private static final Logger log = LoggerFactory.getLogger(BookSeoMetadataClient.class);
     private static final String DEFAULT_PROVIDER = "openai";
-    private static final String DEFAULT_MODEL = "gpt-5-mini";
     private static final long MAX_COMPLETION_TOKENS = 220L;
     private static final int MAX_GENERATION_ATTEMPTS = 3;
     private static final double SAMPLING_TEMPERATURE = 0.2;
-    private static final String API_KEY_SENTINEL = "not-configured";
 
     private static final String SYSTEM_PROMPT = """
         You are an SEO metadata specialist for findmybook.net.
@@ -61,36 +58,31 @@ class BookSeoMetadataClient {
      */
     BookSeoMetadataClient(
         ObjectMapper objectMapper,
-        @Value("${AI_DEFAULT_OPENAI_API_KEY:${OPENAI_API_KEY:}}") String apiKey,
-        @Value("${AI_DEFAULT_OPENAI_BASE_URL:${OPENAI_BASE_URL:https://api.openai.com/v1}}") String baseUrl,
-        @Value("${AI_DEFAULT_SEO_LLM_MODEL:${AI_DEFAULT_LLM_MODEL:${OPENAI_MODEL:" + DEFAULT_MODEL + "}}}") String model,
-        @Value("${AI_DEFAULT_OPENAI_REQUEST_TIMEOUT_SECONDS:120}") long requestTimeoutSeconds,
-        @Value("${AI_DEFAULT_OPENAI_READ_TIMEOUT_SECONDS:75}") long readTimeoutSeconds
+        OpenAiProperties openAiProperties
     ) {
         this.parser = new SeoMetadataJsonParser(objectMapper);
-        this.configuredModel = StringUtils.hasText(model) ? model.trim() : DEFAULT_MODEL;
-        this.requestTimeoutSeconds = Math.max(1L, requestTimeoutSeconds);
-        this.readTimeoutSeconds = Math.max(1L, readTimeoutSeconds);
+        this.configuredModel = openAiProperties.model();
+        this.requestTimeoutSeconds = openAiProperties.requestTimeoutSeconds();
+        this.readTimeoutSeconds = openAiProperties.readTimeoutSeconds();
 
-        if (StringUtils.hasText(apiKey) && !API_KEY_SENTINEL.equals(apiKey.trim())) {
-            String resolvedBaseUrl = UrlUtils.normalizeOpenAiBaseUrl(baseUrl);
+        if (openAiProperties.isConfigured()) {
             this.openAiClient = OpenAIOkHttpClient.builder()
-                .apiKey(apiKey.trim())
-                .baseUrl(resolvedBaseUrl)
+                .apiKey(openAiProperties.apiKey())
+                .baseUrl(openAiProperties.baseUrl())
                 .maxRetries(0)
                 .build();
             this.available = true;
             log.info(
                 "Book SEO metadata generation service configured (model={}, baseUrl={})",
                 this.configuredModel,
-                resolvedBaseUrl
+                openAiProperties.baseUrl()
             );
             return;
         }
 
         this.openAiClient = null;
         this.available = false;
-        log.warn("Book SEO metadata generation service is disabled: no API key configured");
+        log.warn("Book SEO metadata generation service is disabled: missing OPENAI_API_KEY, OPENAI_BASE_URL, or OPENAI_MODEL");
     }
 
     /**

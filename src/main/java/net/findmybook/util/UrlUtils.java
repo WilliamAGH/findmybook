@@ -17,16 +17,16 @@ public final class UrlUtils {
 
     private UrlUtils() {
     }
-    
+
     /**
      * Normalizes HTTP URLs to HTTPS for security.
      * <p>
      * Uses modern Java Optional pattern for null-safety without boilerplate.
      * Leverages Java 21's enhanced string operations.
-     * 
+     *
      * @param url URL to normalize (may be null)
      * @return HTTPS URL, or null if input was null/blank
-     * 
+     *
      * @example
      * <pre>
      * UrlUtils.normalizeToHttps("http://example.com")  → "https://example.com"
@@ -40,17 +40,17 @@ public final class UrlUtils {
         if (url == null || url.isBlank()) {
             return null;
         }
-        
-        return url.startsWith("http://") 
-            ? "https://" + url.substring(7) 
+
+        return url.startsWith("http://")
+            ? "https://" + url.substring(7)
             : url;
     }
-    
+
     /**
      * Validates and normalizes URL using java.net.URI (built-in).
      * <p>
      * Leverages Java's built-in URI validation instead of regex.
-     * 
+     *
      * @param url URL to validate
      * @return Normalized valid URL, or null if invalid
      */
@@ -59,31 +59,31 @@ public final class UrlUtils {
         if (url == null || url.isBlank()) {
             return null;
         }
-        
+
         try {
             // Use built-in URI validation instead of custom regex
             URI uri = new URI(url);
-            
+
             // Ensure it's HTTP or HTTPS
-            if (!"http".equalsIgnoreCase(uri.getScheme()) && 
+            if (!"http".equalsIgnoreCase(uri.getScheme()) &&
                 !"https".equalsIgnoreCase(uri.getScheme())) {
                 return null;
             }
-            
+
             // Normalize to HTTPS
             return normalizeToHttps(uri.toString());
-            
+
         } catch (URISyntaxException ex) {
             log.debug("Invalid URL syntax '{}': {}", url, ex.getMessage());
             return null;
         }
     }
-    
+
     /**
      * Removes query parameters from URL.
      * <p>
      * Uses String.split() (built-in) instead of regex for performance.
-     * 
+     *
      * @param url URL with potential query parameters
      * @return URL without query parameters
      */
@@ -92,20 +92,20 @@ public final class UrlUtils {
         if (url == null || url.isBlank()) {
             return null;
         }
-        
-        return url.contains("?") 
-            ? url.split("\\?", 2)[0] 
+
+        return url.contains("?")
+            ? url.split("\\?", 2)[0]
             : url;
     }
-    
+
     /**
      * Checks if the given URL is an HTTP or HTTPS URL.
      * <p>
      * Performs case-insensitive check for http:// or https:// prefixes.
-     * 
+     *
      * @param url URL to check (may be null)
      * @return true if URL starts with http:// or https://, false otherwise
-     * 
+     *
      * @example
      * <pre>
      * UrlUtils.isHttpUrl("https://example.com")  → true
@@ -121,16 +121,16 @@ public final class UrlUtils {
         String lower = url.toLowerCase();
         return lower.startsWith("http://") || lower.startsWith("https://");
     }
-    
+
     /**
      * Extracts file extension from a URL string.
      * <p>
      * Handles URLs with query parameters by truncating them before extraction.
      * Validates that the extension is a known image format.
-     * 
+     *
      * @param url URL to extract extension from
      * @return File extension with leading dot (e.g., ".jpg"), defaults to ".jpg" if none found
-     * 
+     *
      * @example
      * <pre>
      * UrlUtils.extractFileExtension("https://example.com/image.png?size=large")  → ".png"
@@ -142,32 +142,32 @@ public final class UrlUtils {
     @Nullable
     public static String extractFileExtension(@Nullable String url) {
         String defaultExt = ".jpg";
-        
+
         if (url == null || !url.contains(".")) {
             return defaultExt;
         }
-        
+
         // Remove query parameters
         int queryIndex = url.indexOf("?");
         String urlWithoutParams = queryIndex > 0 ? url.substring(0, queryIndex) : url;
-        
+
         // Extract extension
         int lastDotIndex = urlWithoutParams.lastIndexOf(".");
         if (lastDotIndex > 0 && lastDotIndex < urlWithoutParams.length() - 1) {
             String ext = urlWithoutParams.substring(lastDotIndex).toLowerCase(java.util.Locale.ROOT);
-            
+
             // Validate known image extensions
             if (ext.matches("\\.(jpg|jpeg|png|gif|webp|svg|bmp|tiff)")) {
                 return ext;
             }
         }
-        
+
         return defaultExt;
     }
-    
+
     /**
      * Cleans trailing separators from URL using modern Java.
-     * 
+     *
      * @param url URL to clean
      * @return URL without trailing ? or & characters
      */
@@ -176,36 +176,14 @@ public final class UrlUtils {
         if (url == null || url.isBlank()) {
             return null;
         }
-        
+
         // Java 21: More efficient than regex for simple suffix removal
         String cleaned = url;
         while (cleaned.endsWith("&") || cleaned.endsWith("?")) {
             cleaned = cleaned.substring(0, cleaned.length() - 1);
         }
-        
+
         return cleaned.isEmpty() ? null : cleaned;
     }
 
-    /**
-     * Normalizes OpenAI-compatible API base URLs for SDK configuration.
-     *
-     * <p>Accepts plain host URLs, trims trailing slashes, strips legacy endpoint
-     * suffixes, and guarantees a trailing {@code /v1} segment.</p>
-     *
-     * @param rawUrl configured OpenAI base URL (nullable)
-     * @return normalized base URL ending in {@code /v1}
-     */
-    public static String normalizeOpenAiBaseUrl(@Nullable String rawUrl) {
-        if (rawUrl == null || rawUrl.isBlank()) {
-            return "https://api.openai.com/v1";
-        }
-        String normalized = rawUrl.trim();
-        while (normalized.endsWith("/")) {
-            normalized = normalized.substring(0, normalized.length() - 1);
-        }
-        if (normalized.endsWith("/embeddings")) {
-            normalized = normalized.substring(0, normalized.length() - "/embeddings".length());
-        }
-        return normalized.endsWith("/v1") ? normalized : normalized + "/v1";
-    }
 }

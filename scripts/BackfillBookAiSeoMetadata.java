@@ -32,10 +32,9 @@ import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.util.StringUtils;
 
-static final String OPENAI_BASE_URL_PROPERTY = "AI_DEFAULT_OPENAI_BASE_URL";
-static final String OPENAI_MODEL_PROPERTY = "AI_DEFAULT_LLM_MODEL";
-static final String OPENAI_SEO_MODEL_PROPERTY = "AI_DEFAULT_SEO_LLM_MODEL";
-static final String OPENAI_API_KEY_PROPERTY = "AI_DEFAULT_OPENAI_API_KEY";
+static final String OPENAI_BASE_URL_VARIABLE = "OPENAI_BASE_URL";
+static final String OPENAI_MODEL_VARIABLE = "OPENAI_MODEL";
+static final String OPENAI_API_KEY_VARIABLE = "OPENAI_API_KEY";
 
 void main(String[] args) {
     if (args.length < 1) {
@@ -44,6 +43,7 @@ void main(String[] args) {
 
     ParsedOptions options = parseOptions(args);
     applyRuntimeOverrides(options);
+    FindmybookApplication.prepareExternalConfiguration();
 
     try (ConfigurableApplicationContext context = new SpringApplicationBuilder(FindmybookApplication.class)
         .web(WebApplicationType.NONE)
@@ -264,24 +264,22 @@ String requiredOptionValue(String rawOption, String optionName) {
 
 void applyRuntimeOverrides(ParsedOptions options) {
     if (StringUtils.hasText(options.baseUrl())) {
-        System.setProperty(OPENAI_BASE_URL_PROPERTY, options.baseUrl().trim());
-        System.out.printf("Applied runtime override %s=%s%n", OPENAI_BASE_URL_PROPERTY, options.baseUrl().trim());
+        System.setProperty(OPENAI_BASE_URL_VARIABLE, options.baseUrl().trim());
+        System.out.printf("Applied runtime override %s=%s%n", OPENAI_BASE_URL_VARIABLE, options.baseUrl().trim());
     }
 
     if (StringUtils.hasText(options.model())) {
         String model = options.model().trim();
-        System.setProperty(OPENAI_MODEL_PROPERTY, model);
-        System.setProperty(OPENAI_SEO_MODEL_PROPERTY, model);
-        System.out.printf("Applied runtime override %s=%s%n", OPENAI_MODEL_PROPERTY, model);
-        System.out.printf("Applied runtime override %s=%s%n", OPENAI_SEO_MODEL_PROPERTY, model);
+        System.setProperty(OPENAI_MODEL_VARIABLE, model);
+        System.out.printf("Applied runtime override %s=%s%n", OPENAI_MODEL_VARIABLE, model);
     }
 
     if (StringUtils.hasText(options.apiKey())) {
         String apiKey = options.apiKey().trim();
-        System.setProperty(OPENAI_API_KEY_PROPERTY, apiKey);
+        System.setProperty(OPENAI_API_KEY_VARIABLE, apiKey);
         System.out.printf(
             "Applied runtime override %s=%s%n",
-            OPENAI_API_KEY_PROPERTY,
+            OPENAI_API_KEY_VARIABLE,
             redactSecret(apiKey)
         );
     }
