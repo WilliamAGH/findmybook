@@ -27,8 +27,9 @@ set qwen_4b_fp16 = coalesce(qwen_4b_fp16, embedding),
 where qwen_4b_fp16 is null
    or computed_at is null;
 
-create unique index if not exists uq_book_similarity_vectors_source_version
-  on book_similarity_vectors (source_type, book_id, model_version, profile_hash);
+-- Note: uniqueness on (book_id, model_version, profile_hash) is already enforced by
+-- uq_book_similarity_vectors_current_profile from migration 50. Because source_type is
+-- pinned to 'book' by the CHECK above, a four-column variant would be strictly redundant.
 
 create index if not exists idx_book_similarity_vectors_source_hash
   on book_similarity_vectors (source_type, model_version, profile_hash, source_hash);
