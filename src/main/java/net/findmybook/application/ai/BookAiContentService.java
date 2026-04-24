@@ -13,12 +13,15 @@ import com.openai.models.chat.completions.ChatCompletionMessageParam;
 import com.openai.models.chat.completions.ChatCompletionSystemMessageParam;
 import com.openai.models.chat.completions.ChatCompletionUserMessageParam;
 import java.time.Duration;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Consumer;
 import net.findmybook.adapters.persistence.BookAiContentRepository;
 import net.findmybook.boot.OpenAiProperties;
+import net.findmybook.support.llm.LlmGatewayTier;
 import net.findmybook.domain.ai.BookAiContent;
 import net.findmybook.domain.ai.BookAiContentSnapshot;
 import net.findmybook.dto.BookDetail;
@@ -68,7 +71,7 @@ public class BookAiContentService {
     private final BookSearchService bookSearchService;
     private final BookDataOrchestrator bookDataOrchestrator;
     private final AiContentJsonParser jsonParser;
-    private final OpenAIClient openAiClient;
+    private final Map<LlmGatewayTier, OpenAIClient> clientsByTier;
     private final boolean available;
     private final String configuredModel;
     private final long requestTimeoutSeconds;
@@ -93,17 +96,27 @@ public class BookAiContentService {
         this.readTimeoutSeconds = openAiProperties.readTimeoutSeconds();
 
         if (openAiProperties.isConfigured()) {
-            this.openAiClient = OpenAIOkHttpClient.builder()
-                .apiKey(openAiProperties.apiKey())
-                .baseUrl(openAiProperties.baseUrl())
-                .maxRetries(0)
-                .build();
+            EnumMap<LlmGatewayTier, OpenAIClient> clients = new EnumMap<>(LlmGatewayTier.class);
+            for (LlmGatewayTier tier : LlmGatewayTier.values()) {
+                clients.put(tier, OpenAIOkHttpClient.builder()
+                    .apiKey(openAiProperties.apiKey())
+                    .baseUrl(openAiProperties.baseUrl())
+                    .maxRetries(0)
+                    .putHeader(LlmGatewayTier.HEADER_NAME, tier.headerValue())
+                    .build());
+            }
+            this.clientsByTier = Map.copyOf(clients);
             this.available = true;
-            log.info("Book AI content service configured (model={}, baseUrl={})", this.configuredModel, openAiProperties.baseUrl());
+            log.info(
+                "Book AI content service configured (model={}, baseUrl={}, tiers={})",
+                this.configuredModel,
+                openAiProperties.baseUrl(),
+                clients.keySet()
+            );
             return;
         }
 
-        this.openAiClient = null;
+        this.clientsByTier = Map.of();
         this.available = false;
         log.warn("Book AI content service is disabled: missing OPENAI_API_KEY, OPENAI_BASE_URL, or OPENAI_MODEL");
     }
@@ -118,12 +131,20 @@ public class BookAiContentService {
         return repository.fetchCurrent(bookId);
     }
 
-    /** Generates fresh AI content, streams text deltas, and persists a new current version. */
-    public GeneratedContent generateAndPersist(UUID bookId, Consumer<String> onDelta) {
+    /**
+     * Generates fresh AI content, streams text deltas, and persists a new current version.
+     *
+     * @param bookId canonical book UUID
+     * @param onDelta callback for streamed model deltas
+     * @param tier gateway priority tier controlling the {@code X-Tier} header on outbound calls
+     * @return generated content + persisted snapshot
+     */
+    public GeneratedContent generateAndPersist(UUID bookId, Consumer<String> onDelta, LlmGatewayTier tier) {
         ensureAvailable();
+        requireTier(tier);
         String prompt = buildPrompt(loadPromptContext(bookId));
         String promptHash = sha256(prompt);
-        return generateAndPersistFromPrompt(bookId, prompt, promptHash, onDelta);
+        return generateAndPersistFromPrompt(bookId, prompt, promptHash, onDelta, tier);
     }
 
     /**
@@ -131,30 +152,38 @@ public class BookAiContentService {
      *
      * @param bookId canonical book UUID
      * @param onDelta callback for streamed model deltas
+     * @param tier gateway priority tier controlling the {@code X-Tier} header on outbound calls
      * @return generation outcome with generated/skipped semantics
      */
-    public GenerationOutcome generateAndPersistIfPromptChanged(UUID bookId, Consumer<String> onDelta) {
+    public GenerationOutcome generateAndPersistIfPromptChanged(UUID bookId, Consumer<String> onDelta, LlmGatewayTier tier) {
         ensureAvailable();
+        requireTier(tier);
         String prompt = buildPrompt(loadPromptContext(bookId));
         String promptHash = sha256(prompt);
         Optional<String> existingPromptHash = repository.fetchCurrentPromptHash(bookId);
         if (existingPromptHash.isPresent() && existingPromptHash.get().equals(promptHash)) {
             return GenerationOutcome.skipped(bookId, promptHash, findCurrent(bookId));
         }
-        GeneratedContent generated = generateAndPersistFromPrompt(bookId, prompt, promptHash, onDelta);
+        GeneratedContent generated = generateAndPersistFromPrompt(bookId, prompt, promptHash, onDelta, tier);
         return GenerationOutcome.generated(bookId, promptHash, Optional.of(generated.snapshot()));
     }
 
-    private GeneratedContent generateAndPersistFromPrompt(UUID bookId, String prompt, String promptHash, Consumer<String> onDelta) {
+    private static void requireTier(LlmGatewayTier tier) {
+        if (tier == null) {
+            throw new IllegalArgumentException("tier is required");
+        }
+    }
+
+    private GeneratedContent generateAndPersistFromPrompt(UUID bookId, String prompt, String promptHash, Consumer<String> onDelta, LlmGatewayTier tier) {
         BookAiGenerationException lastGenerationFailure = null;
         for (int attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt++) {
             try {
-                return generateAndPersistSingleAttempt(bookId, prompt, promptHash, onDelta);
+                return generateAndPersistSingleAttempt(bookId, prompt, promptHash, onDelta, tier);
             } catch (BookAiGenerationException generationFailure) {
                 lastGenerationFailure = generationFailure;
                 if (attempt < MAX_GENERATION_ATTEMPTS && isRetryableGenerationFailure(generationFailure)) {
-                    log.warn("AI generation attempt {}/{} failed for bookId={} model={} (will retry): {}",
-                        attempt, MAX_GENERATION_ATTEMPTS, bookId, configuredModel, generationFailure.getMessage());
+                    log.warn("AI generation attempt {}/{} failed for bookId={} model={} tier={} (will retry): {}",
+                        attempt, MAX_GENERATION_ATTEMPTS, bookId, configuredModel, tier.headerValue(), generationFailure.getMessage());
                     continue;
                 }
                 break;
@@ -168,7 +197,12 @@ public class BookAiContentService {
         throw lastGenerationFailure;
     }
 
-    private GeneratedContent generateAndPersistSingleAttempt(UUID bookId, String prompt, String promptHash, Consumer<String> onDelta) {
+    private GeneratedContent generateAndPersistSingleAttempt(UUID bookId, String prompt, String promptHash, Consumer<String> onDelta, LlmGatewayTier tier) {
+        OpenAIClient tieredClient = clientsByTier.get(tier);
+        if (tieredClient == null) {
+            throw new BookAiGenerationException(BookAiGenerationException.ErrorCode.GENERATION_FAILED,
+                "No AI content client configured for tier %s".formatted(tier));
+        }
         ChatCompletionCreateParams params = ChatCompletionCreateParams.builder()
             .model(ChatModel.of(configuredModel))
             .messages(List.of(
@@ -183,7 +217,7 @@ public class BookAiContentService {
             .timeout(Timeout.builder().request(Duration.ofSeconds(requestTimeoutSeconds)).read(Duration.ofSeconds(readTimeoutSeconds)).build())
             .build();
         StringBuilder fullResponseBuilder = new StringBuilder();
-        try (StreamResponse<ChatCompletionChunk> stream = openAiClient.chat().completions().createStreaming(params, options)) {
+        try (StreamResponse<ChatCompletionChunk> stream = tieredClient.chat().completions().createStreaming(params, options)) {
             stream.stream().forEach(chunk -> {
                 if (chunk.choices().isEmpty()) {
                     return;
@@ -196,9 +230,9 @@ public class BookAiContentService {
             });
         } catch (OpenAIException ex) {
             String detail = BookAiGenerationException.describeApiError(ex);
-            log.error("AI streaming failed for bookId={} model={}: {}", bookId, configuredModel, detail);
+            log.error("AI streaming failed for bookId={} model={} tier={}: {}", bookId, configuredModel, tier.headerValue(), detail);
             throw new BookAiGenerationException(BookAiGenerationException.ErrorCode.GENERATION_FAILED,
-                "AI content generation failed (%s): %s".formatted(configuredModel, detail), ex);
+                "AI content generation failed (%s, tier=%s): %s".formatted(configuredModel, tier.headerValue(), detail), ex);
         }
 
         String rawMessage = fullResponseBuilder.toString();
@@ -260,7 +294,7 @@ public class BookAiContentService {
     }
 
     private void ensureAvailable() {
-        if (!available || openAiClient == null) {
+        if (!available || clientsByTier.isEmpty()) {
             throw new IllegalStateException("AI content service is not configured");
         }
     }
