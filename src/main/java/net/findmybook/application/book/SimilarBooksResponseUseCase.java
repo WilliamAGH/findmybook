@@ -3,6 +3,7 @@ package net.findmybook.application.book;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import net.findmybook.application.similarity.BookSimilarityEmbeddingService;
 import net.findmybook.controller.dto.BookDto;
 import net.findmybook.controller.dto.BookDtoMapper;
 import net.findmybook.model.Book;
@@ -28,13 +29,16 @@ public class SimilarBooksResponseUseCase {
     private final BookSearchService bookSearchService;
     private final RecommendationCardResponseUseCase recommendationCardResponseUseCase;
     private final RecommendationService recommendationService;
+    private final BookSimilarityEmbeddingService bookSimilarityEmbeddingService;
 
     public SimilarBooksResponseUseCase(BookSearchService bookSearchService,
                                        RecommendationCardResponseUseCase recommendationCardResponseUseCase,
-                                       RecommendationService recommendationService) {
+                                       RecommendationService recommendationService,
+                                       BookSimilarityEmbeddingService bookSimilarityEmbeddingService) {
         this.bookSearchService = bookSearchService;
         this.recommendationCardResponseUseCase = recommendationCardResponseUseCase;
         this.recommendationService = recommendationService;
+        this.bookSimilarityEmbeddingService = bookSimilarityEmbeddingService;
     }
 
     /**
@@ -46,6 +50,7 @@ public class SimilarBooksResponseUseCase {
      * @return cached or regenerated recommendation DTOs
      */
     public Mono<List<BookDto>> resolveSimilarBooks(String identifier, UUID sourceUuid, int safeLimit) {
+        bookSimilarityEmbeddingService.enqueueDemandRefresh(sourceUuid);
         return Mono.fromCallable(() -> {
                 List<net.findmybook.dto.RecommendationCard> cards = bookSearchService.fetchRecommendationCards(sourceUuid, safeLimit);
                 boolean hasActiveRows = bookSearchService.hasActiveRecommendationCards(sourceUuid);

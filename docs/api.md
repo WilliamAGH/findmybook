@@ -66,6 +66,7 @@
     - First checks persisted recommendation rows.
     - If active rows are missing/stale, it triggers recommendation regeneration and then returns refreshed cards when available.
     - If regeneration cannot immediately persist refreshed cards, it may return older persisted rows as an explicit fallback.
+    - The source book is also enqueued for hash-driven similarity embedding refresh; this side effect does not change the response shape.
 - Unsupported `orderBy` values return `400 Bad Request`.
 - Response includes deterministic pagination metadata plus `queryHash` for realtime routing.
 - Search result ordering always applies cover tier first:

@@ -13,6 +13,7 @@ import net.findmybook.application.book.SimilarBooksResponseUseCase;
 import net.findmybook.application.ai.BookAiContentService;
 import net.findmybook.application.cover.BookCoverResolutionService;
 import net.findmybook.application.cover.BrowserCoverIngestUseCase;
+import net.findmybook.application.similarity.BookSimilarityEmbeddingService;
 import net.findmybook.dto.BookDetail;
 import net.findmybook.dto.EditionSummary;
 import net.findmybook.model.Book;
@@ -69,6 +70,9 @@ abstract class AbstractBookControllerMvcTest {
     protected RecommendationService recommendationService;
 
     @Mock
+    protected BookSimilarityEmbeddingService bookSimilarityEmbeddingService;
+
+    @Mock
     protected BookAiContentService bookAiContentService;
 
     @Mock
@@ -96,7 +100,12 @@ abstract class AbstractBookControllerMvcTest {
         RecommendationCardResponseUseCase recommendationCardResponseUseCase =
             new RecommendationCardResponseUseCase();
         SimilarBooksResponseUseCase similarBooksResponseUseCase =
-            new SimilarBooksResponseUseCase(bookSearchService, recommendationCardResponseUseCase, recommendationService);
+            new SimilarBooksResponseUseCase(
+                bookSearchService,
+                recommendationCardResponseUseCase,
+                recommendationService,
+                bookSimilarityEmbeddingService
+            );
         BookController.BookControllerServices services = new BookController.BookControllerServices(
             bookSearchService,
             bookIdentifierResolver,

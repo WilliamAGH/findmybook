@@ -8,10 +8,10 @@ Key variables in `.env`:
 | `SERVER_PORT` | App server port |
 | `SPRING_DATASOURCE_*` | Database connection |
 | `DATABASE_URL` / `POSTGRES_URL` / `JDBC_DATABASE_URL` | Fallback database URL inputs normalized into `spring.datasource.url` when `SPRING_DATASOURCE_URL` is not set |
-| `AI_DEFAULT_OPENAI_API_KEY` / `OPENAI_API_KEY` | OpenAI API key for AI generation |
-| `AI_DEFAULT_OPENAI_BASE_URL` / `OPENAI_BASE_URL` | OpenAI-compatible base URL (`https://api.openai.com/v1` by default) |
-| `AI_DEFAULT_LLM_MODEL` / `OPENAI_MODEL` | Default AI model for book content |
-| `AI_DEFAULT_SEO_LLM_MODEL` | Optional override model for SEO title/description generation (falls back to `AI_DEFAULT_LLM_MODEL`) |
+| `OPENAI_API_KEY` | OpenAI-compatible API key for generation and embeddings |
+| `OPENAI_BASE_URL` | OpenAI-compatible base URL for generation and embeddings |
+| `OPENAI_MODEL` | Canonical inference model for AI book content and SEO metadata generation |
+| `OPENAI_EMBEDDINGS_MODEL` | Canonical embeddings model for vector calculations |
 | `AI_DEFAULT_MAX_PARALLEL` | Max concurrent outbound AI requests (queue executor cap) |
 | `APP_AI_QUEUE_BACKGROUND_MAX_PENDING` | Max pending background ingestion AI jobs (default `100000`) |
 | `APP_SEO_MAX_DESCRIPTION_LENGTH` | Fallback book meta description truncation length when no persisted SEO row exists (default `160`) |
@@ -20,6 +20,12 @@ Key variables in `.env`:
 | `APP_WEEKLY_REFRESH_NYT_PHASE_ENABLED` | Enables/disables the NYT phase inside the weekly orchestrator |
 | `APP_WEEKLY_REFRESH_RECOMMENDATION_PHASE_ENABLED` | Enables/disables recommendation-cache refresh inside the weekly orchestrator |
 | `APP_RECOMMENDATIONS_REFRESH_TTL_DAYS` | TTL days applied during full recommendation refresh (`book_recommendations.expires_at`) |
+| `APP_SIMILARITY_EMBEDDINGS_ENABLED` | Enables lightweight scheduled refresh for missing/stale book similarity embeddings (default `true`) |
+| `APP_SIMILARITY_EMBEDDINGS_INITIAL_DELAY_MS` | Initial delay before the embedding catch-up scheduler starts (default `30000`) |
+| `APP_SIMILARITY_EMBEDDINGS_FIXED_DELAY_MS` | Delay between embedding catch-up scheduler passes (default `60000`) |
+| `APP_SIMILARITY_EMBEDDINGS_REFRESH_BATCH_SIZE` | Number of candidate books inspected per scheduler pass (default `25`) |
+| `APP_SIMILARITY_EMBEDDINGS_SCHEDULER_ENQUEUE_LIMIT` | Maximum embedding refresh tasks enqueued per scheduler pass (default `25`) |
+| `APP_SIMILARITY_EMBEDDINGS_SCHEDULER_MAX_PENDING` | Central AI queue pending-depth ceiling that pauses scheduled embedding enqueue (default `100`) |
 | `APP_NYT_SCHEDULER_STANDALONE_ENABLED` | Enables standalone NYT `@Scheduled` execution when not using the weekly orchestrator |
 | `GOOGLE_BOOKS_API_KEY` | Book data source |
 | `S3_*` | S3 storage (if used) |
@@ -72,6 +78,13 @@ Startup now fails fast with a clear error when database-required profiles are ac
 - Foreground Svelte-triggered AI requests are always dequeued before ingestion/background requests.
 - Background ingestion jobs are bounded by `APP_AI_QUEUE_BACKGROUND_MAX_PENDING` and are dropped with explicit warnings when the cap is reached.
 - Foreground page-load AI requests are not blocked by the background pending cap.
+
+## Book Similarity Embedding Refresh
+
+- Book similarity embeddings use the central AI queue for outbound embedding calls; foreground AI tasks keep priority over scheduled embedding refresh.
+- Missing/stale work is derived from Postgres source hashes and timestamps, so container restarts do not lose outstanding embedding work.
+- On-demand similar-book requests enqueue the source book for refresh, while the scheduler continuously backfills bounded missing/stale batches.
+- The scheduler pauses when central AI queue pending depth reaches `APP_SIMILARITY_EMBEDDINGS_SCHEDULER_MAX_PENDING`, preventing large backlogs from filling memory faster than work drains.
 
 ## Weekly Catalog Refresh
 

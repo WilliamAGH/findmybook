@@ -7,6 +7,12 @@
       "description": "Application configuration properties"
     },
     {
+      "name": "app.similarity.embeddings",
+      "type": "net.findmybook.boot.BookSimilarityEmbeddingProperties",
+      "sourceType": "net.findmybook.boot.BookSimilarityEmbeddingProperties",
+      "description": "Book similarity embedding refresh configuration properties"
+    },
+    {
       "name": "google",
       "type": "java.lang.Object",
       "sourceType": "net.findmybook",
@@ -43,6 +49,30 @@
       "description": "S3 compatible storage configuration properties"
     },
     {
+      "name": "openai",
+      "type": "net.findmybook.boot.OpenAiProperties",
+      "sourceType": "net.findmybook.boot.OpenAiProperties",
+      "description": "OpenAI-compatible generation and embeddings configuration properties"
+    },
+    {
+      "name": "openai.api",
+      "type": "net.findmybook.boot.OpenAiProperties$Api",
+      "sourceType": "net.findmybook.boot.OpenAiProperties",
+      "description": "OpenAI-compatible API credential configuration properties"
+    },
+    {
+      "name": "openai.base",
+      "type": "net.findmybook.boot.OpenAiProperties$Base",
+      "sourceType": "net.findmybook.boot.OpenAiProperties",
+      "description": "OpenAI-compatible API base URL configuration properties"
+    },
+    {
+      "name": "openai.embeddings",
+      "type": "net.findmybook.boot.OpenAiProperties$Embeddings",
+      "sourceType": "net.findmybook.boot.OpenAiProperties",
+      "description": "OpenAI-compatible embeddings configuration properties"
+    },
+    {
       "name": "app.cover-cache",
       "type": "java.lang.Object",
       "description": "Book cover caching configuration properties"
@@ -51,11 +81,6 @@
       "name": "app.cache",
       "type": "java.lang.Object",
       "description": "Application caching configuration properties"
-    },
-    {
-      "name": "app.embedding",
-      "type": "java.lang.Object",
-      "description": "Embedding service configuration properties"
     },
     {
       "name": "app.environment",
@@ -262,9 +287,42 @@
       "defaultValue": "24h"
     },
     {
-      "name": "app.embedding.service.url",
+      "name": "openai.api.key",
       "type": "java.lang.String",
-      "description": "URL for external embedding service"
+      "sourceType": "net.findmybook.boot.OpenAiProperties",
+      "description": "OpenAI-compatible API key shared by generation and embeddings"
+    },
+    {
+      "name": "openai.base.url",
+      "type": "java.lang.String",
+      "sourceType": "net.findmybook.boot.OpenAiProperties",
+      "description": "OpenAI-compatible API base URL shared by generation and embeddings"
+    },
+    {
+      "name": "openai.model",
+      "type": "java.lang.String",
+      "sourceType": "net.findmybook.boot.OpenAiProperties",
+      "description": "Inference model for AI book content and SEO metadata generation"
+    },
+    {
+      "name": "openai.embeddings.model",
+      "type": "java.lang.String",
+      "sourceType": "net.findmybook.boot.OpenAiProperties",
+      "description": "Embeddings model for vector calculations"
+    },
+    {
+      "name": "openai.request-timeout-seconds",
+      "type": "java.lang.Long",
+      "sourceType": "net.findmybook.boot.OpenAiProperties",
+      "description": "Total timeout in seconds for outbound OpenAI-compatible requests",
+      "defaultValue": 120
+    },
+    {
+      "name": "openai.read-timeout-seconds",
+      "type": "java.lang.Long",
+      "sourceType": "net.findmybook.boot.OpenAiProperties",
+      "description": "Read timeout in seconds for outbound OpenAI-compatible requests",
+      "defaultValue": 75
     },
     {
       "name": "app.environment.mode",
@@ -403,12 +461,6 @@
       "name": "app.feature.year-filtering.enabled",
       "type": "java.lang.Boolean",
       "description": "Enable/disable year filtering feature",
-      "defaultValue": false
-    },
-    {
-      "name": "app.feature.embedding-service.enabled",
-      "type": "java.lang.Boolean",
-      "description": "Enable/disable embedding service feature",
       "defaultValue": false
     },
     {
@@ -611,6 +663,42 @@
       "type": "java.lang.Boolean",
       "description": "Persist external API search results to Postgres asynchronously so they're available when users click on them",
       "defaultValue": true
+    },
+    {
+      "name": "app.similarity.embeddings.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Enable scheduled refresh for missing or stale book similarity embeddings",
+      "defaultValue": true
+    },
+    {
+      "name": "app.similarity.embeddings.fixed-delay-ms",
+      "type": "java.lang.Long",
+      "description": "Delay in milliseconds between book similarity embedding scheduler passes",
+      "defaultValue": 60000
+    },
+    {
+      "name": "app.similarity.embeddings.initial-delay-ms",
+      "type": "java.lang.Long",
+      "description": "Initial delay in milliseconds before book similarity embedding refresh starts",
+      "defaultValue": 30000
+    },
+    {
+      "name": "app.similarity.embeddings.refresh-batch-size",
+      "type": "java.lang.Integer",
+      "description": "Number of candidate books inspected per embedding scheduler pass",
+      "defaultValue": 25
+    },
+    {
+      "name": "app.similarity.embeddings.scheduler-enqueue-limit",
+      "type": "java.lang.Integer",
+      "description": "Maximum book similarity embedding refresh tasks queued per scheduler pass",
+      "defaultValue": 25
+    },
+    {
+      "name": "app.similarity.embeddings.scheduler-max-pending",
+      "type": "java.lang.Integer",
+      "description": "Central AI queue pending-depth ceiling that pauses scheduled book similarity embedding enqueue",
+      "defaultValue": 100
     }
   ],
   "hints": []

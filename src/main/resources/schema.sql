@@ -41,3 +41,6 @@
 \ir ../../../migrations/46_propagate_grayscale_to_siblings.sql
 \ir ../../../migrations/47_book_seo_metadata.sql
 \ir ../../../migrations/48_book_ai_content_quality_guards.sql
+\ir ../../../migrations/49_category_dedup_cleanup.sql
+\ir ../../../migrations/50_book_similarity_embeddings.sql
+\ir ../../../migrations/51_book_similarity_hybrid_contract.sql

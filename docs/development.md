@@ -29,6 +29,8 @@
 | `make backfill-ai-seo LIMIT=25 REGENERATE=true` | Backfill 25 eligible books and force AI regeneration even when prompt hash is unchanged |
 | `BACKFILL_BASE_URL=<url> BACKFILL_MODEL=<model> BACKFILL_API_KEY=<key> make backfill-ai-seo` | Override `.env` AI URL/model/key for this run only (single command line) |
 | `make backfill-ai-seo-one BOOK_IDENTIFIER=<uuid-or-slug-or-isbn>` | Backfill one eligible book (same 50-char minimum description requirement) |
+| `make book-similarity-backfill SIMILARITY_LIMIT=250` | Backfill section embeddings + fused similarity vectors for a bounded cohort |
+| `make book-similarity-anchor BOOK_IDENTIFIER=<uuid-or-slug-or-isbn>` | Backfill an anchor-centered candidate pool and print nearest similarity matches |
 | `./scripts/fix-s3-object-acl.sh --scope all --progress-every 25` | Run full ACL repair with denser progress output (every 25 matched keys) |
 | `./scripts/fix-s3-object-acl.sh --scope images --prefix images/book-covers/ --dry-run true` | Run the ACL repair script directly with explicit scope/prefix |
 
@@ -46,3 +48,9 @@ export GRADLE_OPTS="-XX:+EnableDynamicAgentLoading -Xshare:off"
 - `check` depends on frontend `npm run check` and `npm run test`.
 - Use `-PskipFrontend` for backend-only loops when needed:
   - Example: `./gradlew test -PskipFrontend`
+
+## Book Similarity Embeddings
+
+- Runtime refresh is enabled by default through `APP_SIMILARITY_EMBEDDINGS_ENABLED=true`.
+- The scheduler enqueues small missing/stale batches through the central AI queue; tune local loops with `APP_SIMILARITY_EMBEDDINGS_FIXED_DELAY_MS`, `APP_SIMILARITY_EMBEDDINGS_REFRESH_BATCH_SIZE`, and `APP_SIMILARITY_EMBEDDINGS_SCHEDULER_MAX_PENDING`.
+- Manual make targets remain useful for bounded experiments before widening the runtime scheduler.

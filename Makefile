@@ -278,3 +278,4 @@ fix-s3-acl-public-all:
 		--verbose "$(S3_ACL_VERBOSE)"
 
 include backfill-ai-seo.mk
+include book-similarity.mk
