@@ -106,7 +106,7 @@ public class ThemePreferenceController {
         return themeCookie.map(Cookie::getValue).orElse(null);
     }
 
-    private record ThemePreferenceResponse(String theme, String source) {
+    public record ThemePreferenceResponse(String theme, String source) {
         static ThemePreferenceResponse from(String theme) {
             return theme == null ? system() : user(theme);
         }
