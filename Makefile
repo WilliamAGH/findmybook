@@ -14,7 +14,7 @@ S3_ACL_PREFIX ?=
 S3_ACL_DRY_RUN ?= false
 S3_ACL_VERBOSE ?= false
 
-.PHONY: run build test lint kill-port migrate-books cluster-books check-s3-in-db fix-s3-acl-public-all db-verify-author-constraints db-verify-book-title-constraints
+.PHONY: run build test lint lint-ast kill-port hooks migrate-books cluster-books check-s3-in-db fix-s3-acl-public-all db-verify-author-constraints db-verify-book-title-constraints
 
 # Kill any process currently listening on $(PORT)
 kill-port:
@@ -39,7 +39,15 @@ build:
 test:
 	$(GRADLEW) test
 
-lint:
+hooks: ## Install git hooks via lefthook
+	@if command -v lefthook >/dev/null 2>&1; then \
+		lefthook install -f; \
+	else \
+		echo "lefthook not found — install with: brew install lefthook"; \
+		echo "Skipping hook installation; commits/pushes will proceed without gates."; \
+	fi
+
+lint: lint-ast
 	@echo "Running lint/format..."
 	@if $(GRADLEW) -q tasks --all | grep -q "spotlessApply"; then \
 	  $(GRADLEW) spotlessApply; \
@@ -48,6 +56,13 @@ lint:
 	fi
 	@echo "Running frontend oxlint..."
 	@npm --prefix frontend run lint:ox
+
+lint-ast: ## Run ast-grep rules for Java naming and type safety
+	@if [ ! -x frontend/node_modules/.bin/ast-grep ]; then \
+	  echo "ast-grep not installed; run 'npm --prefix frontend install' first"; \
+	  exit 1; \
+	fi
+	@frontend/node_modules/.bin/ast-grep scan -c sgconfig.yml src/main/java/
 
 
 # Fast S3 -> Postgres books migration (standalone Node.js script - v2 refactored)
@@ -267,3 +282,4 @@ fix-s3-acl-public-all:
 		--verbose "$(S3_ACL_VERBOSE)"
 
 include backfill-ai-seo.mk
+include book-similarity.mk

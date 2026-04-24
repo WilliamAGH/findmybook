@@ -7,6 +7,7 @@ import net.findmybook.application.seo.BookSeoMetadataGenerationService;
 import net.findmybook.service.event.BookUpsertEvent;
 import net.findmybook.support.ai.BookAiContentRequestQueue;
 import net.findmybook.support.ai.BookAiQueueCapacityExceededException;
+import net.findmybook.support.llm.LlmGatewayTier;
 import org.springframework.dao.DataAccessException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -85,7 +86,7 @@ public class BookAiIngestionMetadataCoordinator {
             try {
                 BookAiContentService.GenerationOutcome aiOutcome =
                     bookAiContentService.generateAndPersistIfPromptChanged(bookId, ignoredDelta -> {
-                    });
+                    }, LlmGatewayTier.BACKGROUND_BATCH);
                 if (aiOutcome.generated()) {
                     log.info("Generated ingestion AI summary for book {}", bookId);
                 } else {

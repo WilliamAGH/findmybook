@@ -22,12 +22,12 @@ spring:
       leak-detection-threshold: 60000
   main:
     allow-bean-definition-overriding: true
-  
+
   jpa:
     hibernate:
       ddl-auto: validate # PRODUCTION-SAFE: Only validate schema, never auto-create/update
     show-sql: false # PRODUCTION-SAFE: No SQL logging (security/performance)
-  
+
   sql:
     init:
       mode: never # PRODUCTION-SAFE: Schema initialization disabled to prevent data loss
@@ -35,17 +35,17 @@ spring:
   mvc:
     problemdetails:
       enabled: true
-  
+
   profiles:
     default: prod # PRODUCTION-SAFE: Default to prod if no profile is explicitly set
-  
+
   # Cache configuration - can be disabled with SPRING_CACHE_TYPE=none
   cache:
     type: ${SPRING_CACHE_TYPE:caffeine} # Defaulting to Caffeine for L1 in-memory cache
     cache-names: books,bookCovers,searchResults,bookRequests,searchRequests,bookSearchResults,nytBestsellersCurrent,bookOgImages
     caffeine:
       spec: "maximumSize=1000,expireAfterWrite=240m,recordStats" # Default spec for all caches
-  
+
 
   web:
     resources:
@@ -58,7 +58,7 @@ spring:
         cachecontrol:
           max-age: 365d # Cache versioned resources for 1 year
         # For unversioned resources, it can also set a shorter cache period
-        # period: 7d 
+        # period: 7d
         # use-cache-control-header: true # Ensure Cache-Control header is used
 
   servlet:
@@ -86,6 +86,14 @@ app:
   recommendations:
     refresh:
       ttl-days: ${APP_RECOMMENDATIONS_REFRESH_TTL_DAYS:30}
+  similarity:
+    embeddings:
+      enabled: ${APP_SIMILARITY_EMBEDDINGS_ENABLED:true}
+      initial-delay-ms: ${APP_SIMILARITY_EMBEDDINGS_INITIAL_DELAY_MS:30000}
+      fixed-delay-ms: ${APP_SIMILARITY_EMBEDDINGS_FIXED_DELAY_MS:60000}
+      refresh-batch-size: ${APP_SIMILARITY_EMBEDDINGS_REFRESH_BATCH_SIZE:25}
+      scheduler-enqueue-limit: ${APP_SIMILARITY_EMBEDDINGS_SCHEDULER_ENQUEUE_LIMIT:25}
+      scheduler-max-pending: ${APP_SIMILARITY_EMBEDDINGS_SCHEDULER_MAX_PENDING:100}
   weekly-refresh:
     enabled: ${APP_WEEKLY_REFRESH_ENABLED:true}
     cron: ${APP_WEEKLY_REFRESH_CRON:0 0 4 * * SUN}
@@ -118,12 +126,6 @@ app:
   simple-analytics:
     enabled: true # Enable in PROD
     script-url: ${SIMPLE_ANALYTICS_SCRIPT_URL:https://scripts.simpleanalyticscdn.com/latest.js}
-  
-  # External embedding service URL (optional)
-  # If not provided, a simple placeholder embedding will be used
-  embedding:
-    service:
-      url: ${EMBEDDING_SERVICE_URL:}
 
 # S3 configuration
 s3:
@@ -135,13 +137,13 @@ s3:
   bucket-name: ${S3_BUCKET:}
   cdn-url: ${S3_CDN_URL:}
   write-enabled: ${S3_WRITE_ENABLED:true}
-      
+
 # Server configuration (common, can be overridden by application.properties or profiles)
 server:
   port: ${SERVER_PORT:8095} # Default from YML, application.properties will override if SERVER_PORT is set
   compression:
     enabled: true
-  
+
 # Google Books API configuration
 google:
   books:
@@ -246,12 +248,12 @@ spring:
       enabled: true
     livereload:
       enabled: true
-  
+
   jpa:
     show-sql: true # DEV OVERRIDE: Show SQL for debugging
     hibernate:
       ddl-auto: validate # Still validate only, never auto-create
-  
+
   # Dev-specific cache configuration
   cache:
     caffeine:
@@ -286,7 +288,7 @@ spring:
   config:
     activate:
       on-profile: prod
-  
+
   # Production-specific cache configuration with optimized settings
   cache:
     cache-names: books,bookSearchResults,nytBestsellersCurrent,bookOgImages
@@ -309,10 +311,10 @@ spring:
   config:
     activate:
       on-profile: test
-  
+
   jpa:
     show-sql: false # TEST: Keep SQL logging off for cleaner test output
-  
+
   cache:
     type: simple # TEST: Use simple in-memory cache for testing
 

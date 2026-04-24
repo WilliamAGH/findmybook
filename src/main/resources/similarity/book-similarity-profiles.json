@@ -1,0 +1,23 @@
+{
+  "activeProfileId": "book_semantic_taxonomy_v1",
+  "sectionOrder": [
+    "identity",
+    "classification",
+    "description",
+    "ai_content",
+    "bibliographic"
+  ],
+  "profiles": [
+    {
+      "id": "book_semantic_taxonomy_v1",
+      "description": "Heavier taxonomy signal for genre and subject precision while preserving plot and reader-fit context.",
+      "weights": {
+        "identity": 0.20,
+        "classification": 0.40,
+        "description": 0.25,
+        "ai_content": 0.10,
+        "bibliographic": 0.05
+      }
+    }
+  ]
+}

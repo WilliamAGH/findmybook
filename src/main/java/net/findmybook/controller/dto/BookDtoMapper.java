@@ -167,17 +167,35 @@ public final class BookDtoMapper {
         return fromCard(card, Map.of());
     }
 
+    public static BookDto fromCard(BookCard card, RecommendationExtras extras) {
+        return fromCard(card, extrasToMap(extras));
+    }
+
+    private static Map<String, Object> extrasToMap(RecommendationExtras extras) {
+        if (extras == null || extras.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Object> map = new java.util.LinkedHashMap<>();
+        if (extras.score() != null) {
+            map.put("recommendation.score", extras.score());
+        }
+        if (extras.reason() != null && !extras.reason().isBlank()) {
+            map.put("recommendation.reason", extras.reason());
+        }
+        if (extras.source() != null && !extras.source().isBlank()) {
+            map.put("recommendation.source", extras.source());
+        }
+        return map;
+    }
+
     public static BookDto fromCard(BookCard card, Map<String, Object> extras) {
         if (card == null) {
             return null;
         }
 
-        CoverDto cover = buildCoverDto(new CoverCandidates(
-            card.coverUrl(), card.fallbackCoverUrl(), card.fallbackCoverUrl(),
-            null, null, null, null
-        ));
+        CoverDto cover = buildCoverDto(CoverCandidates.fromCard(card));
 
-        PublicationDto publication = new PublicationDto(null, null, null, null);
+        PublicationDto publication = PublicationDto.empty();
 
         return new BookDto(
             card.id(),
@@ -207,7 +225,7 @@ public final class BookDtoMapper {
             return null;
         }
 
-        PublicationDto publication = new PublicationDto(null, null, null, null);
+        PublicationDto publication = PublicationDto.empty();
 
         CoverDto cover = buildCoverDto(new CoverCandidates(
             item.coverUrl(), item.coverFallbackUrl(), item.coverFallbackUrl(),
@@ -535,7 +553,31 @@ public final class BookDtoMapper {
         Integer height,
         Boolean highResolution,
         String declaredSource
-    ) {}
+    ) {
+        static CoverCandidates fromCard(BookCard card) {
+            return new CoverCandidates(
+                card.coverUrl(),
+                card.fallbackCoverUrl(),
+                card.fallbackCoverUrl(),
+                noDimension(),
+                noDimension(),
+                noHighResolutionSignal(),
+                noDeclaredSource()
+            );
+        }
+
+        private static Integer noDimension() {
+            return null;
+        }
+
+        private static Boolean noHighResolutionSignal() {
+            return null;
+        }
+
+        private static String noDeclaredSource() {
+            return null;
+        }
+    }
 
     private static CoverDto buildCoverDto(CoverCandidates candidates) {
         String placeholder = ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH;

@@ -17,6 +17,8 @@ import java.util.Locale;
  */
 public final class DateParsingUtils {
 
+    private static final int YEAR_DIGIT_COUNT = 4;
+
     // Common date formats used across the application
     private static final List<SimpleDateFormat> COMMON_DATE_FORMATS = List.of(
         new SimpleDateFormat("yyyy-MM-dd"),
@@ -186,8 +188,8 @@ public final class DateParsingUtils {
 
         // Try to extract year from string directly (e.g., "2023-01-01" -> "2023")
         String trimmed = dateString.trim();
-        if (trimmed.length() >= 4 && trimmed.matches("\\d{4}.*")) {
-            return trimmed.substring(0, 4);
+        if (trimmed.length() >= YEAR_DIGIT_COUNT && trimmed.matches("\\d{4}.*")) {
+            return trimmed.substring(0, YEAR_DIGIT_COUNT);
         }
 
         return null;

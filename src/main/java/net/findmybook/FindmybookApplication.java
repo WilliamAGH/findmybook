@@ -15,20 +15,21 @@ package net.findmybook;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
-import org.springframework.util.StringUtils;
-import org.springframework.boot.SpringApplication;
-import org.springframework.boot.autoconfigure.SpringBootApplication;
+import net.findmybook.boot.OpenAiProperties;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.context.annotation.Bean;
+import org.springframework.retry.annotation.EnableRetry;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
-import org.springframework.retry.annotation.EnableRetry;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.springframework.util.StringUtils;
 
 @SpringBootApplication(exclude = {
     // Disable default Spring Security auto-configuration to allow public access
@@ -56,39 +57,25 @@ public class FindmybookApplication implements ApplicationRunner {
     private static final String TEST_PROFILE = "test";
 
     /**
-     * Sentinel value set as the OpenAI API key when no real key is configured.
-     * Runtime code should check {@link #isAiConfigured()} before calling OpenAI.
-     */
-    static final String AI_KEY_NOT_CONFIGURED = "not-configured";
-
-    /**
-     * Returns {@code true} when a real OpenAI API key is available.
-     * Use this guard before any OpenAI call to fail fast with a clear message
-     * instead of sending a request with the sentinel placeholder key.
-     */
-    public static boolean isAiConfigured() {
-        String key = firstText(
-            System.getProperty("AI_DEFAULT_OPENAI_API_KEY"),
-            System.getenv("AI_DEFAULT_OPENAI_API_KEY"),
-            System.getenv("OPENAI_API_KEY"),
-            System.getProperty("OPENAI_API_KEY")
-        );
-        return StringUtils.hasText(key) && !AI_KEY_NOT_CONFIGURED.equals(key);
-    }
-
-    /**
      * Main method that starts the Spring Boot application
      *
      * @param args Command line arguments passed to the application
      */
     public static void main(String[] args) {
-        // Load .env file first
-        loadDotEnvFile();
+        prepareExternalConfiguration();
         disableNettyUnsafeAccess();
-        normalizeDatasourceUrlFromEnv();
         validateDatasourceConfiguration(args);
-        normalizeOpenAiSdkConfig();
         SpringApplication.run(FindmybookApplication.class, args);
+    }
+
+    /**
+     * Loads local external configuration and projects canonical environment variables
+     * into the Spring property names used by typed configuration classes.
+     */
+    public static void prepareExternalConfiguration() {
+        loadDotEnvFile();
+        OpenAiProperties.projectEnvironmentVariablesToSystemProperties();
+        normalizeDatasourceUrlFromEnv();
     }
 
     /**
@@ -132,7 +119,7 @@ public class FindmybookApplication implements ApplicationRunner {
                 }
                 // Set as system properties only if not already set as environment variables
                 for (String key : props.stringPropertyNames()) {
-                    if (System.getenv(key) == null) {
+                    if (System.getenv(key) == null && System.getProperty(key) == null) {
                         System.setProperty(key, props.getProperty(key));
                     }
                 }
@@ -276,61 +263,6 @@ public class FindmybookApplication implements ApplicationRunner {
             }
         }
         return null;
-    }
-
-    /**
-     * Normalizes OpenAI SDK environment variables to deterministic system properties.
-     *
-     * <p>Supports this precedence chain for each value:</p>
-     * <ol>
-     *   <li>already-set `AI_DEFAULT_*` system property</li>
-     *   <li>environment `AI_DEFAULT_*`</li>
-     *   <li>fallback legacy names (`OPENAI_*`)</li>
-     * </ol>
-     */
-    private static void normalizeOpenAiSdkConfig() {
-        try {
-            String apiKey = firstText(
-                System.getProperty("AI_DEFAULT_OPENAI_API_KEY"),
-                System.getenv("AI_DEFAULT_OPENAI_API_KEY"),
-                System.getenv("OPENAI_API_KEY"),
-                System.getProperty("OPENAI_API_KEY")
-            );
-            String baseUrl = firstText(
-                System.getProperty("AI_DEFAULT_OPENAI_BASE_URL"),
-                System.getenv("AI_DEFAULT_OPENAI_BASE_URL"),
-                System.getenv("OPENAI_BASE_URL"),
-                System.getProperty("OPENAI_BASE_URL")
-            );
-            String model = firstText(
-                System.getProperty("AI_DEFAULT_LLM_MODEL"),
-                System.getenv("AI_DEFAULT_LLM_MODEL"),
-                System.getenv("OPENAI_MODEL"),
-                System.getProperty("OPENAI_MODEL")
-            );
-
-            if (StringUtils.hasText(baseUrl) && !StringUtils.hasText(System.getProperty("AI_DEFAULT_OPENAI_BASE_URL"))) {
-                System.setProperty("AI_DEFAULT_OPENAI_BASE_URL", baseUrl);
-            }
-            if (StringUtils.hasText(model) && !StringUtils.hasText(System.getProperty("AI_DEFAULT_LLM_MODEL"))) {
-                System.setProperty("AI_DEFAULT_LLM_MODEL", model);
-            }
-
-            if (StringUtils.hasText(apiKey)) {
-                if (!StringUtils.hasText(System.getProperty("AI_DEFAULT_OPENAI_API_KEY"))) {
-                    System.setProperty("AI_DEFAULT_OPENAI_API_KEY", apiKey);
-                }
-                return;
-            }
-
-            System.setProperty("AI_DEFAULT_OPENAI_API_KEY", AI_KEY_NOT_CONFIGURED);
-            log.error("[AI] No OpenAI API key configured. "
-                + "Set AI_DEFAULT_OPENAI_API_KEY or OPENAI_API_KEY to enable AI features. "
-                + "AI generation endpoints will return errors until configured.");
-        } catch (SecurityException e) {
-            log.warn("[AI] Unable to set OpenAI SDK system properties due to security restrictions", e);
-            throw e;
-        }
     }
 
     private static String firstText(String... values) {

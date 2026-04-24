@@ -33,11 +33,11 @@ public final class CoverUrlResolver {
     }
 
     public static ResolvedCover resolve(String primary) {
-        return resolve(primary, null, null, null, null);
+        return resolve(new ResolveContext(primary));
     }
 
     public static ResolvedCover resolve(String primary, String fallbackExternal) {
-        return resolve(primary, fallbackExternal, null, null, null);
+        return resolve(new ResolveContext(primary, fallbackExternal));
     }
 
     public static ResolvedCover resolve(String primary,
@@ -65,13 +65,61 @@ public final class CoverUrlResolver {
         );
     }
 
-    public record ResolveContext(
-        String primary,
-        String fallbackExternal,
-        Integer width,
-        Integer height,
-        Boolean highResolution
-    ) {}
+    public static final class ResolveContext {
+        private final String primary;
+        private final String fallbackExternal;
+        private final Integer width;
+        private final Integer height;
+        private final Boolean highResolution;
+
+        public ResolveContext(String primary) {
+            this.primary = primary;
+            this.fallbackExternal = null;
+            this.width = null;
+            this.height = null;
+            this.highResolution = null;
+        }
+
+        public ResolveContext(String primary, String fallbackExternal) {
+            this.primary = primary;
+            this.fallbackExternal = fallbackExternal;
+            this.width = null;
+            this.height = null;
+            this.highResolution = null;
+        }
+
+        public ResolveContext(String primary,
+                              String fallbackExternal,
+                              Integer width,
+                              Integer height,
+                              Boolean highResolution) {
+            this.primary = primary;
+            this.fallbackExternal = fallbackExternal;
+            this.width = width;
+            this.height = height;
+            this.highResolution = highResolution;
+        }
+
+        public String primary() {
+            return primary;
+        }
+
+        public String fallbackExternal() {
+            return fallbackExternal;
+        }
+
+        public Integer width() {
+            return width;
+        }
+
+        public Integer height() {
+            return height;
+        }
+
+        public Boolean highResolution() {
+            return highResolution;
+        }
+    }
 
     public static boolean isCdnUrl(String url) {
         String cdnBase = currentCdnBase();

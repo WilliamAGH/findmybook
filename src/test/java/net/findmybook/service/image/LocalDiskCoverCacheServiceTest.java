@@ -9,7 +9,7 @@ import java.util.concurrent.CompletionException;
 import net.findmybook.exception.S3UploadException;
 import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.model.image.ImageDetails;
-import net.findmybook.model.image.ImageProvenanceData;
+import net.findmybook.model.image.ImageProvenance;
 import net.findmybook.model.image.ImageResolutionPreference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -34,7 +34,7 @@ class LocalDiskCoverCacheServiceTest {
     @Test
     void should_FailFuture_When_ImageUrlMissing() {
         assertThatThrownBy(
-            () -> service.cacheRemoteImageAsync(" ", "book-1", new ImageProvenanceData(), "OPEN_LIBRARY").join()
+            () -> service.cacheRemoteImageAsync(" ", "book-1", new ImageProvenance(), "OPEN_LIBRARY").join()
         )
             .isInstanceOf(CompletionException.class)
             .hasCauseInstanceOf(S3UploadException.class);
@@ -46,14 +46,14 @@ class LocalDiskCoverCacheServiceTest {
             eq("https://covers.openlibrary.org/b/id/1-L.jpg"),
             eq("book-1"),
             eq("OPEN_LIBRARY"),
-            any(ImageProvenanceData.class)
+            any(ImageProvenance.class)
         )).thenReturn(Mono.error(new S3UploadException("book-1", "https://covers.openlibrary.org/b/id/1-L.jpg", new IllegalStateException("boom"))));
 
         assertThatThrownBy(
             () -> service.cacheRemoteImageAsync(
                 "https://covers.openlibrary.org/b/id/1-L.jpg",
                 "book-1",
-                new ImageProvenanceData(),
+                new ImageProvenance(),
                 "OPEN_LIBRARY"
             ).join()
         )
@@ -76,13 +76,13 @@ class LocalDiskCoverCacheServiceTest {
             eq("https://covers.openlibrary.org/b/id/1-L.jpg"),
             eq("book-1"),
             eq("OPEN_LIBRARY"),
-            any(ImageProvenanceData.class)
+            any(ImageProvenance.class)
         )).thenReturn(Mono.just(details));
 
         service.cacheRemoteImageAsync(
             "https://covers.openlibrary.org/b/id/1-L.jpg",
             "book-1",
-            new ImageProvenanceData(),
+            new ImageProvenance(),
             "OPEN_LIBRARY"
         ).join();
     }

@@ -60,7 +60,7 @@ class BookAiIngestionMetadataCoordinatorTest {
                     CompletableFuture.completedFuture(null)
                 );
             });
-        when(bookAiContentService.generateAndPersistIfPromptChanged(eq(bookId), any()))
+        when(bookAiContentService.generateAndPersistIfPromptChanged(eq(bookId), any(), any()))
             .thenReturn(new BookAiContentService.GenerationOutcome(bookId, true, "hash-ai", Optional.empty()));
         when(bookSeoMetadataGenerationService.generateAndPersistIfPromptChanged(bookId))
             .thenReturn(new BookSeoMetadataGenerationService.GenerationOutcome(bookId, true, "hash-seo", Optional.empty()));
@@ -68,7 +68,7 @@ class BookAiIngestionMetadataCoordinatorTest {
         coordinator.handleBookUpsert(event);
 
         verify(requestQueue).enqueueBackground(eq(0), any());
-        verify(bookAiContentService).generateAndPersistIfPromptChanged(eq(bookId), any());
+        verify(bookAiContentService).generateAndPersistIfPromptChanged(eq(bookId), any(), any());
         verify(bookSeoMetadataGenerationService).generateAndPersistIfPromptChanged(bookId);
     }
 
@@ -135,9 +135,9 @@ class BookAiIngestionMetadataCoordinatorTest {
                     CompletableFuture.completedFuture(null)
                 );
             });
-        when(bookAiContentService.generateAndPersistIfPromptChanged(eq(firstBookId), any()))
+        when(bookAiContentService.generateAndPersistIfPromptChanged(eq(firstBookId), any(), any()))
             .thenReturn(new BookAiContentService.GenerationOutcome(firstBookId, true, "hash-ai-1", Optional.empty()));
-        when(bookAiContentService.generateAndPersistIfPromptChanged(eq(secondBookId), any()))
+        when(bookAiContentService.generateAndPersistIfPromptChanged(eq(secondBookId), any(), any()))
             .thenReturn(new BookAiContentService.GenerationOutcome(secondBookId, true, "hash-ai-2", Optional.empty()));
 
         DataAccessResourceFailureException missingRelation = new DataAccessResourceFailureException(
@@ -152,8 +152,8 @@ class BookAiIngestionMetadataCoordinatorTest {
 
         verify(bookSeoMetadataGenerationService, times(1)).generateAndPersistIfPromptChanged(firstBookId);
         verify(bookSeoMetadataGenerationService, never()).generateAndPersistIfPromptChanged(secondBookId);
-        verify(bookAiContentService).generateAndPersistIfPromptChanged(eq(firstBookId), any());
-        verify(bookAiContentService).generateAndPersistIfPromptChanged(eq(secondBookId), any());
+        verify(bookAiContentService).generateAndPersistIfPromptChanged(eq(firstBookId), any(), any());
+        verify(bookAiContentService).generateAndPersistIfPromptChanged(eq(secondBookId), any(), any());
     }
 
     private BookAiIngestionMetadataCoordinator newCoordinator() {

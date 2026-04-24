@@ -42,7 +42,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * test configuration where applicable.
  */
 @SpringBootTest(properties = {
-    "AI_DEFAULT_OPENAI_API_KEY=test",
+    "openai.api.key=test",
     "APP_ADMIN_PASSWORD=test-password",
     "APP_USER_PASSWORD=test-password",
     "app.security.admin.password=test-password",

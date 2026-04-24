@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import net.findmybook.adapters.persistence.BookAiContentRepository;
+import net.findmybook.boot.OpenAiProperties;
 import net.findmybook.domain.ai.BookAiContent;
 import net.findmybook.dto.BookDetail;
 import net.findmybook.service.BookDataOrchestrator;
@@ -48,7 +49,7 @@ class BookAiContentServiceTest {
         when(bookDataOrchestrator.enrichDescriptionForAiIfNeeded(bookId, detail, "short", 50))
             .thenReturn("short");
 
-        assertThatThrownBy(() -> service.generateAndPersist(bookId, delta -> {}))
+        assertThatThrownBy(() -> service.generateAndPersist(bookId, delta -> {}, net.findmybook.support.llm.LlmGatewayTier.LIVE_RENDER))
             .isInstanceOfSatisfying(BookAiGenerationException.class, exception -> {
                 assertThat(exception.errorCode()).isEqualTo(BookAiGenerationException.ErrorCode.DESCRIPTION_TOO_SHORT);
                 assertThat(exception.getMessage()).contains("missing or too short");
@@ -64,7 +65,7 @@ class BookAiContentServiceTest {
         when(bookDataOrchestrator.enrichDescriptionForAiIfNeeded(bookId, detail, "short", 50))
             .thenThrow(new IllegalStateException("All description enrichment providers failed"));
 
-        assertThatThrownBy(() -> service.generateAndPersist(bookId, delta -> {}))
+        assertThatThrownBy(() -> service.generateAndPersist(bookId, delta -> {}, net.findmybook.support.llm.LlmGatewayTier.LIVE_RENDER))
             .isInstanceOfSatisfying(BookAiGenerationException.class, exception -> {
                 assertThat(exception.errorCode()).isEqualTo(BookAiGenerationException.ErrorCode.ENRICHMENT_FAILED);
                 assertThat(exception.getMessage()).contains("enrichment failed");
@@ -173,12 +174,18 @@ class BookAiContentServiceTest {
             bookSearchService,
             bookDataOrchestrator,
             objectMapper,
-            "fake-key",
-            "https://api.openai.com/v1",
-            "gpt-5-mini",
-            120,
-            75
+            openAiProperties()
         );
+    }
+
+    private OpenAiProperties openAiProperties() {
+        OpenAiProperties properties = new OpenAiProperties();
+        properties.getApi().setKey("fake-key");
+        properties.getBase().setUrl("https://api.openai.com/v1");
+        properties.setModel("gpt-5-mini");
+        properties.setRequestTimeoutSeconds(120);
+        properties.setReadTimeoutSeconds(75);
+        return properties;
     }
 
     private BookDetail bookDetailWithDescription(String description) {

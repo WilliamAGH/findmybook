@@ -24,6 +24,7 @@ public class RecommendationScoringStrategy {
     private static final double TEXT_MATCH_SCORE_MULTIPLIER = 2.0;
     private static final int MAX_MAIN_CATEGORIES = 3;
     private static final int MAX_EXTRACTED_KEYWORDS = 10;
+    private static final int MIN_KEYWORD_LENGTH = 3;
 
     private static final String REASON_AUTHOR = "AUTHOR";
     private static final String REASON_CATEGORY = "CATEGORY";
@@ -116,7 +117,7 @@ public class RecommendationScoringStrategy {
         String[] tokens = combinedText.split("[^a-z0-9]+");
         Set<String> keywords = new LinkedHashSet<>();
         for (String token : tokens) {
-            if (token.length() > 2 && !STOP_WORDS.contains(token)) {
+            if (token.length() >= MIN_KEYWORD_LENGTH && !STOP_WORDS.contains(token)) {
                 keywords.add(token);
                 if (keywords.size() >= MAX_EXTRACTED_KEYWORDS) break;
             }

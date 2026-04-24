@@ -6,7 +6,7 @@ import net.findmybook.dto.BookDetail;
 import net.findmybook.dto.BookListItem;
 import net.findmybook.dto.EditionSummary;
 import net.findmybook.model.Book;
-import net.findmybook.model.Book.EditionInfo;
+import net.findmybook.model.Book.Edition;
 import net.findmybook.model.image.CoverImages;
 import net.findmybook.util.cover.CoverUrlResolver;
 import net.findmybook.util.cover.CoverUrlValidator;
@@ -59,7 +59,7 @@ public final class BookDomainMapper {
         book.setPreviewLink(detail.previewLink());
         book.setInfoLink(detail.infoLink());
         book.setQualifiers(copyMap(detail.tags()));
-        book.setOtherEditions(toEditionInfo(detail.editions()));
+        book.setOtherEditions(toEdition(detail.editions()));
         String primaryCover = StringUtils.hasText(detail.coverS3Key())
             ? detail.coverS3Key()
             : detail.coverUrl();
@@ -339,16 +339,16 @@ public final class BookDomainMapper {
         return new LinkedHashMap<>(source);
     }
 
-    private static List<EditionInfo> toEditionInfo(List<EditionSummary> summaries) {
+    private static List<Edition> toEdition(List<EditionSummary> summaries) {
         if (summaries == null || summaries.isEmpty()) {
             return List.of();
         }
-        List<EditionInfo> editions = new ArrayList<>(summaries.size());
+        List<Edition> editions = new ArrayList<>(summaries.size());
         for (EditionSummary summary : summaries) {
             if (summary == null) {
                 continue;
             }
-            EditionInfo info = new EditionInfo();
+            Edition info = new Edition();
             info.setGoogleBooksId(summary.id());
             info.setIdentifier(summary.slug());
             info.setEditionIsbn13(summary.isbn13());

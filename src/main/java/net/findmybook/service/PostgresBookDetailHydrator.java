@@ -68,14 +68,14 @@ final class PostgresBookDetailHydrator {
                          lower(b.title)
                 """;
         try {
-            List<Book.EditionInfo> editions = jdbcTemplate.query(sql,
+            List<Book.Edition> editions = jdbcTemplate.query(sql,
                     ps -> {
                         ps.setString(1, PROVIDER_GOOGLE_BOOKS);
                         ps.setObject(2, canonicalId);
                         ps.setObject(3, canonicalId);
                     },
                     (rs, rowNum) -> {
-                        Book.EditionInfo info = new Book.EditionInfo();
+                        Book.Edition info = new Book.Edition();
                         info.setGoogleBooksId(rs.getString("google_books_id"));
                         info.setType(rs.getString("cluster_method"));
                         String slug = rs.getString("slug");

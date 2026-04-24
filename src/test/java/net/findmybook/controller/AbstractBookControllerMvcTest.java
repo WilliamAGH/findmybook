@@ -8,11 +8,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import net.findmybook.application.book.BookDetailResponseUseCase;
-import net.findmybook.application.book.RecommendationCardResponseUseCase;
 import net.findmybook.application.book.SimilarBooksResponseUseCase;
 import net.findmybook.application.ai.BookAiContentService;
 import net.findmybook.application.cover.BookCoverResolutionService;
 import net.findmybook.application.cover.BrowserCoverIngestUseCase;
+import net.findmybook.application.similarity.BookSimilarityEmbeddingService;
 import net.findmybook.dto.BookDetail;
 import net.findmybook.dto.EditionSummary;
 import net.findmybook.model.Book;
@@ -69,6 +69,9 @@ abstract class AbstractBookControllerMvcTest {
     protected RecommendationService recommendationService;
 
     @Mock
+    protected BookSimilarityEmbeddingService bookSimilarityEmbeddingService;
+
+    @Mock
     protected BookAiContentService bookAiContentService;
 
     @Mock
@@ -93,10 +96,12 @@ abstract class AbstractBookControllerMvcTest {
     void setUpBookControllerSlice() {
         BookDetailResponseUseCase bookDetailResponseUseCase =
             new BookDetailResponseUseCase(bookAiContentService, recentlyViewedService);
-        RecommendationCardResponseUseCase recommendationCardResponseUseCase =
-            new RecommendationCardResponseUseCase();
         SimilarBooksResponseUseCase similarBooksResponseUseCase =
-            new SimilarBooksResponseUseCase(bookSearchService, recommendationCardResponseUseCase, recommendationService);
+            new SimilarBooksResponseUseCase(
+                bookSearchService,
+                recommendationService,
+                bookSimilarityEmbeddingService
+            );
         BookController.BookControllerServices services = new BookController.BookControllerServices(
             bookSearchService,
             bookIdentifierResolver,
@@ -136,6 +141,8 @@ abstract class AbstractBookControllerMvcTest {
             .thenReturn(List.of());
         lenient().when(bookSearchService.hasActiveRecommendationCards(any(UUID.class)))
             .thenReturn(true);
+        lenient().when(bookSimilarityEmbeddingService.findNearestBooks(any(UUID.class), anyInt()))
+            .thenReturn(List.of());
         lenient().when(bookAiContentService.findCurrent(any(UUID.class)))
             .thenReturn(Optional.empty());
         lenient().when(recommendationService.regenerateSimilarBooks(any(), anyInt()))

@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import net.findmybook.application.book.SimilarBooksResponseUseCase;
+import net.findmybook.application.similarity.BookSimilarityEmbeddingService.SimilarBookMatch;
 import net.findmybook.dto.BookCard;
 import net.findmybook.dto.RecommendationCard;
 import net.findmybook.model.Book;
@@ -25,6 +27,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -37,6 +40,62 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Focused tests for related-book, cover, and author-search API endpoints.
  */
 class BookControllerAuxiliaryEndpointsTest extends AbstractBookControllerMvcTest {
+
+    @Test
+    @DisplayName("GET /api/books/{id}/similar returns embedding matches before recommendation cache")
+    void should_ReturnEmbeddingDtos_When_EmbeddingMatchesAvailable() throws Exception {
+        UUID bookUuid = UUID.fromString(fixtureBook.getId());
+        UUID firstMatchUuid = UUID.fromString("33333333-3333-4333-8333-333333333333");
+        UUID secondMatchUuid = UUID.fromString("44444444-4444-4444-8444-444444444444");
+        Book firstMatchBook = buildBook(firstMatchUuid.toString(), "embedding-match-one");
+        Book secondMatchBook = buildBook(secondMatchUuid.toString(), "embedding-match-two");
+        when(bookIdentifierResolver.resolveToUuid(fixtureBook.getSlug()))
+            .thenReturn(Optional.of(bookUuid));
+        when(bookSimilarityEmbeddingService.findNearestBooks(bookUuid, 3))
+            .thenReturn(List.of(
+                new SimilarBookMatch(firstMatchUuid, 0.87),
+                new SimilarBookMatch(secondMatchUuid, 0.82)
+            ));
+
+        BookCard firstMatchCard = new BookCard(
+            firstMatchBook.getId(),
+            firstMatchBook.getSlug(),
+            firstMatchBook.getTitle(),
+            firstMatchBook.getAuthors(),
+            null,
+            null,
+            null,
+            4.6,
+            220,
+            Map.of()
+        );
+        BookCard secondMatchCard = new BookCard(
+            secondMatchBook.getId(),
+            secondMatchBook.getSlug(),
+            secondMatchBook.getTitle(),
+            secondMatchBook.getAuthors(),
+            secondMatchBook.getCoverImages().getPreferredUrl(),
+            secondMatchBook.getS3ImagePath(),
+            secondMatchBook.getCoverImages().getFallbackUrl(),
+            4.5,
+            205,
+            Map.of()
+        );
+        when(bookSearchService.fetchBookCards(List.of(firstMatchUuid, secondMatchUuid)))
+            .thenReturn(List.of(firstMatchCard, secondMatchCard));
+
+        performAsync(get("/api/books/" + fixtureBook.getSlug() + "/similar")
+            .param("limit", "3"))
+            .andExpect(status().isOk())
+            .andExpect(content().contentType("application/json"))
+            .andExpect(jsonPath("$.length()").value(2))
+            .andExpect(jsonPath("$[0].id", equalTo(firstMatchBook.getId())))
+            .andExpect(jsonPath("$[1].id", equalTo(secondMatchBook.getId())))
+            .andExpect(jsonPath("$[0].extras['recommendation.source']", equalTo(SimilarBooksResponseUseCase.EMBEDDING_SOURCE)));
+
+        verify(bookSearchService, never()).fetchRecommendationCards(any(UUID.class), anyInt());
+        verify(recommendationService, never()).regenerateSimilarBooks(any(), anyInt());
+    }
 
     @Test
     @DisplayName("GET /api/books/{id}/similar returns cached DTOs")

@@ -2,7 +2,7 @@ package net.findmybook.service.image;
 
 import net.findmybook.model.image.ImageAttemptStatus;
 import net.findmybook.model.image.ImageDetails;
-import net.findmybook.model.image.ImageProvenanceData;
+import net.findmybook.model.image.ImageProvenance;
 import net.findmybook.model.image.ImageSourceName;
 import net.findmybook.util.cover.UrlSourceDetector;
 import lombok.extern.slf4j.Slf4j;
@@ -17,24 +17,24 @@ import java.util.Collections;
  * Consolidates provenance manipulation logic that was previously scattered
  * across legacy image cache helpers. Provides encapsulated, testable
  * provenance operations.
- * 
+ *
  * @author William Callahan
  * @since 0.9.0
  */
 @Slf4j
 @Component
 public class ImageProvenanceHandler {
-    
+
     /**
      * Records the final selected image in provenance data.
-     * 
+     *
      * @param provenanceData Provenance data to update
      * @param sourceName Source of the selected image
      * @param imageDetails Details of the selected image
      * @param selectionReason Reason for selection
      */
     public void recordSelection(
-        ImageProvenanceData provenanceData,
+        ImageProvenance provenanceData,
         ImageSourceName sourceName,
         ImageDetails imageDetails,
         String selectionReason
@@ -43,8 +43,8 @@ public class ImageProvenanceHandler {
             log.warn("Cannot record selection: provenanceData or imageDetails is null");
             return;
         }
-        
-        ImageProvenanceData.SelectedImageInfo selectedInfo = new ImageProvenanceData.SelectedImageInfo();
+
+        ImageProvenance.SelectedImage selectedInfo = new ImageProvenance.SelectedImage();
         selectedInfo.setSourceName(sourceName != null ? sourceName : ImageSourceName.UNKNOWN);
         selectedInfo.setFinalUrl(imageDetails.getUrlOrPath());
         selectedInfo.setResolution(imageDetails.getResolutionPreference() != null
@@ -52,7 +52,7 @@ public class ImageProvenanceHandler {
             : "ORIGINAL");
         selectedInfo.setDimensions(formatDimensions(imageDetails.getWidth(), imageDetails.getHeight()));
         selectedInfo.setSelectionReason(selectionReason);
-        
+
         // Determine and set storage location
         String storage = imageDetails.getStorageLocation();
         if (storage != null && !storage.isBlank()) {
@@ -73,9 +73,9 @@ public class ImageProvenanceHandler {
         } else {
             selectedInfo.setStorageLocation("Remote");
         }
-        
-        provenanceData.setSelectedImageInfo(selectedInfo);
-        
+
+        provenanceData.setSelectedImage(selectedInfo);
+
         log.debug("Provenance updated: Selected image from {} ({}), URL: {}, Dimensions: {}, Reason: {}",
             sourceName,
             selectedInfo.getStorageLocation(),
@@ -83,10 +83,10 @@ public class ImageProvenanceHandler {
             selectedInfo.getDimensions(),
             selectionReason);
     }
-    
+
     /**
      * Records an attempted image fetch in provenance data.
-     * 
+     *
      * @param provenanceData Provenance data to update
      * @param sourceName Source that was attempted
      * @param urlAttempted URL that was attempted
@@ -95,7 +95,7 @@ public class ImageProvenanceHandler {
      * @param detailsIfSuccess Details if successful (if applicable)
      */
     public void recordAttempt(
-        ImageProvenanceData provenanceData,
+        ImageProvenance provenanceData,
         ImageSourceName sourceName,
         String urlAttempted,
         ImageAttemptStatus status,
@@ -106,24 +106,24 @@ public class ImageProvenanceHandler {
             log.warn("Cannot record attempt: provenanceData is null");
             return;
         }
-        
+
         if (provenanceData.getAttemptedImageSources() == null) {
             provenanceData.setAttemptedImageSources(
                 Collections.synchronizedList(new ArrayList<>())
             );
         }
-        
-        ImageProvenanceData.AttemptedSourceInfo attemptInfo =
-            new ImageProvenanceData.AttemptedSourceInfo(
+
+        ImageProvenance.AttemptedSource attemptInfo =
+            new ImageProvenance.AttemptedSource(
                 sourceName != null ? sourceName : ImageSourceName.UNKNOWN,
                 urlAttempted,
                 status != null ? status : ImageAttemptStatus.FAILURE_GENERIC
             );
-        
+
         if (failureReason != null) {
             attemptInfo.setFailureReason(failureReason);
         }
-        
+
         if (detailsIfSuccess != null && status == ImageAttemptStatus.SUCCESS) {
             attemptInfo.setFetchedUrl(detailsIfSuccess.getUrlOrPath());
             attemptInfo.setDimensions(formatDimensions(
@@ -131,16 +131,16 @@ public class ImageProvenanceHandler {
                 detailsIfSuccess.getHeight()
             ));
         }
-        
+
         provenanceData.getAttemptedImageSources().add(attemptInfo);
-        
+
         log.debug("Recorded provenance attempt: {} - {} ({})",
             sourceName, urlAttempted, status);
     }
-    
+
     /**
      * Formats dimensions as a string.
-     * 
+     *
      * @param width Width in pixels (may be null)
      * @param height Height in pixels (may be null)
      * @return Formatted dimension string (e.g., "800x600" or "N/A")

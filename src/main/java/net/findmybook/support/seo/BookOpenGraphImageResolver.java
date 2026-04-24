@@ -21,6 +21,7 @@ public class BookOpenGraphImageResolver {
     private static final String HTTP_SCHEME_PREFIX = "http";
     private static final String DEFAULT_CARD_TITLE = "Book Details";
     private static final int MAX_TITLE_LENGTH = 96;
+    private static final int MAX_SUBTITLE_AUTHORS = 2;
 
     private final LocalDiskCoverCacheService localDiskCoverCacheService;
     private final BookOpenGraphCoverImageLoader bookOpenGraphCoverImageLoader;
@@ -146,7 +147,7 @@ public class BookOpenGraphImageResolver {
                 }
                 String dedupeKey = normalizedAuthor.toLowerCase(Locale.ROOT);
                 uniqueAuthors.putIfAbsent(dedupeKey, normalizedAuthor);
-                if (uniqueAuthors.size() >= 2) {
+                if (uniqueAuthors.size() >= MAX_SUBTITLE_AUTHORS) {
                     break;
                 }
             }

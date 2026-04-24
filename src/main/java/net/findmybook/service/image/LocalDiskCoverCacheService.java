@@ -4,8 +4,8 @@ import net.findmybook.exception.S3UploadException;
 import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.model.image.ImageAttemptStatus;
 import net.findmybook.model.image.ImageDetails;
-import net.findmybook.model.image.ImageProvenanceData;
-import net.findmybook.model.image.ImageProvenanceData.AttemptedSourceInfo;
+import net.findmybook.model.image.ImageProvenance;
+import net.findmybook.model.image.ImageProvenance.AttemptedSource;
 import net.findmybook.model.image.ImageResolutionPreference;
 import net.findmybook.model.image.ImageSourceName;
 import net.findmybook.util.ApplicationConstants;
@@ -49,20 +49,20 @@ public class LocalDiskCoverCacheService {
 
     public CompletableFuture<ImageDetails> cacheRemoteImageAsync(String imageUrl,
                                                                  String bookIdForLog,
-                                                                 ImageProvenanceData provenanceData,
+                                                                 ImageProvenance provenanceData,
                                                                  String sourceNameString) {
         return cacheRemoteImageInternal(imageUrl, bookIdForLog, provenanceData, sourceNameString);
     }
 
     private CompletableFuture<ImageDetails> cacheRemoteImageInternal(String imageUrl,
                                                                      String bookIdForLog,
-                                                                     ImageProvenanceData provenanceData,
+                                                                     ImageProvenance provenanceData,
                                                                      String sourceNameString) {
         String logContext = String.format("BookID: %s, URL: %s, Source: %s", bookIdForLog, imageUrl, sourceNameString);
         logger.debug("Delegating legacy disk cache call to S3 pipeline. Context: {}", logContext);
 
         ImageSourceName sourceNameEnum = CoverSourceMapper.fromString(sourceNameString);
-        AttemptedSourceInfo attemptInfo = registerAttempt(provenanceData, sourceNameEnum, imageUrl);
+        AttemptedSource attemptInfo = registerAttempt(provenanceData, sourceNameEnum, imageUrl);
 
         if (!StringUtils.hasText(imageUrl)) {
             markAttemptFailure(attemptInfo, ImageAttemptStatus.FAILURE_INVALID_DETAILS, "Blank image URL");
@@ -87,7 +87,7 @@ public class LocalDiskCoverCacheService {
         return upload.toFuture();
     }
 
-    private AttemptedSourceInfo registerAttempt(ImageProvenanceData provenanceData,
+    private AttemptedSource registerAttempt(ImageProvenance provenanceData,
                                                 ImageSourceName sourceName,
                                                 String attemptedUrl) {
         if (provenanceData == null) {
@@ -96,13 +96,13 @@ public class LocalDiskCoverCacheService {
         if (provenanceData.getAttemptedImageSources() == null) {
             provenanceData.setAttemptedImageSources(new ArrayList<>());
         }
-        AttemptedSourceInfo attemptInfo = new AttemptedSourceInfo(sourceName, attemptedUrl, ImageAttemptStatus.PENDING);
+        AttemptedSource attemptInfo = new AttemptedSource(sourceName, attemptedUrl, ImageAttemptStatus.PENDING);
         provenanceData.getAttemptedImageSources().add(attemptInfo);
         return attemptInfo;
     }
 
     private void handleSuccessfulUpload(ImageDetails details,
-                                        AttemptedSourceInfo attemptInfo,
+                                        AttemptedSource attemptInfo,
                                         ImageSourceName sourceNameEnum) {
         if (!StringUtils.hasText(details.getUrlOrPath())) {
             markAttemptFailure(attemptInfo, ImageAttemptStatus.FAILURE_NOT_FOUND, "s3-url-unavailable");
@@ -131,7 +131,7 @@ public class LocalDiskCoverCacheService {
         }
     }
 
-    private void markAttemptFailure(AttemptedSourceInfo attemptInfo,
+    private void markAttemptFailure(AttemptedSource attemptInfo,
                                     ImageAttemptStatus status,
                                     String reason) {
         if (attemptInfo == null) {

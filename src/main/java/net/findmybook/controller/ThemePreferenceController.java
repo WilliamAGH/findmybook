@@ -9,7 +9,6 @@ import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import org.springframework.http.HttpStatus;
@@ -37,17 +36,13 @@ public class ThemePreferenceController {
      * Get the current theme preference
      *
      * @param request HTTP request
-     * @return Theme preference map
+     * @return Theme preference response
      */
     @GetMapping
     @ResponseBody
-    public ResponseEntity<Map<String, String>> getThemePreference(HttpServletRequest request) {
+    public ResponseEntity<ThemePreferenceResponse> getThemePreference(HttpServletRequest request) {
         String themeValue = getThemeCookieValue(request);
-        Map<String, String> response = new HashMap<>();
-        response.put("theme", themeValue);
-        response.put("source", themeValue == null ? "system" : "user");
-        
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(ThemePreferenceResponse.from(themeValue));
     }
 
     /**
@@ -59,14 +54,12 @@ public class ThemePreferenceController {
      */
     @PostMapping
     @ResponseBody
-    public ResponseEntity<Map<String, String>> updateThemePreference(
+    public ResponseEntity<ThemePreferenceResponse> updateThemePreference(
             @RequestBody Map<String, String> themeData,
             HttpServletResponse response) {
-        
+
         String themeValue = themeData.get("theme");
         boolean useSystem = Boolean.parseBoolean(themeData.getOrDefault("useSystem", "false"));
-        
-        Map<String, String> responseData = new HashMap<>();
 
         if (useSystem) {
             // Delete the cookie to use system preference
@@ -74,28 +67,22 @@ public class ThemePreferenceController {
             cookie.setMaxAge(0);
             cookie.setPath("/");
             response.addCookie(cookie);
-            
-            responseData.put("theme", null);
-            responseData.put("source", "system");
+            return ResponseEntity.ok(ThemePreferenceResponse.system());
         } else if (themeValue != null && (themeValue.equals("light") || themeValue.equals("dark"))) {
             // Set a cookie with the theme preference
             Cookie cookie = new Cookie(THEME_COOKIE_NAME, themeValue);
             cookie.setMaxAge(COOKIE_MAX_AGE);
             cookie.setPath("/");
             response.addCookie(cookie);
-            
-            responseData.put("theme", themeValue);
-            responseData.put("source", "user");
+            return ResponseEntity.ok(ThemePreferenceResponse.user(themeValue));
         } else {
             throw new ResponseStatusException(
                 HttpStatus.BAD_REQUEST,
                 "Theme must be 'light' or 'dark' when useSystem is false."
             );
         }
-        
-        return ResponseEntity.ok(responseData);
     }
-    
+
     /**
      * Helper method to extract theme preference from request cookies
      * - Searches for theme cookie in the request
@@ -111,11 +98,25 @@ public class ThemePreferenceController {
         if (cookies == null) {
             return null;
         }
-        
+
         Optional<Cookie> themeCookie = Arrays.stream(cookies)
                 .filter(c -> THEME_COOKIE_NAME.equals(c.getName()))
                 .findFirst();
-                
+
         return themeCookie.map(Cookie::getValue).orElse(null);
+    }
+
+    public record ThemePreferenceResponse(String theme, String source) {
+        static ThemePreferenceResponse from(String theme) {
+            return theme == null ? system() : user(theme);
+        }
+
+        static ThemePreferenceResponse system() {
+            return new ThemePreferenceResponse(null, "system");
+        }
+
+        static ThemePreferenceResponse user(String theme) {
+            return new ThemePreferenceResponse(theme, "user");
+        }
     }
 }

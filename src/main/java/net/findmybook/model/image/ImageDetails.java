@@ -25,7 +25,7 @@ public class ImageDetails {
     private ImageResolutionPreference resolutionPreference;
     private Integer width;
     private Integer height;
-    
+
     /**
      * Whether the image is predominantly grayscale/B&W.
      * Null means not yet analyzed (treated as color).
@@ -40,7 +40,7 @@ public class ImageDetails {
      * - null = Direct URL, not cached
      */
     private String storageLocation;
-    
+
     /**
      * Storage-specific key or path (S3 key, local path, etc.)
      * Only populated when storageLocation is set.
@@ -64,10 +64,10 @@ public class ImageDetails {
         this.resolutionPreference = resolutionPreference;
         this.width = 0;
         this.height = 0;
-        // Infer storage location for deprecated cache-based sources (backward compatibility)
-        if (isLegacyS3Source(coverImageSource)) {
+        // Infer storage location for retired cache-backed sources.
+        if (isS3CacheSource(coverImageSource)) {
             this.storageLocation = STORAGE_S3;
-        } else if (isLegacyLocalSource(coverImageSource)) {
+        } else if (isLocalCacheSource(coverImageSource)) {
             this.storageLocation = STORAGE_LOCAL;
         }
     }
@@ -91,10 +91,10 @@ public class ImageDetails {
         this.resolutionPreference = resolutionPreference;
         this.width = width;
         this.height = height;
-        // Infer storage location for deprecated cache-based sources (backward compatibility)
-        if (isLegacyS3Source(coverImageSource)) {
+        // Infer storage location for retired cache-backed sources.
+        if (isS3CacheSource(coverImageSource)) {
             this.storageLocation = STORAGE_S3;
-        } else if (isLegacyLocalSource(coverImageSource)) {
+        } else if (isLocalCacheSource(coverImageSource)) {
             this.storageLocation = STORAGE_LOCAL;
         }
     }
@@ -245,7 +245,7 @@ public class ImageDetails {
 
     /**
      * Gets the storage location for cached images
-     * 
+     *
      * @return Storage location ("S3", "LOCAL", "DATABASE") or null if not cached
      */
     public String getStorageLocation() {
@@ -254,7 +254,7 @@ public class ImageDetails {
 
     /**
      * Sets the storage location for cached images
-     * 
+     *
      * @param storageLocation The storage location ("S3", "LOCAL", "DATABASE", or null)
      */
     public void setStorageLocation(String storageLocation) {
@@ -275,7 +275,7 @@ public class ImageDetails {
 
     /**
      * Gets the storage-specific key or path
-     * 
+     *
      * @return Storage key (S3 key, local path, etc.) or null
      */
     public String getStorageKey() {
@@ -284,14 +284,14 @@ public class ImageDetails {
 
     /**
      * Sets the storage-specific key or path
-     * 
+     *
      * @param storageKey The storage key or path
      */
     public void setStorageKey(String storageKey) {
         this.storageKey = storageKey;
     }
 
-    private static boolean isLegacyS3Source(CoverImageSource source) {
+    private static boolean isS3CacheSource(CoverImageSource source) {
         if (source == null) {
             return false;
         }
@@ -299,7 +299,7 @@ public class ImageDetails {
         return "S3_CACHE".equals(name) || "S3".equals(name);
     }
 
-    private static boolean isLegacyLocalSource(CoverImageSource source) {
+    private static boolean isLocalCacheSource(CoverImageSource source) {
         return source != null && "LOCAL_CACHE".equals(source.name());
     }
 
@@ -323,4 +323,4 @@ public class ImageDetails {
                ", storageKey='" + storageKey + "'" +
                '}';
     }
-} 
+}

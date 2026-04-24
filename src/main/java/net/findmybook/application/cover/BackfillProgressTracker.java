@@ -7,13 +7,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class BackfillProgressTracker {
 
-    private final AtomicReference<BackfillProgress> progress = new AtomicReference<>(
-        new BackfillProgress(
-            0, 0, 0, 0, false,
-            null, null, null, List.of(),
-            null, null, null, null, List.of()
-        )
-    );
+    private final AtomicReference<BackfillProgress> progress = new AtomicReference<>(BackfillProgress.notStarted());
 
     public BackfillProgress getProgress() {
         return progress.get();

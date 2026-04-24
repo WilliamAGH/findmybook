@@ -21,38 +21,22 @@ import org.springframework.context.annotation.Configuration;
 public class FeatureFlagConfig {
 
     private final boolean yearFilteringEnabled;
-    private final boolean embeddingServiceEnabled;
 
     public FeatureFlagConfig(
-            @Value("${app.feature.year-filtering.enabled:true}") boolean yearFilteringEnabled,
-            @Value("${app.feature.embedding-service.enabled:false}") boolean embeddingServiceEnabled) {
+            @Value("${app.feature.year-filtering.enabled:true}") boolean yearFilteringEnabled) {
         this.yearFilteringEnabled = yearFilteringEnabled;
-        this.embeddingServiceEnabled = embeddingServiceEnabled;
     }
 
     /**
      * Provides the year filtering feature state
-     * 
+     *
      * @return True if year filtering is enabled, false otherwise
-     * 
+     *
      * @implNote Defaults to true when property is not specified
      * Controls filtering of books by publication year
      */
     @Bean
     public boolean isYearFilteringEnabled() {
         return yearFilteringEnabled;
-    }
-
-    /**
-     * Provides the embedding service feature state
-     * 
-     * @return True if embedding service is enabled, false otherwise
-     * 
-     * @implNote Defaults to false when property is not specified
-     * Controls connectivity to external embedding services for vector similarity
-     */
-    @Bean
-    public boolean isEmbeddingServiceEnabled() {
-        return embeddingServiceEnabled;
     }
 }

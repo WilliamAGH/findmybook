@@ -72,7 +72,19 @@ public class CoverPersistenceService {
         Integer width,
         Integer height,
         Boolean highRes
-    ) {}
+    ) {
+        static PersistenceResult notPersisted() {
+            return new PersistenceResult(false, noCanonicalUrl(), noDimension(), noDimension(), false);
+        }
+
+        private static String noCanonicalUrl() {
+            return null;
+        }
+
+        private static Integer noDimension() {
+            return null;
+        }
+    }
 
     /**
      * Persists all image variants from Google Books imageLinks and sets the best as primary.
@@ -89,7 +101,7 @@ public class CoverPersistenceService {
     public PersistenceResult persistFromGoogleImageLinks(UUID bookId, Map<String, String> imageLinks, String source) {
         if (imageLinks == null || imageLinks.isEmpty()) {
             log.debug("No image links provided for book {}", bookId);
-            return new PersistenceResult(false, null, null, null, false);
+            return PersistenceResult.notPersisted();
         }
 
         String canonicalCoverUrl = null;
@@ -140,7 +152,7 @@ public class CoverPersistenceService {
             return new PersistenceResult(true, resolved.url(), resolved.width(), resolved.height(), resolved.highResolution());
         }
 
-        return new PersistenceResult(false, null, null, null, false);
+        return PersistenceResult.notPersisted();
     }
 
     /**
@@ -273,13 +285,13 @@ public class CoverPersistenceService {
     ) {
         if (externalUrl == null || externalUrl.isBlank()) {
             log.warn("Cannot persist external cover for book {}: URL is null/blank", bookId);
-            return new PersistenceResult(false, null, null, null, false);
+            return PersistenceResult.notPersisted();
         }
 
         String httpsUrl = UrlUtils.validateAndNormalize(externalUrl);
         if (!StringUtils.hasText(httpsUrl)) {
             log.warn("Cannot persist external cover for book {}: URL is invalid ({})", bookId, externalUrl);
-            return new PersistenceResult(false, null, null, null, false);
+            return PersistenceResult.notPersisted();
         }
 
         CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(new CoverUrlResolver.ResolveContext(

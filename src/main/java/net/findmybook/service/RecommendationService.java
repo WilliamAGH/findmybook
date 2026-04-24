@@ -105,11 +105,11 @@ public class RecommendationService {
                             }
                             log.info("No cached Postgres recommendations for book {}. Falling back to API pipeline.", bookId);
                             return fetchRecommendationsFromApiAndUpdateCache(sourceBook, effectiveCount);
-                        }))
+                }))
                 .switchIfEmpty(Mono.defer(() -> {
                     if (externalFallbackEnabled) {
-                        log.warn("Cache miss for book {}. Initiating legacy fallback pipeline.", bookId);
-                        return fetchLegacyRecommendations(bookId, effectiveCount);
+                        log.warn("Cache miss for book {}. Initiating external fallback pipeline.", bookId);
+                        return fetchExternalFallbackRecommendations(bookId, effectiveCount);
                     }
                     log.info("Cache miss for book {}. External fallback disabled — returning empty.", bookId);
                     return Mono.just(Collections.emptyList());
@@ -152,17 +152,17 @@ public class RecommendationService {
      * 5. Filters by language and excludes the source book itself
     * 6. Updates the source book's cached recommendation IDs for future use
      */
-    private Mono<List<Book>> fetchLegacyRecommendations(String bookId, int effectiveCount) {
+    private Mono<List<Book>> fetchExternalFallbackRecommendations(String bookId, int effectiveCount) {
         if (!externalFallbackEnabled) {
             return Mono.error(new IllegalStateException(
-                "Legacy fallback invoked but externalFallbackEnabled=false for bookId=" + bookId));
+                "External fallback invoked but externalFallbackEnabled=false for bookId=" + bookId));
         }
         return fetchCanonicalBook(bookId)
             .flatMap(sourceBook -> fetchRecommendationsFromApiAndUpdateCache(sourceBook, effectiveCount))
             .switchIfEmpty(Mono.defer(() -> {
-                log.error("Legacy recommendation fallback for '{}' produced no results after API pipeline execution", bookId);
+                log.error("External recommendation fallback for '{}' produced no results after API pipeline execution", bookId);
                 return Mono.error(new IllegalStateException(
-                    "Legacy fallback failed to produce recommendations for bookId=" + bookId));
+                    "External fallback failed to produce recommendations for bookId=" + bookId));
             }));
     }
 

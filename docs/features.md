@@ -29,6 +29,18 @@ See [UML README](../src/main/resources/uml/README.md).
   - `scripts/BackfillBookAiSeoMetadata.java <bookIdentifier> [--force]`
   - Identifier supports UUID, slug, or ISBN.
 
+## Book Similarity Embeddings
+
+- Book similarity uses section-fused embeddings rather than a single flattened text prompt.
+- The canonical profile contract lives at `src/main/resources/similarity/book-similarity-profiles.json` and owns only active profile, section order, and weights.
+- Section embeddings are cached in `book_embedding_sections` by model, section key, input format, and input hash.
+- Fused searchable vectors are stored in `book_similarity_vectors` with `source_text`, `source_json`, `source_hash`, `model_version`, and `qwen_4b_fp16 halfvec(2560)` so each result is reproducible and pgvector HNSW cosine search remains available.
+- Refresh is hash-driven: if the rendered source contract hash matches the stored `source_hash`, the book is current; otherwise section cache misses are embedded and the fused vector row is replaced.
+- Book upserts and similar-book requests enqueue demand refreshes, and a lightweight `@Scheduled` catch-up pass continuously enqueues bounded missing/stale batches through the central AI queue.
+- Manual bounded backfill:
+  - `make book-similarity-backfill SIMILARITY_LIMIT=250`
+  - `make book-similarity-anchor BOOK_IDENTIFIER=<uuid-or-slug-or-isbn>`
+
 ## Sitemap Generation
 Trigger manual sitemap update:
 ```bash
@@ -42,7 +54,7 @@ CLI migration flags were removed from application startup. The runtime now fails
 Use manual SQL migration scripts and controlled data-loading steps instead of boot-time flags.
 
 - SQL migration assets: `frontend/scripts/backfill_cover_metadata.sql`, `migrations/`, and `src/main/resources/schema.sql`.
-- Schema module layout: `src/main/resources/schema.sql` is the orchestrator entrypoint and includes the ordered canonical modules under `migrations/` (`00_extensions.sql` through `47_book_seo_metadata.sql`).
+- Schema module layout: `src/main/resources/schema.sql` is the orchestrator entrypoint and includes the ordered canonical modules under `migrations/`.
 - Data hygiene guardrails are consolidated into canonical table migrations: `migrations/10_books.sql` (book title cleanup + constraints), `migrations/14_book_authors_join.sql` (author cleanup + join dedupe + constraints), `migrations/20_book_tag_assignments.sql` (tag/assignment canonicalization), and `migrations/38_work_clustering_data_hygiene.sql` (Google clustering hygiene rebuild).
 - Controlled data load: run the explicit migration tool directly:
   `node frontend/scripts/migrate-s3-to-db-v2.js --prefix books/v1/ --limit 1000`

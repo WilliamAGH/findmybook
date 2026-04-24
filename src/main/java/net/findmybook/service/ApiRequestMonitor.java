@@ -34,6 +34,7 @@ import java.util.Set;
 public class ApiRequestMonitor {
     private static final Logger logger = LoggerFactory.getLogger(ApiRequestMonitor.class);
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final int MAX_DETAILS_PER_METRIC = 100;
 
     // Track total calls since application start
     private final AtomicLong totalRequests = new AtomicLong(0);
@@ -54,19 +55,19 @@ public class ApiRequestMonitor {
 
     // Track calls by endpoint
     private final Map<String, AtomicInteger> endpointCounts = new ConcurrentHashMap<>();
-    
+
     // Add maximum allowed metrics configuration
     private static final int MAX_CUSTOM_METRICS = 100;
-    
+
     private final Map<String, AtomicInteger> customMetricCounts = new ConcurrentHashMap<>();
     private final Map<String, CopyOnWriteArrayList<String>> customMetricDetails = new ConcurrentHashMap<>();
-    
+
     // Add whitelist for important metrics that should always be tracked
     private final Set<String> whitelistedMetrics = new HashSet<>(Arrays.asList(
-        "cache.hit", "cache.miss", "api.error", "api.failure", 
+        "cache.hit", "cache.miss", "api.error", "api.failure",
         "validation.error", "security.failure", "db.error"
     ));
-    
+
     // Static timestamp for last reset
     private volatile LocalDateTime lastHourlyReset = LocalDateTime.now();
     private volatile LocalDateTime lastDailyReset = LocalDateTime.now();
@@ -82,16 +83,16 @@ public class ApiRequestMonitor {
         hourlySuccessful.incrementAndGet();
         dailyRequests.incrementAndGet();
         dailySuccessful.incrementAndGet();
-        
+
         // Track per endpoint
         endpointCounts.computeIfAbsent(endpoint, k -> new AtomicInteger(0)).incrementAndGet();
-        
+
         // Log if we're approaching limits
         int hourly = hourlyRequests.get();
         if (hourly % 50 == 0) {
             logger.info("API Request count: {} in the current hour", hourly);
         }
-        
+
         // Check for hour/day boundaries
         checkAndUpdateTimePeriods();
     }
@@ -108,13 +109,13 @@ public class ApiRequestMonitor {
         hourlyFailed.incrementAndGet();
         dailyRequests.incrementAndGet();
         dailyFailed.incrementAndGet();
-        
+
         // Track per endpoint (even failures)
         endpointCounts.computeIfAbsent(endpoint, k -> new AtomicInteger(0)).incrementAndGet();
-        
+
         // Always log failures
         logger.warn("Failed API request to endpoint {}: {}", endpoint, errorMessage);
-        
+
         // Check for hour/day boundaries
         checkAndUpdateTimePeriods();
     }
@@ -128,7 +129,7 @@ public class ApiRequestMonitor {
             resetHourlyCounters();
             currentHour = now;
         }
-        
+
         if (now.getDayOfYear() != currentDay.getDayOfYear()) {
             resetDailyCounters();
             currentDay = now;
@@ -144,7 +145,7 @@ public class ApiRequestMonitor {
         int requests = hourlyRequests.getAndSet(0);
         int successful = hourlySuccessful.getAndSet(0);
         int failed = hourlyFailed.getAndSet(0);
-        
+
         LocalDateTime now = LocalDateTime.now();
         lastHourlyReset = now;
         currentHour = now; // keep the marker in-sync
@@ -161,10 +162,10 @@ public class ApiRequestMonitor {
         int requests = dailyRequests.getAndSet(0);
         int successful = dailySuccessful.getAndSet(0);
         int failed = dailyFailed.getAndSet(0);
-        
+
         // Also clear endpoint counts
         endpointCounts.clear();
-        
+
         LocalDateTime now = LocalDateTime.now();
         lastDailyReset = now;
         currentDay = now; // keep the marker in-sync
@@ -187,7 +188,7 @@ public class ApiRequestMonitor {
     public int getCurrentDailyRequests() {
         return dailyRequests.get();
     }
-    
+
     /**
      * Gets the total request count since application start
      * @return Total number of requests
@@ -195,7 +196,7 @@ public class ApiRequestMonitor {
     public long getTotalRequests() {
         return totalRequests.get();
     }
-    
+
     /**
      * Records a custom metric for tracking various events (cache hits/misses, errors, etc.)
      * @param metricName The name of the metric to track
@@ -203,28 +204,28 @@ public class ApiRequestMonitor {
      */
     public void recordMetric(String metricName, String details) {
         // Guard against unbounded growth - ignore metrics if we're at capacity and not whitelisted
-        if (customMetricCounts.size() >= MAX_CUSTOM_METRICS && !whitelistedMetrics.contains(metricName) && 
+        if (customMetricCounts.size() >= MAX_CUSTOM_METRICS && !whitelistedMetrics.contains(metricName) &&
             !customMetricCounts.containsKey(metricName)) {
-            logger.warn("Metric '{}' ignored: maximum number of distinct metrics reached ({})", 
+            logger.warn("Metric '{}' ignored: maximum number of distinct metrics reached ({})",
                         metricName, MAX_CUSTOM_METRICS);
             return;
         }
-        
+
         customMetricCounts.computeIfAbsent(metricName, k -> new AtomicInteger(0)).incrementAndGet();
-        
+
         // Store details if provided, keeping only the last 100 entries per metric
         if (details != null && !details.isEmpty()) {
-            CopyOnWriteArrayList<String> detailsList = customMetricDetails.computeIfAbsent(metricName, 
+            CopyOnWriteArrayList<String> detailsList = customMetricDetails.computeIfAbsent(metricName,
                 k -> new CopyOnWriteArrayList<>());
-            
+
             detailsList.add(String.format("%s: %s", TIME_FORMATTER.format(LocalDateTime.now()), details));
-            
+
             // Trim list if it gets too long
-            while (detailsList.size() > 100) {
+            while (detailsList.size() > MAX_DETAILS_PER_METRIC) {
                 detailsList.remove(0);
             }
         }
-        
+
         // Log high-importance metrics
         if (metricName.contains("error") || metricName.contains("failure")) {
             logger.warn("Recorded metric {}: {}", metricName, details);
@@ -242,62 +243,62 @@ public class ApiRequestMonitor {
         report.append(String.format("API Request Monitor Report%n"));
         report.append(String.format("==========================%n"));
         report.append(String.format("Generated at: %s%n%n", TIME_FORMATTER.format(LocalDateTime.now())));
-        
+
         report.append(String.format("Current Counts:%n"));
-        report.append(String.format("  Hourly: %d requests (%d successful, %d failed)%n", 
+        report.append(String.format("  Hourly: %d requests (%d successful, %d failed)%n",
                 hourlyRequests.get(), hourlySuccessful.get(), hourlyFailed.get()));
-        report.append(String.format("  Daily: %d requests (%d successful, %d failed)%n", 
+        report.append(String.format("  Daily: %d requests (%d successful, %d failed)%n",
                 dailyRequests.get(), dailySuccessful.get(), dailyFailed.get()));
-        report.append(String.format("  Total: %d requests (%d successful, %d failed)%n%n", 
+        report.append(String.format("  Total: %d requests (%d successful, %d failed)%n%n",
                 totalRequests.get(), totalSuccessful.get(), totalFailed.get()));
-        
+
         report.append(String.format("Endpoint Counts:%n"));
-        endpointCounts.forEach((endpoint, count) -> 
+        endpointCounts.forEach((endpoint, count) ->
             report.append(String.format("  %s: %d requests%n", endpoint, count.get())));
-        
+
         report.append(String.format("%nLast Reset Times:%n"));
         report.append(String.format("  Hourly: %s%n", TIME_FORMATTER.format(lastHourlyReset)));
         report.append(String.format("  Daily: %s%n", TIME_FORMATTER.format(lastDailyReset)));
-        
+
         return report.toString();
     }
-    
+
     /**
      * Returns a map of all current metrics
      * Useful for exporting metrics to monitoring systems
-     * 
+     *
      * @return Map containing all metrics
      */
     public Map<String, Object> getMetricsMap() {
         Map<String, Object> metrics = new ConcurrentHashMap<>();
-        
+
         // Current counts
         metrics.put("hourly_requests", hourlyRequests.get());
         metrics.put("hourly_successful", hourlySuccessful.get());
         metrics.put("hourly_failed", hourlyFailed.get());
-        
+
         metrics.put("daily_requests", dailyRequests.get());
         metrics.put("daily_successful", dailySuccessful.get());
         metrics.put("daily_failed", dailyFailed.get());
-        
+
         metrics.put("total_requests", totalRequests.get());
         metrics.put("total_successful", totalSuccessful.get());
         metrics.put("total_failed", totalFailed.get());
-        
+
         // Endpoint counts
         Map<String, Integer> endpoints = new ConcurrentHashMap<>();
         endpointCounts.forEach((endpoint, count) -> endpoints.put(endpoint, count.get()));
         metrics.put("endpoints", endpoints);
-        
+
         // Reset times
         metrics.put("last_hourly_reset", TIME_FORMATTER.format(lastHourlyReset));
         metrics.put("last_daily_reset", TIME_FORMATTER.format(lastDailyReset));
-        
+
         // Custom metrics
         Map<String, Object> customMetrics = new ConcurrentHashMap<>();
         customMetricCounts.forEach((metric, count) -> customMetrics.put(metric, count.get()));
         metrics.put("custom_metrics", customMetrics);
-        
+
         return metrics;
     }
 }

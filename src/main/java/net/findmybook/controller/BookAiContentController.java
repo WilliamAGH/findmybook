@@ -17,6 +17,7 @@ import net.findmybook.application.ai.BookAiContentService;
 import net.findmybook.controller.dto.BookAiContentSnapshotDto;
 import net.findmybook.domain.ai.BookAiContentSnapshot;
 import net.findmybook.support.ai.BookAiContentRequestQueue;
+import net.findmybook.support.llm.LlmGatewayTier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -158,9 +159,11 @@ public class BookAiContentController {
         AtomicBoolean messageStarted = new AtomicBoolean(false);
         return requestQueue.enqueueForeground(DEFAULT_GENERATION_PRIORITY, () -> {
             sendMessageStartEvent(state.emitter(), messageStarted);
-            BookAiContentService.GeneratedContent generated = aiContentService.generateAndPersist(state.bookId(), delta -> {
-                sseOrchestrator.sendEvent(state.emitter(), "message_delta", new MessageDeltaPayload(delta));
-            });
+            BookAiContentService.GeneratedContent generated = aiContentService.generateAndPersist(
+                state.bookId(),
+                delta -> sseOrchestrator.sendEvent(state.emitter(), "message_delta", new MessageDeltaPayload(delta)),
+                LlmGatewayTier.LIVE_RENDER
+            );
             sseOrchestrator.sendEvent(state.emitter(), "message_done", new MessageDonePayload(generated.rawMessage()));
             return generated;
         });

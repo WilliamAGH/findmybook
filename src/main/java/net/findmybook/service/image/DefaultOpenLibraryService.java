@@ -1,8 +1,8 @@
 /**
  * Implementation of the Open Library book cover service for retrieving cover images
- * 
+ *
  * @author William Callahan
- * 
+ *
  * Features:
  * - Fetches book cover images from Open Library's free API
  * - Supports ISBN-based lookups for precise image matching
@@ -26,9 +26,9 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 @Service
-public class OpenLibraryServiceImpl implements OpenLibraryService {
+public class DefaultOpenLibraryService implements OpenLibraryService {
 
-    private static final Logger logger = LoggerFactory.getLogger(OpenLibraryServiceImpl.class);
+    private static final Logger logger = LoggerFactory.getLogger(DefaultOpenLibraryService.class);
     private static final String OPEN_LIBRARY_SOURCE_NAME = "OpenLibrary";
 
     /**
@@ -123,7 +123,7 @@ public class OpenLibraryServiceImpl implements OpenLibraryService {
      */
     public CompletableFuture<Optional<ImageDetails>> fetchCoverRateLimitFallback(Book book, Throwable t) {
         String isbn = CoverIdentifierResolver.getPreferredIsbn(book);
-        logger.warn("OpenLibraryService rate limit exceeded for book ID: {}, ISBN: {}. Error: {}", 
+        logger.warn("OpenLibraryService rate limit exceeded for book ID: {}, ISBN: {}. Error: {}",
             book.getId(), isbn, t.getMessage());
         return CompletableFuture.failedFuture(
             new IllegalStateException("OpenLibrary cover lookup was rate-limited for book " + book.getId(), t)

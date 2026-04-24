@@ -3,6 +3,7 @@ package net.findmybook.application.seo;
 import java.util.Optional;
 import java.util.UUID;
 import net.findmybook.adapters.persistence.BookSeoMetadataRepository;
+import net.findmybook.support.llm.LlmGatewayTier;
 import net.findmybook.domain.seo.BookSeoMetadataSnapshot;
 import net.findmybook.dto.BookDetail;
 import net.findmybook.service.BookDataOrchestrator;
@@ -104,7 +105,7 @@ public class BookSeoMetadataGenerationService {
                                                                  String prompt,
                                                                  String promptHash) {
         try {
-            SeoMetadataCandidate generatedMetadata = seoMetadataClient.generate(bookId, prompt);
+            SeoMetadataCandidate generatedMetadata = seoMetadataClient.generate(bookId, prompt, LlmGatewayTier.BACKGROUND_BATCH);
             String normalizedTitle = normalizationPolicy.normalizeSeoTitle(generatedMetadata.seoTitle(), promptContext.bookTitle());
             String normalizedDescription = normalizationPolicy.normalizeSeoDescription(
                 generatedMetadata.seoDescription(),
