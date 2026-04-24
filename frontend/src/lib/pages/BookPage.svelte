@@ -82,6 +82,11 @@
     const sequence = ++loadSequence;
     loading = true;
     errorMessage = null;
+    similarBooks = [];
+    similarBooksFailed = false;
+    affiliateLinks = {};
+    affiliateLinksFailed = false;
+    liveCoverUrl = null;
 
     if (unsubscribeRealtime) {
       unsubscribeRealtime();
@@ -98,51 +103,9 @@
         ? loadedBook.id
         : fallbackIdentifierFromUrl() ?? identifier;
 
-      const [similarResult, linksResult] = await Promise.allSettled([
-        getSimilarBooks(relatedIdentifier, DEFAULT_SIMILAR_BOOKS_LIMIT),
-        getAffiliateLinks(relatedIdentifier),
-      ]);
-      if (sequence !== loadSequence) {
-        return;
-      }
-
       book = loadedBook;
-      if (similarResult.status === "rejected") {
-        similarBooks = [];
-        similarBooksFailed = true;
-      } else {
-        similarBooks = similarResult.value;
-        similarBooksFailed = false;
-      }
-      if (linksResult.status === "rejected") {
-        affiliateLinks = {};
-        affiliateLinksFailed = true;
-      } else {
-        affiliateLinks = linksResult.value;
-        affiliateLinksFailed = false;
-      }
-      liveCoverUrl = null;
-
-      const topicIdentifier = loadedBook.id;
-      try {
-        unsubscribeRealtime = await subscribeToBookCoverUpdates(
-          topicIdentifier,
-          (coverUrl) => {
-            liveCoverUrl = coverUrl;
-          },
-          (realtimeError) => {
-            console.error("Realtime cover update error:", realtimeError.message);
-          },
-        );
-      } catch (realtimeError) {
-        console.error("Realtime cover subscription failed:", realtimeError);
-        unsubscribeRealtime = null;
-      }
-
-      if (sequence !== loadSequence && unsubscribeRealtime) {
-        unsubscribeRealtime();
-        unsubscribeRealtime = null;
-      }
+      void loadRelatedBookContent(sequence, relatedIdentifier);
+      void subscribeToRealtimeCoverUpdates(sequence, loadedBook.id);
     } catch (loadError) {
       if (sequence !== loadSequence) {
         return;
@@ -157,6 +120,56 @@
       if (sequence === loadSequence) {
         loading = false;
       }
+    }
+  }
+
+  async function loadRelatedBookContent(sequence: number, relatedIdentifier: string): Promise<void> {
+    const [similarResult, linksResult] = await Promise.allSettled([
+      getSimilarBooks(relatedIdentifier, DEFAULT_SIMILAR_BOOKS_LIMIT),
+      getAffiliateLinks(relatedIdentifier),
+    ]);
+    if (sequence !== loadSequence) {
+      return;
+    }
+
+    if (similarResult.status === "rejected") {
+      similarBooks = [];
+      similarBooksFailed = true;
+    } else {
+      similarBooks = similarResult.value;
+      similarBooksFailed = false;
+    }
+    if (linksResult.status === "rejected") {
+      affiliateLinks = {};
+      affiliateLinksFailed = true;
+    } else {
+      affiliateLinks = linksResult.value;
+      affiliateLinksFailed = false;
+    }
+  }
+
+  async function subscribeToRealtimeCoverUpdates(sequence: number, topicIdentifier: string): Promise<void> {
+    try {
+      const unsubscribe = await subscribeToBookCoverUpdates(
+        topicIdentifier,
+        (coverUrl) => {
+          liveCoverUrl = coverUrl;
+        },
+        (realtimeError) => {
+          console.error("Realtime cover update error:", realtimeError.message);
+        },
+      );
+      if (sequence !== loadSequence) {
+        unsubscribe();
+        return;
+      }
+      unsubscribeRealtime = unsubscribe;
+    } catch (realtimeError) {
+      if (sequence !== loadSequence) {
+        return;
+      }
+      console.error("Realtime cover subscription failed:", realtimeError);
+      unsubscribeRealtime = null;
     }
   }
 

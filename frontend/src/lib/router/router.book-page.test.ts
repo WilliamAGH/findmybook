@@ -119,7 +119,39 @@ function createBookPayload(overrides: Record<string, unknown>) {
   };
 }
 
+function pendingRequest<T>() {
+  let resolveRequest!: (payload: T) => void;
+  let rejectRequest!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolve, reject) => {
+    resolveRequest = resolve;
+    rejectRequest = reject;
+  });
+  return { promise, resolve: resolveRequest, reject: rejectRequest };
+}
+
 describe("BookPage fallback lookup", () => {
+  it("shouldRenderBookDetailsBeforeRelatedRequestsSettle", async () => {
+    const similarRequest = pendingRequest<unknown[]>();
+    const affiliateRequest = pendingRequest<Record<string, string>>();
+    getSimilarBooksMock.mockReturnValueOnce(similarRequest.promise);
+    getAffiliateLinksMock.mockReturnValueOnce(affiliateRequest.promise);
+
+    const currentUrl = new URL("https://findmybook.net/book/book-1");
+    render(BookPage, {
+      props: {
+        currentUrl,
+        identifier: "book-1",
+      },
+    });
+
+    expect(await screen.findByRole("heading", { name: "Book" })).toBeInTheDocument();
+    expect(getSimilarBooksMock).toHaveBeenCalledWith("book-1", 8);
+    expect(getAffiliateLinksMock).toHaveBeenCalledWith("book-1");
+
+    similarRequest.resolve([]);
+    affiliateRequest.resolve({});
+  });
+
   it("shouldRetryWithBookIdQueryParamWhenSlugLookupReturns404", async () => {
     getBookMock.mockReset();
     getBookMock
