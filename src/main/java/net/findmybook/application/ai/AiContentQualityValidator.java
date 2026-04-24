@@ -21,6 +21,7 @@ class AiContentQualityValidator {
     static final int SUMMARY_MIN_WORD_COUNT = 3;
     static final int PROSE_FIELD_MAX_LENGTH = 1500;
     static final int LIST_ITEM_MAX_LENGTH = 300;
+    static final int MIN_REPETITION_ANALYSIS_LENGTH = 10;
     static final double MAX_SINGLE_CHAR_RATIO = 0.40;
     static final double MIN_LETTER_RATIO = 0.50;
 
@@ -146,7 +147,7 @@ class AiContentQualityValidator {
      * {@link #MAX_SINGLE_CHAR_RATIO} of the string.
      */
     static boolean exceedsSingleCharRepetitionThreshold(String text) {
-        if (text.length() < 10) {
+        if (text.length() < MIN_REPETITION_ANALYSIS_LENGTH) {
             return false;
         }
         var charCounts = new java.util.HashMap<Character, Integer>();

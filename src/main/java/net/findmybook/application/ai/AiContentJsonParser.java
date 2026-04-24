@@ -23,6 +23,7 @@ class AiContentJsonParser {
     private static final Logger log = LoggerFactory.getLogger(AiContentJsonParser.class);
     private static final int MAX_KEY_THEME_COUNT = 6;
     private static final int MAX_TAKEAWAY_COUNT = 5;
+    private static final int SUMMARY_SENTENCE_LIMIT = 2;
 
     private final ObjectMapper objectMapper;
 
@@ -224,7 +225,7 @@ class AiContentJsonParser {
 
     private String clampToTwoSentences(String text) {
         String[] sentences = text.split("(?<=[.!?])\\s+");
-        if (sentences.length <= 2) {
+        if (sentences.length <= SUMMARY_SENTENCE_LIMIT) {
             return text;
         }
         return (sentences[0] + " " + sentences[1]).trim();

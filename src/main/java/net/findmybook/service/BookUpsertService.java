@@ -53,7 +53,7 @@ public class BookUpsertService {
         this.bookImageLinkPersistenceService = bookImageLinkPersistenceService;
         this.bookOutboxEventService = bookOutboxEventService;
     }
-    
+
     /**
      * Writes the aggregate into canonical tables, emitting an outbox event in the same transaction.
      */
@@ -95,7 +95,7 @@ public class BookUpsertService {
         if (aggregate.getDimensions() != null) {
             bookUpsertTransactionService.upsertDimensions(bookId, aggregate.getDimensions());
         }
-        
+
         Map<String, String> normalizedImageLinks = imageLinkPersistenceResult.normalizedImageLinks();
         String source = aggregate.getIdentifiers() != null ? aggregate.getIdentifiers().getSource() : null;
         String context = source != null ? source : "POSTGRES_UPSERT";
@@ -121,7 +121,7 @@ public class BookUpsertService {
             .isNew(isNew)
             .build();
     }
-    
+
     private Optional<UUID> findExistingBookId(BookAggregate aggregate) {
         Long lockKey = computeBookLockKey(aggregate);
         if (lockKey == null) {
@@ -349,7 +349,7 @@ public class BookUpsertService {
             .collect(StringBuilder::new, StringBuilder::appendCodePoint, StringBuilder::append)
             .toString();
 
-        if (digits.length() != 13) {
+        if (digits.length() != IsbnUtils.ISBN_13_LENGTH) {
             return null;
         }
 

@@ -22,6 +22,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Flux;
 
@@ -213,7 +214,8 @@ final class SearchRealtimeCoordinator {
     }
 
     private static SearchProgressEvent.SearchStatus classifyProviderError(Throwable ex) {
-        if (ex instanceof WebClientResponseException webEx && webEx.getStatusCode().value() == 429) {
+        if (ex instanceof WebClientResponseException webEx
+            && webEx.getStatusCode().value() == HttpStatus.TOO_MANY_REQUESTS.value()) {
             return SearchProgressEvent.SearchStatus.RATE_LIMITED;
         }
         return SearchProgressEvent.SearchStatus.PROVIDER_UNAVAILABLE;

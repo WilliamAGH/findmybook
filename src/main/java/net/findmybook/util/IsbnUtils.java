@@ -8,6 +8,9 @@ import java.util.regex.Pattern;
  */
 public final class IsbnUtils {
 
+    public static final int ISBN_10_LENGTH = 10;
+    public static final int ISBN_13_LENGTH = 13;
+
     private static final Pattern NON_ISBN_CHARACTERS = Pattern.compile("[^0-9Xx]");
 
     private IsbnUtils() {
@@ -39,7 +42,7 @@ public final class IsbnUtils {
             return false;
         }
         String cleaned = sanitize(isbn);
-        return cleaned != null && cleaned.length() == 13 && cleaned.matches("\\d{13}");
+        return cleaned != null && cleaned.length() == ISBN_13_LENGTH && cleaned.matches("\\d{13}");
     }
 
     /**
@@ -50,6 +53,6 @@ public final class IsbnUtils {
             return false;
         }
         String cleaned = sanitize(isbn);
-        return cleaned != null && cleaned.length() == 10 && cleaned.matches("\\d{9}[\\dX]");
+        return cleaned != null && cleaned.length() == ISBN_10_LENGTH && cleaned.matches("\\d{9}[\\dX]");
     }
 }

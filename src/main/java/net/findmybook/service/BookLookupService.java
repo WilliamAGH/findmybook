@@ -39,11 +39,11 @@ public class BookLookupService {
             return Optional.empty();
         }
 
-        if (cleaned.length() == 13) {
+        if (cleaned.length() == IsbnUtils.ISBN_13_LENGTH) {
             return findBookIdByIsbn13(cleaned);
         }
 
-        if (cleaned.length() == 10) {
+        if (cleaned.length() == IsbnUtils.ISBN_10_LENGTH) {
             return findBookIdByIsbn10(cleaned);
         }
 
@@ -172,7 +172,7 @@ public class BookLookupService {
     /**
      * Locate a book ID using any identifier stored in book_external_ids (external_id, provider_isbn13,
      * provider_isbn10, provider_asin). Used to consolidate scattered lookup patterns.
-     * 
+     *
      * Bug #5 Fix: Uses IdentifierClassifier to only query appropriate columns based on identifier type.
      * This prevents "Incorrect result size" errors from trying slugs as ISBNs/ASINs.
      */
@@ -182,26 +182,26 @@ public class BookLookupService {
         }
 
         String trimmed = identifier.trim();
-        
+
         // Bug #5: Classify identifier to determine which lookups to attempt
         ExternalIdentifierType type = IdentifierClassifier.classify(trimmed);
         log.debug("Classified identifier '{}' as {}", trimmed, type);
-        
+
         // Route to appropriate lookup based on type
         switch (type) {
             case ISBN_13:
                 return findBookIdByIsbn13(trimmed);
-                
+
             case ISBN_10:
                 return findBookIdByIsbn10(trimmed);
-                
+
             case ASIN:
                 return JdbcUtils.optionalString(
                     jdbcTemplate,
                     "SELECT book_id FROM book_external_ids WHERE provider_asin = ? LIMIT 1",
                     ex -> log.debug("Query failed for provider_asin {}: {}", trimmed, ex.getMessage()),
                     trimmed);
-                    
+
             case GOOGLE_BOOKS_ID:
             case OPENLIBRARY_WORK:
             case OPENLIBRARY_EDITION:
@@ -211,11 +211,11 @@ public class BookLookupService {
                     "SELECT book_id FROM book_external_ids WHERE external_id = ? LIMIT 1",
                     ex -> log.debug("Query failed for external_id {}: {}", trimmed, ex.getMessage()),
                     trimmed);
-                    
+
             case CANONICAL_ID:
                 // It's a UUID, check if it exists directly
                 return findBookById(trimmed);
-                
+
             case SLUG:
                 // Task #13: Query books.slug directly
                 log.debug("Identifier '{}' is a slug - performing slug lookup", trimmed);
@@ -224,7 +224,7 @@ public class BookLookupService {
                     "SELECT id FROM books WHERE slug = ? LIMIT 1",
                     ex -> log.debug("Query failed for slug {}: {}", trimmed, ex.getMessage()),
                     trimmed);
-                
+
             case UNKNOWN:
             default:
                 // Unknown type - try external_id as last resort but log warning

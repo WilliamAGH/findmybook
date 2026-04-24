@@ -408,19 +408,19 @@ public class OpenLibraryBookDataService {
     }
 
     private static void classifyIsbn(String sanitized, Book book) {
-        if (sanitized.length() == 13 && book.getIsbn13() == null) {
+        if (sanitized.length() == IsbnUtils.ISBN_13_LENGTH && book.getIsbn13() == null) {
             book.setIsbn13(sanitized);
-        } else if (sanitized.length() == 10 && book.getIsbn10() == null) {
+        } else if (sanitized.length() == IsbnUtils.ISBN_10_LENGTH && book.getIsbn10() == null) {
             book.setIsbn10(sanitized);
         }
     }
 
     private static void assignFirstMatchingIsbns(List<String> isbns, Book book) {
         for (String isbn : isbns) {
-            if (isbn.length() == 13) { book.setIsbn13(isbn); break; }
+            if (isbn.length() == IsbnUtils.ISBN_13_LENGTH) { book.setIsbn13(isbn); break; }
         }
         for (String isbn : isbns) {
-            if (isbn.length() == 10) { book.setIsbn10(isbn); break; }
+            if (isbn.length() == IsbnUtils.ISBN_10_LENGTH) { book.setIsbn10(isbn); break; }
         }
     }
 

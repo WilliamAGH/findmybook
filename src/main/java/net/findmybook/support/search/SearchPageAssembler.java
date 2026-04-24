@@ -31,6 +31,8 @@ import java.util.regex.Pattern;
 public final class SearchPageAssembler {
 
     private static final Pattern AUTHOR_QUERY_TOKEN_PATTERN = Pattern.compile("^[\\p{L}][\\p{L}'-]{1,}$");
+    private static final int MIN_AUTHOR_QUERY_TOKENS = 2;
+    private static final int MAX_AUTHOR_QUERY_TOKENS = 3;
 
     /**
      * Creates a search page from candidate books and paging metadata.
@@ -209,7 +211,7 @@ public final class SearchPageAssembler {
             return false;
         }
         String[] tokens = normalized.split(" ");
-        if (tokens.length < 2 || tokens.length > 3) {
+        if (tokens.length < MIN_AUTHOR_QUERY_TOKENS || tokens.length > MAX_AUTHOR_QUERY_TOKENS) {
             return false;
         }
         for (String token : tokens) {

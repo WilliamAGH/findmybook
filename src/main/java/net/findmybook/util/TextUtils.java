@@ -11,18 +11,21 @@ import java.util.stream.Collectors;
 /**
  * Centralized text normalization utilities for book data consistency.
  * Converts API data (often ALL CAPS) to proper title/name case at ingestion time.
- * 
+ *
  * @author William Callahan
  * @since 1.0.0
  */
 public class TextUtils {
 
     private static final Logger logger = LoggerFactory.getLogger(TextUtils.class);
+    private static final int MC_PREFIX_LENGTH = 2;
+    private static final int MAC_PREFIX_LENGTH = 3;
+    private static final int IRISH_PREFIX_LENGTH = 2;
 
     // Words that should remain lowercase in title case (unless they're the first word)
     private static final Set<String> LOWERCASE_WORDS = new HashSet<>(Arrays.asList(
-        "a", "an", "and", "as", "at", "but", "by", "for", "from", "in", 
-        "into", "nor", "of", "on", "or", "over", "so", "the", "to", 
+        "a", "an", "and", "as", "at", "but", "by", "for", "from", "in",
+        "into", "nor", "of", "on", "or", "over", "so", "the", "to",
         "up", "with", "yet", "vs", "vs.", "v", "v."
     ));
 
@@ -45,18 +48,18 @@ public class TextUtils {
 
     /**
      * Converts book titles to proper English title case.
-     * 
+     *
      * <p><strong>Examples:</strong>
      * <ul>
      * <li>"THE GREAT GATSBY" → "The Great Gatsby"</li>
      * <li>"WORLD WAR II: A HISTORY" → "World War II: A History"</li>
      * <li>"THE FBI FILES" → "The FBI Files"</li>
      * </ul>
-     * 
+     *
      * <p><strong>Rules:</strong> Capitalizes first word, proper nouns, Roman numerals, acronyms.
      * Lowercases articles/prepositions (a, the, of, in, etc.) unless first/last word.
      * Preserves intentional mixed case (e.g., "eBay").
-     * 
+     *
      * @param title raw title from external API (may be ALL CAPS)
      * @return normalized title in proper case, or null if input is null
      */
@@ -69,7 +72,7 @@ public class TextUtils {
         if (cleaned.isBlank()) {
             return cleaned;
         }
-        
+
         // If mixed case, preserve original (likely intentional formatting)
         if (!isUniformCase(cleaned)) {
             logger.debug("Title '{}' appears to have intentional mixed case formatting, preserving as-is", cleaned);
@@ -112,7 +115,7 @@ public class TextUtils {
 
     /**
      * Internal method applying English title case rules with subtitle handling.
-     * 
+     *
      * @param text text known to need normalization (all upper/lower case)
      * @return title-cased text with proper capitalization after colons/dashes
      */
@@ -124,9 +127,9 @@ public class TextUtils {
         // Split by spaces and punctuation boundaries while preserving delimiters
         String[] words = text.split("(?<=\\s)|(?=\\s)|(?<=[-:;,.])|(?=[-:;,.])");
         StringBuilder result = new StringBuilder();
-        
+
         boolean isFirstWord = true;
-        
+
         for (String word : words) {
             if (word.isBlank() || word.matches("[\\s\\-:;,.]")) {
                 // Preserve whitespace and punctuation as-is
@@ -168,19 +171,19 @@ public class TextUtils {
 
         // Ensure last significant word is capitalized (if it was lowercase)
         String finalResult = result.toString().trim();
-        
+
         // Capitalize after colons and dashes (common in subtitles)
         finalResult = capitalizeAfterDelimiter(finalResult, ':');
         finalResult = capitalizeAfterDelimiter(finalResult, '—');
         finalResult = capitalizeAfterDelimiter(finalResult, '–');
-        
+
         logger.debug("Normalized title from '{}' to '{}'", text, finalResult);
         return finalResult;
     }
 
     /**
      * Capitalizes first letter, handles leading punctuation (e.g., "'til" → "'Til").
-     * 
+     *
      * @param word single word to capitalize
      * @return word with first letter capitalized, preserving punctuation
      */
@@ -188,18 +191,18 @@ public class TextUtils {
         if (word == null || word.isEmpty()) {
             return word;
         }
-        
+
         // Handle words with leading punctuation like quotes
         int firstLetterIndex = 0;
         while (firstLetterIndex < word.length() && !Character.isLetterOrDigit(word.charAt(firstLetterIndex))) {
             firstLetterIndex++;
         }
-        
+
         if (firstLetterIndex >= word.length()) {
             return word;
         }
-        
-        return word.substring(0, firstLetterIndex) 
+
+        return word.substring(0, firstLetterIndex)
              + Character.toUpperCase(word.charAt(firstLetterIndex))
              + word.substring(firstLetterIndex + 1).toLowerCase();
     }
@@ -207,7 +210,7 @@ public class TextUtils {
     /**
      * Capitalizes first letter after delimiter for subtitle handling.
      * Example: "clean code: a handbook" → "clean code: A handbook"
-     * 
+     *
      * @param text text to process
      * @param delimiter character after which to capitalize (typically ':' or '—')
      * @return text with post-delimiter capitalization applied
@@ -219,10 +222,10 @@ public class TextUtils {
 
         StringBuilder result = new StringBuilder();
         boolean capitalizeNext = false;
-        
+
         for (int i = 0; i < text.length(); i++) {
             char c = text.charAt(i);
-            
+
             if (c == delimiter) {
                 result.append(c);
                 capitalizeNext = true;
@@ -233,13 +236,13 @@ public class TextUtils {
                 result.append(c);
             }
         }
-        
+
         return result.toString();
     }
 
     /**
      * Converts author names to proper case with prefix handling.
-     * 
+     *
      * <p><strong>Examples:</strong>
      * <ul>
      * <li>"STEPHEN KING" → "Stephen King"</li>
@@ -247,10 +250,10 @@ public class TextUtils {
      * <li>"LUDWIG VON BEETHOVEN" → "Ludwig von Beethoven"</li>
      * <li>"CONNOR O'BRIEN" → "Connor O'Brien"</li>
      * </ul>
-     * 
+     *
      * <p><strong>Special handling:</strong> Mc/Mac/O' prefixes, nobility particles (von, van, de).
      * Preserves intentional mixed case.
-     * 
+     *
      * @param name raw author name from external API (may be ALL CAPS)
      * @return normalized name in proper case, or null if input is null
      */
@@ -334,7 +337,7 @@ public class TextUtils {
     /**
      * Capitalizes name part with prefix-specific rules.
      * Handles Mc/Mac/O' (Irish/Scottish), von/van/de (nobility particles).
-     * 
+     *
      * @param part single name component (e.g., "mcdonald", "von")
      * @return properly capitalized part following naming conventions
      */
@@ -344,21 +347,21 @@ public class TextUtils {
         }
 
         String lower = part.toLowerCase();
-        
+
         // Handle common name prefixes
-        if (lower.startsWith("mc") && part.length() > 2) {
+        if (lower.startsWith("mc") && part.length() > MC_PREFIX_LENGTH) {
             return "Mc" + Character.toUpperCase(part.charAt(2)) + part.substring(3).toLowerCase();
         }
-        if (lower.startsWith("mac") && part.length() > 3) {
+        if (lower.startsWith("mac") && part.length() > MAC_PREFIX_LENGTH) {
             return "Mac" + Character.toUpperCase(part.charAt(3)) + part.substring(4).toLowerCase();
         }
-        if (lower.startsWith("o'") && part.length() > 2) {
+        if (lower.startsWith("o'") && part.length() > IRISH_PREFIX_LENGTH) {
             return "O'" + Character.toUpperCase(part.charAt(2)) + part.substring(3).toLowerCase();
         }
-        
+
         // Lowercase prefixes (von, van, de, etc.)
         // Note: 'da' is excluded as it's less commonly lowercase in practice (e.g., "Da Vinci")
-        if (lower.equals("von") || lower.equals("van") || lower.equals("de") || 
+        if (lower.equals("von") || lower.equals("van") || lower.equals("de") ||
             lower.equals("del") || lower.equals("della") || lower.equals("di")) {
             return lower;
         }

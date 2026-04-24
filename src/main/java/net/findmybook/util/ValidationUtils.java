@@ -7,6 +7,8 @@ import java.util.Map;
  * Utility helpers for common null/blank/empty validation checks (per user DRY request).
  */
 public final class ValidationUtils {
+    private static final int WRAPPING_QUOTE_MIN_LENGTH = 2;
+
     private ValidationUtils() {
     }
 
@@ -44,7 +46,7 @@ public final class ValidationUtils {
             return null;
         }
         int length = value.length();
-        if (length < 2) {
+        if (length < WRAPPING_QUOTE_MIN_LENGTH) {
             return value;
         }
         int start = 0;

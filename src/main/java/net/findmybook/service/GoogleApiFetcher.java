@@ -12,6 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.findmybook.util.LoggingUtils;
 import net.findmybook.util.ExternalApiLogger;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
@@ -30,7 +31,7 @@ import java.time.Duration;
 @Slf4j
 public class GoogleApiFetcher {
 
-    
+
     private final WebClient webClient;
     private final ApiRequestMonitor apiRequestMonitor;
     private final ApiCircuitBreakerService circuitBreakerService;
@@ -46,12 +47,12 @@ public class GoogleApiFetcher {
 
     /**
      * Constructs GoogleApiFetcher with required dependencies
-     * 
-     * @param webClientBuilder WebClient builder 
+     *
+     * @param webClientBuilder WebClient builder
      * @param apiRequestMonitor API request tracking service
      * @param circuitBreakerService Circuit breaker for API rate limiting
      */
-    public GoogleApiFetcher(WebClient.Builder webClientBuilder, 
+    public GoogleApiFetcher(WebClient.Builder webClientBuilder,
                            ApiRequestMonitor apiRequestMonitor,
                            ApiCircuitBreakerService circuitBreakerService) {
         this.webClient = webClientBuilder.build();
@@ -121,7 +122,7 @@ public class GoogleApiFetcher {
                 .toEntity(JsonNode.class)
                 .doOnSubscribe(s -> log.debug("Fetching from Google API: {}", url))
                 .timeout(Duration.ofSeconds(5))
-                .retryWhen(authenticated 
+                .retryWhen(authenticated
                     ? Retry.max(0) // NO RETRIES for authenticated calls - fail fast to trigger circuit breaker
                     : Retry.backoff(1, Duration.ofSeconds(1))
                         .filter(throwable -> {
@@ -171,13 +172,13 @@ public class GoogleApiFetcher {
                                 "Error fetching from Google API after retries: HTTP Status {}, Body: {}",
                                 wcre.getStatusCode(), wcre.getResponseBodyAsString());
                         if (authenticated) {
-                            if (wcre.getStatusCode().value() == 429) {
+                            if (wcre.getStatusCode().value() == HttpStatus.TOO_MANY_REQUESTS.value()) {
                                 circuitBreakerService.recordRateLimitFailure();
                             } else {
                                 circuitBreakerService.recordGeneralFailure();
                             }
                         } else {
-                            if (wcre.getStatusCode().value() == 429) {
+                            if (wcre.getStatusCode().value() == HttpStatus.TOO_MANY_REQUESTS.value()) {
                                 circuitBreakerService.recordFallbackRateLimitFailure();
                             } else {
                                 circuitBreakerService.recordFallbackGeneralFailure();
@@ -322,7 +323,7 @@ public class GoogleApiFetcher {
 
     /**
      * Internal implementation for searching volumes
-     * 
+     *
      * @param query Search terms
      * @param startIndex Zero-based absolute offset into Google volumes search results
      * @param orderBy Sort order
@@ -424,16 +425,16 @@ public class GoogleApiFetcher {
                         LoggingUtils.error(log, wcre,
                             "Error fetching page for API search call ({}) for query '{}' at startIndex {} after retries: HTTP Status {}, Body: {}",
                             authStatus, query, startIndex, wcre.getStatusCode(), wcre.getResponseBodyAsString());
-                        
+
                         // Record circuit breaker failure for authenticated calls
                         if (authenticated) {
-                            if (wcre.getStatusCode().value() == 429) {
+                            if (wcre.getStatusCode().value() == HttpStatus.TOO_MANY_REQUESTS.value()) {
                                 circuitBreakerService.recordRateLimitFailure();
                             } else {
                                 circuitBreakerService.recordGeneralFailure();
                             }
                         } else {
-                            if (wcre.getStatusCode().value() == 429) {
+                            if (wcre.getStatusCode().value() == HttpStatus.TOO_MANY_REQUESTS.value()) {
                                 circuitBreakerService.recordFallbackRateLimitFailure();
                             } else {
                                 circuitBreakerService.recordFallbackGeneralFailure();
@@ -460,7 +461,7 @@ public class GoogleApiFetcher {
 
     /**
      * Categorizes query for monitoring metrics
-     * 
+     *
      * @param query Search query to analyze
      * @return Query type category
      */

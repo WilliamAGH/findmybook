@@ -14,6 +14,7 @@ import java.util.stream.Collectors;
  * Handles text truncation, metadata generation, and SEO-friendly formatting
  */
 public class SeoUtils {
+    private static final int MIN_KEYWORD_LENGTH = 3;
 
     /**
      * Truncates a string to a maximum length while preserving whole words
@@ -43,7 +44,7 @@ public class SeoUtils {
         if (truncatedLength <= 0) {
             return suffix; // Or an empty string, depending on desired behavior
         }
-        
+
         String sub = plainText.substring(0, Math.min(truncatedLength, plainText.length())); // Ensure substring doesn't go out of bounds
         int lastSpace = sub.lastIndexOf(' ');
 
@@ -94,7 +95,7 @@ public class SeoUtils {
             .filter(StringUtils::hasText)
             .map(token -> token.toLowerCase(Locale.ROOT))
             .distinct()
-            .filter(token -> token.length() > 2)
+            .filter(token -> token.length() >= MIN_KEYWORD_LENGTH)
             .limit(15)
             .collect(Collectors.joining(", "));
     }
