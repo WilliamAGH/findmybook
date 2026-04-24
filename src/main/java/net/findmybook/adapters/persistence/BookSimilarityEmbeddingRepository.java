@@ -34,6 +34,52 @@ public class BookSimilarityEmbeddingRepository {
     }
 
     /**
+     * Reports whether the persisted vector row is current versus canonical book state.
+     *
+     * <p>Returns true only when the vector exists with populated \`source_hash\` and
+     * \`qwen_4b_fp16\`, the canonical \`books.updated_at\` is not newer than the vector's
+     * \`computed_at\`, and no \`book_ai_content\` row is newer than the vector. A positive
+     * result lets demand callers skip the AI queue round-trip without losing correctness
+     * because the same freshness rules drive scheduled refresh candidate selection.</p>
+     *
+     * @param bookId canonical book UUID
+     * @param modelVersion active model/profile/regime version
+     * @param profileHash active fusion profile hash
+     * @return true when the vector row is fresh for the active contract
+     */
+    @Transactional(readOnly = true)
+    public boolean isVectorFresh(UUID bookId, String modelVersion, String profileHash) {
+        Integer exists = jdbcTemplate.query(
+            """
+            SELECT 1
+            FROM book_similarity_vectors v
+            JOIN books b ON b.id = v.book_id
+            WHERE v.source_type = 'book'
+              AND v.book_id = ?
+              AND v.model_version = ?
+              AND v.profile_hash = ?
+              AND v.source_hash IS NOT NULL
+              AND v.qwen_4b_fp16 IS NOT NULL
+              AND v.computed_at IS NOT NULL
+              AND b.updated_at <= v.computed_at
+              AND NOT EXISTS (
+                SELECT 1
+                FROM book_ai_content bac
+                WHERE bac.book_id = b.id
+                  AND bac.is_current = true
+                  AND bac.created_at > v.computed_at
+              )
+            LIMIT 1
+            """,
+            rs -> rs.next() ? Integer.valueOf(1) : null,
+            bookId,
+            modelVersion,
+            profileHash
+        );
+        return exists != null;
+    }
+
+    /**
      * Finds books whose persisted vector is missing or older than source tables.
      *
      * @param modelVersion active model/profile/regime version
