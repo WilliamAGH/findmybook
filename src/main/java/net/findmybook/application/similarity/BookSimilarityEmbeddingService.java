@@ -260,8 +260,8 @@ public class BookSimilarityEmbeddingService {
                 }
                 return null;
             }).result().whenComplete((ignored, failure) -> {
+                recentRefreshAttempts.invalidate(bookId);
                 if (failure != null) {
-                    recentRefreshAttempts.invalidate(bookId);
                     log.error("Book similarity embedding refresh failed for book {} ({})", bookId, reason, failure);
                 }
             });
