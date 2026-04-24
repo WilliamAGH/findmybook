@@ -1,8 +1,8 @@
 /**
  * Implementation of the Longitood service for retrieving high-quality book cover images
- * 
+ *
  * @author William Callahan
- * 
+ *
  * Features:
  * - Integrates with external Longitood API to fetch book cover images
  * - Implements circuit breaker, rate limiting, and timeout protections
@@ -35,9 +35,9 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 @Service
-public class LongitoodServiceImpl implements LongitoodService { 
+public class DefaultLongitoodService implements LongitoodService {
 
-    private static final Logger logger = LoggerFactory.getLogger(LongitoodServiceImpl.class);
+    private static final Logger logger = LoggerFactory.getLogger(DefaultLongitoodService.class);
     private static final String LONGITOOD_SOURCE_NAME = "Longitood";
 
     private final WebClient webClient;
@@ -48,7 +48,7 @@ public class LongitoodServiceImpl implements LongitoodService {
      *
      * @param webClientBuilder pre-configured builder supplied by the application context
      */
-    public LongitoodServiceImpl(WebClient.Builder webClientBuilder) {
+    public DefaultLongitoodService(WebClient.Builder webClientBuilder) {
         this.webClient = webClientBuilder.build();
     }
 
@@ -70,7 +70,7 @@ public class LongitoodServiceImpl implements LongitoodService {
         }
 
         String apiUrl = "https://bookcover.longitood.com/bookcover/" + isbn;
-        final String finalIsbn = isbn; 
+        final String finalIsbn = isbn;
 
         // IMPORTANT: Do NOT use onErrorResume() to swallow exceptions here.
         // Exceptions must propagate so the @CircuitBreaker annotation can intercept them.
@@ -131,13 +131,13 @@ public class LongitoodServiceImpl implements LongitoodService {
      */
     public CompletableFuture<Optional<ImageDetails>> fetchCoverFallback(Book book, Throwable t) {
         String isbn = CoverIdentifierResolver.getPreferredIsbn(book);
-        logger.warn("LongitoodService.fetchCover circuit breaker opened for book ID: {}, ISBN: {}. Error: {}", 
+        logger.warn("LongitoodService.fetchCover circuit breaker opened for book ID: {}, ISBN: {}. Error: {}",
             book.getId(), isbn, t.getMessage());
         return CompletableFuture.failedFuture(
             new IllegalStateException("Longitood cover lookup circuit is open for book " + book.getId(), t)
         );
     }
-    
+
     /**
      * Fallback method for fetchCover when rate limit is exceeded
      * - Handles when too many Longitood API requests are made in the time period
@@ -150,7 +150,7 @@ public class LongitoodServiceImpl implements LongitoodService {
      */
     public CompletableFuture<Optional<ImageDetails>> fetchCoverRateLimitFallback(Book book, Throwable t) {
         String isbn = CoverIdentifierResolver.getPreferredIsbn(book);
-        logger.warn("LongitoodService.fetchCover rate limit exceeded for book ID: {}, ISBN: {}. Error: {}", 
+        logger.warn("LongitoodService.fetchCover rate limit exceeded for book ID: {}, ISBN: {}. Error: {}",
             book.getId(), isbn, t.getMessage());
         return CompletableFuture.failedFuture(
             new IllegalStateException("Longitood cover lookup was rate-limited for book " + book.getId(), t)
