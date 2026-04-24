@@ -172,12 +172,9 @@ public final class BookDtoMapper {
             return null;
         }
 
-        CoverDto cover = buildCoverDto(new CoverCandidates(
-            card.coverUrl(), card.fallbackCoverUrl(), card.fallbackCoverUrl(),
-            null, null, null, null
-        ));
+        CoverDto cover = buildCoverDto(CoverCandidates.fromCard(card));
 
-        PublicationDto publication = new PublicationDto(null, null, null, null);
+        PublicationDto publication = PublicationDto.empty();
 
         return new BookDto(
             card.id(),
@@ -207,7 +204,7 @@ public final class BookDtoMapper {
             return null;
         }
 
-        PublicationDto publication = new PublicationDto(null, null, null, null);
+        PublicationDto publication = PublicationDto.empty();
 
         CoverDto cover = buildCoverDto(new CoverCandidates(
             item.coverUrl(), item.coverFallbackUrl(), item.coverFallbackUrl(),
@@ -535,7 +532,31 @@ public final class BookDtoMapper {
         Integer height,
         Boolean highResolution,
         String declaredSource
-    ) {}
+    ) {
+        static CoverCandidates fromCard(BookCard card) {
+            return new CoverCandidates(
+                card.coverUrl(),
+                card.fallbackCoverUrl(),
+                card.fallbackCoverUrl(),
+                noDimension(),
+                noDimension(),
+                noHighResolutionSignal(),
+                noDeclaredSource()
+            );
+        }
+
+        private static Integer noDimension() {
+            return null;
+        }
+
+        private static Boolean noHighResolutionSignal() {
+            return null;
+        }
+
+        private static String noDeclaredSource() {
+            return null;
+        }
+    }
 
     private static CoverDto buildCoverDto(CoverCandidates candidates) {
         String placeholder = ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH;

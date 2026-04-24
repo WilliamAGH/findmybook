@@ -21,7 +21,7 @@
  * @param rejectionReason Typed reason when the image was rejected as not a usable cover (null for successes and infrastructure errors)
  */
 
- package net.findmybook.model.image;
+package net.findmybook.model.image;
 
 import jakarta.annotation.Nullable;
 import java.util.Arrays;
@@ -36,6 +36,8 @@ public record ProcessedImage(
         boolean processingSuccessful,
         String processingError,
         @Nullable CoverRejectionReason rejectionReason) {
+
+    private static final int ABSENT_DIMENSION = 0;
 
     // Compact canonical constructor for defensive copy
     public ProcessedImage {
@@ -81,7 +83,17 @@ public record ProcessedImage(
      * @return A new ProcessedImage representing a cover rejection
      */
     public static ProcessedImage rejected(CoverRejectionReason reason) {
-        return new ProcessedImage(null, null, null, 0, 0, false, false, reason.description(), reason);
+        return new ProcessedImage(
+            noProcessedBytes(),
+            noFileExtension(),
+            noMimeType(),
+            ABSENT_DIMENSION,
+            ABSENT_DIMENSION,
+            false,
+            false,
+            reason.description(),
+            reason
+        );
     }
 
     /**
@@ -92,7 +104,17 @@ public record ProcessedImage(
      * @return A new ProcessedImage representing a cover rejection
      */
     public static ProcessedImage rejected(CoverRejectionReason reason, String detail) {
-        return new ProcessedImage(null, null, null, 0, 0, false, false, detail, reason);
+        return new ProcessedImage(
+            noProcessedBytes(),
+            noFileExtension(),
+            noMimeType(),
+            ABSENT_DIMENSION,
+            ABSENT_DIMENSION,
+            false,
+            false,
+            detail,
+            reason
+        );
     }
 
     /**
@@ -103,7 +125,33 @@ public record ProcessedImage(
      * @return A new ProcessedImage instance representing a failed operation
      */
     public static ProcessedImage failure(String processingError) {
-        return new ProcessedImage(null, null, null, 0, 0, false, false, processingError, null);
+        return new ProcessedImage(
+            noProcessedBytes(),
+            noFileExtension(),
+            noMimeType(),
+            ABSENT_DIMENSION,
+            ABSENT_DIMENSION,
+            false,
+            false,
+            processingError,
+            noRejectionReason()
+        );
+    }
+
+    private static byte[] noProcessedBytes() {
+        return null;
+    }
+
+    private static String noFileExtension() {
+        return null;
+    }
+
+    private static String noMimeType() {
+        return null;
+    }
+
+    private static CoverRejectionReason noRejectionReason() {
+        return null;
     }
 
     // Override accessor to return a defensive copy for immutability

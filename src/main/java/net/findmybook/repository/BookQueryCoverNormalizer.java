@@ -91,6 +91,18 @@ final class BookQueryCoverNormalizer {
         Integer width, Integer height, Boolean highResolution,
         Boolean grayscale
     ) {
+        /** Creates source fields for card views, which do not carry dimensions. */
+        static ResolvedFields fromCard(BookCard card) {
+            return new ResolvedFields(
+                card.coverUrl(),
+                card.coverS3Key(),
+                noDimension(),
+                noDimension(),
+                noHighResolutionSignal(),
+                card.coverGrayscale()
+            );
+        }
+
         /** Resolves cover fields by preferring fallback values over {@code originals}. */
         static ResolvedFields from(CoverFallback fallback, ResolvedFields originals) {
             CoverUrlResolver.ResolvedCover r = fallback != null ? fallback.resolved() : null;
@@ -104,12 +116,19 @@ final class BookQueryCoverNormalizer {
                     ? fallback.grayscale() : originals.grayscale()
             );
         }
+
+        private static Integer noDimension() {
+            return null;
+        }
+
+        private static Boolean noHighResolutionSignal() {
+            return null;
+        }
     }
 
     List<BookCard> normalizeBookCardCovers(List<BookCard> cards) {
         return normalizeCovers(cards, BookCard::id, BookCard::coverUrl, (card, fallback) -> {
-            var f = ResolvedFields.from(fallback, new ResolvedFields(
-                card.coverUrl(), card.coverS3Key(), null, null, null, card.coverGrayscale()));
+            var f = ResolvedFields.from(fallback, ResolvedFields.fromCard(card));
             String fallbackUrl = StringUtils.hasText(card.fallbackCoverUrl())
                 ? card.fallbackCoverUrl() : f.coverUrl();
             return new BookCard(
