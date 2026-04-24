@@ -58,7 +58,11 @@ lint: lint-ast
 	@npm --prefix frontend run lint:ox
 
 lint-ast: ## Run ast-grep rules for Java naming and type safety
-	@ast-grep scan -c sgconfig.yml src/main/java/
+	@if [ ! -x frontend/node_modules/.bin/ast-grep ]; then \
+	  echo "ast-grep not installed; run 'npm --prefix frontend install' first"; \
+	  exit 1; \
+	fi
+	@frontend/node_modules/.bin/ast-grep scan -c sgconfig.yml src/main/java/
 
 
 # Fast S3 -> Postgres books migration (standalone Node.js script - v2 refactored)
