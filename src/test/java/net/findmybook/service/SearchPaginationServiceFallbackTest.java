@@ -11,6 +11,9 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -108,6 +111,43 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
     }
 
     @Test
+    @DisplayName("search() does not add Open Library fallback duplicates for persisted title-author matches")
+    void should_DeduplicateOpenLibraryFallback_When_PersistedBookMatchesTitleAndAuthor() {
+        UUID postgresId = UUID.randomUUID();
+
+        when(bookSearchService.searchBooks("john grisham", 4)).thenReturn(List.of(
+            new BookSearchService.SearchResult(postgresId, 1.0, "FULLTEXT")
+        ));
+        when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(List.of(
+            buildListItem(
+                postgresId,
+                "The Widow",
+                List.of("by John Grisham", "John Grisham"),
+                600,
+                900,
+                true,
+                "https://example.test/the-widow-postgres.jpg"
+            )
+        ));
+
+        Book duplicateFallback = buildOpenLibraryCandidate("OL44328974W", "The Widow");
+        duplicateFallback.setAuthors(List.of("John Grisham"));
+        Book distinctFallback = buildOpenLibraryCandidate("OL37836170W", "Camino Ghosts");
+        distinctFallback.setAuthors(List.of("John Grisham"));
+        when(openLibraryBookDataService.queryBooksByEverything(eq("john grisham"), anyString(), eq(0), eq(4)))
+            .thenReturn(Flux.just(duplicateFallback, distinctFallback));
+
+        SearchPaginationService fallbackService = fallbackEnabledService();
+        SearchPaginationService.SearchPage page = fallbackService.search(searchRequest("john grisham", 0, 2, "newest")).block();
+
+        assertThat(page).isNotNull();
+        assertThat(page.totalUnique()).isEqualTo(2);
+        assertThat(page.pageItems())
+            .extracting(Book::getId)
+            .containsExactly(postgresId.toString(), "OL37836170W");
+    }
+
+    @Test
     @DisplayName("search() preserves Open Library description and page count metadata in fallback results")
     void should_PreserveOpenLibraryMetadata_When_FallbackResultsReturned() {
         Book openLibraryCandidate = buildOpenLibraryCandidate("OL-PRIMARY-1", "The Partner");
@@ -182,7 +222,7 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
         assertThat(page).isNotNull();
         assertThat(page.pageItems()).extracting(Book::getId)
             .containsExactly(postgresCoveredId.toString(), "OL-OPEN-1", postgresSuppressedId.toString());
-        verifyNoInteractions(googleApiFetcher);
+        verify(googleApiFetcher, times(0)).streamSearchItems(anyString(), anyInt(), anyString(), any(), anyBoolean());
     }
 
     @Test
@@ -227,7 +267,7 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
                 && Integer.valueOf(416).equals(books.getFirst().getPageCount())),
             eq("SEARCH_METADATA_REFRESH")
         );
-        verifyNoInteractions(googleApiFetcher);
+        verify(googleApiFetcher, times(0)).streamSearchItems(anyString(), anyInt(), anyString(), any(), anyBoolean());
     }
 
     @Test

@@ -10,11 +10,20 @@ import java.util.Optional;
 /**
  * Resolves a stable deduplication key for a book search candidate.
  *
- * <p>Keys follow a priority chain: ISBN-13 → ISBN-10 → internal ID → title+author composite.
- * The first non-blank identifier wins, ensuring deterministic deduplication across provider
- * boundaries where the same book may carry different metadata.</p>
+ * <p>Keys follow a priority chain: ISBN-13 → ISBN-10 → normalized title+author composite
+ * → provider/internal ID. Content keys intentionally outrank IDs so a persisted book and
+ * an external fallback row can collapse when providers assign different identifiers to
+ * the same work.</p>
  */
 public final class CandidateKeyResolver {
+
+    private static final String ISBN13_KEY_PREFIX = "ISBN13:";
+    private static final String ISBN10_KEY_PREFIX = "ISBN10:";
+    private static final String TITLE_AUTHOR_KEY_PREFIX = "TITLE_AUTHOR:";
+    private static final String ID_KEY_PREFIX = "ID:";
+    private static final String CONTRIBUTOR_BY_PREFIX = "by ";
+    private static final String NON_SEARCH_TEXT_PATTERN = "[^\\p{L}0-9]+";
+    private static final String WHITESPACE_PATTERN = "\\s+";
 
     private CandidateKeyResolver() {}
 
@@ -31,28 +40,55 @@ public final class CandidateKeyResolver {
 
         String isbn13 = IsbnUtils.sanitize(book.getIsbn13());
         if (StringUtils.hasText(isbn13)) {
-            return Optional.of("ISBN13:" + isbn13);
+            return Optional.of(ISBN13_KEY_PREFIX + isbn13);
         }
 
         String isbn10 = IsbnUtils.sanitize(book.getIsbn10());
         if (StringUtils.hasText(isbn10)) {
-            return Optional.of("ISBN10:" + isbn10);
+            return Optional.of(ISBN10_KEY_PREFIX + isbn10);
+        }
+
+        String title = normalizeText(book.getTitle());
+        String firstAuthor = normalizeAuthor(firstAuthor(book));
+        if (StringUtils.hasText(title) && StringUtils.hasText(firstAuthor)) {
+            return Optional.of(TITLE_AUTHOR_KEY_PREFIX + title + "::" + firstAuthor);
         }
 
         String id = book.getId();
         if (StringUtils.hasText(id)) {
-            return Optional.of("ID:" + id);
+            return Optional.of(ID_KEY_PREFIX + id);
         }
 
-        String title = Optional.ofNullable(book.getTitle()).orElse("").trim().toLowerCase(Locale.ROOT);
-        String firstAuthor = (book.getAuthors() == null || book.getAuthors().isEmpty())
-            ? ""
-            : Optional.ofNullable(book.getAuthors().get(0)).orElse("").trim().toLowerCase(Locale.ROOT);
-
         if (!title.isBlank() || !firstAuthor.isBlank()) {
-            return Optional.of("TITLE_AUTHOR:" + title + "::" + firstAuthor);
+            return Optional.of(TITLE_AUTHOR_KEY_PREFIX + title + "::" + firstAuthor);
         }
 
         return Optional.empty();
+    }
+
+    private static String firstAuthor(Book book) {
+        if (book == null || book.getAuthors() == null || book.getAuthors().isEmpty()) {
+            return "";
+        }
+        return Optional.ofNullable(book.getAuthors().getFirst()).orElse("");
+    }
+
+    private static String normalizeAuthor(String rawAuthor) {
+        String normalized = normalizeText(rawAuthor);
+        if (normalized.startsWith(CONTRIBUTOR_BY_PREFIX)) {
+            return normalized.substring(CONTRIBUTOR_BY_PREFIX.length()).trim();
+        }
+        return normalized;
+    }
+
+    private static String normalizeText(String rawText) {
+        if (!StringUtils.hasText(rawText)) {
+            return "";
+        }
+        return rawText
+            .toLowerCase(Locale.ROOT)
+            .replaceAll(NON_SEARCH_TEXT_PATTERN, " ")
+            .trim()
+            .replaceAll(WHITESPACE_PATTERN, " ");
     }
 }

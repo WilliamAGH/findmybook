@@ -52,19 +52,27 @@ public final class SearchPageAssembler {
                                                         List<Book> rawResults,
                                                         PagingUtils.Window window) {
         List<Book> safeRawResults = rawResults == null ? List.of() : rawResults;
-        LinkedHashMap<String, Book> ordered = new LinkedHashMap<>();
+        LinkedHashMap<String, Book> orderedCandidatesByKey = new LinkedHashMap<>();
         Map<String, Integer> insertionOrder = new LinkedHashMap<>();
         int position = 0;
 
         for (Book book : safeRawResults) {
-            if (book == null || !StringUtils.hasText(book.getId()) || ordered.containsKey(book.getId())) {
+            if (book == null || !StringUtils.hasText(book.getId())) {
                 continue;
             }
-            ordered.put(book.getId(), book);
+            Optional<String> candidateKey = CandidateKeyResolver.resolve(book);
+            if (candidateKey.isEmpty()) {
+                continue;
+            }
+            String resolvedKey = candidateKey.get();
+            if (orderedCandidatesByKey.containsKey(resolvedKey)) {
+                continue;
+            }
+            orderedCandidatesByKey.put(resolvedKey, book);
             insertionOrder.put(book.getId(), position++);
         }
 
-        List<Book> uniqueResults = new ArrayList<>(ordered.values());
+        List<Book> uniqueResults = new ArrayList<>(orderedCandidatesByKey.values());
         List<Book> filtered = applyCoverPreferences(uniqueResults, coverSource, resolutionPreference);
         applyAuthorIntentPenalties(filtered, query);
 
