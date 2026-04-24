@@ -4,8 +4,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import net.findmybook.domain.similarity.BookSimilarityBookSource;
-import net.findmybook.domain.similarity.BookSimilaritySectionInput;
-import net.findmybook.domain.similarity.BookSimilaritySectionKey;
 import net.findmybook.domain.similarity.BookSimilaritySourceDocument;
 import net.findmybook.util.IdGenerator;
 import org.slf4j.Logger;
@@ -287,72 +285,14 @@ public class BookSimilarityEmbeddingRepository {
     }
 
     /**
-     * Loads a cached section embedding for an exact model/input hash.
-     */
-    @Transactional(readOnly = true)
-    public Optional<List<Float>> fetchSectionEmbedding(UUID bookId,
-                                                       BookSimilaritySectionKey sectionKey,
-                                                       String model,
-                                                       String inputHash) {
-        String vectorText = jdbcTemplate.query(
-            """
-            SELECT embedding::text
-            FROM book_embedding_sections
-            WHERE book_id = ?
-              AND section_key = ?
-              AND model = ?
-              AND input_format = ?
-              AND input_hash = ?
-            LIMIT 1
-            """,
-            rs -> rs.next() ? rs.getString(1) : null,
-            bookId,
-            sectionKey.key(),
-            model,
-            INPUT_FORMAT,
-            inputHash
-        );
-        return vectorText == null ? Optional.empty() : Optional.of(BookSimilarityVectorLiteral.parseHalfvec(vectorText));
-    }
-
-    /**
-     * Caches a section embedding under its exact source hash.
-     */
-    @Transactional
-    public void upsertSectionEmbedding(UUID bookId,
-                                       BookSimilaritySectionInput sectionInput,
-                                       String model,
-                                       List<Float> embedding) {
-        jdbcTemplate.update(
-            """
-            INSERT INTO book_embedding_sections
-              (id, book_id, section_key, input_format, input_hash, model, embedding, input_preview, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, CAST(? AS halfvec), ?, NOW())
-            ON CONFLICT (book_id, section_key, model, input_format, input_hash)
-            DO UPDATE SET embedding = EXCLUDED.embedding,
-                          input_preview = EXCLUDED.input_preview,
-                          updated_at = NOW()
-            """,
-            IdGenerator.generateLong(),
-            bookId,
-            sectionInput.sectionKey().key(),
-            INPUT_FORMAT,
-            sectionInput.inputHash(),
-            model,
-            BookSimilarityVectorLiteral.toHalfvecLiteral(embedding),
-            preview(sectionInput.text())
-        );
-    }
-
-    /**
      * Upserts the searchable fused vector row for a book/profile/model contract.
      */
     @Transactional
     public void upsertFusedEmbedding(FusedEmbeddingRow row) {
-        String sourceJson = toJson(row.sourceDocument().sourceJson());
-        String sectionHashesJson = toJson(new SectionHashPayload(row.sourceDocument().sectionInputs().stream()
+        String sourceJson = serialize(row.sourceDocument().sourceJson(), "source metadata");
+        String sectionHashesJson = serialize(new SectionHashPayload(row.sourceDocument().sectionInputs().stream()
             .map(sectionInput -> new SectionHashEntry(sectionInput.sectionKey().key(), sectionInput.inputHash()))
-            .toList()));
+            .toList()), "section hash payload");
         String fusedHalfvecLiteral = BookSimilarityVectorLiteral.toHalfvecLiteral(row.fusedEmbedding());
         jdbcTemplate.update(
             """
@@ -391,35 +331,13 @@ public class BookSimilarityEmbeddingRepository {
         );
     }
 
-    private String toJson(BookSimilaritySourceDocument.SourceMetadata payload) {
-        return serialize(payload, "source metadata");
-    }
-
-    private String toJson(SectionHashPayload payload) {
-        return serialize(payload, "section hash payload");
-    }
-
-    private String serialize(BookSimilaritySourceDocument.SourceMetadata payload, String payloadName) {
+    private <T> String serialize(T payload, String payloadName) {
         try {
             return objectMapper.writeValueAsString(payload);
         } catch (JacksonException jacksonException) {
             log.error("Failed to serialize book similarity {}", payloadName, jacksonException);
             throw new IllegalStateException("Failed to serialize book similarity " + payloadName, jacksonException);
         }
-    }
-
-    private String serialize(SectionHashPayload payload, String payloadName) {
-        try {
-            return objectMapper.writeValueAsString(payload);
-        } catch (JacksonException jacksonException) {
-            log.error("Failed to serialize book similarity {}", payloadName, jacksonException);
-            throw new IllegalStateException("Failed to serialize book similarity " + payloadName, jacksonException);
-        }
-    }
-
-    private static String preview(String text) {
-        int previewLength = Math.min(512, text.length());
-        return text.substring(0, previewLength);
     }
 
     /**

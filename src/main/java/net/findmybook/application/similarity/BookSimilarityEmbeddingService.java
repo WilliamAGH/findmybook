@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import net.findmybook.adapters.persistence.BookEmbeddingSectionRepository;
 import net.findmybook.adapters.persistence.BookSimilarityEmbeddingRepository;
 import net.findmybook.adapters.persistence.BookSimilarityEmbeddingRepository.FusedEmbeddingRow;
 import net.findmybook.boot.BookSimilarityEmbeddingProperties;
@@ -42,6 +43,7 @@ public class BookSimilarityEmbeddingService {
     private static final int DEMAND_PRIORITY = 10;
 
     private final BookSimilarityEmbeddingRepository repository;
+    private final BookEmbeddingSectionRepository sectionRepository;
     private final BookEmbeddingClient embeddingClient;
     private final BookSimilarityFusionPolicy policy;
     private final BookAiContentRequestQueue requestQueue;
@@ -50,12 +52,14 @@ public class BookSimilarityEmbeddingService {
     private final Cache<UUID, Boolean> recentRefreshAttempts;
 
     public BookSimilarityEmbeddingService(BookSimilarityEmbeddingRepository repository,
+                                          BookEmbeddingSectionRepository sectionRepository,
                                           BookEmbeddingClient embeddingClient,
                                           BookSimilarityFusionPolicy policy,
                                           BookAiContentRequestQueue requestQueue,
                                           ObjectMapper objectMapper,
                                           BookSimilarityEmbeddingProperties properties) {
         this.repository = repository;
+        this.sectionRepository = sectionRepository;
         this.embeddingClient = embeddingClient;
         this.policy = policy;
         this.requestQueue = requestQueue;
@@ -289,7 +293,7 @@ public class BookSimilarityEmbeddingService {
         EnumMap<BookSimilaritySectionKey, List<Float>> sectionEmbeddings = new EnumMap<>(BookSimilaritySectionKey.class);
         List<BookSimilaritySectionInput> missingInputs = new ArrayList<>();
         for (BookSimilaritySectionInput sectionInput : sourceDocument.sectionInputs()) {
-            Optional<List<Float>> cachedEmbedding = repository.fetchSectionEmbedding(
+            Optional<List<Float>> cachedEmbedding = sectionRepository.fetchSectionEmbedding(
                 sourceDocument.bookId(),
                 sectionInput.sectionKey(),
                 model,
@@ -308,7 +312,7 @@ public class BookSimilarityEmbeddingService {
             for (int index = 0; index < missingInputs.size(); index++) {
                 BookSimilaritySectionInput sectionInput = missingInputs.get(index);
                 List<Float> embedding = generatedEmbeddings.get(index);
-                repository.upsertSectionEmbedding(sourceDocument.bookId(), sectionInput, model, embedding);
+                sectionRepository.upsertSectionEmbedding(sourceDocument.bookId(), sectionInput, model, embedding);
                 sectionEmbeddings.put(sectionInput.sectionKey(), embedding);
             }
         }
