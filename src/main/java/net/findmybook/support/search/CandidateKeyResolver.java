@@ -6,6 +6,7 @@ import org.springframework.util.StringUtils;
 
 import java.util.Locale;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 /**
  * Resolves a stable deduplication key for a book search candidate.
@@ -14,6 +15,10 @@ import java.util.Optional;
  * → provider/internal ID. Content keys intentionally outrank IDs so a persisted book and
  * an external fallback row can collapse when providers assign different identifiers to
  * the same work.</p>
+ *
+ * <p>Rows that lack both ISBNs and an internal ID and carry only a partial title or author
+ * do not qualify for a dedupe key: partial keys would collapse distinct works, so such
+ * candidates are dropped upstream by returning {@link Optional#empty()}.</p>
  */
 public final class CandidateKeyResolver {
 
@@ -22,8 +27,9 @@ public final class CandidateKeyResolver {
     private static final String TITLE_AUTHOR_KEY_PREFIX = "TITLE_AUTHOR:";
     private static final String ID_KEY_PREFIX = "ID:";
     private static final String CONTRIBUTOR_BY_PREFIX = "by ";
-    private static final String NON_SEARCH_TEXT_PATTERN = "[^\\p{L}0-9]+";
-    private static final String WHITESPACE_PATTERN = "\\s+";
+    // Retain letters, digits, + and # so programming-language titles like C++/C#/F# stay distinct.
+    private static final Pattern NON_SEARCH_TEXT_PATTERN = Pattern.compile("[^\\p{L}0-9+#]+");
+    private static final Pattern WHITESPACE_PATTERN = Pattern.compile("\\s+");
 
     private CandidateKeyResolver() {}
 
@@ -59,10 +65,6 @@ public final class CandidateKeyResolver {
             return Optional.of(ID_KEY_PREFIX + id);
         }
 
-        if (!title.isBlank() || !firstAuthor.isBlank()) {
-            return Optional.of(TITLE_AUTHOR_KEY_PREFIX + title + "::" + firstAuthor);
-        }
-
         return Optional.empty();
     }
 
@@ -85,10 +87,8 @@ public final class CandidateKeyResolver {
         if (!StringUtils.hasText(rawText)) {
             return "";
         }
-        return rawText
-            .toLowerCase(Locale.ROOT)
-            .replaceAll(NON_SEARCH_TEXT_PATTERN, " ")
-            .trim()
-            .replaceAll(WHITESPACE_PATTERN, " ");
+        String lowered = rawText.toLowerCase(Locale.ROOT);
+        String stripped = NON_SEARCH_TEXT_PATTERN.matcher(lowered).replaceAll(" ").trim();
+        return WHITESPACE_PATTERN.matcher(stripped).replaceAll(" ");
     }
 }
