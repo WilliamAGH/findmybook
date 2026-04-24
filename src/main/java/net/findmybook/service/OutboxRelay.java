@@ -51,21 +51,21 @@ import java.util.UUID;
 @Service
 @Slf4j
 public class OutboxRelay {
-    
+
     private final JdbcTemplate jdbcTemplate;
     private final SimpMessagingTemplate messagingTemplate;
-    
+
     // Batch size for processing
     private static final int BATCH_SIZE = 100;
-    
+
     // Processing interval (1 second for near-real-time)
     private static final long PROCESS_INTERVAL_MS = 1000;
-    
+
     public OutboxRelay(JdbcTemplate jdbcTemplate, SimpMessagingTemplate messagingTemplate) {
         this.jdbcTemplate = jdbcTemplate;
         this.messagingTemplate = messagingTemplate;
     }
-    
+
     /**
      * Process outbox events and relay to WebSocket.
      * <p>
@@ -137,7 +137,7 @@ public class OutboxRelay {
             log.info("Relayed {} work-cluster primary change event(s) this cycle", clusterEventsRelayed);
         }
     }
-    
+
     /**
      * Fetch unsent events ordered by creation time.
      */
@@ -164,7 +164,7 @@ public class OutboxRelay {
             throw new IllegalStateException("Failed to fetch unsent outbox events", ex);
         }
     }
-    
+
     /**
      * Mark event as successfully sent.
      */
@@ -179,7 +179,7 @@ public class OutboxRelay {
             throw new IllegalStateException("Failed to mark outbox event as sent: " + eventId, ex);
         }
     }
-    
+
     /**
      * Increment retry count for failed event.
      * Events with retry_count > 10 might need manual intervention.
@@ -195,7 +195,7 @@ public class OutboxRelay {
             throw new IllegalStateException("Failed to increment retry count for outbox event: " + eventId, ex);
         }
     }
-    
+
     /**
      * Get outbox statistics.
      * Useful for monitoring and alerting.
@@ -225,13 +225,13 @@ public class OutboxRelay {
             throw new IllegalStateException("Failed to fetch outbox stats", ex);
         }
     }
-    
+
     /**
-     * Clean up old sent events.
+     * Clean up expired sent events.
      * Call periodically to prevent table bloat.
      * Keeps last 7 days of events for debugging.
      */
-    public int cleanupOldEvents() {
+    public int cleanupExpiredEvents() {
         try {
             return jdbcTemplate.update(
                 "DELETE FROM events_outbox WHERE sent_at < NOW() - INTERVAL '7 days'"
@@ -241,7 +241,7 @@ public class OutboxRelay {
             throw new IllegalStateException("Failed to clean up outbox events", ex);
         }
     }
-    
+
     /**
      * Retry stuck events (retry_count > 5).
      * Resets retry count to 0 for manual intervention.
@@ -256,7 +256,7 @@ public class OutboxRelay {
             throw new IllegalStateException("Failed to reset retry count for stuck outbox events", ex);
         }
     }
-    
+
     /**
      * Outbox event data.
      */
@@ -267,7 +267,7 @@ public class OutboxRelay {
         String payload;
         int retryCount;
     }
-    
+
     /**
      * Outbox statistics for monitoring.
      */
