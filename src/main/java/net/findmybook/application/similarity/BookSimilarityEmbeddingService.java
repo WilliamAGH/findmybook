@@ -7,7 +7,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import net.findmybook.adapters.persistence.BookEmbeddingSectionRepository;
@@ -39,7 +38,6 @@ import tools.jackson.databind.ObjectMapper;
 public class BookSimilarityEmbeddingService {
 
     private static final Logger log = LoggerFactory.getLogger(BookSimilarityEmbeddingService.class);
-    private static final int EMBEDDING_DIMENSION = 2560;
     private static final int BACKGROUND_PRIORITY = -10;
     private static final int DEMAND_PRIORITY = 10;
 
@@ -47,6 +45,7 @@ public class BookSimilarityEmbeddingService {
     private final BookEmbeddingSectionRepository sectionRepository;
     private final BookEmbeddingClient embeddingClient;
     private final BookSimilarityFusionPolicy policy;
+    private final BookSimilarityVectorFusion vectorFusion;
     private final BookAiContentRequestQueue requestQueue;
     private final ObjectMapper objectMapper;
     private final BookSimilarityEmbeddingProperties properties;
@@ -56,6 +55,7 @@ public class BookSimilarityEmbeddingService {
                                           BookEmbeddingSectionRepository sectionRepository,
                                           BookEmbeddingClient embeddingClient,
                                           BookSimilarityFusionPolicy policy,
+                                          BookSimilarityVectorFusion vectorFusion,
                                           BookAiContentRequestQueue requestQueue,
                                           ObjectMapper objectMapper,
                                           BookSimilarityEmbeddingProperties properties) {
@@ -63,6 +63,7 @@ public class BookSimilarityEmbeddingService {
         this.sectionRepository = sectionRepository;
         this.embeddingClient = embeddingClient;
         this.policy = policy;
+        this.vectorFusion = vectorFusion;
         this.requestQueue = requestQueue;
         this.objectMapper = objectMapper;
         this.properties = properties;
@@ -224,7 +225,7 @@ public class BookSimilarityEmbeddingService {
             sourceDocument,
             model
         );
-        List<Float> fusedEmbedding = fuseSectionEmbeddings(sourceDocument, sectionEmbeddings);
+        List<Float> fusedEmbedding = vectorFusion.fuse(sourceDocument, sectionEmbeddings);
         repository.upsertFusedEmbedding(new FusedEmbeddingRow(
             sourceDocument,
             policy.activeProfileId(),
@@ -319,51 +320,6 @@ public class BookSimilarityEmbeddingService {
             }
         }
         return sectionEmbeddings;
-    }
-
-    private List<Float> fuseSectionEmbeddings(BookSimilaritySourceDocument sourceDocument,
-                                              Map<BookSimilaritySectionKey, List<Float>> sectionEmbeddings) {
-        Map<BookSimilaritySectionKey, Double> weights = policy.normalizedWeightsFor(sectionEmbeddings.keySet());
-        double[] fused = new double[EMBEDDING_DIMENSION];
-        for (BookSimilaritySectionInput sectionInput : sourceDocument.sectionInputs()) {
-            List<Float> embedding = sectionEmbeddings.get(sectionInput.sectionKey());
-            if (embedding == null) {
-                throw new IllegalStateException("Missing section embedding for " + sectionInput.sectionKey().key());
-            }
-            double norm = vectorNorm(embedding);
-            if (norm == 0.0d) {
-                continue;
-            }
-            double weight = weights.get(sectionInput.sectionKey());
-            for (int index = 0; index < EMBEDDING_DIMENSION; index++) {
-                fused[index] += (embedding.get(index) / norm) * weight;
-            }
-        }
-        double fusedNorm = vectorNorm(fused);
-        List<Float> result = new ArrayList<>(EMBEDDING_DIMENSION);
-        for (double component : fused) {
-            result.add((float) (fusedNorm == 0.0d ? component : component / fusedNorm));
-        }
-        return List.copyOf(result);
-    }
-
-    private static double vectorNorm(List<Float> embedding) {
-        if (embedding.size() != EMBEDDING_DIMENSION) {
-            throw new IllegalStateException("Embedding dimension mismatch: " + embedding.size());
-        }
-        double sum = 0.0d;
-        for (Float component : embedding) {
-            sum += component * component;
-        }
-        return Math.sqrt(sum);
-    }
-
-    private static double vectorNorm(double[] embedding) {
-        double sum = 0.0d;
-        for (double component : embedding) {
-            sum += component * component;
-        }
-        return Math.sqrt(sum);
     }
 
     private String renderSourceJson(BookSimilaritySourceDocument.SourceMetadata metadata) {

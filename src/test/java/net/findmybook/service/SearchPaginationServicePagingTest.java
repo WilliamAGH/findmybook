@@ -51,6 +51,44 @@ class SearchPaginationServicePagingTest extends AbstractSearchPaginationServiceT
     }
 
     @Test
+    @DisplayName("search() removes unclustered Postgres rows with the same normalized title and author")
+    void should_DeduplicateTitleAuthorMatches_When_PostgresRowsAreUnclustered() {
+        UUID firstId = UUID.randomUUID();
+        UUID secondId = UUID.randomUUID();
+
+        when(bookSearchService.searchBooks("john grisham", 24)).thenReturn(List.of(
+            new BookSearchService.SearchResult(firstId, 1.0, "FULLTEXT"),
+            new BookSearchService.SearchResult(secondId, 0.99, "FULLTEXT")
+        ));
+        when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(List.of(
+            buildListItem(
+                firstId,
+                "Sycamore Row",
+                List.of("by John Grisham", "John Grisham"),
+                600,
+                900,
+                true,
+                "https://example.test/sycamore-row-primary.jpg"
+            ),
+            buildListItem(
+                secondId,
+                "Sycamore Row",
+                List.of("John Grisham"),
+                326,
+                495,
+                false,
+                "https://example.test/sycamore-row-duplicate.jpg"
+            )
+        ));
+
+        SearchPaginationService.SearchPage page = service.search(searchRequest("john grisham", 0, 12, "newest")).block();
+
+        assertThat(page).isNotNull();
+        assertThat(page.totalUnique()).isEqualTo(1);
+        assertThat(page.pageItems()).extracting(Book::getId).containsExactly(firstId.toString());
+    }
+
+    @Test
     @DisplayName("search() slices with start offsets and computes prefetch metadata")
     void searchRespectsOffsetsAndPrefetch() {
         List<UUID> bookIds = new ArrayList<>();

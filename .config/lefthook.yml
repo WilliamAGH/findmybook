@@ -1,17 +1,11 @@
 pre-commit:
   parallel: true
   commands:
-    trailing-whitespace:
+    whitespace-normalize:
       glob: "*.{java,kts,yml,yaml,json,md,xml,sql,js,ts,svelte,css,html}"
       run: |
         for f in {staged_files}; do
           perl -pi -e 's/[ \t]+$//' "$f"
-        done
-      stage_fixed: true
-    end-of-file-fixer:
-      glob: "*.{java,kts,yml,yaml,json,md,xml,sql,js,ts,svelte,css,html}"
-      run: |
-        for f in {staged_files}; do
           if [ -s "$f" ] && [ "$(tail -c1 "$f" | od -An -tx1 | tr -d ' \n')" != "0a" ]; then
             printf '\n' >> "$f"
           fi
