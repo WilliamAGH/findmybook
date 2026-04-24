@@ -12,6 +12,7 @@ import java.util.Optional;
 import java.util.UUID;
 import net.findmybook.adapters.persistence.BookSimilarityEmbeddingRepository;
 import net.findmybook.adapters.persistence.BookSimilarityEmbeddingRepository.FusedEmbeddingRow;
+import net.findmybook.boot.BookSimilarityEmbeddingProperties;
 import net.findmybook.domain.similarity.BookSimilarityBookSource;
 import net.findmybook.domain.similarity.BookSimilarityFusionPolicy;
 import net.findmybook.domain.similarity.BookSimilaritySectionInput;
@@ -19,10 +20,13 @@ import net.findmybook.domain.similarity.BookSimilaritySectionKey;
 import net.findmybook.domain.similarity.BookSimilaritySourceDocument;
 import net.findmybook.support.ai.BookAiContentRequestQueue;
 import net.findmybook.support.ai.BookAiQueueCapacityExceededException;
+import net.findmybook.service.event.BookUpsertEvent;
 import net.findmybook.util.HashUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
@@ -42,18 +46,21 @@ public class BookSimilarityEmbeddingService {
     private final BookSimilarityFusionPolicy policy;
     private final BookAiContentRequestQueue requestQueue;
     private final ObjectMapper objectMapper;
+    private final BookSimilarityEmbeddingProperties properties;
     private final Cache<UUID, Boolean> inFlightRefreshes;
 
     public BookSimilarityEmbeddingService(BookSimilarityEmbeddingRepository repository,
                                           BookEmbeddingClient embeddingClient,
                                           BookSimilarityFusionPolicy policy,
                                           BookAiContentRequestQueue requestQueue,
-                                          ObjectMapper objectMapper) {
+                                          ObjectMapper objectMapper,
+                                          BookSimilarityEmbeddingProperties properties) {
         this.repository = repository;
         this.embeddingClient = embeddingClient;
         this.policy = policy;
         this.requestQueue = requestQueue;
         this.objectMapper = objectMapper;
+        this.properties = properties;
         this.inFlightRefreshes = Caffeine.newBuilder()
             .maximumSize(50_000)
             .expireAfterWrite(Duration.ofMinutes(30))
@@ -68,6 +75,24 @@ public class BookSimilarityEmbeddingService {
      */
     public boolean enqueueDemandRefresh(UUID bookId) {
         return enqueueRefresh(bookId, DEMAND_PRIORITY, "demand");
+    }
+
+    /**
+     * Enqueues an idempotent refresh when canonical book source data changes.
+     *
+     * @param event persisted book upsert notification
+     */
+    @EventListener
+    public void handleBookUpsert(BookUpsertEvent event) {
+        if (event == null || !StringUtils.hasText(event.getBookId())) {
+            log.warn("Skipping similarity embedding refresh enqueue: missing bookId in BookUpsertEvent");
+            return;
+        }
+        try {
+            enqueueDemandRefresh(UUID.fromString(event.getBookId()));
+        } catch (IllegalArgumentException invalidBookId) {
+            log.warn("Skipping similarity embedding refresh enqueue for non-UUID bookId '{}'", event.getBookId(), invalidBookId);
+        }
     }
 
     /**
@@ -105,6 +130,27 @@ public class BookSimilarityEmbeddingService {
             }
         }
         return enqueued;
+    }
+
+    /**
+     * Reads persisted vector neighbors for the active similarity contract.
+     *
+     * @param sourceBookId canonical source book UUID
+     * @param limit maximum neighbor count
+     * @return ranked neighbor IDs with cosine similarity scores
+     */
+    public List<SimilarBookMatch> findNearestBooks(UUID sourceBookId, int limit) {
+        if (sourceBookId == null || limit <= 0 || !properties.isEnabled()) {
+            return List.of();
+        }
+        String model = embeddingClient.model();
+        if (!StringUtils.hasText(model)) {
+            return List.of();
+        }
+        String modelVersion = policy.modelVersion(model);
+        return repository.findNearestBooks(sourceBookId, modelVersion, policy.profileHash(), limit).stream()
+            .map(row -> new SimilarBookMatch(row.bookId(), row.similarity()))
+            .toList();
     }
 
     /**
@@ -154,7 +200,7 @@ public class BookSimilarityEmbeddingService {
     }
 
     private boolean enqueueRefresh(UUID bookId, int priority, String reason) {
-        if (bookId == null || !embeddingClient.isAvailable()) {
+        if (bookId == null || !embeddingClient.isAvailable() || !properties.isEnabled()) {
             return false;
         }
         if (inFlightRefreshes.asMap().putIfAbsent(bookId, Boolean.TRUE) != null) {
@@ -275,5 +321,11 @@ public class BookSimilarityEmbeddingService {
         } catch (NoSuchAlgorithmException noSuchAlgorithmException) {
             throw new IllegalStateException("SHA-256 is unavailable for book similarity hashing", noSuchAlgorithmException);
         }
+    }
+
+    /**
+     * Ranked persisted vector neighbor for a source book.
+     */
+    public record SimilarBookMatch(UUID bookId, double similarity) {
     }
 }
