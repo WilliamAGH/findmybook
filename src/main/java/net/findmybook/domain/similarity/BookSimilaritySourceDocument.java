@@ -70,8 +70,12 @@ public record BookSimilaritySourceDocument(
         HashFactory hashFactory,
         SourceJsonRenderer sourceJsonRenderer
     ) {
+        BookSimilarityFusionProfile activeProfile = policy.activeProfile();
         List<BookSimilaritySectionInput> sectionInputs = new ArrayList<>();
         for (BookSimilaritySectionKey sectionKey : policy.sectionOrder()) {
+            if (activeProfile.weightFor(sectionKey) <= 0.0d) {
+                continue;
+            }
             String sectionText = source.renderSection(sectionKey);
             if (sectionText == null || sectionText.isBlank()) {
                 continue;
