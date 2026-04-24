@@ -58,6 +58,9 @@ public record BookSimilaritySourceDocument(
      * @param policy active fusion policy
      * @param model configured embeddings model
      * @param modelVersion computed model version
+     * @param maxSectionTextChars per-section character ceiling applied before hashing
+     *     so the embedding batch stays within the provider's request token window;
+     *     values less than one disable truncation
      * @param hashFactory deterministic hash function
      * @param sourceJsonRenderer deterministic source-json renderer
      * @return auditable source document
@@ -67,6 +70,7 @@ public record BookSimilaritySourceDocument(
         BookSimilarityFusionPolicy policy,
         String model,
         String modelVersion,
+        int maxSectionTextChars,
         HashFactory hashFactory,
         SourceJsonRenderer sourceJsonRenderer
     ) {
@@ -80,6 +84,7 @@ public record BookSimilaritySourceDocument(
             if (sectionText == null || sectionText.isBlank()) {
                 continue;
             }
+            sectionText = truncate(sectionText, maxSectionTextChars);
             sectionInputs.add(new BookSimilaritySectionInput(
                 sectionKey,
                 sectionText,
@@ -99,6 +104,13 @@ public record BookSimilaritySourceDocument(
             hashFactory.sha256Hex(renderSectionHashInput(sectionInputs)),
             sectionInputs
         );
+    }
+
+    private static String truncate(String text, int maxChars) {
+        if (maxChars <= 0 || text.length() <= maxChars) {
+            return text;
+        }
+        return text.substring(0, maxChars);
     }
 
     private static String renderSectionHashInput(List<BookSimilaritySectionInput> sectionInputs) {

@@ -13,6 +13,8 @@ import tools.jackson.databind.ObjectMapper;
 
 class BookSimilaritySourceDocumentTest {
 
+    private static final int NO_SECTION_TRUNCATION = Integer.MAX_VALUE;
+
     @Test
     void should_RenderAuditableSourceContract_When_BookHasWeightedSections() {
         UUID bookId = UUID.randomUUID();
@@ -21,6 +23,7 @@ class BookSimilaritySourceDocumentTest {
             policy(),
             "qwen/qwen3-embedding-4b",
             "qwen/qwen3-embedding-4b:test:section_fusion",
+            NO_SECTION_TRUNCATION,
             BookSimilaritySourceDocumentTest::sha256Hex,
             BookSimilaritySourceDocumentTest::sourceJson
         );
@@ -51,6 +54,7 @@ class BookSimilaritySourceDocumentTest {
             policy,
             "qwen/qwen3-embedding-4b",
             "qwen/qwen3-embedding-4b:zero-weight:section_fusion",
+            NO_SECTION_TRUNCATION,
             BookSimilaritySourceDocumentTest::sha256Hex,
             BookSimilaritySourceDocumentTest::sourceJson
         );
@@ -70,6 +74,7 @@ class BookSimilaritySourceDocumentTest {
             policy,
             "qwen/qwen3-embedding-4b",
             "qwen/qwen3-embedding-4b:test:section_fusion",
+            NO_SECTION_TRUNCATION,
             BookSimilaritySourceDocumentTest::sha256Hex,
             BookSimilaritySourceDocumentTest::sourceJson
         );
@@ -78,11 +83,37 @@ class BookSimilaritySourceDocumentTest {
             policy,
             "qwen/qwen3-embedding-4b",
             "qwen/qwen3-embedding-4b:test:section_fusion",
+            NO_SECTION_TRUNCATION,
             BookSimilaritySourceDocumentTest::sha256Hex,
             BookSimilaritySourceDocumentTest::sourceJson
         );
 
         assertThat(second.sourceHash()).isNotEqualTo(first.sourceHash());
+    }
+
+    @Test
+    void should_TruncateSectionText_When_MaxSectionTextCharsApplied() {
+        UUID bookId = UUID.randomUUID();
+        String longTitle = "A".repeat(1_000);
+        BookSimilarityBookSource longSource = sourceWithTitle(bookId, longTitle);
+
+        BookSimilaritySourceDocument document = BookSimilaritySourceDocument.create(
+            longSource,
+            policy(),
+            "qwen/qwen3-embedding-4b",
+            "qwen/qwen3-embedding-4b:test:section_fusion",
+            32,
+            BookSimilaritySourceDocumentTest::sha256Hex,
+            BookSimilaritySourceDocumentTest::sourceJson
+        );
+
+        BookSimilaritySectionInput identity = document.sectionInputs().stream()
+            .filter(section -> section.sectionKey() == BookSimilaritySectionKey.IDENTITY)
+            .findFirst()
+            .orElseThrow();
+        assertThat(identity.text()).hasSize(32);
+        assertThat(document.sourceJson().sections()).allSatisfy(section ->
+            assertThat(section.length()).isLessThanOrEqualTo(32));
     }
 
     private static BookSimilarityBookSource source(UUID bookId) {

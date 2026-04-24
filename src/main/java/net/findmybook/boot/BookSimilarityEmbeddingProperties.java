@@ -10,10 +10,13 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "app.similarity.embeddings")
 public class BookSimilarityEmbeddingProperties {
 
+    private static final int DEFAULT_MAX_SECTION_TEXT_CHARS = 15_000;
+
     private boolean enabled = true;
     private int refreshBatchSize = 25;
     private int schedulerEnqueueLimit = 25;
     private int schedulerMaxPending = 100;
+    private int maxSectionTextChars = DEFAULT_MAX_SECTION_TEXT_CHARS;
 
     /**
      * Indicates whether scheduled background refresh is enabled.
@@ -85,5 +88,29 @@ public class BookSimilarityEmbeddingProperties {
      */
     public void setSchedulerMaxPending(int schedulerMaxPending) {
         this.schedulerMaxPending = Math.max(1, schedulerMaxPending);
+    }
+
+    /**
+     * Returns the maximum character length for each embedding section input.
+     *
+     * <p>Longer raw section text is truncated before hashing so the combined
+     * batch stays within the embedding model's per-request context window
+     * (qwen3-embedding-4b and comparable models cap total request tokens at
+     * 32_768). The default leaves ample headroom across all configured
+     * sections even at ~3 chars-per-token.</p>
+     *
+     * @return per-section character ceiling, always at least one
+     */
+    public int maxSectionTextChars() {
+        return Math.max(1, maxSectionTextChars);
+    }
+
+    /**
+     * Binds the per-section character ceiling.
+     *
+     * @param maxSectionTextChars configured value (clamped to a minimum of one)
+     */
+    public void setMaxSectionTextChars(int maxSectionTextChars) {
+        this.maxSectionTextChars = Math.max(1, maxSectionTextChars);
     }
 }
