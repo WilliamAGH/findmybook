@@ -59,8 +59,10 @@ public class SimilarBooksResponseUseCase {
      * @return embedding-backed, cached, or regenerated recommendation DTOs
      */
     public Mono<List<BookDto>> resolveSimilarBooks(String identifier, UUID sourceUuid, int safeLimit) {
-        bookSimilarityEmbeddingService.enqueueDemandRefresh(sourceUuid);
-        return Mono.fromCallable(() -> fetchEmbeddingBookDtos(sourceUuid, safeLimit))
+        return Mono.fromCallable(() -> {
+                bookSimilarityEmbeddingService.enqueueDemandRefresh(sourceUuid);
+                return fetchEmbeddingBookDtos(sourceUuid, safeLimit);
+            })
             .subscribeOn(Schedulers.boundedElastic())
             .onErrorResume(embeddingFailure -> {
                 log.warn(
