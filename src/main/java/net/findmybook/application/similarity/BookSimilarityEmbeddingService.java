@@ -47,7 +47,7 @@ public class BookSimilarityEmbeddingService {
     private final BookAiContentRequestQueue requestQueue;
     private final ObjectMapper objectMapper;
     private final BookSimilarityEmbeddingProperties properties;
-    private final Cache<UUID, Boolean> inFlightRefreshes;
+    private final Cache<UUID, Boolean> recentRefreshAttempts;
 
     public BookSimilarityEmbeddingService(BookSimilarityEmbeddingRepository repository,
                                           BookEmbeddingClient embeddingClient,
@@ -61,9 +61,9 @@ public class BookSimilarityEmbeddingService {
         this.requestQueue = requestQueue;
         this.objectMapper = objectMapper;
         this.properties = properties;
-        this.inFlightRefreshes = Caffeine.newBuilder()
+        this.recentRefreshAttempts = Caffeine.newBuilder()
             .maximumSize(50_000)
-            .expireAfterWrite(Duration.ofMinutes(30))
+            .expireAfterWrite(Duration.ofMinutes(60))
             .build();
     }
 
@@ -133,6 +133,38 @@ public class BookSimilarityEmbeddingService {
     }
 
     /**
+     * Refreshes every book whose vector row is missing or stale for the active contract.
+     *
+     * <p>Drives backfill from operator CLI or runners through the canonical refresh path
+     * so \`source_hash\`, \`source_text\`, \`source_json\`, and \`qwen_4b_fp16\` are populated
+     * identically to scheduled and demand refreshes. Failures on a single book are logged
+     * and skipped so the run continues.</p>
+     *
+     * @param candidateLimit bounded number of stale books to refresh in this pass
+     * @return number of books whose vector was rewritten
+     */
+    public int backfillStale(int candidateLimit) {
+        if (!embeddingClient.isAvailable() || !properties.isEnabled()) {
+            log.info("Skipping book similarity backfill: embedding client unavailable or feature disabled.");
+            return 0;
+        }
+        String modelVersion = policy.modelVersion(embeddingClient.model());
+        List<UUID> candidates = repository.findRefreshCandidates(modelVersion, policy.profileHash(), Math.max(1, candidateLimit));
+        int refreshed = 0;
+        for (UUID bookId : candidates) {
+            try {
+                if (refreshBookIfStale(bookId, "backfill")) {
+                    refreshed++;
+                }
+            } catch (RuntimeException backfillFailure) {
+                log.error("Book similarity backfill refresh failed for book {}", bookId, backfillFailure);
+            }
+        }
+        log.info("Book similarity backfill refreshed {} of {} candidate books.", refreshed, candidates.size());
+        return refreshed;
+    }
+
+    /**
      * Reads persisted vector neighbors for the active similarity contract.
      *
      * @param sourceBookId canonical source book UUID
@@ -174,6 +206,7 @@ public class BookSimilarityEmbeddingService {
             policy,
             model,
             modelVersion,
+            properties.maxSectionTextChars(),
             this::sha256Hex,
             this::renderSourceJson
         );
@@ -203,7 +236,10 @@ public class BookSimilarityEmbeddingService {
         if (bookId == null || !embeddingClient.isAvailable() || !properties.isEnabled()) {
             return false;
         }
-        if (inFlightRefreshes.asMap().putIfAbsent(bookId, Boolean.TRUE) != null) {
+        if (priority == DEMAND_PRIORITY && isVectorAlreadyFresh(bookId)) {
+            return false;
+        }
+        if (recentRefreshAttempts.asMap().putIfAbsent(bookId, Boolean.TRUE) != null) {
             return false;
         }
         try {
@@ -211,14 +247,14 @@ public class BookSimilarityEmbeddingService {
                 refreshBookIfStale(bookId, reason);
                 return null;
             }).result().whenComplete((ignored, failure) -> {
-                inFlightRefreshes.invalidate(bookId);
                 if (failure != null) {
+                    recentRefreshAttempts.invalidate(bookId);
                     log.error("Book similarity embedding refresh failed for book {} ({})", bookId, reason, failure);
                 }
             });
             return true;
         } catch (BookAiQueueCapacityExceededException queueCapacityExceededException) {
-            inFlightRefreshes.invalidate(bookId);
+            recentRefreshAttempts.invalidate(bookId);
             log.warn(
                 "Book similarity refresh enqueue skipped for book {} because AI queue cap was reached (pending={}, max={})",
                 bookId,
@@ -227,6 +263,14 @@ public class BookSimilarityEmbeddingService {
             );
             return false;
         }
+    }
+
+    private boolean isVectorAlreadyFresh(UUID bookId) {
+        String model = embeddingClient.model();
+        if (!StringUtils.hasText(model)) {
+            return false;
+        }
+        return repository.isVectorFresh(bookId, policy.modelVersion(model), policy.profileHash());
     }
 
     private EnumMap<BookSimilaritySectionKey, List<Float>> loadOrCreateSectionEmbeddings(
