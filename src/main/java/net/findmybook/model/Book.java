@@ -67,12 +67,12 @@ public class Book {
     private Double weightGrams;
     private CoverImages coverImages;
     private Integer editionNumber;
-    private List<EditionInfo> otherEditions;
+    private List<Edition> otherEditions;
     private String asin;
     private Map<String, Object> qualifiers;
     private List<String> cachedRecommendationIds;
     private transient String rawJsonResponse;
-    
+
     // Retrieval metadata for development mode tracking
     private transient String retrievedFrom; // "POSTGRES", "S3", "GOOGLE_BOOKS_API", "OPEN_LIBRARY_API", etc.
     private transient String dataSource; // "GOOGLE_BOOKS", "NYT", "OPEN_LIBRARY", etc.
@@ -207,7 +207,7 @@ public class Book {
     @Setter
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class EditionInfo {
+    public static class Edition {
         private String googleBooksId;
         private String type;
         private String identifier;

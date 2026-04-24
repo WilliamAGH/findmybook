@@ -10,7 +10,7 @@ import net.findmybook.exception.CoverTooLargeException;
 import net.findmybook.exception.S3UploadException;
 import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.model.image.ImageDetails;
-import net.findmybook.model.image.ImageProvenanceData;
+import net.findmybook.model.image.ImageProvenance;
 import net.findmybook.model.image.ProcessedImage;
 import net.findmybook.service.image.CoverPersistenceService;
 import net.findmybook.service.image.CoverUrlSafetyValidator;
@@ -242,7 +242,7 @@ public class BrowserCoverIngestUseCase {
             ? uploadSource.name()
             : BROWSER_UPLOAD_SOURCE;
 
-        ImageProvenanceData noProvenanceData = null;
+        ImageProvenance noProvenanceData = null;
         S3BookCoverService.ProcessedCoverUploadRequest uploadRequest = new S3BookCoverService.ProcessedCoverUploadRequest(
             processedImage.getProcessedBytes(),
             processedImage.getNewFileExtension(),

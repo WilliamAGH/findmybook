@@ -12,7 +12,7 @@ import net.findmybook.exception.UnsafeUrlException;
 import net.findmybook.model.Book;
 import net.findmybook.model.image.CoverRejectionReason;
 import net.findmybook.model.image.ImageDetails;
-import net.findmybook.model.image.ImageProvenanceData;
+import net.findmybook.model.image.ImageProvenance;
 import net.findmybook.model.image.ProcessedImage;
 import net.findmybook.support.s3.CoverUploadPayload;
 import net.findmybook.support.s3.S3CoverStorageGateway;
@@ -119,7 +119,7 @@ public class S3BookCoverService implements ExternalCoverService {
     public Mono<ImageDetails> uploadCoverToS3Async(String imageUrl,
                                                    String bookId,
                                                    String source,
-                                                   @Nullable ImageProvenanceData provenanceData) {
+                                                   @Nullable ImageProvenance provenanceData) {
         // Provenance data retained for API compatibility; actual persistence handled elsewhere
         try {
             s3CoverStorageGateway.ensureUploadReady(bookId, imageUrl);
@@ -167,7 +167,7 @@ public class S3BookCoverService implements ExternalCoverService {
         private final int height;
         private final String bookId;
         private final String originalSourceForS3Key;
-        private final ImageProvenanceData provenanceData;
+        private final ImageProvenance provenanceData;
 
         public ProcessedCoverUploadRequest(
             byte[] processedImageBytes,
@@ -177,7 +177,7 @@ public class S3BookCoverService implements ExternalCoverService {
             int height,
             String bookId,
             String originalSourceForS3Key,
-            @Nullable ImageProvenanceData provenanceData) {
+            @Nullable ImageProvenance provenanceData) {
             this.processedImageBytes = processedImageBytes;
             this.fileExtension = fileExtension;
             this.mimeType = mimeType;
@@ -195,7 +195,7 @@ public class S3BookCoverService implements ExternalCoverService {
         public int height() { return height; }
         public String bookId() { return bookId; }
         public String originalSourceForS3Key() { return originalSourceForS3Key; }
-        public ImageProvenanceData provenanceData() { return provenanceData; }
+        public ImageProvenance provenanceData() { return provenanceData; }
 
         @Override
         public boolean equals(Object o) {

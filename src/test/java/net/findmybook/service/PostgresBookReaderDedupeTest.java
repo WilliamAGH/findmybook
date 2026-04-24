@@ -72,9 +72,9 @@ class PostgresBookReaderDedupeTest {
                     assertThat(book.getWeightGrams()).isEqualTo(540.0);
                     assertThat(book.getRawJsonResponse()).contains("google-primary");
 
-                    List<Book.EditionInfo> editions = book.getOtherEditions();
+                    List<Book.Edition> editions = book.getOtherEditions();
                     assertThat(editions).hasSize(1);
-                    Book.EditionInfo edition = editions.getFirst();
+                    Book.Edition edition = editions.getFirst();
                     assertThat(edition.getIdentifier()).isEqualTo("primary-fixture-paperback");
                     assertThat(edition.getGoogleBooksId()).isEqualTo("google-paper");
                     assertThat(edition.getEditionIsbn13()).isEqualTo("9780000000222");
@@ -127,7 +127,7 @@ class PostgresBookReaderDedupeTest {
         book.setWeightGrams(540.0);
         book.setRawJsonResponse("{\"id\":\"google-primary\"}");
         book.setAuthors(List.of("Edition Author"));
-        Book.EditionInfo edition = new Book.EditionInfo();
+        Book.Edition edition = new Book.Edition();
         edition.setIdentifier("primary-fixture-paperback");
         edition.setGoogleBooksId("google-paper");
         edition.setEditionIsbn13("9780000000222");

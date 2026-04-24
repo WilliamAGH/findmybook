@@ -1,7 +1,7 @@
 package net.findmybook.controller.dto;
 
 import net.findmybook.model.Book;
-import net.findmybook.model.Book.EditionInfo;
+import net.findmybook.model.Book.Edition;
 import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.model.image.CoverImages;
 import net.findmybook.util.ApplicationConstants;
@@ -39,7 +39,7 @@ class BookDtoMapperTest {
         CoverImages coverImages = new CoverImages("https://cdn.test/preferred.jpg", "https://cdn.test/fallback.jpg", CoverImageSource.GOOGLE_BOOKS);
         book.setCoverImages(coverImages);
 
-        EditionInfo editionInfo = new EditionInfo("gb-123", "HARDCOVER", "Identifier", "1234567890", "9781234567890", new Date(1726000000000L), "https://cdn.test/hardcover.jpg");
+        Edition editionInfo = new Edition("gb-123", "HARDCOVER", "Identifier", "1234567890", "9781234567890", new Date(1726000000000L), "https://cdn.test/hardcover.jpg");
         book.setOtherEditions(List.of(editionInfo));
 
         BookDto dto = BookDtoMapper.toDto(book);
