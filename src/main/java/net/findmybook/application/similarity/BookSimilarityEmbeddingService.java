@@ -244,7 +244,16 @@ public class BookSimilarityEmbeddingService {
         }
         try {
             requestQueue.enqueueBackground(priority, () -> {
-                refreshBookIfStale(bookId, reason);
+                try {
+                    refreshBookIfStale(bookId, reason);
+                } catch (BookEmbeddingApiException embeddingApiException) {
+                    log.warn(
+                        "Skipping book similarity refresh for book {} ({}): {}",
+                        bookId,
+                        reason,
+                        embeddingApiException.getMessage()
+                    );
+                }
                 return null;
             }).result().whenComplete((ignored, failure) -> {
                 if (failure != null) {

@@ -11,6 +11,7 @@ import com.openai.models.embeddings.EmbeddingCreateParams;
 import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
+import net.findmybook.application.ai.BookAiGenerationException;
 import net.findmybook.boot.OpenAiProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -103,8 +104,13 @@ public class BookEmbeddingClient {
             validateEmbeddingResponse(inputs.size(), embeddings);
             return embeddings;
         } catch (OpenAIException openAiException) {
-            log.error("Embedding API call failed (model={}): {}", model, openAiException.getMessage(), openAiException);
-            throw new IllegalStateException("Embedding API call failed for model " + model, openAiException);
+            throw new BookEmbeddingApiException(
+                "Embedding API call failed for model %s: %s".formatted(
+                    model,
+                    BookAiGenerationException.describeApiError(openAiException)
+                ),
+                openAiException
+            );
         }
     }
 
