@@ -180,6 +180,67 @@ public class BookSimilarityEmbeddingRepository {
     }
 
     /**
+     * Finds nearest persisted book-level vectors for the active similarity contract.
+     *
+     * @param sourceBookId canonical source book UUID
+     * @param modelVersion active model version
+     * @param profileHash active fusion profile hash
+     * @param limit maximum neighbor count
+     * @return ranked book IDs and cosine similarity scores
+     */
+    @Transactional(readOnly = true)
+    public List<NearestBookRow> findNearestBooks(UUID sourceBookId, String modelVersion, String profileHash, int limit) {
+        if (sourceBookId == null || limit <= 0) {
+            return List.of();
+        }
+        return jdbcTemplate.query(
+            """
+            WITH anchor AS (
+              SELECT qwen_4b_fp16
+              FROM book_similarity_vectors
+              WHERE source_type = 'book'
+                AND book_id = ?
+                AND model_version = ?
+                AND profile_hash = ?
+                AND qwen_4b_fp16 IS NOT NULL
+              LIMIT 1
+            )
+            SELECT candidate.book_id,
+                   1 - (candidate.qwen_4b_fp16 <=> anchor.qwen_4b_fp16) AS similarity
+            FROM anchor
+            JOIN book_similarity_vectors candidate
+              ON candidate.source_type = 'book'
+             AND candidate.book_id <> ?
+             AND candidate.model_version = ?
+             AND candidate.profile_hash = ?
+             AND candidate.qwen_4b_fp16 IS NOT NULL
+            WHERE NOT EXISTS (
+              SELECT 1
+              FROM work_cluster_members source_member
+              JOIN work_cluster_members candidate_member
+                ON candidate_member.cluster_id = source_member.cluster_id
+              WHERE source_member.book_id = ?
+                AND candidate_member.book_id = candidate.book_id
+            )
+            ORDER BY candidate.qwen_4b_fp16 <=> anchor.qwen_4b_fp16
+            LIMIT ?
+            """,
+            (rs, rowNum) -> new NearestBookRow(
+                rs.getObject("book_id", UUID.class),
+                rs.getDouble("similarity")
+            ),
+            sourceBookId,
+            modelVersion,
+            profileHash,
+            sourceBookId,
+            modelVersion,
+            profileHash,
+            sourceBookId,
+            Math.max(1, limit)
+        );
+    }
+
+    /**
      * Loads a cached section embedding for an exact model/input hash.
      */
     @Transactional(readOnly = true)
@@ -246,6 +307,7 @@ public class BookSimilarityEmbeddingRepository {
         String sectionHashesJson = toJson(new SectionHashPayload(row.sourceDocument().sectionInputs().stream()
             .map(sectionInput -> new SectionHashEntry(sectionInput.sectionKey().key(), sectionInput.inputHash()))
             .toList()));
+        String fusedHalfvecLiteral = BookSimilarityVectorLiteral.toHalfvecLiteral(row.fusedEmbedding());
         jdbcTemplate.update(
             """
             INSERT INTO book_similarity_vectors
@@ -275,11 +337,11 @@ public class BookSimilarityEmbeddingRepository {
             INPUT_FORMAT,
             row.sourceDocument().sectionHash(),
             sectionHashesJson,
-            BookSimilarityVectorLiteral.toHalfvecLiteral(row.fusedEmbedding()),
+            fusedHalfvecLiteral,
             row.sourceDocument().sourceText(),
             sourceJson,
             row.sourceDocument().sourceHash(),
-            BookSimilarityVectorLiteral.toHalfvecLiteral(row.fusedEmbedding())
+            fusedHalfvecLiteral
         );
     }
 
@@ -325,6 +387,12 @@ public class BookSimilarityEmbeddingRepository {
         String modelVersion,
         List<Float> fusedEmbedding
     ) {
+    }
+
+    /**
+     * Ranked nearest-neighbor row produced by the vector index.
+     */
+    public record NearestBookRow(UUID bookId, double similarity) {
     }
 
     private record SectionHashPayload(List<SectionHashEntry> sections) {
