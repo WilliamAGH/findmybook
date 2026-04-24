@@ -34,6 +34,33 @@ class BookSimilaritySourceDocumentTest {
     }
 
     @Test
+    void should_ExcludeZeroWeightedSections_When_ProfileDisablesSectionByWeight() {
+        UUID bookId = UUID.randomUUID();
+        EnumMap<BookSimilaritySectionKey, Double> weights = new EnumMap<>(BookSimilaritySectionKey.class);
+        weights.put(BookSimilaritySectionKey.IDENTITY, 1.0d);
+        weights.put(BookSimilaritySectionKey.CLASSIFICATION, 0.0d);
+        BookSimilarityFusionPolicy policy = new BookSimilarityFusionPolicy(
+            "zero-weight",
+            List.of(BookSimilaritySectionKey.IDENTITY, BookSimilaritySectionKey.CLASSIFICATION),
+            List.of(new BookSimilarityFusionProfile("zero-weight", "Zero-weight classification", weights)),
+            "profile-hash"
+        );
+
+        BookSimilaritySourceDocument document = BookSimilaritySourceDocument.create(
+            source(bookId),
+            policy,
+            "qwen/qwen3-embedding-4b",
+            "qwen/qwen3-embedding-4b:zero-weight:section_fusion",
+            BookSimilaritySourceDocumentTest::sha256Hex,
+            BookSimilaritySourceDocumentTest::sourceJson
+        );
+
+        assertThat(document.sectionInputs()).hasSize(1);
+        assertThat(document.sectionInputs().get(0).sectionKey()).isEqualTo(BookSimilaritySectionKey.IDENTITY);
+        assertThat(document.sourceJson().sections()).hasSize(1);
+    }
+
+    @Test
     void should_ChangeSourceHash_When_SourceFieldChanges() {
         UUID bookId = UUID.randomUUID();
         BookSimilarityFusionPolicy policy = policy();
