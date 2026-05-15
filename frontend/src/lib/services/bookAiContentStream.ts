@@ -45,7 +45,7 @@ function createBookAiContentStreamError(
   return streamError;
 }
 
-function parseSseMessage(raw: string): { event: string; data: string } | null {
+function parseSseMessage(raw: string): { event: string; payloadText: string } | null {
   const lines = raw.split("\n");
   let event = "message";
   const dataLines: string[] = [];
@@ -60,20 +60,20 @@ function parseSseMessage(raw: string): { event: string; data: string } | null {
     }
   }
 
-  const data = dataLines.join("\n").trim();
-  if (!data) {
+  const payloadText = dataLines.join("\n").trim();
+  if (!payloadText) {
     return null;
   }
-  return { event, data };
+  return { event, payloadText };
 }
 
 function normalizeSseLineEndings(value: string): string {
   return value.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
 }
 
-function safeParseJson(data: string, eventType: string): unknown {
+function safeParseJson(payloadText: string, eventType: string): unknown {
   try {
-    return JSON.parse(data);
+    return JSON.parse(payloadText);
   } catch (parseError) {
     const detail = parseError instanceof Error ? parseError.message : String(parseError);
     throw new Error(`Malformed JSON in SSE '${eventType}' event: ${detail}`);
@@ -108,9 +108,9 @@ async function readBookAiContentSseStream(
   let buffer = "";
   let pendingCarriageReturn = false;
 
-  const processMessage = (message: { event: string; data: string }): StreamBookAiContentResult | null => {
+  const processMessage = (message: { event: string; payloadText: string }): StreamBookAiContentResult | null => {
     if (message.event === "error") {
-      const parsed = safeParseJson(message.data, "error");
+      const parsed = safeParseJson(message.payloadText, "error");
       const streamError = validateWithSchema(
         BookAiContentStreamErrorSchema,
         parsed,
@@ -129,7 +129,7 @@ async function readBookAiContentSseStream(
     }
 
     if (message.event === "queued" || message.event === "queue" || message.event === "started") {
-      const parsed = safeParseJson(message.data, message.event);
+      const parsed = safeParseJson(message.payloadText, message.event);
       const queueUpdate = validateWithSchema(
         BookAiContentQueueUpdateSchema,
         { ...(parsed as Record<string, unknown>), event: message.event },
@@ -142,7 +142,7 @@ async function readBookAiContentSseStream(
     }
 
     if (message.event === "message_start" || message.event === "message_delta" || message.event === "message_done") {
-      const parsed = safeParseJson(message.data, message.event);
+      const parsed = safeParseJson(message.payloadText, message.event);
       const streamUpdate = validateWithSchema(
         BookAiContentModelStreamUpdateSchema,
         { event: message.event, data: parsed },
@@ -155,7 +155,7 @@ async function readBookAiContentSseStream(
     }
 
     if (message.event === "done") {
-      const parsed = safeParseJson(message.data, "done");
+      const parsed = safeParseJson(message.payloadText, "done");
       const done = validateWithSchema(BookAiContentStreamDoneSchema, parsed, "bookAiContentStreamDone");
       if (!done.success) {
         throw new Error("Book AI stream done payload was invalid");

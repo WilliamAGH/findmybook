@@ -27,6 +27,10 @@ type ConnectionState =
   | { status: "connecting"; pending: Promise<Client> }
   | { status: "connected"; client: Client };
 
+type ParsedMessage =
+  | { success: true; payload: unknown }
+  | { success: false; error: unknown };
+
 let connection: ConnectionState = { status: "idle" };
 
 function buildClient(): Client {
@@ -38,16 +42,21 @@ function buildClient(): Client {
   });
 }
 
-function parseMessagePayload<T>(messageBody: string, recordId: string, schema: z.ZodType<T>): T | null {
-  let payload: unknown;
+function parseJsonMessagePayload(messageBody: string): ParsedMessage {
   try {
-    payload = JSON.parse(messageBody);
+    return { success: true, payload: JSON.parse(messageBody) };
   } catch (error) {
-    console.warn(`Failed to parse ${recordId} payload`, error);
+    return { success: false, error };
+  }
+}
+
+function parseMessagePayload<T>(messageBody: string, recordId: string, schema: z.ZodType<T>): T | null {
+  const parsed = parseJsonMessagePayload(messageBody);
+  if (!parsed.success) {
+    console.warn(`Failed to parse ${recordId} payload`, parsed.error);
     return null;
   }
-
-  const validation = validateWithSchema(schema, payload, recordId);
+  const validation = validateWithSchema(schema, parsed.payload, recordId);
   if (!validation.success) {
     return null;
   }

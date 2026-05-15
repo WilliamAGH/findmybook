@@ -17,17 +17,15 @@ export function normalizeCoverUrl(candidateUrl: string): string | null {
     return null;
   }
 
-  try {
-    const baseOrigin = typeof location === "undefined" ? undefined : location.origin;
-    const parsed = baseOrigin ? new URL(candidateUrl, baseOrigin) : new URL(candidateUrl);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      return null;
-    }
-    return parsed.href;
-  } catch (error) {
-    console.warn("[normalizeCoverUrl] Invalid URL:", candidateUrl, error);
+  const baseOrigin = typeof location === "undefined" ? undefined : location.origin;
+  if (!URL.canParse(candidateUrl, baseOrigin)) {
     return null;
   }
+  const parsed = new URL(candidateUrl, baseOrigin);
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return null;
+  }
+  return parsed.href;
 }
 
 function hasPersistedS3Cover(book: Book): boolean {

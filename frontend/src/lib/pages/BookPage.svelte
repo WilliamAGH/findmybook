@@ -8,9 +8,9 @@
     getAffiliateLinks,
     getBook,
     getSimilarBooks,
-    persistRenderedCover,
     DEFAULT_SIMILAR_BOOKS_LIMIT,
   } from "$lib/services/books";
+  import { persistRenderedCover } from "$lib/services/coverPersistence";
   import {
     mergePersistedCoverIntoBook,
     normalizeCoverUrl,

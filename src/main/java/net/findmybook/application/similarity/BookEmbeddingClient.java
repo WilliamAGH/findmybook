@@ -285,7 +285,7 @@ public class BookEmbeddingClient {
             throw new IllegalStateException("Embedding chunk count did not match request plan");
         }
         if (chunkEmbeddings.size() == 1) {
-            return List.copyOf(chunkEmbeddings.getFirst());
+            return BookSimilarityVectorFusion.fuseWeighted(chunkEmbeddings, List.of(1.0d));
         }
         double totalWeight = chunks.stream()
             .mapToDouble(EmbeddingChunk::estimatedTokens)

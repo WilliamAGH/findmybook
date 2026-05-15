@@ -123,6 +123,18 @@ class BookEmbeddingClientTest {
     }
 
     @Test
+    void should_NormalizeChunkEmbedding_When_InputHasSingleChunk() {
+        List<Float> fusedEmbedding = BookEmbeddingClient.fuseInputChunks(
+            List.of(embeddingWith(3.0f, 4.0f)),
+            List.of(new BookEmbeddingClient.EmbeddingChunk("section text", 12))
+        );
+
+        assertThat(fusedEmbedding).hasSize(EMBEDDING_DIMENSION);
+        assertThat(fusedEmbedding.get(0)).isCloseTo(0.6f, withinTolerance());
+        assertThat(fusedEmbedding.get(1)).isCloseTo(0.8f, withinTolerance());
+    }
+
+    @Test
     void should_ReadPreviousVectorContract_When_CurrentContractCannotFillLimit() {
         UUID sourceBookId = UUID.fromString("019da3e5-3838-703e-9112-bad4a489239e");
         UUID currentMatchId = UUID.fromString("019c3b68-3ee9-7ef0-917c-c37b663d97c1");
