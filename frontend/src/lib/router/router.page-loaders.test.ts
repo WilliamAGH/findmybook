@@ -20,6 +20,9 @@ const {
 
 vi.mock("$lib/services/books", () => ({
   searchBooks: searchBooksMock,
+}));
+
+vi.mock("$lib/services/searchHitNormalization", () => ({
   normalizeRealtimeSearchHits: normalizeRealtimeSearchHitsMock,
   mergeSearchHits: mergeSearchHitsMock,
 }));
@@ -226,7 +229,7 @@ describe("SearchPage loading state", () => {
           relevanceScore: null,
         },
       ],
-    } as any);
+    });
 
     const currentUrl = new URL(
       "https://findmybook.net/search?query=doug%20turnbull&page=1&orderBy=newest&view=grid&coverSource=ANY&resolution=HIGH_FIRST",

@@ -5,9 +5,10 @@
   import SearchPageStatus from "$lib/components/SearchPageStatus.svelte";
   import SearchResultsPanel from "$lib/components/SearchResultsPanel.svelte";
   import { navigate, type SearchRouteName } from "$lib/router/router";
-  import { searchBooks, normalizeRealtimeSearchHits, mergeSearchHits, type SearchParams } from "$lib/services/books";
+  import { searchBooks, type SearchParams } from "$lib/services/books";
   import { getCategoryFacets, getHomePagePayload, type PopularWindow } from "$lib/services/pages";
   import { subscribeToSearchTopics } from "$lib/services/realtime";
+  import { mergeSearchHits, normalizeRealtimeSearchHits } from "$lib/services/searchHitNormalization";
   import { EXPLORE_DEFAULT_POPULAR_WINDOW, EXPLORE_POPULAR_LIMIT, buildExplorePopularSearchResponse, popularWindowLabel } from "$lib/services/explorePopular";
   import { PAGE_SIZE, PREFETCH_WINDOW_SIZE, CATEGORY_FACET_LIMIT, CATEGORY_MIN_BOOKS, pageFromStartIndex, type CoverOption, type ResolutionOption, type SortOption } from "$lib/services/searchConfig";
   import { buildBookDetailHref, buildExploreDefaultUrl, buildSearchRouteUrl, createSearchParams, mapSearchHitToBookCard, readSearchPageRouteState, searchParamsCacheKey } from "$lib/services/searchPageViewModel";

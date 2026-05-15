@@ -21,19 +21,18 @@ export function normalizeInternalPath(candidate: string | null): string | null {
   if (!candidate) {
     return null;
   }
-  try {
-    const parsed = new URL(candidate, browserOrigin());
-    if (parsed.origin !== browserOrigin()) {
-      return null;
-    }
-    if (!parsed.pathname.startsWith("/")) {
-      return null;
-    }
-    return pathWithQueryAndHash(parsed);
-  } catch (error) {
-    console.warn("[router] Failed to normalize internal path:", candidate, error);
+  const origin = browserOrigin();
+  if (!URL.canParse(candidate, origin)) {
     return null;
   }
+  const parsed = new URL(candidate, origin);
+  if (parsed.origin !== origin) {
+    return null;
+  }
+  if (!parsed.pathname.startsWith("/")) {
+    return null;
+  }
+  return pathWithQueryAndHash(parsed);
 }
 
 export function buildSpaHistoryState(previousPath: string | null): SpaHistoryState {

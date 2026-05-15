@@ -94,6 +94,9 @@ app:
       refresh-batch-size: ${APP_SIMILARITY_EMBEDDINGS_REFRESH_BATCH_SIZE:25}
       scheduler-enqueue-limit: ${APP_SIMILARITY_EMBEDDINGS_SCHEDULER_ENQUEUE_LIMIT:25}
       scheduler-max-pending: ${APP_SIMILARITY_EMBEDDINGS_SCHEDULER_MAX_PENDING:100}
+      max-section-text-chars: ${APP_SIMILARITY_EMBEDDINGS_MAX_SECTION_TEXT_CHARS:15000}
+      input-token-comfort-limit: ${APP_SIMILARITY_EMBEDDINGS_INPUT_TOKEN_COMFORT_LIMIT:8192}
+      request-input-batch-size: ${APP_SIMILARITY_EMBEDDINGS_REQUEST_INPUT_BATCH_SIZE:32}
   weekly-refresh:
     enabled: ${APP_WEEKLY_REFRESH_ENABLED:true}
     cron: ${APP_WEEKLY_REFRESH_CRON:0 0 4 * * SUN}

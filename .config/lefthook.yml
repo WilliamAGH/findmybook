@@ -13,7 +13,7 @@ pre-commit:
       stage_fixed: true
     frontend-lint-fix:
       root: "frontend/"
-      glob: "*.{js,ts,svelte}"
+      glob: "src/**/*.{js,ts,svelte}"
       run: npx oxlint -c config/oxlintrc.json --fix {staged_files}
       stage_fixed: true
     no-commit-to-branch:

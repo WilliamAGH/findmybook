@@ -4,6 +4,18 @@ import type { z } from "zod/v4";
 const CSRF_COOKIE = "XSRF-TOKEN";
 const CSRF_HEADER = "X-XSRF-TOKEN";
 
+type DecodedCookieToken =
+  | { success: true; token: string }
+  | { success: false; error: unknown };
+
+function decodeCookieToken(token: string): DecodedCookieToken {
+  try {
+    return { success: true, token: decodeURIComponent(token) };
+  } catch (error) {
+    return { success: false, error };
+  }
+}
+
 function getCookie(cookieName: string): string | null {
   if (typeof document === "undefined") {
     return null;
@@ -18,12 +30,12 @@ function getCookie(cookieName: string): string | null {
   }
 
   const token = entry.substring(cookieName.length + 1);
-  try {
-    return decodeURIComponent(token);
-  } catch (error) {
-    console.warn(`[http] Failed to decode ${cookieName} cookie value; discarding corrupt token`, error);
+  const decoded = decodeCookieToken(token);
+  if (!decoded.success) {
+    console.warn(`[http] Failed to decode ${cookieName} cookie value; discarding corrupt token`, decoded.error);
     return null;
   }
+  return decoded.token;
 }
 
 function withCsrf(init: RequestInit): RequestInit {

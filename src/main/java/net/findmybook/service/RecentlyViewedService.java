@@ -1,13 +1,13 @@
 /**
  * Service responsible for tracking, managing, and providing recently viewed books
- * 
+ *
  * This component provides functionality for:
  * - Maintaining a thread-safe list of recently viewed books
  * - Handling canonical book ID resolution to prevent duplicates
  * - Providing fallback recommendations when history is empty
  * - Supporting both synchronous and reactive APIs
  * - Ensuring memory efficiency through size limits
- * 
+ *
  * Used throughout the application to enhance user experience by enabling
  * "recently viewed" sections and personalized recommendations
  *
@@ -34,7 +34,7 @@ import java.util.stream.Collectors;
 
 /**
  * Service for tracking and managing recently viewed books
- * 
+ *
  * Features:
  * - Maintains a thread-safe list of recently viewed books
  * - Limits the number of books in the history to avoid memory issues
@@ -77,21 +77,26 @@ public class RecentlyViewedService {
      */
     public void addToRecentlyViewed(Book book) {
         if (book == null) {
-            log.warn("RECENT_VIEWS_DEBUG: Attempted to add a null book to recently viewed.");
+            log.debug("Attempted to add a null book to recently viewed.");
             return;
         }
 
         String originalBookId = book.getId();
-        log.info("RECENT_VIEWS_DEBUG: Attempting to add book. Original ID: '{}', Title: '{}'", originalBookId, book.getTitle());
+        log.debug(
+            "Attempting to add recently viewed book. Original ID: '{}', Title: '{}'",
+            originalBookId,
+            book.getTitle()
+        );
 
         String canonicalId = resolveCanonicalBookId(originalBookId);
         if (!Objects.equals(originalBookId, canonicalId)) {
-            log.info("RECENT_VIEWS_DEBUG: Resolved original ID '{}' to canonical ID '{}' for book title '{}'",
+            log.debug("Resolved recently viewed original ID '{}' to canonical ID '{}' for book title '{}'",
                 originalBookId, canonicalId, book.getTitle());
         }
-        
+
         if (!StringUtils.hasText(canonicalId)) {
-            log.warn("RECENT_VIEWS_DEBUG: Null or empty canonical ID determined for book title '{}' (original ID '{}'). Skipping add.", book.getTitle(), originalBookId);
+            log.warn("Null or empty canonical recently viewed ID for book title '{}' (original ID '{}'). Skipping add.",
+                book.getTitle(), originalBookId);
             return;
         }
 
@@ -102,7 +107,11 @@ public class RecentlyViewedService {
         // create a new Book object (or clone) for storage in the list with the canonical ID
         // This avoids modifying the original 'book' object which might be used elsewhere
         if (!Objects.equals(originalBookId, finalCanonicalId)) {
-            log.info("RECENT_VIEWS_DEBUG: Book ID mismatch. Original: '{}', Canonical: '{}'. Creating new Book instance for recent views.", originalBookId, finalCanonicalId);
+            log.debug(
+                "Recently viewed book ID mismatch. Original: '{}', Canonical: '{}'. Creating a stored copy.",
+                originalBookId,
+                finalCanonicalId
+            );
             bookToAdd = new Book();
             // Copy essential properties for display in recent views
             bookToAdd.setId(finalCanonicalId);
@@ -125,13 +134,17 @@ public class RecentlyViewedService {
 
         // Add to front
         recentlyViewedBooks.addFirst(bookToAdd);
-        log.info("RECENT_VIEWS_DEBUG: Added book with canonical ID '{}'. List size now: {}", finalCanonicalId, recentlyViewedBooks.size());
+        log.debug(
+            "Added recently viewed book with canonical ID '{}'. List size now: {}",
+            finalCanonicalId,
+            recentlyViewedBooks.size()
+        );
 
         // Trim to max size
         while (recentlyViewedBooks.size() > MAX_RECENT_BOOKS) {
             Book removedLastBook = recentlyViewedBooks.pollLast();
             if (removedLastBook != null) {
-                log.debug("RECENT_VIEWS_DEBUG: Trimmed book. ID: '{}'", removedLastBook.getId());
+                log.debug("Trimmed recently viewed book. ID: '{}'", removedLastBook.getId());
             }
         }
 
@@ -160,9 +173,9 @@ public class RecentlyViewedService {
     /**
      * Gets list of recently viewed book IDs for use with BookQueryRepository.
      * This is THE SINGLE SOURCE for recently viewed book IDs.
-     * 
+     *
      * Performance: Returns only UUIDs, caller fetches as BookCard DTOs with single query.
-     * 
+     *
      * @param limit Maximum number of book IDs to return
      * @return List of book UUIDs (as Strings) for recently viewed books
      */
@@ -170,9 +183,9 @@ public class RecentlyViewedService {
         // Check repository first (persistent storage)
         if (recentBookViewRepository != null && recentBookViewRepository.isEnabled()) {
             try {
-                List<RecentBookViewRepository.ViewStats> stats = 
+                List<RecentBookViewRepository.ViewStats> stats =
                     recentBookViewRepository.fetchMostRecentViews(limit);
-                
+
                 if (!stats.isEmpty()) {
                     return stats.stream()
                         .map(RecentBookViewRepository.ViewStats::bookId)
@@ -184,7 +197,7 @@ public class RecentlyViewedService {
                 throw new IllegalStateException("Failed to fetch recently viewed book IDs from repository", e);
             }
         }
-        
+
         // Fallback to in-memory cache
         return recentlyViewedBooks.stream()
             .filter(b -> b != null && StringUtils.hasText(b.getId()))
@@ -235,7 +248,7 @@ public class RecentlyViewedService {
 
     /**
      * Clears the recently viewed books list
-     * 
+     *
      * @implNote Thread-safe implementation using synchronized block
      * Logs the action for debugging and audit purposes
      * Does not affect default recommendations which are generated dynamically

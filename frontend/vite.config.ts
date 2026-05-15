@@ -18,6 +18,9 @@ function proxyConfig(target: string, websocket = false): ProxyOptions {
 export default defineConfig(({ mode }) => ({
   plugins: [svelte(), tailwindcss(), svelteTesting()],
   base: mode === "development" ? "/" : "/frontend/",
+  define: {
+    global: "globalThis",
+  },
   build: {
     outDir: OUTPUT_DIR,
     emptyOutDir: true,

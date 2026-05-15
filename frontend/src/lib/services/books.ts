@@ -2,8 +2,6 @@
  * Book data access layer — search, detail, similar books, and affiliate links.
  *
  * All data flows through the backend HTTP API with typed Zod validation at the boundary.
- * Cover persistence and realtime search-hit normalization live in dedicated modules;
- * re-exported here for backward compatibility with existing importers.
  */
 import { getJson } from "$lib/services/http";
 import type { SortOption, TimeWindow } from "$lib/services/searchConfig";
@@ -17,9 +15,6 @@ import {
   SimilarBooksSchema,
   AffiliateLinksSchema,
 } from "$lib/validation/schemas";
-
-export { persistRenderedCover, type PersistRenderedCoverRequest } from "$lib/services/coverPersistence";
-export { normalizeRealtimeSearchHits, mergeSearchHits } from "$lib/services/searchHitNormalization";
 
 export const DEFAULT_SIMILAR_BOOKS_LIMIT = 8;
 const inFlightSearchRequests = new Map<string, Promise<SearchResponse>>();

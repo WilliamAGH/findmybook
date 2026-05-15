@@ -59,8 +59,7 @@ public record BookSimilaritySourceDocument(
      * @param model configured embeddings model
      * @param modelVersion computed model version
      * @param maxSectionTextChars per-section character ceiling applied before hashing
-     *     so the embedding batch stays within the provider's request token window;
-     *     values less than one disable truncation
+     *     to bound the persisted source contract; values less than one disable truncation
      * @param hashFactory deterministic hash function
      * @param sourceJsonRenderer deterministic source-json renderer
      * @return auditable source document

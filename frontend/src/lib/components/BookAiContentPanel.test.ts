@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/svelte";
 import BookAiContentPanel from "$lib/components/BookAiContentPanel.svelte";
-import type { BookAiErrorCode } from "$lib/validation/schemas";
+import type { Book, BookAiErrorCode } from "$lib/validation/schemas";
 
 const {
   getBookAiContentQueueStatsMock,
@@ -34,6 +34,27 @@ describe("BookAiContentPanel production behavior", () => {
     return streamError;
   }
 
+  function createBookFixture(overrides: Partial<Book>): Book {
+    return {
+      id: "book-fixture",
+      slug: "book-fixture",
+      title: "Book Fixture",
+      description: null,
+      descriptionContent: { raw: null, format: "UNKNOWN", html: "", text: "" },
+      publication: { publishedDate: null, language: null, pageCount: null, publisher: null },
+      authors: [],
+      categories: [],
+      collections: [],
+      tags: [],
+      cover: null,
+      editions: [],
+      recommendationIds: [],
+      extras: {},
+      aiContent: null,
+      ...overrides,
+    };
+  }
+
   beforeEach(() => {
     getBookAiContentQueueStatsMock.mockReset();
     vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -64,14 +85,13 @@ describe("BookAiContentPanel production behavior", () => {
     render(BookAiContentPanel, {
       props: {
         identifier: "short-description-book",
-        book: {
+        book: createBookFixture({
           id: "book-short",
           slug: "book-short",
           title: "Short Description Fixture",
           description: "tiny",
-          descriptionContent: { text: "tiny" },
-          aiContent: null,
-        } as any,
+          descriptionContent: { raw: "tiny", format: "PLAIN_TEXT", html: "tiny", text: "tiny" },
+        }),
         onAiContentUpdate,
       },
     });
@@ -105,14 +125,13 @@ describe("BookAiContentPanel production behavior", () => {
     render(BookAiContentPanel, {
       props: {
         identifier: "short-description-book",
-        book: {
+        book: createBookFixture({
           id: "book-short",
           slug: "book-short",
           title: "Short Description Fixture",
           description: "tiny",
-          descriptionContent: { text: "tiny" },
-          aiContent: null,
-        } as any,
+          descriptionContent: { raw: "tiny", format: "PLAIN_TEXT", html: "tiny", text: "tiny" },
+        }),
         onAiContentUpdate,
       },
     });
@@ -140,13 +159,16 @@ describe("BookAiContentPanel production behavior", () => {
     render(BookAiContentPanel, {
       props: {
         identifier: "degenerate-summary-book",
-        book: {
+        book: createBookFixture({
           id: "book-degenerate",
           slug: "book-degenerate",
           title: "Degenerate Summary Fixture",
           description:
             "This description is long enough for AI generation and should allow regeneration attempts.",
           descriptionContent: {
+            raw: "This description is long enough for AI generation and should allow regeneration attempts.",
+            format: "PLAIN_TEXT",
+            html: "This description is long enough for AI generation and should allow regeneration attempts.",
             text: "This description is long enough for AI generation and should allow regeneration attempts.",
           },
           aiContent: {
@@ -156,7 +178,7 @@ describe("BookAiContentPanel production behavior", () => {
             readerFit: null,
             context: null,
           },
-        } as any,
+        }),
         onAiContentUpdate,
       },
     });

@@ -26,17 +26,16 @@
     "no-empty": ["error", { "allowEmptyCatch": false }],
 
     "import/no-cycle": "error",
-    "import/order": "off",
     "import/no-duplicates": "error",
 
     "typescript/no-explicit-any": "error",
     "typescript/no-non-null-assertion": "warn",
     "typescript/no-unsafe-type-assertion": "warn",
 
-    "promise/no-return-await": "error",
     "promise/catch-or-return": "warn",
 
     "unicorn/no-array-reduce": "warn",
+    "unicorn/no-unnecessary-await": "error",
     "unicorn/prefer-node-protocol": "warn",
 
     "zod/no-any-schema": "error",
@@ -48,7 +47,6 @@
     "zod/consistent-import-source": ["warn", { "sources": ["zod/v4"] }],
     "zod/require-error-message": "warn",
     "zod/prefer-enum-over-literal-union": "warn",
-    "zod/require-schema-suffix": "warn",
     "zod/prefer-meta": "warn",
     "zod/array-style": "warn",
     "zod/consistent-import": ["warn", { "syntax": "named" }]
@@ -77,9 +75,9 @@
         "vitest/no-disabled-tests": "off",
         "vitest/no-conditional-expect": "off",
         "vitest/expect-expect": "off",
+        "vitest/require-mock-type-parameters": "off",
         "no-console": "off",
         "unicorn/prefer-node-protocol": "off",
-        "zod/require-schema-suffix": "off",
         "zod/require-error-message": "off"
       }
     }
