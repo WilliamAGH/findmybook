@@ -123,7 +123,7 @@ public class BookSimilarityEmbeddingService {
             );
             return 0;
         }
-        String modelVersion = policy.modelVersion(embeddingClient.model());
+        String modelVersion = policy.modelVersion(embeddingClient.cacheModel());
         List<UUID> candidates = repository.findRefreshCandidates(modelVersion, policy.profileHash(), candidateLimit);
         int enqueued = 0;
         int effectiveEnqueueLimit = Math.min(enqueueLimit, pendingRoom);
@@ -154,7 +154,7 @@ public class BookSimilarityEmbeddingService {
             log.info("Skipping book similarity backfill: embedding client unavailable or feature disabled.");
             return 0;
         }
-        String modelVersion = policy.modelVersion(embeddingClient.model());
+        String modelVersion = policy.modelVersion(embeddingClient.cacheModel());
         List<UUID> candidates = repository.findRefreshCandidates(modelVersion, policy.profileHash(), Math.max(1, candidateLimit));
         int refreshed = 0;
         for (UUID bookId : candidates) {
@@ -181,11 +181,11 @@ public class BookSimilarityEmbeddingService {
         if (sourceBookId == null || limit <= 0 || !properties.isEnabled()) {
             return List.of();
         }
-        String model = embeddingClient.model();
-        if (!StringUtils.hasText(model)) {
+        String cacheModel = embeddingClient.cacheModel();
+        if (!StringUtils.hasText(cacheModel)) {
             return List.of();
         }
-        String modelVersion = policy.modelVersion(model);
+        String modelVersion = policy.modelVersion(cacheModel);
         return repository.findNearestBooks(sourceBookId, modelVersion, policy.profileHash(), limit).stream()
             .map(row -> new SimilarBookMatch(row.bookId(), row.similarity()))
             .toList();
@@ -206,7 +206,8 @@ public class BookSimilarityEmbeddingService {
         BookSimilarityBookSource source = repository.fetchBookSource(bookId)
             .orElseThrow(() -> new IllegalStateException("Book source unavailable for similarity embedding: " + bookId));
         String model = embeddingClient.model();
-        String modelVersion = policy.modelVersion(model);
+        String cacheModel = embeddingClient.cacheModel();
+        String modelVersion = policy.modelVersion(cacheModel);
         BookSimilaritySourceDocument sourceDocument = BookSimilaritySourceDocument.create(
             source,
             policy,
@@ -223,7 +224,7 @@ public class BookSimilarityEmbeddingService {
         }
         EnumMap<BookSimilaritySectionKey, List<Float>> sectionEmbeddings = loadOrCreateSectionEmbeddings(
             sourceDocument,
-            model
+            cacheModel
         );
         List<Float> fusedEmbedding = vectorFusion.fuse(sourceDocument, sectionEmbeddings);
         repository.upsertFusedEmbedding(new FusedEmbeddingRow(
@@ -281,16 +282,16 @@ public class BookSimilarityEmbeddingService {
     }
 
     private boolean isVectorAlreadyFresh(UUID bookId) {
-        String model = embeddingClient.model();
-        if (!StringUtils.hasText(model)) {
+        String cacheModel = embeddingClient.cacheModel();
+        if (!StringUtils.hasText(cacheModel)) {
             return false;
         }
-        return repository.isVectorFresh(bookId, policy.modelVersion(model), policy.profileHash());
+        return repository.isVectorFresh(bookId, policy.modelVersion(cacheModel), policy.profileHash());
     }
 
     private EnumMap<BookSimilaritySectionKey, List<Float>> loadOrCreateSectionEmbeddings(
         BookSimilaritySourceDocument sourceDocument,
-        String model
+        String cacheModel
     ) {
         EnumMap<BookSimilaritySectionKey, List<Float>> sectionEmbeddings = new EnumMap<>(BookSimilaritySectionKey.class);
         List<BookSimilaritySectionInput> missingInputs = new ArrayList<>();
@@ -298,7 +299,7 @@ public class BookSimilarityEmbeddingService {
             Optional<List<Float>> cachedEmbedding = sectionRepository.fetchSectionEmbedding(
                 sourceDocument.bookId(),
                 sectionInput.sectionKey(),
-                model,
+                cacheModel,
                 sectionInput.inputHash()
             );
             if (cachedEmbedding.isPresent()) {
@@ -315,7 +316,7 @@ public class BookSimilarityEmbeddingService {
             for (int index = 0; index < missingInputs.size(); index++) {
                 BookSimilaritySectionInput sectionInput = missingInputs.get(index);
                 List<Float> embedding = generatedEmbeddings.get(index);
-                sectionRepository.upsertSectionEmbedding(sourceDocument.bookId(), sectionInput, model, embedding);
+                sectionRepository.upsertSectionEmbedding(sourceDocument.bookId(), sectionInput, cacheModel, embedding);
                 sectionEmbeddings.put(sectionInput.sectionKey(), embedding);
             }
         }

@@ -37,17 +37,34 @@ public class BookSimilarityVectorFusion {
     public List<Float> fuse(BookSimilaritySourceDocument sourceDocument,
                             Map<BookSimilaritySectionKey, List<Float>> sectionEmbeddings) {
         Map<BookSimilaritySectionKey, Double> weights = policy.normalizedWeightsFor(sectionEmbeddings.keySet());
-        double[] fused = new double[EMBEDDING_DIMENSION];
+        List<List<Float>> weightedEmbeddings = new ArrayList<>();
+        List<Double> embeddingWeights = new ArrayList<>();
         for (BookSimilaritySectionInput sectionInput : sourceDocument.sectionInputs()) {
             List<Float> embedding = sectionEmbeddings.get(sectionInput.sectionKey());
             if (embedding == null) {
                 throw new IllegalStateException("Missing section embedding for " + sectionInput.sectionKey().key());
             }
+            weightedEmbeddings.add(embedding);
+            embeddingWeights.add(weights.get(sectionInput.sectionKey()));
+        }
+        return fuseWeighted(weightedEmbeddings, embeddingWeights);
+    }
+
+    static List<Float> fuseWeighted(List<List<Float>> weightedEmbeddings, List<Double> embeddingWeights) {
+        if (weightedEmbeddings == null || weightedEmbeddings.isEmpty()) {
+            throw new IllegalArgumentException("weightedEmbeddings are required");
+        }
+        if (embeddingWeights == null || embeddingWeights.size() != weightedEmbeddings.size()) {
+            throw new IllegalArgumentException("embeddingWeights must match weightedEmbeddings");
+        }
+        double[] fused = new double[EMBEDDING_DIMENSION];
+        for (int embeddingIndex = 0; embeddingIndex < weightedEmbeddings.size(); embeddingIndex++) {
+            List<Float> embedding = weightedEmbeddings.get(embeddingIndex);
             double norm = vectorNorm(embedding);
             if (norm == 0.0d) {
                 continue;
             }
-            double weight = weights.get(sectionInput.sectionKey());
+            double weight = embeddingWeights.get(embeddingIndex);
             for (int index = 0; index < EMBEDDING_DIMENSION; index++) {
                 fused[index] += (embedding.get(index) / norm) * weight;
             }
