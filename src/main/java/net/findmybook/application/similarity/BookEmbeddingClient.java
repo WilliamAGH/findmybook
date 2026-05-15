@@ -20,6 +20,7 @@ import net.findmybook.boot.OpenAiProperties;
 import net.findmybook.support.llm.LlmGatewayTier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -53,6 +54,7 @@ public class BookEmbeddingClient {
      * @param openAiProperties provider and model settings
      * @param embeddingProperties book similarity embedding request limits
      */
+    @Autowired
     public BookEmbeddingClient(OpenAiProperties openAiProperties, BookSimilarityEmbeddingProperties embeddingProperties) {
         this.model = openAiProperties.embeddingsModel();
         this.requestTimeoutSeconds = openAiProperties.requestTimeoutSeconds();
