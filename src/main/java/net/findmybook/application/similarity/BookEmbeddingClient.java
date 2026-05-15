@@ -36,9 +36,7 @@ import org.springframework.stereotype.Component;
 public class BookEmbeddingClient {
 
     private static final Logger log = LoggerFactory.getLogger(BookEmbeddingClient.class);
-    private static final int INPUT_TOKEN_COMFORT_LIMIT = 8_192;
     private static final int REQUEST_TOKEN_BUDGET = 262_144;
-    private static final String EMBEDDING_INPUT_CONTRACT = "chunked_8192_v1";
 
     private final Map<LlmGatewayTier, BatchEmbeddingRequester> requestersByTier;
     private final boolean available;
@@ -47,6 +45,7 @@ public class BookEmbeddingClient {
     private final long readTimeoutSeconds;
     private final int inputTokenComfortLimit;
     private final int requestInputBatchSize;
+    private final String embeddingInputContract;
 
     /**
      * Creates one SDK client per tier so the {@code X-Tier} header is fixed per connection.
@@ -59,11 +58,12 @@ public class BookEmbeddingClient {
         this.model = openAiProperties.embeddingsModel();
         this.requestTimeoutSeconds = openAiProperties.requestTimeoutSeconds();
         this.readTimeoutSeconds = openAiProperties.readTimeoutSeconds();
-        this.inputTokenComfortLimit = Math.min(embeddingProperties.inputTokenComfortLimit(), INPUT_TOKEN_COMFORT_LIMIT);
+        this.inputTokenComfortLimit = embeddingProperties.inputTokenComfortLimit();
         this.requestInputBatchSize = Math.min(
             embeddingProperties.requestInputBatchSize(),
             Math.max(1, REQUEST_TOKEN_BUDGET / this.inputTokenComfortLimit)
         );
+        this.embeddingInputContract = embeddingProperties.embeddingInputContract();
         if (openAiProperties.isEmbeddingsConfigured()) {
             EnumMap<LlmGatewayTier, BatchEmbeddingRequester> requesters = new EnumMap<>(LlmGatewayTier.class);
             for (LlmGatewayTier tier : LlmGatewayTier.values()) {
@@ -99,11 +99,12 @@ public class BookEmbeddingClient {
         this.model = model;
         this.requestTimeoutSeconds = requestTimeoutSeconds;
         this.readTimeoutSeconds = readTimeoutSeconds;
-        this.inputTokenComfortLimit = Math.min(Math.max(1, configuredInputTokenLimit), INPUT_TOKEN_COMFORT_LIMIT);
+        this.inputTokenComfortLimit = BookSimilarityEmbeddingProperties.normalizedInputTokenComfortLimit(configuredInputTokenLimit);
         this.requestInputBatchSize = Math.min(
             Math.max(1, configuredRequestInputBatchSize),
             Math.max(1, REQUEST_TOKEN_BUDGET / this.inputTokenComfortLimit)
         );
+        this.embeddingInputContract = BookSimilarityEmbeddingProperties.embeddingInputContract(configuredInputTokenLimit);
         this.requestersByTier = Map.copyOf(requestersByTier);
         this.available = !this.requestersByTier.isEmpty();
     }
@@ -135,7 +136,7 @@ public class BookEmbeddingClient {
         if (model == null || model.isBlank()) {
             return "";
         }
-        return model.trim() + ":" + EMBEDDING_INPUT_CONTRACT;
+        return model.trim() + ":" + embeddingInputContract;
     }
 
     /**
@@ -225,7 +226,7 @@ public class BookEmbeddingClient {
 
     static List<EmbeddingInputPlan> planEmbeddingInputs(List<String> sectionTexts, int maxEstimatedTokens) {
         List<EmbeddingInputPlan> inputPlans = new ArrayList<>(sectionTexts.size());
-        int effectiveTokenLimit = Math.max(1, Math.min(maxEstimatedTokens, INPUT_TOKEN_COMFORT_LIMIT));
+        int effectiveTokenLimit = BookSimilarityEmbeddingProperties.normalizedInputTokenComfortLimit(maxEstimatedTokens);
         for (int inputIndex = 0; inputIndex < sectionTexts.size(); inputIndex++) {
             String sectionText = sectionTexts.get(inputIndex);
             if (sectionText == null || sectionText.isBlank()) {

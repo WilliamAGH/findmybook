@@ -26,8 +26,8 @@ Key variables in `.env`:
 | `APP_SIMILARITY_EMBEDDINGS_REFRESH_BATCH_SIZE` | Number of candidate books inspected per scheduler pass (default `25`) |
 | `APP_SIMILARITY_EMBEDDINGS_SCHEDULER_ENQUEUE_LIMIT` | Maximum embedding refresh tasks enqueued per scheduler pass (default `25`) |
 | `APP_SIMILARITY_EMBEDDINGS_SCHEDULER_MAX_PENDING` | Central AI queue pending-depth ceiling that pauses scheduled embedding enqueue (default `100`) |
-| `APP_SIMILARITY_EMBEDDINGS_MAX_SECTION_TEXT_CHARS` | Rendered section character ceiling before hashing; default `15000` bounds refresh work |
-| `APP_SIMILARITY_EMBEDDINGS_INPUT_TOKEN_COMFORT_LIMIT` | Conservative per-item estimated token budget before client-side embeddings splitting (default `8192`) |
+| `APP_SIMILARITY_EMBEDDINGS_MAX_SECTION_TEXT_CHARS` | Rendered section character ceiling before hashing; default `15000` bounds refresh work and participates in the vector model contract |
+| `APP_SIMILARITY_EMBEDDINGS_INPUT_TOKEN_COMFORT_LIMIT` | Conservative per-item estimated token budget before client-side embeddings splitting (default `8192`, capped at `8192`, participates in the section-cache contract) |
 | `APP_SIMILARITY_EMBEDDINGS_REQUEST_INPUT_BATCH_SIZE` | Maximum embeddings input array size per provider request; runtime may reduce this to preserve request-token headroom (default `32`) |
 | `APP_NYT_SCHEDULER_STANDALONE_ENABLED` | Enables standalone NYT `@Scheduled` execution when not using the weekly orchestrator |
 | `GOOGLE_BOOKS_API_KEY` | Book data source |
@@ -88,7 +88,7 @@ Startup now fails fast with a clear error when database-required profiles are ac
 - Missing/stale work is derived from Postgres source hashes and timestamps, so container restarts do not lose outstanding embedding work.
 - On-demand similar-book requests enqueue the source book for refresh, while the scheduler continuously backfills bounded missing/stale batches.
 - The scheduler pauses when central AI queue pending depth reaches `APP_SIMILARITY_EMBEDDINGS_SCHEDULER_MAX_PENDING`, preventing large backlogs from filling memory faster than work drains.
-- Similar-book reads prefer the active input-contract vector rows; while an input-contract backfill is incomplete, they may serve the previous same-profile section-fusion vector contract before using recommendation rows.
+- Similar-book reads prefer the active source/input-contract vector rows; while a contract backfill is incomplete, they may serve the previous same-profile section-fusion vector contract before using recommendation rows.
 - The embedding client keeps OpenAI-compatible array batching, but pre-splits each request item to the `APP_SIMILARITY_EMBEDDINGS_INPUT_TOKEN_COMFORT_LIMIT` budget using a conservative UTF-8 byte estimate capped at 8192. Oversized sections are embedded as bounded chunks and fused back into one section vector before persistence, so one long description cannot overflow qwen3-embedding-4b's 32k per-item context window.
 
 ## Weekly Catalog Refresh

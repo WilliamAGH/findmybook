@@ -103,7 +103,7 @@ public class BookSimilarityEmbeddingService {
             );
             return 0;
         }
-        String modelVersion = policy.modelVersion(embeddingClient.cacheModel());
+        String modelVersion = activeModelVersion(embeddingClient.cacheModel());
         List<UUID> candidates = repository.findRefreshCandidates(modelVersion, policy.profileHash(), candidateLimit);
         int enqueued = 0;
         int effectiveEnqueueLimit = Math.min(enqueueLimit, pendingRoom);
@@ -134,7 +134,7 @@ public class BookSimilarityEmbeddingService {
             log.info("Skipping book similarity backfill: embedding client unavailable or feature disabled.");
             return 0;
         }
-        String modelVersion = policy.modelVersion(embeddingClient.cacheModel());
+        String modelVersion = activeModelVersion(embeddingClient.cacheModel());
         List<UUID> candidates = repository.findRefreshCandidates(modelVersion, policy.profileHash(), Math.max(1, candidateLimit));
         int refreshed = 0;
         for (UUID bookId : candidates) {
@@ -165,27 +165,25 @@ public class BookSimilarityEmbeddingService {
         if (!StringUtils.hasText(cacheModel)) {
             return List.of();
         }
-        String currentModelVersion = policy.modelVersion(cacheModel);
+        String currentModelVersion = activeModelVersion(cacheModel);
         List<SimilarBookMatch> currentMatches =
             findNearestBooksForModelVersion(sourceBookId, currentModelVersion, limit);
         if (currentMatches.size() >= limit) {
             return currentMatches;
         }
 
+        List<SimilarBookMatch> previousMatches =
+            findNearestBooksForModelVersion(sourceBookId, policy.modelVersion(cacheModel), limit);
+        if (!previousMatches.isEmpty()) {
+            return previousMatches;
+        }
         String legacyModel = embeddingClient.model();
         if (!StringUtils.hasText(legacyModel)) {
             return currentMatches;
         }
-        String legacyModelVersion = policy.modelVersion(legacyModel);
-        if (legacyModelVersion.equals(currentModelVersion)) {
-            return currentMatches;
-        }
         List<SimilarBookMatch> legacyMatches =
-            findNearestBooksForModelVersion(sourceBookId, legacyModelVersion, limit);
-        if (!legacyMatches.isEmpty()) {
-            return legacyMatches;
-        }
-        return currentMatches;
+            findNearestBooksForModelVersion(sourceBookId, policy.modelVersion(legacyModel), limit);
+        return legacyMatches.isEmpty() ? currentMatches : legacyMatches;
     }
 
     /**
@@ -204,7 +202,7 @@ public class BookSimilarityEmbeddingService {
             .orElseThrow(() -> new IllegalStateException("Book source unavailable for similarity embedding: " + bookId));
         String model = embeddingClient.model();
         String cacheModel = embeddingClient.cacheModel();
-        String modelVersion = policy.modelVersion(cacheModel);
+        String modelVersion = activeModelVersion(cacheModel);
         BookSimilaritySourceDocument sourceDocument = BookSimilaritySourceDocument.create(
             source,
             policy,
@@ -241,9 +239,9 @@ public class BookSimilarityEmbeddingService {
             return false;
         }
         String cacheModel = embeddingClient.cacheModel();
+        String modelVersion = activeModelVersion(cacheModel);
         if (priority == DEMAND_PRIORITY
-            && StringUtils.hasText(cacheModel)
-            && repository.isVectorFresh(bookId, policy.modelVersion(cacheModel), policy.profileHash())) {
+            && repository.isVectorFresh(bookId, modelVersion, policy.profileHash())) {
             return false;
         }
         if (recentRefreshAttempts.asMap().putIfAbsent(bookId, Boolean.TRUE) != null) {
@@ -285,6 +283,10 @@ public class BookSimilarityEmbeddingService {
         return repository.findNearestBooks(sourceBookId, modelVersion, policy.profileHash(), limit).stream()
             .map(row -> new SimilarBookMatch(row.bookId(), row.similarity()))
             .toList();
+    }
+
+    private String activeModelVersion(String cacheModel) {
+        return policy.modelVersion(cacheModel + ":" + properties.sourceTextContract());
     }
 
     private EnumMap<BookSimilaritySectionKey, List<Float>> loadOrCreateSectionEmbeddings(

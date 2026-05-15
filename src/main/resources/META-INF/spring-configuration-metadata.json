@@ -703,13 +703,13 @@
     {
       "name": "app.similarity.embeddings.max-section-text-chars",
       "type": "java.lang.Integer",
-      "description": "Maximum rendered characters kept per similarity embedding section before source hashing; values below one disable source truncation",
+      "description": "Maximum rendered characters kept per similarity embedding section before source hashing; values below one disable source truncation and use a distinct vector contract",
       "defaultValue": 15000
     },
     {
       "name": "app.similarity.embeddings.input-token-comfort-limit",
       "type": "java.lang.Integer",
-      "description": "Conservative per-input estimated token budget used to split book similarity embedding request items before provider calls",
+      "description": "Conservative per-input estimated token budget used to split book similarity embedding request items before provider calls; runtime caps this at 8192 and encodes the effective limit in section cache keys",
       "defaultValue": 8192
     },
     {

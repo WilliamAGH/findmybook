@@ -10,9 +10,11 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "app.similarity.embeddings")
 public class BookSimilarityEmbeddingProperties {
 
+    public static final int MAX_INPUT_TOKEN_COMFORT_LIMIT = 8_192;
     private static final int DEFAULT_MAX_SECTION_TEXT_CHARS = 15_000;
-    private static final int DEFAULT_INPUT_TOKEN_COMFORT_LIMIT = 8_192;
+    private static final int DEFAULT_INPUT_TOKEN_COMFORT_LIMIT = MAX_INPUT_TOKEN_COMFORT_LIMIT;
     private static final int DEFAULT_REQUEST_INPUT_BATCH_SIZE = 32;
+    private static final String CONTRACT_VERSION = "v1";
 
     private boolean enabled = true;
     private int refreshBatchSize = 25;
@@ -118,6 +120,18 @@ public class BookSimilarityEmbeddingProperties {
     }
 
     /**
+     * Returns the source-text contract segment for vector freshness and reads.
+     *
+     * @return stable contract identity for the effective section source-text limit
+     */
+    public String sourceTextContract() {
+        if (maxSectionTextChars <= 0) {
+            return "source_full_" + CONTRACT_VERSION;
+        }
+        return "source_chars_" + maxSectionTextChars + "_" + CONTRACT_VERSION;
+    }
+
+    /**
      * Returns the conservative per-input token budget used before embedding calls.
      *
      * <p>The client estimates tokens by UTF-8 byte length, which intentionally
@@ -127,7 +141,7 @@ public class BookSimilarityEmbeddingProperties {
      * @return per-request-item estimated token budget
      */
     public int inputTokenComfortLimit() {
-        return Math.max(1, inputTokenComfortLimit);
+        return normalizedInputTokenComfortLimit(inputTokenComfortLimit);
     }
 
     /**
@@ -137,6 +151,35 @@ public class BookSimilarityEmbeddingProperties {
      */
     public void setInputTokenComfortLimit(int inputTokenComfortLimit) {
         this.inputTokenComfortLimit = Math.max(1, inputTokenComfortLimit);
+    }
+
+    /**
+     * Returns the embedding input contract segment for section-cache keys.
+     *
+     * @return stable contract identity for the effective input chunk size
+     */
+    public String embeddingInputContract() {
+        return embeddingInputContract(inputTokenComfortLimit);
+    }
+
+    /**
+     * Normalizes configured embedding chunk limits to the supported runtime range.
+     *
+     * @param configuredInputTokenLimit configured estimated token budget
+     * @return effective per-input token budget
+     */
+    public static int normalizedInputTokenComfortLimit(int configuredInputTokenLimit) {
+        return Math.min(Math.max(1, configuredInputTokenLimit), MAX_INPUT_TOKEN_COMFORT_LIMIT);
+    }
+
+    /**
+     * Returns the section-cache contract for a configured embedding chunk limit.
+     *
+     * @param configuredInputTokenLimit configured estimated token budget
+     * @return stable contract identity for the effective input chunk size
+     */
+    public static String embeddingInputContract(int configuredInputTokenLimit) {
+        return "chunked_" + normalizedInputTokenComfortLimit(configuredInputTokenLimit) + "_" + CONTRACT_VERSION;
     }
 
     /**

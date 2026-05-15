@@ -35,7 +35,7 @@ See [UML README](../src/main/resources/uml/README.md).
 - The canonical profile contract lives at `src/main/resources/similarity/book-similarity-profiles.json` and owns only active profile, section order, and weights.
 - Section embeddings are cached in `book_embedding_sections` by model/input-contract key, section key, input format, and input hash.
 - The embedding client preserves array batching for parallel gateway slots, but splits any oversized section into bounded per-item chunks before calling the provider and fuses those chunk vectors back into the cached section embedding.
-- Fused searchable vectors are stored in `book_similarity_vectors` with `source_text`, `source_json`, `source_hash`, `model_version`, and `qwen_4b_fp16 halfvec(2560)` so each result is reproducible and pgvector HNSW cosine search remains available.
+- Fused searchable vectors are stored in `book_similarity_vectors` with `source_text`, `source_json`, `source_hash`, `model_version`, and `qwen_4b_fp16 halfvec(2560)` so each result is reproducible and pgvector HNSW cosine search remains available. The `model_version` includes the active embedding chunking and source-text contracts so limit changes enqueue a real backfill instead of reusing stale vectors.
 - Refresh is hash-driven: if the rendered source contract hash matches the stored `source_hash`, the book is current; otherwise section cache misses are embedded and the fused vector row is replaced.
 - Similar-book requests enqueue demand refreshes, and a lightweight `@Scheduled` catch-up pass continuously enqueues bounded missing/stale batches through the central AI queue.
 - Manual bounded backfill:
