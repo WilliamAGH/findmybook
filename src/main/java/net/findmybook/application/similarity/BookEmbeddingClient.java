@@ -323,7 +323,6 @@ public class BookEmbeddingClient {
     }
 
     record EmbeddingInputPlan(List<EmbeddingChunk> chunks) {
-
         EmbeddingInputPlan {
             if (chunks == null || chunks.isEmpty()) {
                 throw new IllegalArgumentException("chunks are required");
@@ -333,7 +332,6 @@ public class BookEmbeddingClient {
     }
 
     record EmbeddingChunk(String text, int estimatedTokens) {
-
         EmbeddingChunk {
             if (text == null || text.isBlank()) {
                 throw new IllegalArgumentException("chunk text is required");
