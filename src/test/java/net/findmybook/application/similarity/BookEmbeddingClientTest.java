@@ -40,6 +40,13 @@ class BookEmbeddingClientTest {
     }
 
     @Test
+    void should_IncludeChunkingContract_When_ModelIsUsedForEmbeddingCache() {
+        BookEmbeddingClient client = clientWithRequester((batchTexts, ignoredOptions) -> List.of());
+
+        assertThat(client.cacheModel()).isEqualTo("qwen/qwen3-embedding-4b:chunked_8192_v1");
+    }
+
+    @Test
     void should_ClampChunkSizeToComfortLimit_When_ConfiguredLimitIsTooHigh() {
         List<BookEmbeddingClient.EmbeddingInputPlan> inputPlans = BookEmbeddingClient.planEmbeddingInputs(
             List.of("a".repeat(8_193)),
@@ -54,18 +61,15 @@ class BookEmbeddingClientTest {
     @Test
     void should_SendChunkArraysAndCollapseInOriginalSectionOrder_When_SectionsSplitAcrossBatches() {
         List<List<String>> requestBatches = new ArrayList<>();
-        BookEmbeddingClient client = new BookEmbeddingClient(
-            "qwen/qwen3-embedding-4b",
-            1,
-            1,
+        BookEmbeddingClient client = clientWithRequester(
             4,
             2,
-            Map.of(LlmGatewayTier.BACKGROUND_BATCH, (batchTexts, ignoredOptions) -> {
+            (batchTexts, ignoredOptions) -> {
                 requestBatches.add(List.copyOf(batchTexts));
                 return batchTexts.stream()
                     .map(text -> embeddingWith((float) text.codePointAt(0), 1.0f))
                     .toList();
-            })
+            }
         );
 
         List<List<Float>> sectionEmbeddings = client.embedSections(
@@ -100,6 +104,23 @@ class BookEmbeddingClientTest {
 
     private static org.assertj.core.data.Offset<Float> withinTolerance() {
         return org.assertj.core.data.Offset.offset(0.00001f);
+    }
+
+    private static BookEmbeddingClient clientWithRequester(BookEmbeddingClient.BatchEmbeddingRequester requester) {
+        return clientWithRequester(8_192, 32, requester);
+    }
+
+    private static BookEmbeddingClient clientWithRequester(int configuredInputTokenLimit,
+                                                           int configuredRequestInputBatchSize,
+                                                           BookEmbeddingClient.BatchEmbeddingRequester requester) {
+        return new BookEmbeddingClient(
+            "qwen/qwen3-embedding-4b",
+            1,
+            1,
+            configuredInputTokenLimit,
+            configuredRequestInputBatchSize,
+            Map.of(LlmGatewayTier.BACKGROUND_BATCH, requester)
+        );
     }
 
     private static List<Float> embeddingWith(float firstComponent, float secondComponent) {
