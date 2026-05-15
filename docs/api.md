@@ -64,6 +64,7 @@
   - Returns recommendation-card DTOs for the canonical book/work cluster.
   - Runtime behavior:
     - First checks persisted book similarity embedding neighbors for the active model/profile contract and returns them in vector rank.
+    - During an embedding input-contract backfill, if active rows cannot fill the requested limit, it may serve the previous same-profile section-fusion vector contract rather than dropping immediately to recommendation rows.
     - When embedding rows are unavailable, it checks persisted recommendation rows.
     - If active rows are missing/stale, it triggers recommendation regeneration and then returns refreshed cards when available.
     - If regeneration cannot immediately persist refreshed cards, it may return older persisted rows as an explicit fallback.

@@ -37,7 +37,7 @@ See [UML README](../src/main/resources/uml/README.md).
 - The embedding client preserves array batching for parallel gateway slots, but splits any oversized section into bounded per-item chunks before calling the provider and fuses those chunk vectors back into the cached section embedding.
 - Fused searchable vectors are stored in `book_similarity_vectors` with `source_text`, `source_json`, `source_hash`, `model_version`, and `qwen_4b_fp16 halfvec(2560)` so each result is reproducible and pgvector HNSW cosine search remains available.
 - Refresh is hash-driven: if the rendered source contract hash matches the stored `source_hash`, the book is current; otherwise section cache misses are embedded and the fused vector row is replaced.
-- Book upserts and similar-book requests enqueue demand refreshes, and a lightweight `@Scheduled` catch-up pass continuously enqueues bounded missing/stale batches through the central AI queue.
+- Similar-book requests enqueue demand refreshes, and a lightweight `@Scheduled` catch-up pass continuously enqueues bounded missing/stale batches through the central AI queue.
 - Manual bounded backfill:
   - `make book-similarity-backfill SIMILARITY_LIMIT=250`
   - `make book-similarity-anchor BOOK_IDENTIFIER=<uuid-or-slug-or-isbn>`

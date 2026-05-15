@@ -2,12 +2,24 @@ package net.findmybook.application.similarity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import net.findmybook.adapters.persistence.BookEmbeddingSectionRepository;
+import net.findmybook.adapters.persistence.BookSimilarityEmbeddingRepository;
+import net.findmybook.boot.BookSimilarityEmbeddingProperties;
+import net.findmybook.domain.similarity.BookSimilarityFusionPolicy;
+import net.findmybook.domain.similarity.BookSimilarityFusionProfile;
+import net.findmybook.domain.similarity.BookSimilaritySectionKey;
+import net.findmybook.support.ai.BookAiContentRequestQueue;
 import net.findmybook.support.llm.LlmGatewayTier;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.ObjectMapper;
 
 class BookEmbeddingClientTest {
 
@@ -102,6 +114,27 @@ class BookEmbeddingClientTest {
         assertThat(fusedEmbedding.get(1)).isCloseTo(0.9486833f, withinTolerance());
     }
 
+    @Test
+    void should_ReadLegacyVectorContract_When_CurrentContractCannotFillLimit() {
+        UUID sourceBookId = UUID.fromString("019da3e5-3838-703e-9112-bad4a489239e");
+        UUID currentMatchId = UUID.fromString("019c3b68-3ee9-7ef0-917c-c37b663d97c1");
+        UUID legacyMatchId = UUID.fromString("019c175b-8cf5-7455-90af-6787b965e5a2");
+        String currentModelVersion = "qwen/qwen3-embedding-4b:chunked_8192_v1:test:section_fusion";
+        String legacyModelVersion = "qwen/qwen3-embedding-4b:test:section_fusion";
+        BookSimilarityEmbeddingRepository repository = mock(BookSimilarityEmbeddingRepository.class);
+        when(repository.findNearestBooks(sourceBookId, currentModelVersion, "profile-hash", 2))
+            .thenReturn(List.of(new BookSimilarityEmbeddingRepository.NearestBookRow(currentMatchId, 0.91d)));
+        when(repository.findNearestBooks(sourceBookId, legacyModelVersion, "profile-hash", 2))
+            .thenReturn(List.of(new BookSimilarityEmbeddingRepository.NearestBookRow(legacyMatchId, 0.89d)));
+        BookSimilarityEmbeddingService service = similarityService(repository);
+
+        List<BookSimilarityEmbeddingService.SimilarBookMatch> matches = service.findNearestBooks(sourceBookId, 2);
+
+        assertThat(matches)
+            .extracting(BookSimilarityEmbeddingService.SimilarBookMatch::bookId)
+            .containsExactly(legacyMatchId);
+    }
+
     private static org.assertj.core.data.Offset<Float> withinTolerance() {
         return org.assertj.core.data.Offset.offset(0.00001f);
     }
@@ -120,6 +153,30 @@ class BookEmbeddingClientTest {
             configuredInputTokenLimit,
             configuredRequestInputBatchSize,
             Map.of(LlmGatewayTier.BACKGROUND_BATCH, requester)
+        );
+    }
+
+    private static BookSimilarityEmbeddingService similarityService(BookSimilarityEmbeddingRepository repository) {
+        return new BookSimilarityEmbeddingService(
+            repository,
+            mock(BookEmbeddingSectionRepository.class),
+            clientWithRequester((batchTexts, ignoredOptions) -> List.of()),
+            similarityPolicy(),
+            mock(BookSimilarityVectorFusion.class),
+            mock(BookAiContentRequestQueue.class),
+            mock(ObjectMapper.class),
+            new BookSimilarityEmbeddingProperties()
+        );
+    }
+
+    private static BookSimilarityFusionPolicy similarityPolicy() {
+        EnumMap<BookSimilaritySectionKey, Double> weights = new EnumMap<>(BookSimilaritySectionKey.class);
+        weights.put(BookSimilaritySectionKey.IDENTITY, 1.0d);
+        return new BookSimilarityFusionPolicy(
+            "test",
+            List.of(BookSimilaritySectionKey.IDENTITY),
+            List.of(new BookSimilarityFusionProfile("test", "Test profile", weights)),
+            "profile-hash"
         );
     }
 

@@ -88,6 +88,7 @@ Startup now fails fast with a clear error when database-required profiles are ac
 - Missing/stale work is derived from Postgres source hashes and timestamps, so container restarts do not lose outstanding embedding work.
 - On-demand similar-book requests enqueue the source book for refresh, while the scheduler continuously backfills bounded missing/stale batches.
 - The scheduler pauses when central AI queue pending depth reaches `APP_SIMILARITY_EMBEDDINGS_SCHEDULER_MAX_PENDING`, preventing large backlogs from filling memory faster than work drains.
+- Similar-book reads prefer the active input-contract vector rows; while an input-contract backfill is incomplete, they may serve the previous same-profile section-fusion vector contract before using recommendation rows.
 - The embedding client keeps OpenAI-compatible array batching, but pre-splits each request item to the `APP_SIMILARITY_EMBEDDINGS_INPUT_TOKEN_COMFORT_LIMIT` budget using a conservative UTF-8 byte estimate capped at 8192. Oversized sections are embedded as bounded chunks and fused back into one section vector before persistence, so one long description cannot overflow qwen3-embedding-4b's 32k per-item context window.
 
 ## Weekly Catalog Refresh

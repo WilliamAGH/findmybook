@@ -21,11 +21,9 @@ import net.findmybook.domain.similarity.BookSimilaritySourceDocument;
 import net.findmybook.support.ai.BookAiContentRequestQueue;
 import net.findmybook.support.ai.BookAiQueueCapacityExceededException;
 import net.findmybook.support.llm.LlmGatewayTier;
-import net.findmybook.service.event.BookUpsertEvent;
 import net.findmybook.util.HashUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import tools.jackson.core.JacksonException;
@@ -81,24 +79,6 @@ public class BookSimilarityEmbeddingService {
      */
     public boolean enqueueDemandRefresh(UUID bookId) {
         return enqueueRefresh(bookId, DEMAND_PRIORITY, "demand");
-    }
-
-    /**
-     * Enqueues an idempotent refresh when canonical book source data changes.
-     *
-     * @param event persisted book upsert notification
-     */
-    @EventListener
-    public void handleBookUpsert(BookUpsertEvent event) {
-        if (event == null || !StringUtils.hasText(event.getBookId())) {
-            log.warn("Skipping similarity embedding refresh enqueue: missing bookId in BookUpsertEvent");
-            return;
-        }
-        try {
-            enqueueDemandRefresh(UUID.fromString(event.getBookId()));
-        } catch (IllegalArgumentException invalidBookId) {
-            log.warn("Skipping similarity embedding refresh enqueue for non-UUID bookId '{}'", event.getBookId(), invalidBookId);
-        }
     }
 
     /**
@@ -185,10 +165,27 @@ public class BookSimilarityEmbeddingService {
         if (!StringUtils.hasText(cacheModel)) {
             return List.of();
         }
-        String modelVersion = policy.modelVersion(cacheModel);
-        return repository.findNearestBooks(sourceBookId, modelVersion, policy.profileHash(), limit).stream()
-            .map(row -> new SimilarBookMatch(row.bookId(), row.similarity()))
-            .toList();
+        String currentModelVersion = policy.modelVersion(cacheModel);
+        List<SimilarBookMatch> currentMatches =
+            findNearestBooksForModelVersion(sourceBookId, currentModelVersion, limit);
+        if (currentMatches.size() >= limit) {
+            return currentMatches;
+        }
+
+        String legacyModel = embeddingClient.model();
+        if (!StringUtils.hasText(legacyModel)) {
+            return currentMatches;
+        }
+        String legacyModelVersion = policy.modelVersion(legacyModel);
+        if (legacyModelVersion.equals(currentModelVersion)) {
+            return currentMatches;
+        }
+        List<SimilarBookMatch> legacyMatches =
+            findNearestBooksForModelVersion(sourceBookId, legacyModelVersion, limit);
+        if (!legacyMatches.isEmpty()) {
+            return legacyMatches;
+        }
+        return currentMatches;
     }
 
     /**
@@ -243,7 +240,10 @@ public class BookSimilarityEmbeddingService {
         if (bookId == null || !embeddingClient.isAvailable() || !properties.isEnabled()) {
             return false;
         }
-        if (priority == DEMAND_PRIORITY && isVectorAlreadyFresh(bookId)) {
+        String cacheModel = embeddingClient.cacheModel();
+        if (priority == DEMAND_PRIORITY
+            && StringUtils.hasText(cacheModel)
+            && repository.isVectorFresh(bookId, policy.modelVersion(cacheModel), policy.profileHash())) {
             return false;
         }
         if (recentRefreshAttempts.asMap().putIfAbsent(bookId, Boolean.TRUE) != null) {
@@ -281,12 +281,10 @@ public class BookSimilarityEmbeddingService {
         }
     }
 
-    private boolean isVectorAlreadyFresh(UUID bookId) {
-        String cacheModel = embeddingClient.cacheModel();
-        if (!StringUtils.hasText(cacheModel)) {
-            return false;
-        }
-        return repository.isVectorFresh(bookId, policy.modelVersion(cacheModel), policy.profileHash());
+    private List<SimilarBookMatch> findNearestBooksForModelVersion(UUID sourceBookId, String modelVersion, int limit) {
+        return repository.findNearestBooks(sourceBookId, modelVersion, policy.profileHash(), limit).stream()
+            .map(row -> new SimilarBookMatch(row.bookId(), row.similarity()))
+            .toList();
     }
 
     private EnumMap<BookSimilaritySectionKey, List<Float>> loadOrCreateSectionEmbeddings(
