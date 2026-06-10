@@ -8,6 +8,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 
@@ -17,6 +18,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.startsWith;
@@ -117,6 +119,32 @@ class BookCollectionPersistenceServiceTest {
     }
 
     @Test
+    void should_PropagateBestsellerCollectionFailure_When_DatabaseWriteFails() {
+        when(jdbcTemplate.queryForObject(
+            anyString(),
+            org.mockito.ArgumentMatchers.<RowMapper<String>>any(),
+            any(), any(), any(), any(), any(), any(), any(), any(), any(), any()
+        )).thenThrow(new DataAccessResourceFailureException("database unavailable"));
+
+        BookCollectionPersistenceService.BestsellerCollectionDto dto = new BookCollectionPersistenceService.BestsellerCollectionDto(
+            "nyt-nonfiction-2024-40",
+            "hardcover-nonfiction",
+            "NYT Hardcover Nonfiction",
+            "hardcover-nonfiction",
+            "Latest weekly update",
+            LocalDate.of(2024, 9, 15),
+            LocalDate.of(2024, 9, 22),
+            "WEEKLY",
+            objectMapper.createObjectNode()
+        );
+
+        assertThatThrownBy(() -> service.upsertBestsellerCollection(dto))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("Failed upserting NYT bestseller collection")
+            .hasRootCauseMessage("database unavailable");
+    }
+
+    @Test
     void upsertBestsellerMembership_usesIdempotentConflictKey_WhenPersistingDuplicateRows() {
         BookCollectionPersistenceService.BestsellerMembershipDto dto = new BookCollectionPersistenceService.BestsellerMembershipDto(
             "collection-1",
@@ -143,5 +171,30 @@ class BookCollectionPersistenceServiceTest {
             any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()
         );
         assertThat(sqlCaptor.getValue()).contains("ON CONFLICT (collection_id, book_id) DO UPDATE");
+    }
+
+    @Test
+    void should_PropagateBestsellerMembershipFailure_When_DatabaseWriteFails() {
+        BookCollectionPersistenceService.BestsellerMembershipDto dto = new BookCollectionPersistenceService.BestsellerMembershipDto(
+            "collection-1",
+            UUID.randomUUID().toString(),
+            1,
+            10,
+            2,
+            1,
+            "9780316769488",
+            null,
+            "https://amazon.example/item",
+            "{\"title\":\"Example\"}"
+        );
+        when(jdbcTemplate.update(
+            startsWith("UPDATE book_collections_join SET position = NULL"),
+            any(), any(), any()
+        )).thenThrow(new DataAccessResourceFailureException("database unavailable"));
+
+        assertThatThrownBy(() -> service.upsertBestsellerMembership(dto))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("Failed persisting NYT bestseller membership")
+            .hasRootCauseMessage("database unavailable");
     }
 }

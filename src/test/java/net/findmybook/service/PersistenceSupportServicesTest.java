@@ -2,12 +2,14 @@ package net.findmybook.service;
 
 import net.findmybook.dto.BookAggregate;
 import net.findmybook.service.image.CoverPersistenceService;
+import net.findmybook.util.JdbcUtils;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.ResultSetExtractor;
 import org.springframework.jdbc.core.RowMapper;
@@ -194,10 +196,119 @@ class PersistenceSupportServicesTest {
 
         assertThat(existing).contains(existingBookId);
         verify(lockJdbcTemplate).query(
-            eq("SELECT id FROM books WHERE slug = ? LIMIT 1"),
+            org.mockito.ArgumentMatchers.contains("substring(slug from ?)"),
             org.mockito.ArgumentMatchers.<org.springframework.jdbc.core.ResultSetExtractor<UUID>>any(),
+            eq("the-partner-john-grisham"),
+            eq("the-partner-john-grisham-%"),
+            eq("the-partner-john-grisham".length() + 2),
             eq("the-partner-john-grisham")
         );
+    }
+
+    @Test
+    void bookUpsertService_findExistingBookId_matchesEquivalentIsbn13_When_AggregateOnlyHasIsbn10() {
+        JdbcTemplate lockJdbcTemplate = mock(JdbcTemplate.class);
+        BookUpsertTransactionService transactionService = mock(BookUpsertTransactionService.class);
+        BookImageLinkPersistenceService imageLinkPersistenceService = mock(BookImageLinkPersistenceService.class);
+        BookOutboxEventService outboxEventService = mock(BookOutboxEventService.class);
+        UUID existingBookId = UUID.randomUUID();
+        stubAdvisoryLock(lockJdbcTemplate);
+        when(lockJdbcTemplate.query(
+            eq("SELECT id FROM books WHERE isbn10 = ? LIMIT 1"),
+            org.mockito.ArgumentMatchers.<org.springframework.jdbc.core.ResultSetExtractor<UUID>>any(),
+            eq("0306406152")
+        )).thenReturn(null);
+        when(lockJdbcTemplate.query(
+            eq("SELECT id FROM books WHERE isbn13 = ? LIMIT 1"),
+            org.mockito.ArgumentMatchers.<org.springframework.jdbc.core.ResultSetExtractor<UUID>>any(),
+            eq("9780306406157")
+        )).thenReturn(existingBookId);
+
+        BookUpsertService upsertService = new BookUpsertService(
+            lockJdbcTemplate,
+            transactionService,
+            imageLinkPersistenceService,
+            outboxEventService
+        );
+
+        BookAggregate aggregate = BookAggregate.builder()
+            .title("Equivalent ISBN")
+            .isbn10("0-306-40615-2")
+            .slugBase("equivalent-isbn")
+            .build();
+
+        Optional<UUID> existing = ReflectionTestUtils.invokeMethod(upsertService, "findExistingBookId", aggregate);
+
+        assertThat(existing).contains(existingBookId);
+    }
+
+    @Test
+    void bookUpsertService_computeBookLockKey_usesSameIdentityForEquivalentIsbnFormats() {
+        JdbcTemplate lockJdbcTemplate = mock(JdbcTemplate.class);
+        BookUpsertService upsertService = new BookUpsertService(
+            lockJdbcTemplate,
+            mock(BookUpsertTransactionService.class),
+            mock(BookImageLinkPersistenceService.class),
+            mock(BookOutboxEventService.class)
+        );
+        BookAggregate isbn10Aggregate = BookAggregate.builder()
+            .title("ISBN10")
+            .isbn10("0-306-40615-2")
+            .slugBase("isbn10")
+            .build();
+        BookAggregate isbn13Aggregate = BookAggregate.builder()
+            .title("ISBN13")
+            .isbn13("978-0-306-40615-7")
+            .slugBase("isbn13")
+            .build();
+
+        Long isbn10Lock = ReflectionTestUtils.invokeMethod(upsertService, "computeBookLockKey", isbn10Aggregate);
+        Long isbn13Lock = ReflectionTestUtils.invokeMethod(upsertService, "computeBookLockKey", isbn13Aggregate);
+
+        assertThat(isbn10Lock).isEqualTo(isbn13Lock);
+    }
+
+    @Test
+    void jdbcUtils_optionalString_shouldPropagateDataAccessFailures_When_DatabaseIsUnavailable() {
+        JdbcTemplate lookupJdbcTemplate = mock(JdbcTemplate.class);
+        when(lookupJdbcTemplate.queryForObject(
+            eq("SELECT id FROM books WHERE id = ?"),
+            eq(String.class),
+            eq("book-1")
+        )).thenThrow(new DataAccessResourceFailureException("database unavailable"));
+
+        assertThatThrownBy(() -> JdbcUtils.optionalString(
+            lookupJdbcTemplate,
+            "SELECT id FROM books WHERE id = ?",
+            "book-1"
+        ))
+            .isInstanceOf(DataAccessResourceFailureException.class)
+            .hasMessageContaining("database unavailable");
+    }
+
+    @Test
+    void bookLookupService_shouldResolveEquivalentIsbn10_When_LookingUpIsbn13() {
+        JdbcTemplate lookupJdbcTemplate = mock(JdbcTemplate.class);
+        when(lookupJdbcTemplate.queryForObject(
+            eq("SELECT id::text FROM books WHERE isbn13 = ? LIMIT 1"),
+            eq(String.class),
+            eq("9780306406157")
+        )).thenThrow(new EmptyResultDataAccessException(1));
+        when(lookupJdbcTemplate.queryForObject(
+            eq("SELECT book_id FROM book_external_ids WHERE provider_isbn13 = ? LIMIT 1"),
+            eq(String.class),
+            eq("9780306406157")
+        )).thenThrow(new EmptyResultDataAccessException(1));
+        when(lookupJdbcTemplate.queryForObject(
+            eq("SELECT id::text FROM books WHERE isbn10 = ? LIMIT 1"),
+            eq(String.class),
+            eq("0306406152")
+        )).thenReturn("book-1");
+        BookLookupService lookupService = new BookLookupService(lookupJdbcTemplate);
+
+        Optional<String> bookId = lookupService.findBookIdByIsbn("978-0-306-40615-7");
+
+        assertThat(bookId).contains("book-1");
     }
 
     @Test
@@ -245,8 +356,11 @@ class PersistenceSupportServicesTest {
 
     private void stubSlugLookup(JdbcTemplate lockJdbcTemplate, String slug, UUID resultBookId) {
         when(lockJdbcTemplate.query(
-            eq("SELECT id FROM books WHERE slug = ? LIMIT 1"),
+            org.mockito.ArgumentMatchers.contains("substring(slug from ?)"),
             org.mockito.ArgumentMatchers.<org.springframework.jdbc.core.ResultSetExtractor<UUID>>any(),
+            eq(slug),
+            eq(slug + "-%"),
+            eq(slug.length() + 2),
             eq(slug)
         )).thenReturn(resultBookId);
     }

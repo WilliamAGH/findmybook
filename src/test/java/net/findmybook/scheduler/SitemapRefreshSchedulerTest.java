@@ -203,6 +203,36 @@ class NewYorkTimesBestsellerSchedulerTest {
     }
 
     @Test
+    void processNewYorkTimesBestsellers_shouldFailList_When_CollectionUpsertReturnsEmpty() throws Exception {
+        JsonNode overview = objectMapper.readTree(
+            """
+            {
+              "results": {
+                "published_date": "2026-02-08",
+                "lists": [
+                  {
+                    "list_name_encoded": "hardcover-fiction",
+                    "updated": "WEEKLY",
+                    "books": []
+                  }
+                ]
+              }
+            }
+            """
+        );
+        when(newYorkTimesService.fetchBestsellerListOverview(nullable(LocalDate.class))).thenReturn(Mono.just(overview));
+        when(collectionPersistenceService.upsertBestsellerCollection(
+            any(BookCollectionPersistenceService.BestsellerCollectionDto.class)
+        )).thenReturn(Optional.empty());
+
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+            () -> scheduler.processNewYorkTimesBestsellers());
+
+        assertThat(thrown.getMessage()).contains("1 of 1 list(s) failed");
+        verifyNoInteractions(bookLookupService, supplementalPersistenceService, bookUpsertService);
+    }
+
+    @Test
     void processNewYorkTimesBestsellers_shouldProcessAllListsThenThrow_WhenOneListFails() throws Exception {
         JsonNode overview = objectMapper.readTree(
             """

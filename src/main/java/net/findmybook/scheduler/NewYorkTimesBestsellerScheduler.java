@@ -257,12 +257,8 @@ public class NewYorkTimesBestsellerScheduler {
                 updatedFrequency,
                 listNode
             ))
-            .orElse(null);
-
-        if (collectionId == null) {
-            log.warn("Failed to upsert NYT collection for list code {}", listCode);
-            return;
-        }
+            .orElseThrow(() -> new IllegalStateException(
+                "NYT collection upsert returned no id for list code " + listCode));
 
         ArrayNode booksNode = listNode.has("books") && listNode.get("books").isArray() ? (ArrayNode) listNode.get("books") : null;
         if (booksNode == null || booksNode.isEmpty()) {
@@ -362,7 +358,6 @@ public class NewYorkTimesBestsellerScheduler {
         } else {
             persistenceCollaborator.enrichExistingCanonicalBookMetadata(canonicalId, bookNode);
         }
-        persistenceCollaborator.upsertNytExternalIdentifiers(canonicalId, bookNode, isbn13, isbn10);
 
         String title = payloadMapper.firstNonEmptyText(bookNode, "title");
         if (canonicalId == null) {
@@ -372,6 +367,8 @@ public class NewYorkTimesBestsellerScheduler {
                 title != null ? title : "unknown");
             return null;
         }
+
+        persistenceCollaborator.upsertNytExternalIdentifiers(canonicalId, bookNode, isbn13, isbn10);
 
         log.info("Processing NYT book: canonicalId='{}', isNew={}, listCode='{}', isbn13='{}', title='{}'",
             canonicalId,
