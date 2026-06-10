@@ -97,6 +97,21 @@ class GoogleBooksMapperTest {
         assertThat(aggregate).isNull();
     }
 
+    @Test
+    void map_usesFallbackSlugBase_When_TitleCannotBeLatinSlugified() {
+        var volume = objectMapper.createObjectNode();
+        volume.put("id", "non-latin-fixture");
+        var volumeInfo = volume.putObject("volumeInfo");
+        volumeInfo.put("title", "你好");
+        var authors = volumeInfo.putArray("authors");
+        authors.add("Jane Writer");
+
+        BookAggregate aggregate = mapper.map(volume);
+
+        assertThat(aggregate).isNotNull();
+        assertThat(aggregate.getSlugBase()).isEqualTo("book-jane-writer");
+    }
+
     private JsonNode loadFixture(String path) {
         try (InputStream stream = getClass().getResourceAsStream(path)) {
             if (stream == null) {
