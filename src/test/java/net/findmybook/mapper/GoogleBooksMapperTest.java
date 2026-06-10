@@ -109,7 +109,22 @@ class GoogleBooksMapperTest {
         BookAggregate aggregate = mapper.map(volume);
 
         assertThat(aggregate).isNotNull();
-        assertThat(aggregate.getSlugBase()).isEqualTo("book-jane-writer");
+        assertThat(aggregate.getSlugBase())
+            .startsWith("book-")
+            .endsWith("-jane-writer")
+            .isNotEqualTo("book-jane-writer");
+
+        var secondVolume = objectMapper.createObjectNode();
+        secondVolume.put("id", "second-non-latin-fixture");
+        var secondVolumeInfo = secondVolume.putObject("volumeInfo");
+        secondVolumeInfo.put("title", "再见");
+        var secondAuthors = secondVolumeInfo.putArray("authors");
+        secondAuthors.add("Jane Writer");
+
+        BookAggregate secondAggregate = mapper.map(secondVolume);
+
+        assertThat(secondAggregate).isNotNull();
+        assertThat(secondAggregate.getSlugBase()).isNotEqualTo(aggregate.getSlugBase());
     }
 
     private JsonNode loadFixture(String path) {

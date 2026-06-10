@@ -42,7 +42,7 @@ public final class SlugGenerator {
         // Process title
         String titleSlug = slugify(title);
         if (titleSlug.isBlank()) {
-            titleSlug = FALLBACK_BOOK_SLUG;
+            titleSlug = fallbackBookSlug(title, authors);
         }
         if (titleSlug.length() > MAX_TITLE_LENGTH) {
             // Truncate at word boundary
@@ -72,7 +72,7 @@ public final class SlugGenerator {
         }
 
         if (finalSlug.isBlank()) {
-            return FALLBACK_BOOK_SLUG;
+            return fallbackBookSlug(title, authors);
         }
 
         return finalSlug;
@@ -128,6 +128,19 @@ public final class SlugGenerator {
         slug = EDGE_DASHES.matcher(slug).replaceAll("");
 
         return slug;
+    }
+
+    private static String fallbackBookSlug(String title, List<String> authors) {
+        StringBuilder source = new StringBuilder(title == null ? "" : title.trim());
+        if (authors != null) {
+            for (String author : authors) {
+                if (author != null && !author.trim().isEmpty()) {
+                    source.append('|').append(author.trim());
+                }
+            }
+        }
+        String hash = Integer.toUnsignedString(source.toString().hashCode(), Character.MAX_RADIX);
+        return FALLBACK_BOOK_SLUG + "-" + hash;
     }
 
     /**

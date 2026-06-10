@@ -166,7 +166,7 @@ class PersistenceSupportServicesTest {
     }
 
     @Test
-    void bookUpsertService_findExistingBookId_matchesBySlug_When_IdentifiersDoNotResolve() {
+    void bookUpsertService_findExistingBookId_matchesByExactSlug_When_IdentifiersDoNotResolve() {
         JdbcTemplate lockJdbcTemplate = mock(JdbcTemplate.class);
         BookUpsertTransactionService transactionService = mock(BookUpsertTransactionService.class);
         BookImageLinkPersistenceService imageLinkPersistenceService = mock(BookImageLinkPersistenceService.class);
@@ -196,11 +196,8 @@ class PersistenceSupportServicesTest {
 
         assertThat(existing).contains(existingBookId);
         verify(lockJdbcTemplate).query(
-            org.mockito.ArgumentMatchers.contains("substring(slug from ?)"),
+            eq("SELECT id FROM books WHERE slug = ? LIMIT 1"),
             org.mockito.ArgumentMatchers.<org.springframework.jdbc.core.ResultSetExtractor<UUID>>any(),
-            eq("the-partner-john-grisham"),
-            eq("the-partner-john-grisham-%"),
-            eq("the-partner-john-grisham".length() + 2),
             eq("the-partner-john-grisham")
         );
     }
@@ -356,11 +353,8 @@ class PersistenceSupportServicesTest {
 
     private void stubSlugLookup(JdbcTemplate lockJdbcTemplate, String slug, UUID resultBookId) {
         when(lockJdbcTemplate.query(
-            org.mockito.ArgumentMatchers.contains("substring(slug from ?)"),
+            eq("SELECT id FROM books WHERE slug = ? LIMIT 1"),
             org.mockito.ArgumentMatchers.<org.springframework.jdbc.core.ResultSetExtractor<UUID>>any(),
-            eq(slug),
-            eq(slug + "-%"),
-            eq(slug.length() + 2),
             eq(slug)
         )).thenReturn(resultBookId);
     }
