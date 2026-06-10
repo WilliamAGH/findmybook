@@ -3,6 +3,7 @@
   import BookDetailCard from "$lib/components/book/BookDetailCard.svelte";
   import BookEditions from "$lib/components/BookEditions.svelte";
   import BookSimilarBooks from "$lib/components/BookSimilarBooks.svelte";
+  import NotFoundPage from "$lib/pages/NotFoundPage.svelte";
   import { previousSpaPath } from "$lib/router/router";
   import {
     getAffiliateLinks,
@@ -33,6 +34,7 @@
 
   let loading = $state(true);
   let errorMessage = $state<string | null>(null);
+  let bookNotFound = $state(false);
   let book = $state<Book | null>(null);
   let similarBooks = $state<Book[]>([]);
   let similarBooksFailed = $state(false);
@@ -82,6 +84,7 @@
     const sequence = ++loadSequence;
     loading = true;
     errorMessage = null;
+    bookNotFound = false;
     similarBooks = [];
     similarBooksFailed = false;
     affiliateLinks = {};
@@ -110,7 +113,13 @@
       if (sequence !== loadSequence) {
         return;
       }
-      errorMessage = loadError instanceof Error ? loadError.message : "Unable to load this book";
+      if (isHttpNotFoundError(loadError)) {
+        bookNotFound = true;
+        errorMessage = null;
+      } else {
+        errorMessage = loadError instanceof Error ? loadError.message : "Unable to load this book";
+        bookNotFound = false;
+      }
       book = null;
       similarBooks = [];
       similarBooksFailed = false;
@@ -323,6 +332,8 @@
 <section class="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8 md:px-6">
   {#if loading}
     <p class="text-sm text-anthracite-600 dark:text-slate-300">Loading book details...</p>
+  {:else if bookNotFound}
+    <NotFoundPage />
   {:else if errorMessage}
     <div class="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/40 dark:text-red-200">
       {errorMessage}
