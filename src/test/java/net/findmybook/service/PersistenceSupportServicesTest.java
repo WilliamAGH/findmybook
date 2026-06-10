@@ -1,6 +1,8 @@
 package net.findmybook.service;
 
 import net.findmybook.dto.BookAggregate;
+import net.findmybook.model.Book;
+import net.findmybook.repository.BookQueryRepository;
 import net.findmybook.service.image.CoverPersistenceService;
 import net.findmybook.util.JdbcUtils;
 import org.junit.jupiter.api.Test;
@@ -10,17 +12,21 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.jdbc.core.PreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.ResultSetExtractor;
+import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
+import tools.jackson.databind.ObjectMapper;
 
 import java.sql.ResultSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -34,6 +40,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -284,6 +291,92 @@ class PersistenceSupportServicesTest {
     }
 
     @Test
+    void bookLookupService_findBookById_shouldReturnEmptyWithoutQuery_When_IdentifierIsNotUuid() {
+        JdbcTemplate lookupJdbcTemplate = mock(JdbcTemplate.class);
+        BookLookupService lookupService = new BookLookupService(lookupJdbcTemplate);
+
+        Optional<String> bookId = lookupService.findBookById("heavens-");
+
+        assertThat(bookId).isEmpty();
+        verifyNoInteractions(lookupJdbcTemplate);
+    }
+
+    @Test
+    void bookIdentifierResolver_resolveCanonicalId_shouldNotQueryCanonicalId_When_UnknownSlugFragmentIsUnmatched() {
+        BookLookupService lookupService = mock(BookLookupService.class);
+        BookQueryRepository bookQueryRepository = mock(BookQueryRepository.class);
+        JdbcTemplate lookupJdbcTemplate = mock(JdbcTemplate.class);
+        BookIdentifierResolver resolver = new BookIdentifierResolver(
+            lookupService,
+            bookQueryRepository,
+            lookupJdbcTemplate
+        );
+        when(bookQueryRepository.fetchBookDetailBySlug("heavens-")).thenReturn(Optional.empty());
+        when(lookupService.findBookIdByExternalIdentifier("heavens-")).thenReturn(Optional.empty());
+        when(lookupService.findBookIdByIsbn("heavens-")).thenReturn(Optional.empty());
+
+        Optional<String> resolved = resolver.resolveCanonicalId("heavens-");
+
+        assertThat(resolved).isEmpty();
+        verify(lookupService, never()).findBookById("heavens-");
+        verifyNoInteractions(lookupJdbcTemplate);
+    }
+
+    @Test
+    void postgresBookRepository_fetchByCanonicalId_shouldHydrateSectionsAfterBaseQueryReturns() throws Exception {
+        JdbcTemplate repositoryJdbcTemplate = mock(JdbcTemplate.class);
+        UUID bookId = UUID.randomUUID();
+        AtomicBoolean baseQueryActive = new AtomicBoolean(false);
+        when(repositoryJdbcTemplate.query(
+            anyString(),
+            org.mockito.ArgumentMatchers.<PreparedStatementSetter>any(),
+            org.mockito.ArgumentMatchers.<ResultSetExtractor<?>>any()
+        )).thenAnswer(invocation -> {
+            String sql = invocation.getArgument(0);
+            ResultSetExtractor<?> extractor = invocation.getArgument(2);
+            if (sql.contains("SELECT id::text, slug, title")) {
+                baseQueryActive.set(true);
+                try {
+                    return extractor.extractData(baseBookResultSet(bookId));
+                } finally {
+                    baseQueryActive.set(false);
+                }
+            }
+            assertThat(baseQueryActive).isFalse();
+            ResultSet emptyResultSet = mock(ResultSet.class);
+            when(emptyResultSet.next()).thenReturn(false);
+            return extractor.extractData(emptyResultSet);
+        });
+        when(repositoryJdbcTemplate.query(
+            anyString(),
+            org.mockito.ArgumentMatchers.<PreparedStatementSetter>any(),
+            org.mockito.ArgumentMatchers.<RowMapper<?>>any()
+        )).thenAnswer(invocation -> {
+            assertThat(baseQueryActive).isFalse();
+            return List.of();
+        });
+        org.mockito.Mockito.doAnswer(invocation -> {
+            assertThat(baseQueryActive).isFalse();
+            return null;
+        }).when(repositoryJdbcTemplate).query(
+            anyString(),
+            org.mockito.ArgumentMatchers.<PreparedStatementSetter>any(),
+            org.mockito.ArgumentMatchers.<RowCallbackHandler>any()
+        );
+        PostgresBookRepository repository = new PostgresBookRepository(
+            repositoryJdbcTemplate,
+            new ObjectMapper(),
+            new BookLookupService(repositoryJdbcTemplate)
+        );
+
+        Optional<Book> result = repository.fetchByCanonicalId(bookId.toString());
+
+        assertThat(result).isPresent();
+        assertThat(result.get().getId()).isEqualTo(bookId.toString());
+        assertThat(result.get().getInPostgres()).isTrue();
+    }
+
+    @Test
     void bookLookupService_shouldResolveEquivalentIsbn10_When_LookingUpIsbn13() {
         JdbcTemplate lookupJdbcTemplate = mock(JdbcTemplate.class);
         when(lookupJdbcTemplate.queryForObject(
@@ -370,5 +463,21 @@ class PersistenceSupportServicesTest {
             when(resultSet.next()).thenReturn(false);
             return extractor.extractData(resultSet);
         });
+    }
+
+    private ResultSet baseBookResultSet(UUID bookId) throws Exception {
+        ResultSet resultSet = mock(ResultSet.class);
+        when(resultSet.next()).thenReturn(true);
+        when(resultSet.getString("id")).thenReturn(bookId.toString());
+        when(resultSet.getString("slug")).thenReturn("stable-book");
+        when(resultSet.getString("title")).thenReturn("Stable Book");
+        when(resultSet.getString("description")).thenReturn("A book that can hydrate without nested pool borrowing.");
+        when(resultSet.getString("isbn10")).thenReturn(null);
+        when(resultSet.getString("isbn13")).thenReturn(null);
+        when(resultSet.getDate("published_date")).thenReturn(null);
+        when(resultSet.getString("language")).thenReturn("en");
+        when(resultSet.getString("publisher")).thenReturn("findmybook");
+        when(resultSet.getObject("page_count")).thenReturn(null);
+        return resultSet;
     }
 }
