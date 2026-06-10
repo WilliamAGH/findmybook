@@ -121,9 +121,9 @@ describe("BookPage cover relay persistence", () => {
         id: "book-1",
         title: "Browser Cover Book",
         cover: buildCover({
-          preferredUrl: "https://books.google.com/books/content?id=abc&printsec=frontcover&img=1&zoom=1",
-          fallbackUrl: "https://books.google.com/books/content?id=abc&printsec=frontcover&img=1&zoom=1",
-          source: "GOOGLE_BOOKS",
+          preferredUrl: "https://relay.example.com/covers/browser-cover-book.jpg",
+          fallbackUrl: "https://relay.example.com/covers/browser-cover-book.jpg",
+          source: "BROWSER_RELAY",
         }),
       }),
     );
@@ -145,8 +145,8 @@ describe("BookPage cover relay persistence", () => {
     });
     expect(persistRenderedCoverMock).toHaveBeenCalledWith({
       identifier: "book-1",
-      renderedCoverUrl: "https://books.google.com/books/content?id=abc&printsec=frontcover&img=1&zoom=1",
-      source: "GOOGLE_BOOKS",
+      renderedCoverUrl: "https://relay.example.com/covers/browser-cover-book.jpg",
+      source: "BROWSER_RELAY",
     });
   });
 
@@ -205,6 +205,35 @@ describe("BookPage cover relay persistence", () => {
     });
 
     const cover = await screen.findByAltText("Open Library Cover Book cover");
+    await fireEvent.load(cover);
+
+    await waitFor(() => {
+      expect(persistRenderedCoverMock).not.toHaveBeenCalled();
+    });
+  });
+
+  it("shouldSkipRenderedCoverPersistenceForGoogleBooksProviderCover", async () => {
+    getBookMock.mockResolvedValueOnce(
+      createBookPayload({
+        id: "book-1",
+        title: "Google Books Cover Book",
+        cover: buildCover({
+          preferredUrl: "https://books.google.com/books/content?id=abc&printsec=frontcover&img=1&zoom=6",
+          fallbackUrl: "https://books.google.com/books/content?id=abc&printsec=frontcover&img=1&zoom=6",
+          source: "GOOGLE_BOOKS",
+        }),
+      }),
+    );
+
+    const currentUrl = new URL("https://findmybook.net/book/book-1");
+    render(BookPage, {
+      props: {
+        currentUrl,
+        identifier: "book-1",
+      },
+    });
+
+    const cover = await screen.findByAltText("Google Books Cover Book cover");
     await fireEvent.load(cover);
 
     await waitFor(() => {

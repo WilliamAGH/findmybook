@@ -11,7 +11,11 @@ import { type Book, buildCover } from "$lib/validation/schemas";
 
 const PLACEHOLDER_COVER_FILENAME = "placeholder-book-cover.svg";
 const PERSISTED_COVER_PATH_SEGMENT = "images/book-covers/";
-const OPEN_LIBRARY_COVER_HOST = "covers.openlibrary.org";
+const SERVER_MANAGED_COVER_HOSTS = new Set([
+  "books.google.com",
+  "books.googleusercontent.com",
+  "covers.openlibrary.org",
+]);
 
 export function normalizeCoverUrl(candidateUrl: string): string | null {
   if (!candidateUrl || candidateUrl.trim().length === 0) {
@@ -46,7 +50,7 @@ function isPlaceholderCoverUrl(candidateUrl: string, placeholderCoverUrl: string
 }
 
 function isServerManagedProviderCoverUrl(candidateUrl: string): boolean {
-  return new URL(candidateUrl).hostname.toLowerCase() === OPEN_LIBRARY_COVER_HOST;
+  return SERVER_MANAGED_COVER_HOSTS.has(new URL(candidateUrl).hostname.toLowerCase());
 }
 
 function coverPersistKey(bookId: string, coverUrl: string): string {
