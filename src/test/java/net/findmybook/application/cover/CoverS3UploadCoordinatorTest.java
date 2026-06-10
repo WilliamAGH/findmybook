@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -32,6 +33,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.http.HttpHeaders;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
@@ -364,6 +367,27 @@ class CoverS3UploadCoordinatorTest {
         RuntimeException exception = new RuntimeException(" ", new IllegalStateException("inner-cause-message"));
 
         assertThat(CoverSourceFetcher.summarizeThrowable(exception)).isEqualTo("inner-cause-message");
+    }
+
+    @Test
+    void should_SelectMissingBackfillCandidates_When_PriorImageRowsOnlyContainFailuresOrExternalUrls() {
+        JdbcTemplate candidateJdbcTemplate = Mockito.mock(JdbcTemplate.class);
+        BackfillCandidateQuery candidateQuery = new BackfillCandidateQuery(candidateJdbcTemplate);
+        ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+
+        when(candidateJdbcTemplate.query(
+            sqlCaptor.capture(),
+            org.mockito.ArgumentMatchers.<RowMapper<BackfillCandidate>>any(),
+            eq(25)
+        )).thenReturn(List.of());
+
+        candidateQuery.queryCandidates(BackfillMode.MISSING, 25);
+
+        assertThat(sqlCaptor.getValue())
+            .contains("bil.download_error IS NULL")
+            .contains("bil.s3_image_path IS NOT NULL")
+            .doesNotContain("bil.url IS NOT NULL")
+            .doesNotContain("bil.url <> ''");
     }
 
     private void assertCounterEventuallyEquals(String metricName, double expectedValue) {
