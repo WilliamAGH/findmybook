@@ -182,4 +182,33 @@ describe("BookPage cover relay persistence", () => {
       expect(persistRenderedCoverMock).not.toHaveBeenCalled();
     });
   });
+
+  it("shouldSkipRenderedCoverPersistenceForOpenLibraryProviderCover", async () => {
+    getBookMock.mockResolvedValueOnce(
+      createBookPayload({
+        id: "book-1",
+        title: "Open Library Cover Book",
+        cover: buildCover({
+          preferredUrl: "https://covers.openlibrary.org/b/id/15162569-L.jpg",
+          fallbackUrl: "https://covers.openlibrary.org/b/id/15162569-L.jpg",
+          source: "OPEN_LIBRARY",
+        }),
+      }),
+    );
+
+    const currentUrl = new URL("https://findmybook.net/book/book-1");
+    render(BookPage, {
+      props: {
+        currentUrl,
+        identifier: "book-1",
+      },
+    });
+
+    const cover = await screen.findByAltText("Open Library Cover Book cover");
+    await fireEvent.load(cover);
+
+    await waitFor(() => {
+      expect(persistRenderedCoverMock).not.toHaveBeenCalled();
+    });
+  });
 });

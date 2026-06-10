@@ -11,6 +11,7 @@ import { type Book, buildCover } from "$lib/validation/schemas";
 
 const PLACEHOLDER_COVER_FILENAME = "placeholder-book-cover.svg";
 const PERSISTED_COVER_PATH_SEGMENT = "images/book-covers/";
+const OPEN_LIBRARY_COVER_HOST = "covers.openlibrary.org";
 
 export function normalizeCoverUrl(candidateUrl: string): string | null {
   if (!candidateUrl || candidateUrl.trim().length === 0) {
@@ -44,6 +45,10 @@ function isPlaceholderCoverUrl(candidateUrl: string, placeholderCoverUrl: string
     || normalized.includes(PLACEHOLDER_COVER_FILENAME);
 }
 
+function isServerManagedProviderCoverUrl(candidateUrl: string): boolean {
+  return new URL(candidateUrl).hostname.toLowerCase() === OPEN_LIBRARY_COVER_HOST;
+}
+
 function coverPersistKey(bookId: string, coverUrl: string): string {
   return `${bookId}::${coverUrl}`;
 }
@@ -75,6 +80,7 @@ export function reserveCoverRelayCandidate(
     hasPersistedS3Cover(book)
     || isPersistedCoverUrl(normalizedRenderedUrl)
     || isPlaceholderCoverUrl(normalizedRenderedUrl, placeholderCoverUrl)
+    || isServerManagedProviderCoverUrl(normalizedRenderedUrl)
   ) {
     return null;
   }
