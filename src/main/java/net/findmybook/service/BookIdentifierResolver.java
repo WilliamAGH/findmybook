@@ -78,7 +78,6 @@ public class BookIdentifierResolver {
 
         return bookLookupService.findBookIdByExternalIdentifier(trimmed)
             .or(() -> bookLookupService.findBookIdByIsbn(trimmed))
-            .or(() -> bookLookupService.findBookById(trimmed))
             .flatMap(this::resolveToPrimaryEdition);
     }
 

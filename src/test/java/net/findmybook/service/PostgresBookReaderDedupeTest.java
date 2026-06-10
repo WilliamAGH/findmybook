@@ -97,10 +97,16 @@ class PostgresBookReaderDedupeTest {
                         return canonical.getRawJsonResponse();
                     }
                     return null;
-                });
+        });
 
         lenient().<java.util.List<?>>when(jdbcTemplate.query(anyString(), any(PreparedStatementSetter.class), ArgumentMatchers.<RowMapper<?>>any()))
-                .thenReturn(List.of());
+                .thenAnswer(invocation -> {
+                    String sql = normalizeSql(invocation.getArgument(0));
+                    if (sql.startsWith("SELECT b.id::text as edition_id")) {
+                        return copyEditions(canonical.getOtherEditions());
+                    }
+                    return List.of();
+                });
 
         lenient().when(jdbcTemplate.queryForObject(anyString(), Mockito.eq(java.util.UUID.class), any()))
                 .thenThrow(new EmptyResultDataAccessException(1));
@@ -156,6 +162,23 @@ class PostgresBookReaderDedupeTest {
         clone.setRawJsonResponse(original.getRawJsonResponse());
         clone.setAuthors(new java.util.ArrayList<>(original.getAuthors()));
         clone.setOtherEditions(new java.util.ArrayList<>(original.getOtherEditions()));
+        return clone;
+    }
+
+    private List<Book.Edition> copyEditions(List<Book.Edition> editions) {
+        return editions.stream()
+                .map(this::copyEdition)
+                .toList();
+    }
+
+    private Book.Edition copyEdition(Book.Edition original) {
+        Book.Edition clone = new Book.Edition();
+        clone.setIdentifier(original.getIdentifier());
+        clone.setGoogleBooksId(original.getGoogleBooksId());
+        clone.setEditionIsbn13(original.getEditionIsbn13());
+        clone.setEditionIsbn10(original.getEditionIsbn10());
+        clone.setType(original.getType());
+        clone.setCoverImageUrl(original.getCoverImageUrl());
         return clone;
     }
 }

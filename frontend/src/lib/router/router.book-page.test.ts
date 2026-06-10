@@ -207,6 +207,23 @@ describe("BookPage fallback lookup", () => {
     expect(getAffiliateLinksMock).toHaveBeenCalledWith("OL13535055W");
   });
 
+  it("shouldRenderNotFoundPageWhenBookLookupReturns404WithoutFallback", async () => {
+    getBookMock.mockRejectedValueOnce(new Error("HTTP 404: Not Found"));
+
+    const currentUrl = new URL("https://findmybook.net/book/heavens-");
+    render(BookPage, {
+      props: {
+        currentUrl,
+        identifier: "heavens-",
+      },
+    });
+
+    expect(await screen.findByRole("heading", { name: "Page not found" })).toBeInTheDocument();
+    expect(screen.queryByText("HTTP 404: Not Found")).not.toBeInTheDocument();
+    expect(getSimilarBooksMock).not.toHaveBeenCalled();
+    expect(getAffiliateLinksMock).not.toHaveBeenCalled();
+  });
+
   it("shouldBuildExploreBackLinkFromPopularWindowWhenSpaHistoryIsMissing", async () => {
     const currentUrl = new URL(
       "https://findmybook.net/book/book-1?bookId=book-1&popularWindow=90d&page=2&orderBy=newest&view=grid",

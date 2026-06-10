@@ -88,13 +88,6 @@ public class PostgresBookRepository {
         return idOptional.flatMap(this::loadAggregate);
     }
 
-
-
-
-
-
-
-
     private Optional<Book> loadAggregate(String canonicalId) {
         if (canonicalId == null || canonicalId.isBlank()) {
             return Optional.empty();
@@ -114,7 +107,7 @@ public class PostgresBookRepository {
                 WHERE id = ?
                 """;
         try {
-            return jdbcTemplate.query(sql, ps -> ps.setObject(1, canonicalId), rs -> {
+            Optional<Book> baseBook = jdbcTemplate.query(sql, ps -> ps.setObject(1, canonicalId), rs -> {
                 if (!rs.next()) {
                     return Optional.<Book>empty();
                 }
@@ -133,27 +126,31 @@ public class PostgresBookRepository {
                 book.setPublisher(rs.getString("publisher"));
                 Integer pageCount = (Integer) rs.getObject("page_count");
                 book.setPageCount(pageCount);
-
-                sectionHydrator.hydrateAuthors(book, canonicalId);
-                sectionHydrator.hydrateCategories(book, canonicalId);
-                sectionHydrator.hydrateCollections(book, canonicalId);
-                sectionHydrator.hydrateDimensions(book, canonicalId);
-                sectionHydrator.hydrateRawPayload(book, canonicalId);
-                sectionHydrator.hydrateTags(book, canonicalId);
-                detailHydrator.hydrateEditions(book, canonicalId);
-                detailHydrator.hydrateCover(book, canonicalId);
-                detailHydrator.hydrateRecommendations(book, canonicalId);
-                detailHydrator.hydrateProviderMetadata(book, canonicalId);
-
-                book.setRetrievedFrom("POSTGRES");
-                book.setInPostgres(true);
-                detailHydrator.hydrateDataSource(book, canonicalId);
-
                 return Optional.of(book);
             });
+
+            baseBook.ifPresent(book -> hydrateAggregateSections(book, canonicalId));
+            return baseBook;
         } catch (DataAccessException ex) {
             throw new IllegalStateException("Postgres reader failed to load canonical book " + canonicalId, ex);
         }
+    }
+
+    private void hydrateAggregateSections(Book book, UUID canonicalId) {
+        sectionHydrator.hydrateAuthors(book, canonicalId);
+        sectionHydrator.hydrateCategories(book, canonicalId);
+        sectionHydrator.hydrateCollections(book, canonicalId);
+        sectionHydrator.hydrateDimensions(book, canonicalId);
+        sectionHydrator.hydrateRawPayload(book, canonicalId);
+        sectionHydrator.hydrateTags(book, canonicalId);
+        detailHydrator.hydrateEditions(book, canonicalId);
+        detailHydrator.hydrateCover(book, canonicalId);
+        detailHydrator.hydrateRecommendations(book, canonicalId);
+        detailHydrator.hydrateProviderMetadata(book, canonicalId);
+
+        book.setRetrievedFrom("POSTGRES");
+        book.setInPostgres(true);
+        detailHydrator.hydrateDataSource(book, canonicalId);
     }
 
     private Optional<UUID> queryForUuid(String sql, Object param) {

@@ -4,6 +4,7 @@ import net.findmybook.model.ExternalIdentifierType;
 import net.findmybook.util.IdentifierClassifier;
 import net.findmybook.util.IsbnUtils;
 import net.findmybook.util.JdbcUtils;
+import net.findmybook.util.UuidUtils;
 import org.springframework.util.StringUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -186,6 +187,10 @@ public class BookLookupService {
      */
     public Optional<String> findBookById(String bookId) {
         if (!StringUtils.hasText(bookId)) {
+            return Optional.empty();
+        }
+        if (UuidUtils.parseUuidOrNull(bookId.trim()) == null) {
+            log.debug("Skipping canonical book ID lookup for non-UUID identifier: {}", bookId);
             return Optional.empty();
         }
 
