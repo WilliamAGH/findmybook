@@ -138,4 +138,49 @@ class SearchPaginationServiceRealtimeTest extends AbstractSearchPaginationServic
                 && expectedQueryHash.equals(updatedEvent.getQueryHash())
         ));
     }
+
+    @Test
+    @DisplayName("search() publishes realtime events on clamped page-size query hash")
+    void should_PublishRealtimeEventsOnClampedTopic_When_MaxResultsExceedsLimit() {
+        UUID postgresId = UUID.randomUUID();
+        when(bookSearchService.searchBooks("distributed systems", 200)).thenReturn(List.of(
+            new BookSearchService.SearchResult(postgresId, 0.96, "FULLTEXT")
+        ));
+        when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(List.of(
+            buildListItem(postgresId, "Designing Data-Intensive Applications")
+        ));
+
+        when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
+        when(googleApiFetcher.streamSearchItems("distributed systems", 20, "relevance", null, true))
+            .thenReturn(Flux.just(googleVolumeNode("google-vol-clamped", "Realtime Systems")));
+        when(googleBooksMapper.map(argThat(node -> "google-vol-clamped".equals(node.path("id").asString("")))))
+            .thenReturn(googleAggregate("google-vol-clamped", "Realtime Systems", "https://example.test/realtime.jpg"));
+
+        SearchPaginationService realtimeService = new SearchPaginationService(
+            bookSearchService,
+            bookQueryRepository,
+            java.util.Optional.of(googleApiFetcher),
+            java.util.Optional.of(googleBooksMapper),
+            java.util.Optional.empty(),
+            java.util.Optional.of(bookDataOrchestrator),
+            java.util.Optional.of(eventPublisher),
+            true
+        );
+        SearchPaginationService.SearchRequest request = searchRequest("distributed systems", 0, 500, "relevance");
+        SearchPaginationService.SearchPage page = realtimeService.search(request).block();
+
+        assertThat(page).isNotNull();
+        String expectedQueryHash = SearchQueryUtils.topicKey(
+            "distributed systems",
+            "relevance",
+            "ANY",
+            "ANY",
+            null,
+            100
+        );
+        verify(eventPublisher, timeout(2000).atLeastOnce()).publishEvent((Object) argThat(event ->
+            event instanceof SearchResultsUpdatedEvent updatedEvent
+                && expectedQueryHash.equals(updatedEvent.getQueryHash())
+        ));
+    }
 }

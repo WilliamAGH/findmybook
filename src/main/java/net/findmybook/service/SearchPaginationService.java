@@ -33,8 +33,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Coordinates paginated search using repository-backed DTO projections.
@@ -217,18 +215,18 @@ public class SearchPaginationService {
     }
 
     private int projectedUniqueCount(List<Book> existingResults, List<Book> fallbackCandidates) {
-        Set<String> projectedKeys = ConcurrentHashMap.newKeySet();
+        List<Book> projectedBooks = new ArrayList<>();
         int uniqueCount = 0;
         if (existingResults != null) {
             for (Book existing : existingResults) {
-                if (registerCandidateAliases(projectedKeys, existing)) {
+                if (registerCandidateIdentity(projectedBooks, existing)) {
                     uniqueCount++;
                 }
             }
         }
         if (fallbackCandidates != null) {
             for (Book candidate : fallbackCandidates) {
-                if (registerCandidateAliases(projectedKeys, candidate)) {
+                if (registerCandidateIdentity(projectedBooks, candidate)) {
                     uniqueCount++;
                 }
             }
@@ -246,7 +244,7 @@ public class SearchPaginationService {
         }
 
         OpenLibraryBookDataService service = openLibraryBookDataService.get();
-        Set<String> seenKeys = ConcurrentHashMap.newKeySet();
+        List<Book> seenCandidates = new ArrayList<>();
         return service.queryBooksByEverything(query, request.orderBy(), startIndex, maxResults)
             .onErrorResume(ex -> {
                 log.warn("Open Library fallback failed for '{}': {}", request.query(), ex.getMessage());
@@ -255,7 +253,7 @@ public class SearchPaginationService {
             .filter(Objects::nonNull)
             .map(SearchExternalProviderUtils::tagOpenLibraryFallback)
             .filter(book -> SearchExternalProviderUtils.matchesPublishedYear(book, request.publishedYear()))
-            .filter(book -> registerCandidateAliases(seenKeys, book))
+            .filter(book -> registerCandidateIdentity(seenCandidates, book))
             .take(maxResults);
     }
 
@@ -301,17 +299,15 @@ public class SearchPaginationService {
             return List.of();
         }
         Map<String, Book> uniqueCandidates = new LinkedHashMap<>();
-        Set<String> seenAliases = ConcurrentHashMap.newKeySet();
         for (Book candidate : fallbackBooks) {
             if (candidate == null) {
                 continue;
             }
-            List<String> aliases = CandidateKeyResolver.resolveAliases(candidate);
-            if (aliases.isEmpty() || aliases.stream().anyMatch(seenAliases::contains)) {
+            Optional<String> candidateKey = CandidateKeyResolver.resolve(candidate);
+            if (candidateKey.isEmpty() || CandidateKeyResolver.overlapsAny(uniqueCandidates.values(), candidate)) {
                 continue;
             }
-            seenAliases.addAll(aliases);
-            uniqueCandidates.put(aliases.getFirst(), candidate);
+            uniqueCandidates.put(candidateKey.get(), candidate);
         }
         return List.copyOf(uniqueCandidates.values());
     }
@@ -320,28 +316,28 @@ public class SearchPaginationService {
         if (candidates == null || candidates.isEmpty()) {
             return List.of();
         }
-        Set<String> existingKeys = ConcurrentHashMap.newKeySet();
+        List<Book> seenCandidates = new ArrayList<>();
         if (existingResults != null) {
             for (Book existing : existingResults) {
-                existingKeys.addAll(CandidateKeyResolver.resolveAliases(existing));
+                registerCandidateIdentity(seenCandidates, existing);
             }
         }
 
         List<Book> netNew = new ArrayList<>();
         for (Book candidate : candidates) {
-            if (registerCandidateAliases(existingKeys, candidate)) {
+            if (registerCandidateIdentity(seenCandidates, candidate)) {
                 netNew.add(candidate);
             }
         }
         return List.copyOf(netNew);
     }
 
-    private boolean registerCandidateAliases(Set<String> seenAliases, Book candidate) {
-        List<String> aliases = CandidateKeyResolver.resolveAliases(candidate);
-        if (aliases.isEmpty() || aliases.stream().anyMatch(seenAliases::contains)) {
+    private boolean registerCandidateIdentity(List<Book> seenCandidates, Book candidate) {
+        Optional<String> candidateKey = CandidateKeyResolver.resolve(candidate);
+        if (candidateKey.isEmpty() || CandidateKeyResolver.overlapsAny(seenCandidates, candidate)) {
             return false;
         }
-        seenAliases.addAll(aliases);
+        seenCandidates.add(candidate);
         return true;
     }
 

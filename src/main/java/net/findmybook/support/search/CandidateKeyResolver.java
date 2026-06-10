@@ -18,9 +18,9 @@ import java.util.regex.Pattern;
  * an external fallback row can collapse when providers assign different identifiers to
  * the same work.</p>
  *
- * <p>{@link #resolveAliases(Book)} returns every safe content identity for overlap checks. That lets
- * candidates collapse when one provider supplies ISBN metadata and another only supplies a stable
- * title/author identity for the same work.</p>
+ * <p>{@link #resolveAliases(Book)} returns every safe content identity for overlap checks.
+ * {@link #hasIdentityOverlap(Book, Book)} applies those aliases while preserving conflicting
+ * ISBN identities as separate editions.</p>
  *
  * <p>Rows that lack both ISBNs and an internal ID and carry only a partial title or author
  * do not qualify for a dedupe key: partial keys would collapse distinct works, so such
@@ -79,6 +79,70 @@ public final class CandidateKeyResolver {
         }
 
         return List.copyOf(aliases);
+    }
+
+    /**
+     * Determines whether two candidates represent the same search identity.
+     *
+     * @param first first candidate to compare
+     * @param second second candidate to compare
+     * @return true when the candidates share an identity and do not have conflicting ISBN identities
+     */
+    public static boolean hasIdentityOverlap(Book first, Book second) {
+        List<String> firstAliases = resolveAliases(first);
+        List<String> secondAliases = resolveAliases(second);
+        if (firstAliases.isEmpty() || secondAliases.isEmpty()) {
+            return false;
+        }
+        if (hasConflictingIsbnIdentity(firstAliases, secondAliases)) {
+            return false;
+        }
+        return aliasesOverlap(firstAliases, secondAliases);
+    }
+
+    /**
+     * Determines whether a candidate overlaps any already accepted candidate.
+     *
+     * @param acceptedCandidates candidates already accepted into the result set
+     * @param candidate candidate being considered
+     * @return true when any accepted candidate shares a non-conflicting identity with {@code candidate}
+     */
+    public static boolean overlapsAny(Iterable<Book> acceptedCandidates, Book candidate) {
+        if (acceptedCandidates == null) {
+            return false;
+        }
+        for (Book acceptedCandidate : acceptedCandidates) {
+            if (hasIdentityOverlap(acceptedCandidate, candidate)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasConflictingIsbnIdentity(List<String> firstAliases, List<String> secondAliases) {
+        String firstIsbn = firstIsbnAlias(firstAliases);
+        String secondIsbn = firstIsbnAlias(secondAliases);
+        return StringUtils.hasText(firstIsbn)
+            && StringUtils.hasText(secondIsbn)
+            && !firstIsbn.equals(secondIsbn);
+    }
+
+    private static boolean aliasesOverlap(List<String> firstAliases, List<String> secondAliases) {
+        for (String firstAlias : firstAliases) {
+            if (secondAliases.contains(firstAlias)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String firstIsbnAlias(List<String> aliases) {
+        for (String alias : aliases) {
+            if (alias != null && alias.startsWith(ISBN_KEY_PREFIX)) {
+                return alias;
+            }
+        }
+        return "";
     }
 
     private static String firstAuthor(Book book) {
