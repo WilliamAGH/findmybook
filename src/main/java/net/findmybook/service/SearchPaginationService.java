@@ -127,6 +127,7 @@ public class SearchPaginationService {
                 request.orderBy(),
                 request.coverSource(),
                 request.resolutionPreference(),
+                request.publishedYear(),
                 list,
                 window
             ))
@@ -217,17 +218,22 @@ public class SearchPaginationService {
 
     private int projectedUniqueCount(List<Book> existingResults, List<Book> fallbackCandidates) {
         Set<String> projectedKeys = ConcurrentHashMap.newKeySet();
+        int uniqueCount = 0;
         if (existingResults != null) {
             for (Book existing : existingResults) {
-                CandidateKeyResolver.resolve(existing).ifPresent(projectedKeys::add);
+                if (registerCandidateAliases(projectedKeys, existing)) {
+                    uniqueCount++;
+                }
             }
         }
         if (fallbackCandidates != null) {
             for (Book candidate : fallbackCandidates) {
-                CandidateKeyResolver.resolve(candidate).ifPresent(projectedKeys::add);
+                if (registerCandidateAliases(projectedKeys, candidate)) {
+                    uniqueCount++;
+                }
             }
         }
-        return projectedKeys.size();
+        return uniqueCount;
     }
 
     private Flux<Book> streamOpenLibraryCandidates(SearchRequest request, int startIndex, int maxResults) {
@@ -249,9 +255,7 @@ public class SearchPaginationService {
             .filter(Objects::nonNull)
             .map(SearchExternalProviderUtils::tagOpenLibraryFallback)
             .filter(book -> SearchExternalProviderUtils.matchesPublishedYear(book, request.publishedYear()))
-            .filter(book -> CandidateKeyResolver.resolve(book)
-                .filter(seenKeys::add)
-                .isPresent())
+            .filter(book -> registerCandidateAliases(seenKeys, book))
             .take(maxResults);
     }
 
@@ -286,6 +290,7 @@ public class SearchPaginationService {
             request.orderBy(),
             request.coverSource(),
             request.resolutionPreference(),
+            request.publishedYear(),
             deduplicateCandidates(mergedCandidates),
             window
         );
@@ -296,12 +301,17 @@ public class SearchPaginationService {
             return List.of();
         }
         Map<String, Book> uniqueCandidates = new LinkedHashMap<>();
+        Set<String> seenAliases = ConcurrentHashMap.newKeySet();
         for (Book candidate : fallbackBooks) {
             if (candidate == null) {
                 continue;
             }
-            CandidateKeyResolver.resolve(candidate)
-                .ifPresent(key -> uniqueCandidates.putIfAbsent(key, candidate));
+            List<String> aliases = CandidateKeyResolver.resolveAliases(candidate);
+            if (aliases.isEmpty() || aliases.stream().anyMatch(seenAliases::contains)) {
+                continue;
+            }
+            seenAliases.addAll(aliases);
+            uniqueCandidates.put(aliases.getFirst(), candidate);
         }
         return List.copyOf(uniqueCandidates.values());
     }
@@ -313,20 +323,26 @@ public class SearchPaginationService {
         Set<String> existingKeys = ConcurrentHashMap.newKeySet();
         if (existingResults != null) {
             for (Book existing : existingResults) {
-                CandidateKeyResolver.resolve(existing).ifPresent(existingKeys::add);
+                existingKeys.addAll(CandidateKeyResolver.resolveAliases(existing));
             }
         }
 
         List<Book> netNew = new ArrayList<>();
         for (Book candidate : candidates) {
-            CandidateKeyResolver.resolve(candidate)
-                .filter(key -> !existingKeys.contains(key))
-                .ifPresent(key -> {
-                    existingKeys.add(key);
-                    netNew.add(candidate);
-                });
+            if (registerCandidateAliases(existingKeys, candidate)) {
+                netNew.add(candidate);
+            }
         }
         return List.copyOf(netNew);
+    }
+
+    private boolean registerCandidateAliases(Set<String> seenAliases, Book candidate) {
+        List<String> aliases = CandidateKeyResolver.resolveAliases(candidate);
+        if (aliases.isEmpty() || aliases.stream().anyMatch(seenAliases::contains)) {
+            return false;
+        }
+        seenAliases.addAll(aliases);
+        return true;
     }
 
     private boolean hasCoverGap(SearchPage page, int pageSize) {
@@ -524,6 +540,7 @@ public class SearchPaginationService {
      * @param orderBy normalized ordering key applied by the assembler
      * @param coverSource effective cover source filter applied by the assembler
      * @param resolutionPreference effective resolution preference applied by the assembler
+     * @param publishedYear optional publication-year filter applied to the page
      */
     public record SearchPage(String query,
                              int startIndex,
@@ -537,6 +554,37 @@ public class SearchPaginationService {
                              int prefetchedCount,
                              String orderBy,
                              CoverImageSource coverSource,
-                             ImageResolutionPreference resolutionPreference) {
+                             ImageResolutionPreference resolutionPreference,
+                             Integer publishedYear) {
+        public SearchPage(String query,
+                          int startIndex,
+                          int maxResults,
+                          int totalRequested,
+                          int totalUnique,
+                          List<Book> pageItems,
+                          List<Book> uniqueResults,
+                          boolean hasMore,
+                          int nextStartIndex,
+                          int prefetchedCount,
+                          String orderBy,
+                          CoverImageSource coverSource,
+                          ImageResolutionPreference resolutionPreference) {
+            this(
+                query,
+                startIndex,
+                maxResults,
+                totalRequested,
+                totalUnique,
+                pageItems,
+                uniqueResults,
+                hasMore,
+                nextStartIndex,
+                prefetchedCount,
+                orderBy,
+                coverSource,
+                resolutionPreference,
+                null
+            );
+        }
     }
 }

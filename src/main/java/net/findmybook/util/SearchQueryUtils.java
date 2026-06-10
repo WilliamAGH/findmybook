@@ -96,4 +96,37 @@ public final class SearchQueryUtils {
         }
         return sanitized;
     }
+
+    /**
+     * Generates a stable realtime topic key for a fully-qualified search request.
+     *
+     * <p>Realtime streams are scoped by query and filters so emissions from an older
+     * in-flight request cannot be delivered to a newer filtered search.</p>
+     */
+    public static String topicKey(String query,
+                                  String orderBy,
+                                  String coverSource,
+                                  String resolutionPreference,
+                                  Integer publishedYear,
+                                  int maxResults) {
+        String canonicalQuery = Objects.requireNonNullElse(canonicalize(query), "");
+        String canonical = canonicalQuery
+            + "|order=" + normalizedTopicComponent(orderBy, "relevance")
+            + "|cover=" + normalizedTopicComponent(coverSource, "any")
+            + "|resolution=" + normalizedTopicComponent(resolutionPreference, "any")
+            + "|year=" + (publishedYear != null && publishedYear > 0 ? publishedYear : "any")
+            + "|max=" + Math.max(0, maxResults);
+        String sanitized = TOPIC_KEY_SANITIZER.matcher(canonical).replaceAll("_");
+        if (sanitized.isBlank()) {
+            return "search";
+        }
+        return sanitized;
+    }
+
+    private static String normalizedTopicComponent(String value, String fallback) {
+        if (value == null || value.trim().isEmpty()) {
+            return fallback;
+        }
+        return value.trim().toLowerCase(Locale.ROOT);
+    }
 }

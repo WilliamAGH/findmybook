@@ -44,7 +44,18 @@ public final class SearchContractMapper {
             .map(SearchContractMapper::toSearchHit)
             .filter(Objects::nonNull)
             .toList();
-        String queryHash = SearchQueryUtils.topicKey(page.query());
+        String coverSource = page.coverSource() != null ? page.coverSource().name() : CoverImageSource.ANY.name();
+        String resolutionPreference = page.resolutionPreference() != null
+            ? page.resolutionPreference().name()
+            : ImageResolutionPreference.ANY.name();
+        String queryHash = SearchQueryUtils.topicKey(
+            page.query(),
+            page.orderBy(),
+            coverSource,
+            resolutionPreference,
+            page.publishedYear(),
+            page.maxResults()
+        );
 
         return new SearchResponse(
             page.query(),
@@ -56,8 +67,8 @@ public final class SearchContractMapper {
             page.nextStartIndex(),
             page.prefetchedCount(),
             page.orderBy(),
-            page.coverSource() != null ? page.coverSource().name() : CoverImageSource.ANY.name(),
-            page.resolutionPreference() != null ? page.resolutionPreference().name() : ImageResolutionPreference.ANY.name(),
+            coverSource,
+            resolutionPreference,
             hits
         );
     }
@@ -72,7 +83,14 @@ public final class SearchContractMapper {
     public static SearchResponse emptySearchResponse(String query, SearchPaginationService.SearchRequest request) {
         return new SearchResponse(
             query,
-            SearchQueryUtils.topicKey(query),
+            SearchQueryUtils.topicKey(
+                query,
+                request.orderBy(),
+                request.coverSource().name(),
+                request.resolutionPreference().name(),
+                request.publishedYear(),
+                request.maxResults()
+            ),
             request.startIndex(),
             request.maxResults(),
             0,

@@ -41,6 +41,7 @@ public final class SearchPageAssembler {
      * @param orderBy ordering key
      * @param coverSource cover source preference
      * @param resolutionPreference image resolution preference
+     * @param publishedYear optional publication-year filter
      * @param rawResults hydrated candidate books
      * @param window paging window descriptor
      * @return immutable page payload for API responses
@@ -49,6 +50,7 @@ public final class SearchPageAssembler {
                                                         String orderBy,
                                                         CoverImageSource coverSource,
                                                         ImageResolutionPreference resolutionPreference,
+                                                        Integer publishedYear,
                                                         List<Book> rawResults,
                                                         PagingUtils.Window window) {
         List<Book> safeRawResults = rawResults == null ? List.of() : rawResults;
@@ -65,14 +67,16 @@ public final class SearchPageAssembler {
 
         LinkedHashMap<String, Book> orderedCandidatesByKey = new LinkedHashMap<>();
         Map<String, Integer> insertionOrder = new LinkedHashMap<>();
+        Set<String> seenCandidateAliases = new HashSet<>();
         int position = 0;
 
         for (Book book : eligibleCandidates) {
-            String resolvedKey = CandidateKeyResolver.resolve(book).orElse(null);
-            if (resolvedKey == null || orderedCandidatesByKey.containsKey(resolvedKey)) {
+            List<String> aliases = CandidateKeyResolver.resolveAliases(book);
+            if (aliases.isEmpty() || aliases.stream().anyMatch(seenCandidateAliases::contains)) {
                 continue;
             }
-            orderedCandidatesByKey.put(resolvedKey, book);
+            orderedCandidatesByKey.put(aliases.getFirst(), book);
+            seenCandidateAliases.addAll(aliases);
             insertionOrder.put(book.getId(), position++);
         }
 
@@ -104,7 +108,8 @@ public final class SearchPageAssembler {
             prefetched,
             Optional.ofNullable(orderBy).orElse("newest"),
             effectiveSource,
-            effectiveResolution
+            effectiveResolution,
+            publishedYear
         );
     }
 

@@ -56,4 +56,15 @@ class SearchQueryUtilsTest {
         assertThat(SearchQueryUtils.topicKey(null)).isEqualTo("search");
         assertThat(SearchQueryUtils.topicKey(" \t ")).isEqualTo("search");
     }
+
+    @Test
+    @DisplayName("topicKey includes filters for realtime routing isolation")
+    void should_ProduceDifferentTopicKeys_When_FilterStateChanges() {
+        String newest = SearchQueryUtils.topicKey("Distributed Systems", "newest", "ANY", "ANY", null, 12);
+        String author = SearchQueryUtils.topicKey("Distributed Systems", "author", "ANY", "ANY", null, 12);
+        String year = SearchQueryUtils.topicKey("Distributed Systems", "newest", "ANY", "ANY", 2024, 12);
+
+        assertThat(newest).isNotEqualTo(author);
+        assertThat(newest).isNotEqualTo(year);
+    }
 }
