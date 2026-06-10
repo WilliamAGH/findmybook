@@ -296,18 +296,8 @@ public class BookUpsertService {
         }
 
         UUID id = jdbcTemplate.query(
-            """
-            SELECT id
-            FROM books
-            WHERE slug = ?
-               OR (slug LIKE ? AND substring(slug from ?) ~ '^[0-9]+$')
-            ORDER BY CASE WHEN slug = ? THEN 0 ELSE 1 END, length(slug), slug
-            LIMIT 1
-            """,
+            "SELECT id FROM books WHERE slug = ? LIMIT 1",
             rs -> rs.next() ? (UUID) rs.getObject("id") : null,
-            slug,
-            slug + "-%",
-            slug.length() + 2,
             slug
         );
         return Optional.ofNullable(id);

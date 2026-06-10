@@ -67,16 +67,16 @@ public final class SearchPageAssembler {
 
         LinkedHashMap<String, Book> orderedCandidatesByKey = new LinkedHashMap<>();
         Map<String, Integer> insertionOrder = new LinkedHashMap<>();
-        Set<String> seenCandidateAliases = new HashSet<>();
+        List<Book> acceptedCandidates = new ArrayList<>();
         int position = 0;
 
         for (Book book : eligibleCandidates) {
-            List<String> aliases = CandidateKeyResolver.resolveAliases(book);
-            if (aliases.isEmpty() || aliases.stream().anyMatch(seenCandidateAliases::contains)) {
+            Optional<String> candidateKey = CandidateKeyResolver.resolve(book);
+            if (candidateKey.isEmpty() || CandidateKeyResolver.overlapsAny(acceptedCandidates, book)) {
                 continue;
             }
-            orderedCandidatesByKey.put(aliases.getFirst(), book);
-            seenCandidateAliases.addAll(aliases);
+            orderedCandidatesByKey.put(candidateKey.get(), book);
+            acceptedCandidates.add(book);
             insertionOrder.put(book.getId(), position++);
         }
 

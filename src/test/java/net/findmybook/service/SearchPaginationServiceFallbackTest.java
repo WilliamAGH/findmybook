@@ -186,6 +186,45 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
     }
 
     @Test
+    @DisplayName("search() preserves fallback editions when title-author matches but ISBN differs")
+    void should_PreserveFallbackRows_When_TitleAuthorMatchesButIsbnDiffers() {
+        Book openLibraryCandidate = buildOpenLibraryCandidate("OL-DIFFERENT-ISBN", "Same Title");
+        openLibraryCandidate.setAuthors(List.of("Shared Author"));
+        openLibraryCandidate.setIsbn13("9780306406157");
+
+        BookAggregate googleCandidate = BookAggregate.builder()
+            .title("Same Title")
+            .authors(List.of("Shared Author"))
+            .isbn13("9780132350884")
+            .slugBase("same-title-shared-author")
+            .identifiers(BookAggregate.ExternalIdentifiers.builder()
+                .source("GOOGLE_BOOKS")
+                .externalId("google-vol-different-isbn")
+                .imageLinks(Map.of())
+                .build())
+            .build();
+
+        when(bookSearchService.searchBooks("same title", 4)).thenReturn(List.of());
+        when(openLibraryBookDataService.queryBooksByEverything(eq("same title"), anyString(), eq(0), eq(4)))
+            .thenReturn(Flux.just(openLibraryCandidate));
+        when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
+        when(googleApiFetcher.streamSearchItems("same title", 4, "newest", null, true))
+            .thenReturn(Flux.just(googleVolumeNode("google-vol-different-isbn", "Same Title")));
+        when(googleApiFetcher.isFallbackAllowed()).thenReturn(false);
+        when(googleBooksMapper.map(argThat(node -> "google-vol-different-isbn".equals(node.path("id").asString("")))))
+            .thenReturn(googleCandidate);
+
+        SearchPaginationService fallbackService = fallbackEnabledService();
+        SearchPaginationService.SearchPage page = fallbackService.search(searchRequest("same title", 0, 2, "newest")).block();
+
+        assertThat(page).isNotNull();
+        assertThat(page.totalUnique()).isEqualTo(2);
+        assertThat(page.pageItems())
+            .extracting(Book::getId)
+            .containsExactly("OL-DIFFERENT-ISBN", "google-vol-different-isbn");
+    }
+
+    @Test
     @DisplayName("search() does not add Open Library fallback duplicates for persisted title-author matches")
     void should_DeduplicateOpenLibraryFallback_When_PersistedBookMatchesTitleAndAuthor() {
         UUID postgresId = UUID.randomUUID();

@@ -144,6 +144,8 @@ class S3BookCoverServiceValidationTest {
     @Test
     void should_ClearResolverCdnBase_When_S3StorageIsDisabled() {
         CoverUrlResolver.setCdnBase("https://stale-cdn.example/");
+        String previousSystemCdnUrl = System.getProperty("S3_CDN_URL");
+        System.setProperty("S3_CDN_URL", "https://env-cdn.example/");
         try {
             S3CoverUrlSupport disabledSupport = buildUrlSupport(
                 "https://cdn.example.com",
@@ -162,7 +164,16 @@ class S3BookCoverServiceValidationTest {
             assertThat(resolved.url()).isEqualTo("https://covers.openlibrary.org/b/id/1-L.jpg");
             assertThat(resolved.fromS3()).isFalse();
         } finally {
+            restoreSystemProperty("S3_CDN_URL", previousSystemCdnUrl);
             CoverUrlResolver.setCdnBase(null);
+        }
+    }
+
+    private void restoreSystemProperty(String key, String previousValue) {
+        if (previousValue == null) {
+            System.clearProperty(key);
+        } else {
+            System.setProperty(key, previousValue);
         }
     }
 }

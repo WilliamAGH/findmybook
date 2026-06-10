@@ -13,11 +13,10 @@ import net.findmybook.util.SearchExternalProviderUtils;
 import net.findmybook.util.SearchQueryUtils;
 import org.springframework.util.StringUtils;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import lombok.extern.slf4j.Slf4j;
@@ -82,7 +81,7 @@ final class SearchRealtimeCoordinator {
             request.coverSource().name(),
             request.resolutionPreference().name(),
             request.publishedYear(),
-            request.maxResults()
+            page.maxResults()
         );
         SearchRealtimeState state = realtimeStates.get(queryHash, unused -> new SearchRealtimeState());
 
@@ -232,7 +231,7 @@ final class SearchRealtimeCoordinator {
     private record RealtimeCandidate(String source, Book book) {}
 
     private final class SearchRealtimeState {
-        private final Set<String> emittedKeys = ConcurrentHashMap.newKeySet();
+        private final List<Book> emittedBooks = new ArrayList<>();
         private final AtomicBoolean streaming = new AtomicBoolean(false);
         private final AtomicInteger totalResults = new AtomicInteger(0);
 
@@ -240,24 +239,24 @@ final class SearchRealtimeCoordinator {
             if (!streaming.compareAndSet(false, true)) {
                 return false;
             }
-            emittedKeys.clear();
+            emittedBooks.clear();
             totalResults.set(Math.max(0, baselineTotal));
 
             if (existingResults != null) {
                 for (Book existing : existingResults) {
-                    emittedKeys.addAll(CandidateKeyResolver.resolveAliases(existing));
+                    registerCandidate(existing);
                 }
             }
 
             return true;
         }
 
-        boolean registerCandidate(Book candidate) {
-            List<String> aliases = CandidateKeyResolver.resolveAliases(candidate);
-            if (aliases.isEmpty() || aliases.stream().anyMatch(emittedKeys::contains)) {
+        synchronized boolean registerCandidate(Book candidate) {
+            Optional<String> candidateKey = CandidateKeyResolver.resolve(candidate);
+            if (candidateKey.isEmpty() || CandidateKeyResolver.overlapsAny(emittedBooks, candidate)) {
                 return false;
             }
-            emittedKeys.addAll(aliases);
+            emittedBooks.add(candidate);
             return true;
         }
 

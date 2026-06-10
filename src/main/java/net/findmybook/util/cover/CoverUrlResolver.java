@@ -11,6 +11,7 @@ import java.util.Locale;
 public final class CoverUrlResolver {
 
     private static final java.util.concurrent.atomic.AtomicReference<String> CDN_BASE_OVERRIDE = new java.util.concurrent.atomic.AtomicReference<>();
+    private static final String CDN_BASE_DISABLED = "__FMB_CDN_DISABLED__";
     private static final String PLACEHOLDER_FILENAME = "placeholder-book-cover.svg";
 
     private CoverUrlResolver() {
@@ -20,12 +21,15 @@ public final class CoverUrlResolver {
         if (StringUtils.hasText(base)) {
             CDN_BASE_OVERRIDE.set(normalizeBase(base));
         } else {
-            CDN_BASE_OVERRIDE.set(null);
+            CDN_BASE_OVERRIDE.set(CDN_BASE_DISABLED);
         }
     }
 
     private static String currentCdnBase() {
         String override = CDN_BASE_OVERRIDE.get();
+        if (CDN_BASE_DISABLED.equals(override)) {
+            return "";
+        }
         if (StringUtils.hasText(override)) {
             return override;
         }
