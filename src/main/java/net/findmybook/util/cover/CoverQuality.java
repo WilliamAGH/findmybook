@@ -31,17 +31,21 @@ public final class CoverQuality {
      * @return quality tier between 0 and 5 inclusive
      */
     public static int rank(RankingContext context) {
-        boolean hasS3 = isRenderable(context.s3Path());
-        boolean hasExternal = isRenderable(context.externalUrl());
-        if (!hasS3 && !hasExternal) {
-            return 0;
-        }
-        String preferred = hasS3 ? context.s3Path() : context.externalUrl();
-        return rankFromUrl(new UrlRankingContext(
-            preferred,
+        CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
+            context.s3Path(),
+            context.externalUrl(),
             context.width(),
             context.height(),
-            context.highResolution(),
+            context.highResolution()
+        );
+        if (!isRenderable(resolved.url())) {
+            return 0;
+        }
+        return rankFromUrl(new UrlRankingContext(
+            resolved.url(),
+            resolved.width(),
+            resolved.height(),
+            resolved.highResolution(),
             context.grayscale()
         ));
     }
@@ -91,6 +95,23 @@ public final class CoverQuality {
             return 0;
         }
 
+        if (isStorageKey(url)) {
+            CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(url);
+            if (!resolved.fromS3()) {
+                return 0;
+            }
+            Integer width = context.width() != null ? context.width() : resolved.width();
+            Integer height = context.height() != null ? context.height() : resolved.height();
+            Boolean highResolution = context.highResolution() != null ? context.highResolution() : resolved.highResolution();
+            return rankFromUrl(new UrlRankingContext(
+                resolved.url(),
+                width,
+                height,
+                highResolution,
+                context.grayscale()
+            ));
+        }
+
         if (!CoverUrlValidator.isLikelyCoverImage(url)) {
             return 0;
         }
@@ -103,8 +124,7 @@ public final class CoverQuality {
             return 1;
         }
 
-        boolean fromS3 = url != null && !(url.startsWith("http://") || url.startsWith("https://"));
-        boolean hasCdn = fromS3 || CoverUrlResolver.isCdnUrl(url);
+        boolean hasCdn = CoverUrlResolver.isCdnUrl(url);
         boolean resolvedHighRes = Boolean.TRUE.equals(context.highResolution())
             || ImageDimensionUtils.isHighResolution(context.width(), context.height());
         boolean meetsDisplay = ImageDimensionUtils.meetsSearchDisplayThreshold(context.width(), context.height());
@@ -179,5 +199,12 @@ public final class CoverQuality {
         return StringUtils.hasText(url)
             && !CoverUrlResolver.isNullEquivalent(url)
             && !normalized.contains("placeholder-book-cover.svg");
+    }
+
+    private static boolean isStorageKey(String url) {
+        return StringUtils.hasText(url)
+            && !url.regionMatches(true, 0, "http://", 0, 7)
+            && !url.regionMatches(true, 0, "https://", 0, 8)
+            && !url.startsWith("data:image");
     }
 }

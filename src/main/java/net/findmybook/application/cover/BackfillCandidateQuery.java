@@ -37,8 +37,9 @@ class BackfillCandidateQuery {
                       SELECT 1 FROM book_image_links bil
                       WHERE bil.book_id = b.id
                         AND bil.download_error IS NULL
-                        AND ((bil.url IS NOT NULL AND bil.url <> '')
-                             OR (bil.s3_image_path IS NOT NULL AND bil.s3_image_path <> ''))
+                        AND COALESCE(bil.is_grayscale, false) = false
+                        AND bil.s3_image_path IS NOT NULL
+                        AND bil.s3_image_path <> ''
                   )
                 ORDER BY b.created_at DESC
                 LIMIT ?
@@ -56,8 +57,8 @@ class BackfillCandidateQuery {
                       WHERE bil.book_id = b.id
                         AND bil.download_error IS NULL
                         AND COALESCE(bil.is_grayscale, false) = false
-                        AND ((bil.url IS NOT NULL AND bil.url <> '')
-                             OR (bil.s3_image_path IS NOT NULL AND bil.s3_image_path <> ''))
+                        AND bil.s3_image_path IS NOT NULL
+                        AND bil.s3_image_path <> ''
                   )
                 ORDER BY b.created_at DESC
                 LIMIT ?
@@ -75,6 +76,7 @@ class BackfillCandidateQuery {
                       SELECT 1 FROM book_image_links bil
                       WHERE bil.book_id = b.id
                         AND bil.download_error IS NULL
+                        AND COALESCE(bil.is_grayscale, false) = false
                         AND bil.s3_image_path IS NOT NULL
                         AND bil.s3_image_path <> ''
                   )

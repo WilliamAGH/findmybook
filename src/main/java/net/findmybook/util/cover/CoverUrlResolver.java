@@ -277,6 +277,9 @@ public final class CoverUrlResolver {
     }
 
     private static String resolveCdnBaseFromEnvironment() {
+        if (s3DisabledByEnvironment()) {
+            return "";
+        }
         String configured = System.getProperty("s3.cdn-url");
         if (!StringUtils.hasText(configured)) {
             configured = System.getProperty("S3_CDN_URL");
@@ -292,6 +295,17 @@ public final class CoverUrlResolver {
             return "";
         }
         return trimmed.endsWith("/") ? trimmed : trimmed + "/";
+    }
+
+    private static boolean s3DisabledByEnvironment() {
+        String configured = System.getProperty("s3.enabled");
+        if (!StringUtils.hasText(configured)) {
+            configured = System.getProperty("S3_ENABLED");
+        }
+        if (!StringUtils.hasText(configured)) {
+            configured = System.getenv("S3_ENABLED");
+        }
+        return StringUtils.hasText(configured) && "false".equalsIgnoreCase(configured.trim());
     }
 
     private static String normalizeBase(String value) {

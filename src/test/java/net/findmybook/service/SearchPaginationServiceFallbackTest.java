@@ -111,6 +111,81 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
     }
 
     @Test
+    @DisplayName("search() deduplicates Open Library ISBN-10 and Google ISBN-13 fallback rows")
+    void should_DeduplicateExternalFallbackRows_When_IsbnFormatsAreEquivalent() {
+        Book openLibraryCandidate = buildOpenLibraryCandidate("OL-ISBN-10", "Provider Primary Title");
+        openLibraryCandidate.setAuthors(List.of("Open Library Author"));
+        openLibraryCandidate.setIsbn10("0061120081");
+
+        BookAggregate googleCandidate = BookAggregate.builder()
+            .title("Provider Secondary Title")
+            .authors(List.of("Google Author"))
+            .isbn13("9780061120084")
+            .slugBase("provider-secondary-title")
+            .identifiers(BookAggregate.ExternalIdentifiers.builder()
+                .source("GOOGLE_BOOKS")
+                .externalId("google-vol-isbn")
+                .imageLinks(Map.of())
+                .build())
+            .build();
+
+        when(bookSearchService.searchBooks("0061120081", 4)).thenReturn(List.of());
+        when(openLibraryBookDataService.queryBooksByEverything(eq("0061120081"), anyString(), eq(0), eq(4)))
+            .thenReturn(Flux.just(openLibraryCandidate));
+        when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
+        when(googleApiFetcher.streamSearchItems("0061120081", 4, "newest", null, true))
+            .thenReturn(Flux.just(googleVolumeNode("google-vol-isbn", "Provider Secondary Title")));
+        when(googleApiFetcher.isFallbackAllowed()).thenReturn(false);
+        when(googleBooksMapper.map(argThat(node -> "google-vol-isbn".equals(node.path("id").asString("")))))
+            .thenReturn(googleCandidate);
+
+        SearchPaginationService fallbackService = fallbackEnabledService();
+        SearchPaginationService.SearchPage page = fallbackService.search(searchRequest("0061120081", 0, 2, "newest")).block();
+
+        assertThat(page).isNotNull();
+        assertThat(page.totalUnique()).isEqualTo(1);
+        assertThat(page.pageItems()).extracting(Book::getId).containsExactly("OL-ISBN-10");
+        verify(googleApiFetcher, times(1)).streamSearchItems("0061120081", 4, "newest", null, true);
+    }
+
+    @Test
+    @DisplayName("search() deduplicates fallback rows when one provider lacks ISBN metadata")
+    void should_DeduplicateExternalFallbackRows_When_OneProviderOnlyHasTitleAuthorIdentity() {
+        Book openLibraryCandidate = buildOpenLibraryCandidate("OL-TITLE-AUTHOR", "To Kill a Mockingbird");
+        openLibraryCandidate.setAuthors(List.of("Harper Lee"));
+        openLibraryCandidate.setIsbn10("0061120081");
+
+        BookAggregate googleCandidate = BookAggregate.builder()
+            .title("To Kill a Mockingbird")
+            .authors(List.of("Harper Lee"))
+            .slugBase("to-kill-a-mockingbird-harper-lee")
+            .identifiers(BookAggregate.ExternalIdentifiers.builder()
+                .source("GOOGLE_BOOKS")
+                .externalId("google-vol-title-author")
+                .imageLinks(Map.of())
+                .build())
+            .build();
+
+        when(bookSearchService.searchBooks("0061120081", 4)).thenReturn(List.of());
+        when(openLibraryBookDataService.queryBooksByEverything(eq("0061120081"), anyString(), eq(0), eq(4)))
+            .thenReturn(Flux.just(openLibraryCandidate));
+        when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
+        when(googleApiFetcher.streamSearchItems("0061120081", 4, "newest", null, true))
+            .thenReturn(Flux.just(googleVolumeNode("google-vol-title-author", "To Kill a Mockingbird")));
+        when(googleApiFetcher.isFallbackAllowed()).thenReturn(false);
+        when(googleBooksMapper.map(argThat(node -> "google-vol-title-author".equals(node.path("id").asString("")))))
+            .thenReturn(googleCandidate);
+
+        SearchPaginationService fallbackService = fallbackEnabledService();
+        SearchPaginationService.SearchPage page = fallbackService.search(searchRequest("0061120081", 0, 2, "newest")).block();
+
+        assertThat(page).isNotNull();
+        assertThat(page.totalUnique()).isEqualTo(1);
+        assertThat(page.pageItems()).extracting(Book::getId).containsExactly("OL-TITLE-AUTHOR");
+        verify(googleApiFetcher, times(1)).streamSearchItems("0061120081", 4, "newest", null, true);
+    }
+
+    @Test
     @DisplayName("search() does not add Open Library fallback duplicates for persisted title-author matches")
     void should_DeduplicateOpenLibraryFallback_When_PersistedBookMatchesTitleAndAuthor() {
         UUID postgresId = UUID.randomUUID();

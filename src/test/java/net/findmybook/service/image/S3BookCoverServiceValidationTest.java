@@ -8,10 +8,12 @@ import net.findmybook.support.s3.S3CoverStorageGateway;
 import net.findmybook.support.s3.S3CoverStorageProperties;
 import net.findmybook.support.s3.S3CoverUploadExecutor;
 import net.findmybook.support.s3.S3CoverUrlSupport;
+import net.findmybook.util.cover.CoverUrlResolver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.core.env.Environment;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.test.StepVerifier;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -75,11 +77,20 @@ class S3BookCoverServiceValidationTest {
                                               String s3PublicCdnUrl,
                                               String s3ServerUrl,
                                               String s3BucketName) {
+        return buildUrlSupport(s3CdnUrl, s3PublicCdnUrl, s3ServerUrl, s3BucketName, true);
+    }
+
+    private S3CoverUrlSupport buildUrlSupport(String s3CdnUrl,
+                                              String s3PublicCdnUrl,
+                                              String s3ServerUrl,
+                                              String s3BucketName,
+                                              boolean s3Enabled) {
         S3CoverUrlSupport support = new S3CoverUrlSupport(
             s3CdnUrl,
             s3PublicCdnUrl,
             s3ServerUrl,
-            s3BucketName
+            s3BucketName,
+            new S3CoverStorageProperties(s3Enabled, true, ".jpg", java.util.List.of("google-books", "open-library", "longitood"))
         );
         return support;
     }
@@ -128,5 +139,30 @@ class S3BookCoverServiceValidationTest {
     void should_AllowNytStaticCoverHost_When_ValidatingUploadUrlSafety() {
         assertThat(coverUrlSafetyValidator.isAllowedImageUrl("https://static01.nyt.com/bestsellers/images/9780525509622.jpg"))
             .isTrue();
+    }
+
+    @Test
+    void should_ClearResolverCdnBase_When_S3StorageIsDisabled() {
+        CoverUrlResolver.setCdnBase("https://stale-cdn.example/");
+        try {
+            S3CoverUrlSupport disabledSupport = buildUrlSupport(
+                "https://cdn.example.com",
+                "",
+                "https://sfo3.digitaloceanspaces.com",
+                "test-bucket",
+                false
+            );
+
+            ReflectionTestUtils.invokeMethod(disabledSupport, "configureResolver");
+
+            CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
+                "covers/stale.jpg",
+                "https://covers.openlibrary.org/b/id/1-L.jpg"
+            );
+            assertThat(resolved.url()).isEqualTo("https://covers.openlibrary.org/b/id/1-L.jpg");
+            assertThat(resolved.fromS3()).isFalse();
+        } finally {
+            CoverUrlResolver.setCdnBase(null);
+        }
     }
 }

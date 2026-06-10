@@ -214,7 +214,7 @@ public class BookUpsertService {
             }
         }
 
-        Optional<UUID> clusteredMatch = findBookByWorkCluster(sanitizedIsbn13);
+        Optional<UUID> clusteredMatch = findBookByWorkCluster(isbn13IdentityForLookup(aggregate));
         if (clusteredMatch.isPresent()) {
             log.debug("Found existing book {} via work cluster lookup", clusteredMatch.get());
             return clusteredMatch;
@@ -244,10 +244,22 @@ public class BookUpsertService {
             return Optional.empty();
         }
 
+        Optional<UUID> exact = queryBookByIsbn13(sanitized);
+        if (exact.isPresent()) {
+            return exact;
+        }
+
+        return queryBookByIsbn10(IsbnUtils.toIsbn10(sanitized));
+    }
+
+    private Optional<UUID> queryBookByIsbn13(String isbn13) {
+        if (isbn13 == null || isbn13.isBlank()) {
+            return Optional.empty();
+        }
         UUID id = jdbcTemplate.query(
             "SELECT id FROM books WHERE isbn13 = ? LIMIT 1",
             rs -> rs.next() ? (UUID) rs.getObject("id") : null,
-            sanitized
+            isbn13
         );
         return Optional.ofNullable(id);
     }
@@ -258,10 +270,22 @@ public class BookUpsertService {
             return Optional.empty();
         }
 
+        Optional<UUID> exact = queryBookByIsbn10(sanitized);
+        if (exact.isPresent()) {
+            return exact;
+        }
+
+        return queryBookByIsbn13(IsbnUtils.toIsbn13(sanitized));
+    }
+
+    private Optional<UUID> queryBookByIsbn10(String isbn10) {
+        if (isbn10 == null || isbn10.isBlank()) {
+            return Optional.empty();
+        }
         UUID id = jdbcTemplate.query(
             "SELECT id FROM books WHERE isbn10 = ? LIMIT 1",
             rs -> rs.next() ? (UUID) rs.getObject("id") : null,
-            sanitized
+            isbn10
         );
         return Optional.ofNullable(id);
     }
@@ -272,8 +296,18 @@ public class BookUpsertService {
         }
 
         UUID id = jdbcTemplate.query(
-            "SELECT id FROM books WHERE slug = ? LIMIT 1",
+            """
+            SELECT id
+            FROM books
+            WHERE slug = ?
+               OR (slug LIKE ? AND substring(slug from ?) ~ '^[0-9]+$')
+            ORDER BY CASE WHEN slug = ? THEN 0 ELSE 1 END, length(slug), slug
+            LIMIT 1
+            """,
             rs -> rs.next() ? (UUID) rs.getObject("id") : null,
+            slug,
+            slug + "-%",
+            slug.length() + 2,
             slug
         );
         return Optional.ofNullable(id);
@@ -306,15 +340,9 @@ public class BookUpsertService {
 
     private Long computeBookLockKey(BookAggregate aggregate) {
         String lockString = null;
-        String sanitizedIsbn13 = IsbnUtils.sanitize(aggregate.getIsbn13());
-        if (sanitizedIsbn13 != null) {
-            lockString = "ISBN13:" + sanitizedIsbn13;
-        }
-        else {
-            String sanitizedIsbn10 = IsbnUtils.sanitize(aggregate.getIsbn10());
-            if (sanitizedIsbn10 != null) {
-                lockString = "ISBN10:" + sanitizedIsbn10;
-            }
+        String isbn13Identity = isbn13IdentityForLookup(aggregate);
+        if (isbn13Identity != null) {
+            lockString = "ISBN:" + isbn13Identity;
         }
         if (lockString == null && aggregate.getIdentifiers() != null) {
             String source = aggregate.getIdentifiers().getSource();
@@ -328,6 +356,14 @@ public class BookUpsertService {
             return null; // No identifiers available
         }
         return fnv1a64(lockString);
+    }
+
+    private String isbn13IdentityForLookup(BookAggregate aggregate) {
+        String isbn13Identity = IsbnUtils.isbn13Identity(aggregate.getIsbn13());
+        if (isbn13Identity != null) {
+            return isbn13Identity;
+        }
+        return IsbnUtils.isbn13Identity(aggregate.getIsbn10());
     }
 
     private static long fnv1a64(String input) {

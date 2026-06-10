@@ -9,12 +9,15 @@
 package net.findmybook.service;
 
 import net.findmybook.model.Book;
+import net.findmybook.model.image.CoverImageSource;
+import net.findmybook.model.image.CoverImages;
 import net.findmybook.util.ExternalApiLogger;
 import net.findmybook.util.IsbnUtils;
 import net.findmybook.util.LoggingUtils;
 import net.findmybook.util.SearchExternalProviderUtils;
 import net.findmybook.util.TextUtils;
 import net.findmybook.util.ApplicationConstants;
+import net.findmybook.util.DateParsingUtils;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import lombok.extern.slf4j.Slf4j;
@@ -46,6 +49,7 @@ public class OpenLibraryBookDataService {
     private static final int WORK_DETAILS_CONCURRENCY = 6;
     private static final int WORK_DETAILS_MAX_ENRICHMENTS = 12;
     private static final Duration WORK_DETAILS_TIMEOUT = Duration.ofSeconds(3);
+    private static final Duration ISBN_EDITION_DETAILS_TIMEOUT = Duration.ofSeconds(3);
     private static final String SEARCH_FIELDS =
         "key,title,author_name,isbn,cover_i,first_publish_year,number_of_pages_median,subject,publisher,language,first_sentence";
 
@@ -196,9 +200,11 @@ public class OpenLibraryBookDataService {
                 })
                 .take(safeMaxResults);
 
-        Flux<Book> response = includeEverythingMode
-            ? enrichWithWorkDetails(parsedBooks, queryValue)
-            : parsedBooks;
+        Flux<Book> response = parsedBooks;
+        if (includeEverythingMode) {
+            response = enrichWithIsbnEditionDetails(response, queryValue);
+            response = enrichWithWorkDetails(response, queryValue);
+        }
 
         return response
                 .doOnError(e -> LoggingUtils.error(log, e, "Error searching books by {} '{}' from OpenLibrary", queryParamName, queryValue))
@@ -252,7 +258,7 @@ public class OpenLibraryBookDataService {
                 int count = responseNode.get("docs").size();
                 ExternalApiLogger.logApiCallSuccess(log, "OpenLibrary", apiOperation, requestContext, count);
                 return Flux.fromIterable(responseNode.get("docs"))
-                    .map(this::parseOpenLibrarySearchDoc)
+                    .map(docNode -> parseOpenLibrarySearchDoc(docNode, queryValue))
                     .filter(Objects::nonNull);
             });
     }
@@ -295,28 +301,96 @@ public class OpenLibraryBookDataService {
     }
 
     private Book parseOpenLibrarySearchDoc(JsonNode docNode) {
+        return parseOpenLibrarySearchDoc(docNode, null);
+    }
+
+    private Book parseOpenLibrarySearchDoc(JsonNode docNode, String queryValue) {
         if (docNode == null || docNode.isMissingNode() || !docNode.isObject()) {
             return null;
         }
 
+        String queryIsbn13Identity = IsbnUtils.isbn13Identity(queryValue);
+        boolean exactIsbnMatch = docContainsIsbnIdentity(docNode, queryIsbn13Identity);
         Book book = new Book();
         book.setId(extractOpenLibraryId(docNode));
         book.setTitle(TextUtils.normalizeBookTitle(emptyToNull(docNode.path("title").asString())));
         book.setAuthors(extractSearchAuthors(docNode));
         book.setDescription(extractSearchDescription(docNode));
-        book.setPublisher(extractSearchPublisher(docNode));
-        book.setLanguage(extractSearchLanguage(docNode));
         book.setCategories(extractSearchCategories(docNode));
-        extractSearchPageCount(docNode, book);
-        extractSearchIsbns(docNode, book);
-        extractSearchPublishedDate(docNode, book);
-        extractSearchCover(docNode, book);
+        extractSearchIsbns(docNode, book, queryIsbn13Identity);
+        if (!exactIsbnMatch) {
+            book.setPublisher(extractSearchPublisher(docNode));
+            book.setLanguage(extractSearchLanguage(docNode));
+            extractSearchPageCount(docNode, book);
+            extractSearchPublishedDate(docNode, book);
+            extractSearchCover(docNode, book);
+        }
         book.setRawJsonResponse(docNode.toString());
 
         if (book.getId() != null && book.getTitle() != null) {
             return book;
         }
         return null;
+    }
+
+    private Flux<Book> enrichWithIsbnEditionDetails(Flux<Book> books, String queryValue) {
+        String queryIsbn13Identity = IsbnUtils.isbn13Identity(queryValue);
+        if (!StringUtils.hasText(queryIsbn13Identity)) {
+            return books;
+        }
+        String isbnLookupKey = isbnLookupKey(queryValue, queryIsbn13Identity);
+        return books.flatMapSequential(book -> {
+            if (!bookMatchesIsbnIdentity(book, queryIsbn13Identity)) {
+                return Mono.just(book);
+            }
+            return fetchIsbnEditionDetails(book, isbnLookupKey, queryIsbn13Identity);
+        }, WORK_DETAILS_CONCURRENCY);
+    }
+
+    private Mono<Book> fetchIsbnEditionDetails(Book book, String isbnLookupKey, String queryIsbn13Identity) {
+        String bibKey = "ISBN:" + isbnLookupKey;
+        return webClient.get()
+            .uri(uriBuilder -> uriBuilder.path("/api/books")
+                .queryParam("bibkeys", bibKey)
+                .queryParam("format", "json")
+                .queryParam("jscmd", "details")
+                .build())
+            .retrieve()
+            .bodyToMono(JsonNode.class)
+            .timeout(ISBN_EDITION_DETAILS_TIMEOUT)
+            .map(responseNode -> mergeIsbnEditionDetails(book, responseNode, bibKey, queryIsbn13Identity))
+            .onErrorResume(ex -> {
+                LoggingUtils.warn(
+                    log,
+                    ex,
+                    "OpenLibrary ISBN edition lookup failed for ISBN '{}' and work '{}'; using unambiguous search fields only",
+                    isbnLookupKey,
+                    book.getId()
+                );
+                return Mono.just(book);
+            });
+    }
+
+    private Book mergeIsbnEditionDetails(Book book, JsonNode responseNode, String bibKey, String queryIsbn13Identity) {
+        if (book == null || responseNode == null || responseNode.isMissingNode() || !responseNode.isObject()) {
+            return book;
+        }
+        JsonNode editionNode = responseNode.path(bibKey);
+        if (editionNode.isMissingNode() || !editionNode.isObject()) {
+            return book;
+        }
+        JsonNode detailsNode = editionNode.path("details");
+        if (detailsNode.isMissingNode() || !detailsNode.isObject()) {
+            return book;
+        }
+
+        assignIsbnEditionIdentifiers(detailsNode, book, queryIsbn13Identity);
+        assignIsbnEditionPublisher(detailsNode, book);
+        assignIsbnEditionLanguage(detailsNode, book);
+        assignIsbnEditionPageCount(detailsNode, book);
+        assignIsbnEditionPublishedDate(detailsNode, book);
+        assignIsbnEditionCover(detailsNode, book);
+        return book;
     }
 
     private Flux<Book> enrichWithWorkDetails(Flux<Book> books, String queryValue) {
@@ -390,7 +464,7 @@ public class OpenLibraryBookDataService {
         return authors.isEmpty() ? List.of() : authors;
     }
 
-    private static void extractSearchIsbns(JsonNode docNode, Book book) {
+    private static void extractSearchIsbns(JsonNode docNode, Book book, String preferredIsbn13Identity) {
         if (!docNode.has("isbn") || !docNode.get("isbn").isArray()) {
             return;
         }
@@ -399,8 +473,17 @@ public class OpenLibraryBookDataService {
             String sanitized = IsbnUtils.sanitize(emptyToNull(isbnNode.asString()));
             if (sanitized != null) {
                 sanitizedIsbns.add(sanitized);
-                classifyIsbn(sanitized, book);
             }
+        }
+        if (StringUtils.hasText(preferredIsbn13Identity) && sanitizedIsbns.stream()
+            .map(IsbnUtils::isbn13Identity)
+            .anyMatch(preferredIsbn13Identity::equals)) {
+            book.setIsbn13(preferredIsbn13Identity);
+            book.setIsbn10(IsbnUtils.toIsbn10(preferredIsbn13Identity));
+            return;
+        }
+        for (String sanitized : sanitizedIsbns) {
+            classifyIsbn(sanitized, book);
         }
         if (book.getIsbn13() == null && book.getIsbn10() == null) {
             assignFirstMatchingIsbns(sanitizedIsbns, book);
@@ -422,6 +505,141 @@ public class OpenLibraryBookDataService {
         for (String isbn : isbns) {
             if (isbn.length() == IsbnUtils.ISBN_10_LENGTH) { book.setIsbn10(isbn); break; }
         }
+    }
+
+    private static void assignIsbnEditionIdentifiers(JsonNode detailsNode, Book book, String queryIsbn13Identity) {
+        if (StringUtils.hasText(queryIsbn13Identity)) {
+            book.setIsbn13(queryIsbn13Identity);
+            book.setIsbn10(IsbnUtils.toIsbn10(queryIsbn13Identity));
+            return;
+        }
+
+        String isbn13 = firstSanitizedArrayValue(detailsNode, "isbn_13", IsbnUtils.ISBN_13_LENGTH);
+        if (StringUtils.hasText(isbn13)) {
+            book.setIsbn13(isbn13);
+        }
+        String isbn10 = firstSanitizedArrayValue(detailsNode, "isbn_10", IsbnUtils.ISBN_10_LENGTH);
+        if (StringUtils.hasText(isbn10)) {
+            book.setIsbn10(isbn10);
+        }
+    }
+
+    private static void assignIsbnEditionPublisher(JsonNode detailsNode, Book book) {
+        String publisher = firstArrayText(detailsNode, "publishers");
+        if (StringUtils.hasText(publisher)) {
+            book.setPublisher(publisher);
+        }
+    }
+
+    private static void assignIsbnEditionLanguage(JsonNode detailsNode, Book book) {
+        JsonNode languagesNode = detailsNode.path("languages");
+        if (languagesNode.isMissingNode() || !languagesNode.isArray()) {
+            return;
+        }
+        for (JsonNode languageNode : languagesNode) {
+            String languageKey = emptyToNull(languageNode.path("key").asString());
+            if (!StringUtils.hasText(languageKey)) {
+                continue;
+            }
+            int slashIndex = languageKey.lastIndexOf('/');
+            String language = slashIndex >= 0 ? languageKey.substring(slashIndex + 1) : languageKey;
+            if (StringUtils.hasText(language)) {
+                book.setLanguage(language);
+                return;
+            }
+        }
+    }
+
+    private static void assignIsbnEditionPageCount(JsonNode detailsNode, Book book) {
+        if (!detailsNode.has("number_of_pages") || detailsNode.path("number_of_pages").isNull()) {
+            return;
+        }
+        int pageCount = detailsNode.path("number_of_pages").asInt(0);
+        if (pageCount > 0) {
+            book.setPageCount(pageCount);
+        }
+    }
+
+    private static void assignIsbnEditionPublishedDate(JsonNode detailsNode, Book book) {
+        String publishedDate = emptyToNull(detailsNode.path("publish_date").asString());
+        Date parsedDate = DateParsingUtils.parseFlexibleDate(publishedDate);
+        if (parsedDate != null) {
+            book.setPublishedDate(parsedDate);
+        }
+    }
+
+    private static void assignIsbnEditionCover(JsonNode detailsNode, Book book) {
+        JsonNode coversNode = detailsNode.path("covers");
+        if (coversNode.isMissingNode() || !coversNode.isArray()) {
+            return;
+        }
+        for (JsonNode coverNode : coversNode) {
+            String coverId = emptyToNull(coverNode.asString());
+            if (StringUtils.hasText(coverId)) {
+                String coverUrl = "https://covers.openlibrary.org/b/id/" + coverId + "-L.jpg";
+                book.setExternalImageUrl(coverUrl);
+                book.setCoverImages(new CoverImages(coverUrl, coverUrl, CoverImageSource.OPEN_LIBRARY));
+                return;
+            }
+        }
+    }
+
+    private static String firstSanitizedArrayValue(JsonNode detailsNode, String fieldName, int expectedLength) {
+        JsonNode valuesNode = detailsNode.path(fieldName);
+        if (valuesNode.isMissingNode() || !valuesNode.isArray()) {
+            return null;
+        }
+        for (JsonNode valueNode : valuesNode) {
+            String sanitized = IsbnUtils.sanitize(emptyToNull(valueNode.asString()));
+            if (sanitized != null && sanitized.length() == expectedLength) {
+                return sanitized;
+            }
+        }
+        return null;
+    }
+
+    private static String firstArrayText(JsonNode detailsNode, String fieldName) {
+        JsonNode valuesNode = detailsNode.path(fieldName);
+        if (valuesNode.isMissingNode() || !valuesNode.isArray()) {
+            return null;
+        }
+        for (JsonNode valueNode : valuesNode) {
+            String value = emptyToNull(valueNode.asString());
+            if (StringUtils.hasText(value)) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private static boolean docContainsIsbnIdentity(JsonNode docNode, String isbn13Identity) {
+        if (!StringUtils.hasText(isbn13Identity) || !docNode.has("isbn") || !docNode.get("isbn").isArray()) {
+            return false;
+        }
+        for (JsonNode isbnNode : docNode.get("isbn")) {
+            if (isbn13Identity.equals(IsbnUtils.isbn13Identity(isbnNode.asString()))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean bookMatchesIsbnIdentity(Book book, String isbn13Identity) {
+        if (book == null || !StringUtils.hasText(isbn13Identity)) {
+            return false;
+        }
+        return isbn13Identity.equals(IsbnUtils.isbn13Identity(book.getIsbn13()))
+            || isbn13Identity.equals(IsbnUtils.isbn13Identity(book.getIsbn10()));
+    }
+
+    private static String isbnLookupKey(String queryValue, String queryIsbn13Identity) {
+        String sanitizedQuery = IsbnUtils.sanitize(queryValue);
+        if (StringUtils.hasText(sanitizedQuery)
+            && (sanitizedQuery.length() == IsbnUtils.ISBN_10_LENGTH
+                || sanitizedQuery.length() == IsbnUtils.ISBN_13_LENGTH)) {
+            return sanitizedQuery;
+        }
+        return queryIsbn13Identity;
     }
 
     private static void extractSearchCover(JsonNode docNode, Book book) {

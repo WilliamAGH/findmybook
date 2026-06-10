@@ -1,10 +1,22 @@
 package net.findmybook.util.cover;
 
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class CoverQualityTest {
+
+    @BeforeEach
+    void setUp() {
+        CoverUrlResolver.setCdnBase("https://cdn.test/");
+    }
+
+    @AfterEach
+    void tearDown() {
+        CoverUrlResolver.setCdnBase(null);
+    }
 
     @Test
     void should_ReturnTier0_When_NoCoverExists() {
@@ -36,6 +48,13 @@ class CoverQualityTest {
     @Test
     void should_ReturnTier5_When_S3HighResColor() {
         assertThat(CoverQuality.rank("covers/abc.jpg", null, 800, 1200, true, false)).isEqualTo(5);
+    }
+
+    @Test
+    void should_ReturnTier0_When_S3KeyCannotResolveToCdnUrl() {
+        CoverUrlResolver.setCdnBase(null);
+
+        assertThat(CoverQuality.rank("covers/abc.jpg", null, 800, 1200, true, false)).isZero();
     }
 
     @Test

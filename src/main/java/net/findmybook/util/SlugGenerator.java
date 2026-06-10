@@ -14,6 +14,7 @@ public final class SlugGenerator {
     private static final Pattern WHITESPACE = Pattern.compile("[\\s_]+");
     private static final Pattern EDGE_DASHES = Pattern.compile("^-+|-+$");
     private static final Pattern MULTIPLE_DASHES = Pattern.compile("-{2,}");
+    private static final String FALLBACK_BOOK_SLUG = "book";
 
     private static final int MAX_SLUG_LENGTH = 100;
     private static final int MAX_TITLE_LENGTH = 60;
@@ -40,6 +41,9 @@ public final class SlugGenerator {
 
         // Process title
         String titleSlug = slugify(title);
+        if (titleSlug.isBlank()) {
+            titleSlug = FALLBACK_BOOK_SLUG;
+        }
         if (titleSlug.length() > MAX_TITLE_LENGTH) {
             // Truncate at word boundary
             titleSlug = truncateAtWordBoundary(titleSlug, MAX_TITLE_LENGTH);
@@ -51,10 +55,12 @@ public final class SlugGenerator {
             String firstAuthor = authors.get(0);
             if (firstAuthor != null && !firstAuthor.trim().isEmpty()) {
                 String authorSlug = slugify(firstAuthor);
-                if (authorSlug.length() > MAX_AUTHOR_LENGTH) {
+                if (!authorSlug.isBlank() && authorSlug.length() > MAX_AUTHOR_LENGTH) {
                     authorSlug = truncateAtWordBoundary(authorSlug, MAX_AUTHOR_LENGTH);
                 }
-                slugBuilder.append("-").append(authorSlug);
+                if (!authorSlug.isBlank()) {
+                    slugBuilder.append("-").append(authorSlug);
+                }
             }
         }
 
@@ -63,6 +69,10 @@ public final class SlugGenerator {
         // Ensure final slug doesn't exceed max length
         if (finalSlug.length() > MAX_SLUG_LENGTH) {
             finalSlug = truncateAtWordBoundary(finalSlug, MAX_SLUG_LENGTH);
+        }
+
+        if (finalSlug.isBlank()) {
+            return FALLBACK_BOOK_SLUG;
         }
 
         return finalSlug;
@@ -100,7 +110,6 @@ public final class SlugGenerator {
 
         // Replace common contractions and special cases
         slug = slug.replace("&", "and");
-        slug = slug.replace("'", "");
         slug = slug.replace("'", "");
         // Remove left and right typographic double quotes
         slug = slug.replace("\u201C", "");

@@ -76,11 +76,17 @@ final class SearchRealtimeCoordinator {
             return;
         }
 
-        String queryHash = SearchQueryUtils.topicKey(request.query());
-        String signature = realtimeSignature(request);
+        String queryHash = SearchQueryUtils.topicKey(
+            request.query(),
+            request.orderBy(),
+            request.coverSource().name(),
+            request.resolutionPreference().name(),
+            request.publishedYear(),
+            request.maxResults()
+        );
         SearchRealtimeState state = realtimeStates.get(queryHash, unused -> new SearchRealtimeState());
 
-        if (!state.tryAcquireAndPrepare(signature, page.totalUnique(), page.uniqueResults())) {
+        if (!state.tryAcquireAndPrepare(page.totalUnique(), page.uniqueResults())) {
             return;
         }
 
@@ -199,20 +205,6 @@ final class SearchRealtimeCoordinator {
         eventPublisher.get().publishEvent(new SearchResultsUpdatedEvent(searchQuery, newResults, source, totalResultsNow, queryHash, isComplete));
     }
 
-    private String realtimeSignature(SearchPaginationService.SearchRequest request) {
-        String source = request.coverSource() != null ? request.coverSource().name() : "ANY";
-        String resolution = request.resolutionPreference() != null ? request.resolutionPreference().name() : "ANY";
-        return request.query()
-            + "|"
-            + Optional.ofNullable(request.orderBy()).orElse("relevance")
-            + "|"
-            + source
-            + "|"
-            + resolution
-            + "|"
-            + Optional.ofNullable(request.publishedYear()).map(String::valueOf).orElse("-");
-    }
-
     private static SearchProgressEvent.SearchStatus classifyProviderError(Throwable ex) {
         if (ex instanceof WebClientResponseException webEx
             && webEx.getStatusCode().value() == HttpStatus.TOO_MANY_REQUESTS.value()) {
@@ -243,28 +235,30 @@ final class SearchRealtimeCoordinator {
         private final Set<String> emittedKeys = ConcurrentHashMap.newKeySet();
         private final AtomicBoolean streaming = new AtomicBoolean(false);
         private final AtomicInteger totalResults = new AtomicInteger(0);
-        private volatile String signature = "";
 
-        synchronized boolean tryAcquireAndPrepare(String newSignature, int baselineTotal, List<Book> existingResults) {
-            if (!Objects.equals(signature, newSignature)) {
-                emittedKeys.clear();
-                signature = newSignature;
+        synchronized boolean tryAcquireAndPrepare(int baselineTotal, List<Book> existingResults) {
+            if (!streaming.compareAndSet(false, true)) {
+                return false;
             }
+            emittedKeys.clear();
             totalResults.set(Math.max(0, baselineTotal));
 
             if (existingResults != null) {
                 for (Book existing : existingResults) {
-                    CandidateKeyResolver.resolve(existing).ifPresent(emittedKeys::add);
+                    emittedKeys.addAll(CandidateKeyResolver.resolveAliases(existing));
                 }
             }
 
-            return streaming.compareAndSet(false, true);
+            return true;
         }
 
         boolean registerCandidate(Book candidate) {
-            return CandidateKeyResolver.resolve(candidate)
-                .filter(emittedKeys::add)
-                .isPresent();
+            List<String> aliases = CandidateKeyResolver.resolveAliases(candidate);
+            if (aliases.isEmpty() || aliases.stream().anyMatch(emittedKeys::contains)) {
+                return false;
+            }
+            emittedKeys.addAll(aliases);
+            return true;
         }
 
         void markIdle() {

@@ -12,11 +12,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 
 /**
  * Builds CDN URLs and materializes S3-backed image details from storage keys.
  */
 @Component
+@EnableConfigurationProperties(S3CoverStorageProperties.class)
 public class S3CoverUrlSupport {
 
     private static final Logger logger = LoggerFactory.getLogger(S3CoverUrlSupport.class);
@@ -25,15 +27,18 @@ public class S3CoverUrlSupport {
     private final String s3PublicCdnUrl;
     private final String s3ServerUrl;
     private final String s3BucketName;
+    private final S3CoverStorageProperties s3CoverStorageProperties;
 
     public S3CoverUrlSupport(@Value("${s3.cdn-url}") String s3CdnUrl,
                              @Value("${s3.public-cdn-url:${S3_PUBLIC_CDN_URL:}}") String s3PublicCdnUrl,
                              @Value("${s3.server-url:https://sfo3.digitaloceanspaces.com}") String s3ServerUrl,
-                             @Value("${s3.bucket-name}") String s3BucketName) {
+                             @Value("${s3.bucket-name}") String s3BucketName,
+                             S3CoverStorageProperties s3CoverStorageProperties) {
         this.s3CdnUrl = s3CdnUrl;
         this.s3PublicCdnUrl = s3PublicCdnUrl;
         this.s3ServerUrl = s3ServerUrl;
         this.s3BucketName = s3BucketName;
+        this.s3CoverStorageProperties = s3CoverStorageProperties;
     }
 
     /**
@@ -41,7 +46,7 @@ public class S3CoverUrlSupport {
      */
     @PostConstruct
     void configureResolver() {
-        resolveCdnBase().ifPresent(CoverUrlResolver::setCdnBase);
+        CoverUrlResolver.setCdnBase(resolveCdnBase().orElse(null));
     }
 
     /**
@@ -77,6 +82,10 @@ public class S3CoverUrlSupport {
      * Builds the externally accessible CDN URL for a storage key.
      */
     public Optional<String> buildCdnUrl(String s3Key) {
+        if (!s3CoverStorageProperties.enabled()) {
+            logger.warn("S3 cover storage is disabled; unable to build S3 cover URL for key {}", s3Key);
+            return Optional.empty();
+        }
         return resolveCdnBase()
             .map(base -> appendPath(base, s3Key))
             .or(() -> {
@@ -86,6 +95,9 @@ public class S3CoverUrlSupport {
     }
 
     private Optional<String> resolveCdnBase() {
+        if (!s3CoverStorageProperties.enabled()) {
+            return Optional.empty();
+        }
         if (StringUtils.hasText(s3PublicCdnUrl)) {
             return Optional.of(normalizeBase(s3PublicCdnUrl));
         }

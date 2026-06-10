@@ -28,10 +28,10 @@ public class BookCollectionPersistenceService {
 
     /**
      * Upserts a category into the book_collections table.
-     * 
+     *
      * <p>Uses {@link CategoryNormalizer#normalizeForDatabase(String)} to generate
      * a consistent normalized_name for database uniqueness constraints.
-     * 
+     *
      * @param displayName Human-readable category name
      * @return Optional containing the category ID, or empty if operation failed
      * @see CategoryNormalizer#normalizeForDatabase(String)
@@ -115,23 +115,23 @@ public class BookCollectionPersistenceService {
             return Optional.ofNullable(id);
         } catch (DataAccessException ex) {
             LoggingUtils.error(log, ex, "Failed upserting bestseller collection listCode={} publishedDate={}", dto.listCode(), dto.publishedDate());
-            return JdbcUtils.optionalString(
-                jdbcTemplate,
-                "SELECT id FROM book_collections WHERE source = 'NYT' AND provider_list_code = ? AND published_date = ?",
-                dto.listCode(),
-                dto.publishedDate()
+            throw new IllegalStateException(
+                "Failed upserting NYT bestseller collection listCode=%s publishedDate=%s"
+                    .formatted(dto.listCode(), dto.publishedDate()),
+                ex
             );
         }
     }
 
     public void upsertBestsellerMembership(BestsellerMembershipDto dto) {
         if (jdbcTemplate == null) {
-            log.warn("upsertBestsellerMembership: jdbcTemplate is null");
-            return;
+            throw new IllegalStateException("JdbcTemplate unavailable for NYT bestseller membership persistence");
         }
         if (dto.collectionId() == null || dto.bookId() == null) {
-            log.warn("upsertBestsellerMembership: collectionId or bookId is null - collectionId: {}, bookId: {}", dto.collectionId(), dto.bookId());
-            return;
+            throw new IllegalArgumentException(
+                "NYT bestseller membership requires collectionId and bookId; collectionId=%s bookId=%s"
+                    .formatted(dto.collectionId(), dto.bookId())
+            );
         }
 
         try {
@@ -151,10 +151,10 @@ public class BookCollectionPersistenceService {
                     bookUuid
                 );
             }
-            
+
             log.debug("Inserting book into collection: collectionId='{}', bookId='{}', position={}, isbn13='{}'",
                 dto.collectionId(), dto.bookId(), dto.position(), dto.providerIsbn13());
-            
+
             JdbcUtils.executeUpdate(
                 jdbcTemplate,
                 "INSERT INTO book_collections_join (id, collection_id, book_id, position, weeks_on_list, rank_last_week, peak_position, provider_isbn13, provider_isbn10, provider_book_ref, raw_item_json, created_at, updated_at) " +
@@ -172,19 +172,25 @@ public class BookCollectionPersistenceService {
                 dto.providerBookRef(),
                 dto.rawItemJson()
             );
-            
+
             log.info("Successfully added book to collection: collectionId='{}', bookId='{}', position={}",
                 dto.collectionId(), dto.bookId(), dto.position());
         } catch (IllegalArgumentException ex) {
             LoggingUtils.error(log, ex, "Invalid UUID format for bookId: {}", dto.bookId());
+            throw ex;
         } catch (DataAccessException ex) {
             LoggingUtils.error(log, ex, "Database error adding book to collection: collectionId='{}', bookId='{}', position={}, isbn13='{}'",
                 dto.collectionId(), dto.bookId(), dto.position(), dto.providerIsbn13());
+            throw new IllegalStateException(
+                "Failed persisting NYT bestseller membership collectionId=%s bookId=%s position=%s"
+                    .formatted(dto.collectionId(), dto.bookId(), dto.position()),
+                ex
+            );
         }
     }
 
     public record BestsellerCollectionDto(String providerListId, String listCode, String displayName, String normalizedName, String description, LocalDate bestsellersDate, LocalDate publishedDate, String updatedFrequency, JsonNode rawListJson) {}
-    
+
     public record BestsellerMembershipDto(String collectionId, String bookId, Integer position, Integer weeksOnList, Integer rankLastWeek, Integer peakPosition, String providerIsbn13, String providerIsbn10, String providerBookRef, String rawItemJson) {}
 
     public Optional<String> upsertList(String source,

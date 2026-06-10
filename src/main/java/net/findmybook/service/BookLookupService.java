@@ -58,10 +58,24 @@ public class BookLookupService {
      * @return Optional containing the book ID if found
      */
     public Optional<String> findBookIdByIsbn13(String isbn13) {
-        if (!StringUtils.hasText(isbn13)) {
+        String sanitized = IsbnUtils.sanitize(isbn13);
+        if (!StringUtils.hasText(sanitized)) {
             return Optional.empty();
         }
 
+        Optional<String> exact = findBookIdByIsbn13Exact(sanitized);
+        if (exact.isPresent()) {
+            return exact;
+        }
+
+        String equivalentIsbn10 = IsbnUtils.toIsbn10(sanitized);
+        return findBookIdByIsbn10Exact(equivalentIsbn10);
+    }
+
+    private Optional<String> findBookIdByIsbn13Exact(String isbn13) {
+        if (!StringUtils.hasText(isbn13)) {
+            return Optional.empty();
+        }
         // First check books table
         Optional<String> bookId = JdbcUtils.optionalString(
             jdbcTemplate,
@@ -90,10 +104,24 @@ public class BookLookupService {
      * @return Optional containing the book ID if found
      */
     public Optional<String> findBookIdByIsbn10(String isbn10) {
-        if (!StringUtils.hasText(isbn10)) {
+        String sanitized = IsbnUtils.sanitize(isbn10);
+        if (!StringUtils.hasText(sanitized)) {
             return Optional.empty();
         }
 
+        Optional<String> exact = findBookIdByIsbn10Exact(sanitized);
+        if (exact.isPresent()) {
+            return exact;
+        }
+
+        String equivalentIsbn13 = IsbnUtils.toIsbn13(sanitized);
+        return findBookIdByIsbn13Exact(equivalentIsbn13);
+    }
+
+    private Optional<String> findBookIdByIsbn10Exact(String isbn10) {
+        if (!StringUtils.hasText(isbn10)) {
+            return Optional.empty();
+        }
         // First check books table
         Optional<String> bookId = JdbcUtils.optionalString(
             jdbcTemplate,

@@ -135,6 +135,30 @@ class BookDtoMapperTest {
     }
 
     @Test
+    void should_UseExternalCover_When_S3KeyExistsButCdnIsDisabled() {
+        CoverUrlResolver.setCdnBase(null);
+        try {
+            Book book = new Book();
+            book.setId("s3-disabled");
+            book.setTitle("S3 Disabled");
+            book.setAuthors(List.of("Author"));
+            book.setS3ImagePath("images/book-covers/s3-disabled.jpg");
+            book.setExternalImageUrl("https://covers.openlibrary.org/b/id/123-L.jpg");
+            book.setCoverImageWidth(600);
+            book.setCoverImageHeight(900);
+            book.setIsCoverHighResolution(true);
+
+            BookDto dto = BookDtoMapper.toDto(book);
+
+            assertThat(dto.cover().preferredUrl()).isEqualTo("https://covers.openlibrary.org/b/id/123-L.jpg");
+            assertThat(dto.cover().s3ImagePath()).isNull();
+            assertThat(dto.cover().source()).isEqualTo(CoverImageSource.OPEN_LIBRARY.name());
+        } finally {
+            CoverUrlResolver.setCdnBase(null);
+        }
+    }
+
+    @Test
     void should_SanitizeUnsafeHtml_When_DescriptionContainsScriptTag() {
         Book book = new Book();
         book.setId("unsafe-html");

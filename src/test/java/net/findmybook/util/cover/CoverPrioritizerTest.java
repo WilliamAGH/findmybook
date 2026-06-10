@@ -161,6 +161,26 @@ class CoverPrioritizerTest {
     }
 
     @Test
+    @DisplayName("score(BookCard) ignores bare S3 key when CDN is disabled")
+    void scoreIgnoresBareS3KeyWhenCdnDisabled() {
+        CoverUrlResolver.setCdnBase(null);
+        BookCard s3Only = new BookCard(
+            "s3-only-disabled",
+            "s3-only-disabled",
+            "S3 Only Disabled",
+            List.of("Author"),
+            null,
+            "covers/s3-only-disabled.jpg",
+            null,
+            4.0,
+            25,
+            Map.of()
+        );
+
+        assertThat(CoverPrioritizer.score(s3Only)).isZero();
+    }
+
+    @Test
     @DisplayName("resolve() treats uppercase HTTP schemes as external URLs")
     void resolveHandlesUppercaseHttpScheme() {
         CoverUrlResolver.setCdnBase(null);

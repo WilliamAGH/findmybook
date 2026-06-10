@@ -4,6 +4,8 @@ import net.findmybook.model.Book;
 import net.findmybook.util.IsbnUtils;
 import org.springframework.util.StringUtils;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.regex.Pattern;
@@ -11,10 +13,14 @@ import java.util.regex.Pattern;
 /**
  * Resolves a stable deduplication key for a book search candidate.
  *
- * <p>Keys follow a priority chain: ISBN-13 → ISBN-10 → normalized title+author composite
+ * <p>Keys follow a priority chain: canonical ISBN identity → normalized title+author composite
  * → provider/internal ID. Content keys intentionally outrank IDs so a persisted book and
  * an external fallback row can collapse when providers assign different identifiers to
  * the same work.</p>
+ *
+ * <p>{@link #resolveAliases(Book)} returns every safe content identity for overlap checks. That lets
+ * candidates collapse when one provider supplies ISBN metadata and another only supplies a stable
+ * title/author identity for the same work.</p>
  *
  * <p>Rows that lack both ISBNs and an internal ID and carry only a partial title or author
  * do not qualify for a dedupe key: partial keys would collapse distinct works, so such
@@ -22,8 +28,7 @@ import java.util.regex.Pattern;
  */
 public final class CandidateKeyResolver {
 
-    private static final String ISBN13_KEY_PREFIX = "ISBN13:";
-    private static final String ISBN10_KEY_PREFIX = "ISBN10:";
+    private static final String ISBN_KEY_PREFIX = "ISBN:";
     private static final String TITLE_AUTHOR_KEY_PREFIX = "TITLE_AUTHOR:";
     private static final String ID_KEY_PREFIX = "ID:";
     private static final String CONTRIBUTOR_BY_PREFIX = "by ";
@@ -40,32 +45,40 @@ public final class CandidateKeyResolver {
      * @return a stable key string, or empty when the book is null or lacks any usable identifier
      */
     public static Optional<String> resolve(Book book) {
+        List<String> aliases = resolveAliases(book);
+        return aliases.isEmpty() ? Optional.empty() : Optional.of(aliases.getFirst());
+    }
+
+    /**
+     * Computes all safe deduplication identities for the given book.
+     *
+     * @param book the candidate book to key
+     * @return ordered alias keys, or an empty list when no usable identity exists
+     */
+    public static List<String> resolveAliases(Book book) {
         if (book == null) {
-            return Optional.empty();
+            return List.of();
         }
 
-        String isbn13 = IsbnUtils.sanitize(book.getIsbn13());
-        if (StringUtils.hasText(isbn13)) {
-            return Optional.of(ISBN13_KEY_PREFIX + isbn13);
-        }
-
-        String isbn10 = IsbnUtils.sanitize(book.getIsbn10());
-        if (StringUtils.hasText(isbn10)) {
-            return Optional.of(ISBN10_KEY_PREFIX + isbn10);
+        List<String> aliases = new ArrayList<>(2);
+        String isbnIdentity = Optional.ofNullable(IsbnUtils.isbn13Identity(book.getIsbn13()))
+            .orElseGet(() -> IsbnUtils.isbn13Identity(book.getIsbn10()));
+        if (StringUtils.hasText(isbnIdentity)) {
+            aliases.add(ISBN_KEY_PREFIX + isbnIdentity);
         }
 
         String title = normalizeText(book.getTitle());
         String firstAuthor = normalizeAuthor(firstAuthor(book));
         if (StringUtils.hasText(title) && StringUtils.hasText(firstAuthor)) {
-            return Optional.of(TITLE_AUTHOR_KEY_PREFIX + title + "::" + firstAuthor);
+            aliases.add(TITLE_AUTHOR_KEY_PREFIX + title + "::" + firstAuthor);
         }
 
         String id = book.getId();
-        if (StringUtils.hasText(id)) {
-            return Optional.of(ID_KEY_PREFIX + id);
+        if (aliases.isEmpty() && StringUtils.hasText(id)) {
+            aliases.add(ID_KEY_PREFIX + id);
         }
 
-        return Optional.empty();
+        return List.copyOf(aliases);
     }
 
     private static String firstAuthor(Book book) {

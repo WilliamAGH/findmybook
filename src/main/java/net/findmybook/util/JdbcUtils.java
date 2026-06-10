@@ -39,12 +39,13 @@ public final class JdbcUtils {
     }
 
     /**
-     * Executes the supplied query and returns the first column as an optional string,
-     * invoking the provided failure callback when a {@link DataAccessException} occurs.
+     * Executes the supplied query and returns the first column as an optional string.
+     * Only a no-row result is converted to empty; database failures propagate so callers
+     * cannot confuse outages with missing rows.
      *
      * @param jdbcTemplate the {@link JdbcTemplate} to use; treated as absent when {@code null}
      * @param sql          SQL statement to execute
-     * @param onFailure    callback invoked when a {@link DataAccessException} is thrown (optional)
+     * @param onFailure    callback invoked before propagating non-empty-result data access failures (optional)
      * @param args         positional arguments for the SQL statement
      * @return optional string result
      */
@@ -57,11 +58,13 @@ public final class JdbcUtils {
         }
         try {
             return Optional.ofNullable(jdbcTemplate.queryForObject(sql, String.class, args));
+        } catch (EmptyResultDataAccessException ex) {
+            return Optional.empty();
         } catch (DataAccessException ex) {
             if (onFailure != null) {
                 onFailure.accept(ex);
             }
-            return Optional.empty();
+            throw ex;
         }
     }
 
