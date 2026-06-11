@@ -57,7 +57,7 @@ SELECT * FROM get_clustering_stats();
 
 ## Frontend Integration
 
-The `PostgresBookRepository.hydrateEditions()` method queries `work_cluster_members` to populate the `Book.editions` field, which the frontend uses to display the "Other Editions" dropdown.
+The `PostgresBookDetailHydrator.hydrateEditions()` method queries `work_cluster_members` to populate the `Book.editions` field, which the frontend uses to display the "Other Editions" dropdown.
 
 **Frontend query:**
 
@@ -97,5 +97,5 @@ To cluster more books, we could:
 
 - `src/main/resources/schema.sql` - Table definitions and clustering functions
 - `src/main/java/.../scheduler/WorkClusterScheduler.java` - Scheduled clustering
-- `src/main/java/.../service/PostgresBookRepository.java` - Edition hydration
+- `src/main/java/.../service/PostgresBookDetailHydrator.java` - Edition hydration
 - `Makefile` - Manual clustering command
