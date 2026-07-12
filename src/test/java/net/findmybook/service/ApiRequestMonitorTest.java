@@ -11,6 +11,8 @@ package net.findmybook.service;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -33,10 +35,10 @@ public class ApiRequestMonitorTest {
         assertEquals(0, ((Number) apiRequestMonitor.getMetricsMap().get("hourly_requests")).intValue());
         assertEquals(0, ((Number) apiRequestMonitor.getMetricsMap().get("hourly_successful")).intValue());
         assertEquals(0, ((Number) apiRequestMonitor.getMetricsMap().get("hourly_failed")).intValue());
-        
+
         // Record a successful call
         apiRequestMonitor.recordSuccessfulRequest("test/endpoint");
-        
+
         // Verify counts were updated correctly
         assertEquals(1, ((Number) apiRequestMonitor.getMetricsMap().get("hourly_requests")).intValue());
         assertEquals(1, ((Number) apiRequestMonitor.getMetricsMap().get("hourly_successful")).intValue());
@@ -47,7 +49,7 @@ public class ApiRequestMonitorTest {
         assertEquals(1L, (Long) apiRequestMonitor.getMetricsMap().get("total_requests"));
         assertEquals(1L, (Long) apiRequestMonitor.getMetricsMap().get("total_successful"));
         assertEquals(0L, (Long) apiRequestMonitor.getMetricsMap().get("total_failed"));
-        
+
         // Verify endpoint tracking without unchecked casts
         Object endpointsObj = apiRequestMonitor.getMetricsMap().get("endpoints");
         assertNotNull(endpointsObj);
@@ -61,7 +63,7 @@ public class ApiRequestMonitorTest {
     public void testRecordFailedCall() {
         // Record a failed call
         apiRequestMonitor.recordFailedRequest("test/endpoint", "Test error message");
-        
+
         // Verify counts were updated correctly
         assertEquals(1, ((Number) apiRequestMonitor.getMetricsMap().get("hourly_requests")).intValue());
         assertEquals(0, ((Number) apiRequestMonitor.getMetricsMap().get("hourly_successful")).intValue());
@@ -73,52 +75,52 @@ public class ApiRequestMonitorTest {
         assertEquals(0L, (Long) apiRequestMonitor.getMetricsMap().get("total_successful"));
         assertEquals(1L, (Long) apiRequestMonitor.getMetricsMap().get("total_failed"));
     }
-    
+
     @Test
     public void testResetMetrics() {
         // Record some calls
         apiRequestMonitor.recordSuccessfulRequest("test/endpoint");
         apiRequestMonitor.recordFailedRequest("test/endpoint", "Test error message");
-        
+
         // Verify initial state
         assertEquals(2, ((Number) apiRequestMonitor.getMetricsMap().get("hourly_requests")).intValue());
         assertEquals(1, ((Number) apiRequestMonitor.getMetricsMap().get("hourly_successful")).intValue());
         assertEquals(1, ((Number) apiRequestMonitor.getMetricsMap().get("hourly_failed")).intValue());
         assertEquals(2, ((Number) apiRequestMonitor.getMetricsMap().get("daily_requests")).intValue());
-        
+
         // Reset hourly metrics
         apiRequestMonitor.resetHourlyCounters();
-        
+
         // Verify hourly counters were reset
         assertEquals(0, ((Number) apiRequestMonitor.getMetricsMap().get("hourly_requests")).intValue());
         assertEquals(0, ((Number) apiRequestMonitor.getMetricsMap().get("hourly_successful")).intValue());
         assertEquals(0, ((Number) apiRequestMonitor.getMetricsMap().get("hourly_failed")).intValue());
-        
+
         // But daily and total shouldn't be affected
         assertEquals(2, ((Number) apiRequestMonitor.getMetricsMap().get("daily_requests")).intValue());
         assertEquals(2L, (Long) apiRequestMonitor.getMetricsMap().get("total_requests"));
-        
+
         // Reset daily metrics
         apiRequestMonitor.resetDailyCounters();
-        
+
         // Verify daily counters were reset
         assertEquals(0, ((Number) apiRequestMonitor.getMetricsMap().get("daily_requests")).intValue());
         assertEquals(0, ((Number) apiRequestMonitor.getMetricsMap().get("daily_successful")).intValue());
         assertEquals(0, ((Number) apiRequestMonitor.getMetricsMap().get("daily_failed")).intValue());
-        
+
         // But total shouldn't be affected
         assertEquals(2L, (Long) apiRequestMonitor.getMetricsMap().get("total_requests"));
         assertEquals(1L, (Long) apiRequestMonitor.getMetricsMap().get("total_successful"));
         assertEquals(1L, (Long) apiRequestMonitor.getMetricsMap().get("total_failed"));
     }
-    
+
     @Test
     public void testThreadSafety() throws Exception {
         int threadCount = 10;
         int callsPerThread = 100;
         ExecutorService executorService = Executors.newFixedThreadPool(threadCount);
         CountDownLatch latch = new CountDownLatch(threadCount);
-        
+
         // Run multiple threads making concurrent calls
         for (int i = 0; i < threadCount; i++) {
             final String endpoint = "test/endpoint-" + i;
@@ -136,29 +138,29 @@ public class ApiRequestMonitorTest {
                 }
             });
         }
-        
+
         // Wait for all threads to complete
         latch.await();
         executorService.shutdown();
-        
+
         // Verify counts
         int totalExpectedCalls = threadCount * callsPerThread;
         int expectedFailures = totalExpectedCalls / 5; // Every 5th call is a failure
         int expectedSuccesses = totalExpectedCalls - expectedFailures;
-        
+
         assertEquals(totalExpectedCalls, ((Number) apiRequestMonitor.getMetricsMap().get("hourly_requests")).intValue());
         assertEquals(expectedSuccesses, ((Number) apiRequestMonitor.getMetricsMap().get("hourly_successful")).intValue());
         assertEquals(expectedFailures, ((Number) apiRequestMonitor.getMetricsMap().get("hourly_failed")).intValue());
         assertEquals(totalExpectedCalls, ((Number) apiRequestMonitor.getMetricsMap().get("daily_requests")).intValue());
         assertEquals(totalExpectedCalls, apiRequestMonitor.getTotalRequests()); // Direct getter for total
-        
+
         // Check endpoint tracking without unchecked casts
         Object endpointsObj = apiRequestMonitor.getMetricsMap().get("endpoints");
         assertNotNull(endpointsObj);
         assertTrue(endpointsObj instanceof Map);
         Map<?, ?> endpointCalls = (Map<?, ?>) endpointsObj;
         assertEquals(threadCount, endpointCalls.size());
-        
+
         // Each endpoint should have 'callsPerThread' calls in total (success + failure)
         for (int i = 0; i < threadCount; i++) {
             String endpoint = "test/endpoint-" + i;
@@ -166,17 +168,17 @@ public class ApiRequestMonitorTest {
             assertEquals(callsPerThread, ((Number) endpointCalls.get(endpoint)).intValue());
         }
     }
-    
+
     @Test
     public void testGetCurrentMetricsReport() {
         // Record some activity
         apiRequestMonitor.recordSuccessfulRequest("test/endpoint-1");
         apiRequestMonitor.recordSuccessfulRequest("test/endpoint-2");
         apiRequestMonitor.recordFailedRequest("test/endpoint-1", "Test error");
-        
+
         // Get the report
         String report = apiRequestMonitor.generateReport();
-        
+
         // Verify the report contains expected information
         assertNotNull(report);
         assertTrue(report.contains("API Request Monitor Report")); // Updated report title
@@ -186,5 +188,47 @@ public class ApiRequestMonitorTest {
         assertTrue(report.contains("Endpoint Counts:")); // Updated section title
         assertTrue(report.contains("test/endpoint-1: 2 requests"));
         assertTrue(report.contains("test/endpoint-2: 1 requests"));
+    }
+
+    @Test
+    void should_KeepAuthenticatedCircuitOpen_When_ResetAndRateLimitFailureMeetAtMidnight() {
+        LocalDate resetDate = LocalDate.of(2026, 1, 2);
+        LocalDateTime previousDayFailure = resetDate.minusDays(1).atTime(23, 59);
+        LocalDateTime resetDayFailure = resetDate.atStartOfDay();
+
+        // Atomic state transitions are linearizable, so both serial orders cover a race without timing sleeps.
+        ApiCircuitBreakerService failureBeforeReset = new ApiCircuitBreakerService();
+        failureBeforeReset.recordRateLimitFailure(previousDayFailure);
+        failureBeforeReset.recordRateLimitFailure(resetDayFailure);
+        assertFalse(failureBeforeReset.isApiCallAllowed(resetDate));
+        assertTrue(failureBeforeReset.isApiCallAllowed(resetDate.plusDays(1)));
+
+        ApiCircuitBreakerService resetBeforeFailure = new ApiCircuitBreakerService();
+        resetBeforeFailure.recordRateLimitFailure(previousDayFailure);
+        assertTrue(resetBeforeFailure.isApiCallAllowed(resetDate));
+        resetBeforeFailure.recordRateLimitFailure(resetDayFailure);
+        assertFalse(resetBeforeFailure.isApiCallAllowed(resetDate));
+        assertTrue(resetBeforeFailure.isApiCallAllowed(resetDate.plusDays(1)));
+    }
+
+    @Test
+    void should_KeepFallbackCircuitOpen_When_ResetAndRateLimitFailureMeetAtMidnight() {
+        LocalDate resetDate = LocalDate.of(2026, 1, 2);
+        LocalDateTime previousDayFailure = resetDate.minusDays(1).atTime(23, 59);
+        LocalDateTime resetDayFailure = resetDate.atStartOfDay();
+
+        // Atomic state transitions are linearizable, so both serial orders cover a race without timing sleeps.
+        ApiCircuitBreakerService failureBeforeReset = new ApiCircuitBreakerService();
+        failureBeforeReset.recordFallbackRateLimitFailure(previousDayFailure);
+        failureBeforeReset.recordFallbackRateLimitFailure(resetDayFailure);
+        assertFalse(failureBeforeReset.isFallbackAllowed(resetDate));
+        assertTrue(failureBeforeReset.isFallbackAllowed(resetDate.plusDays(1)));
+
+        ApiCircuitBreakerService resetBeforeFailure = new ApiCircuitBreakerService();
+        resetBeforeFailure.recordFallbackRateLimitFailure(previousDayFailure);
+        assertTrue(resetBeforeFailure.isFallbackAllowed(resetDate));
+        resetBeforeFailure.recordFallbackRateLimitFailure(resetDayFailure);
+        assertFalse(resetBeforeFailure.isFallbackAllowed(resetDate));
+        assertTrue(resetBeforeFailure.isFallbackAllowed(resetDate.plusDays(1)));
     }
 }
