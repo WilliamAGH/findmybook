@@ -3,6 +3,7 @@ package net.findmybook.service;
 import net.findmybook.model.Book;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.Instant;
@@ -112,6 +113,20 @@ class RecentlyViewedServiceTest {
             anyString(),
             eq(String.class),
             any(UUID.class));
+    }
+
+    @Test
+    void should_KeepOriginalBookId_When_CanonicalLookupFails() {
+        String originalId = "11111111-1111-1111-1111-111111111111";
+        when(jdbcTemplate.queryForObject(
+                anyString(),
+                eq(String.class),
+                any(UUID.class)))
+            .thenThrow(new DataAccessResourceFailureException("database unavailable"));
+
+        recentlyViewedService.addToRecentlyViewed(sampleBook(originalId));
+
+        assertEquals(List.of(originalId), recentlyViewedService.getRecentlyViewedBookIds(3));
     }
 
     @Test
