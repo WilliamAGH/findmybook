@@ -3,11 +3,23 @@ package net.findmybook.repository;
 import net.findmybook.support.sitemap.SitemapBookLastModifiedSqlSupport;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 
+import java.time.Instant;
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class SitemapBookLastModifiedSqlSupportTest {
 
@@ -59,5 +71,37 @@ class SitemapBookLastModifiedSqlSupportTest {
     void should_AcceptValidAlias_When_AliasIsSimpleIdentifier() {
         assertDoesNotThrow(() ->
             SitemapBookLastModifiedSqlSupport.globalBookLastModifiedCte("book_updated_at"));
+    }
+
+    @Test
+    void should_UseOneBulkQuery_When_AuthorPageMetadataIsRequested() {
+        JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+        SitemapRepository sitemapRepository = new SitemapRepository(jdbcTemplate);
+        List<SitemapRepository.PageMetadata> expected = List.of(
+                new SitemapRepository.PageMetadata(1, Instant.parse("2024-02-01T00:00:00Z"))
+        );
+        when(jdbcTemplate.query(
+                anyString(),
+                org.mockito.ArgumentMatchers.<RowMapper<SitemapRepository.PageMetadata>>any(),
+                eq(100),
+                eq(5000)
+        )).thenReturn(expected);
+
+        assertThat(sitemapRepository.fetchAuthorPageMetadata(100, 5000)).isEqualTo(expected);
+
+        ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+        verify(jdbcTemplate).query(
+                sqlCaptor.capture(),
+                org.mockito.ArgumentMatchers.<RowMapper<SitemapRepository.PageMetadata>>any(),
+                eq(100),
+                eq(5000)
+        );
+        assertThat(sqlCaptor.getValue())
+                .contains("book_last_modified")
+                .contains("ranked_authors")
+                .contains("author_listing_pages")
+                .contains("ROW_NUMBER() OVER")
+                .contains("ORDER BY CASE bucket")
+                .doesNotContain("%s");
     }
 }
