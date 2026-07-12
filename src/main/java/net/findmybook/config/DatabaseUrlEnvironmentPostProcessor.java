@@ -65,10 +65,6 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
         return hasText(candidate) && candidate.trim().toLowerCase(Locale.ROOT).startsWith(JDBC_POSTGRESQL_PREFIX);
     }
 
-    private static DatasourceOverrides createDatasourceOverrides(String jdbcUrl) {
-        return DatasourceOverrides.forJdbcUrl(jdbcUrl);
-    }
-
     /**
      * Validates that a port number is within the valid TCP/UDP port range (1-65535).
      */
@@ -84,41 +80,24 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
     /**
      * Typed datasource override values applied before Spring DataSource binding.
      */
-    private record DatasourceOverrides(String datasourceUrl,
-                                       String datasourceJdbcUrl,
-                                       String hikariJdbcUrl,
-                                       String driverClassName,
+    private record DatasourceOverrides(String jdbcUrl,
                                        String datasourceUsername,
                                        String datasourcePassword) {
 
         private static DatasourceOverrides forJdbcUrl(String jdbcUrl) {
-            return new DatasourceOverrides(
-                jdbcUrl,
-                jdbcUrl,
-                jdbcUrl,
-                POSTGRES_DRIVER_CLASS,
-                null,
-                null
-            );
+            return new DatasourceOverrides(jdbcUrl, null, null);
         }
 
         private DatasourceOverrides withCredentials(String username, String password) {
-            return new DatasourceOverrides(
-                datasourceUrl,
-                datasourceJdbcUrl,
-                hikariJdbcUrl,
-                driverClassName,
-                username,
-                password
-            );
+            return new DatasourceOverrides(jdbcUrl, username, password);
         }
 
         private Map<String, Object> toPropertyMap() {
             Map<String, Object> properties = new HashMap<>();
-            properties.put(DS_URL, datasourceUrl);
-            properties.put(DS_JDBC_URL, datasourceJdbcUrl);
-            properties.put(HIKARI_JDBC_URL, hikariJdbcUrl);
-            properties.put(DS_DRIVER, driverClassName);
+            properties.put(DS_URL, jdbcUrl);
+            properties.put(DS_JDBC_URL, jdbcUrl);
+            properties.put(HIKARI_JDBC_URL, jdbcUrl);
+            properties.put(DS_DRIVER, POSTGRES_DRIVER_CLASS);
             if (hasText(datasourceUsername)) {
                 properties.put(DS_USERNAME, datasourceUsername);
             }
@@ -141,7 +120,7 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
             return value;
         }
         try {
-            return URLDecoder.decode(value, StandardCharsets.UTF_8);
+            return URLDecoder.decode(value.replace("+", "%2B"), StandardCharsets.UTF_8);
         } catch (IllegalArgumentException ex) {
             logBootstrapWarning("Failed to URL-decode component '" + value + "', preserving raw value");
             return value;
@@ -330,7 +309,7 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
         try {
             if (isJdbcPostgresUrl(datasourceUrl)) {
                 MutablePropertySources sources = environment.getPropertySources();
-                DatasourceOverrides overrides = createDatasourceOverrides(datasourceUrl);
+                DatasourceOverrides overrides = DatasourceOverrides.forJdbcUrl(datasourceUrl);
                 sources.addFirst(new MapPropertySource(DATABASE_URL_PROCESSOR_PROPERTY_SOURCE, overrides.toPropertyMap()));
                 return;
             }
@@ -341,7 +320,7 @@ public final class DatabaseUrlEnvironmentPostProcessor implements EnvironmentPos
             }
 
             JdbcParseResult result = parsed.get();
-            DatasourceOverrides overrides = createDatasourceOverrides(result.jdbcUrl);
+            DatasourceOverrides overrides = DatasourceOverrides.forJdbcUrl(result.jdbcUrl);
 
             // Set username and password if extracted and not already provided
             String existingUser = environment.getProperty(DS_USERNAME);

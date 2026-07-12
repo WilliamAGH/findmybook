@@ -13,7 +13,6 @@
 package net.findmybook;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import net.findmybook.boot.OpenAiProperties;
 import org.slf4j.Logger;
@@ -175,14 +174,11 @@ public class FindmybookApplication implements ApplicationRunner {
                 System.getProperty("spring.datasource.password")
             );
 
-            String decodedUser = decodeUrlComponent(result.username);
-            String decodedPass = decodeUrlComponent(result.password);
-
-            if (!StringUtils.hasText(existingUser) && StringUtils.hasText(decodedUser)) {
-                System.setProperty("spring.datasource.username", decodedUser);
+            if (!StringUtils.hasText(existingUser) && StringUtils.hasText(result.username)) {
+                System.setProperty("spring.datasource.username", result.username);
             }
-            if (!StringUtils.hasText(existingPass) && StringUtils.hasText(decodedPass)) {
-                System.setProperty("spring.datasource.password", decodedPass);
+            if (!StringUtils.hasText(existingPass) && StringUtils.hasText(result.password)) {
+                System.setProperty("spring.datasource.password", result.password);
             }
 
             // Echo minimal confirmation to stdout (password omitted)
@@ -292,28 +288,6 @@ public class FindmybookApplication implements ApplicationRunner {
         if (args.containsOption("migrate.s3.lists")) {
             log.error("--migrate.s3.lists has been removed. Run the manual SQL migration instead (see AGENTS.md manual)." );
             throw new IllegalStateException("S3-backed list migrations are no longer automated; run manual SQL steps instead.");
-        }
-    }
-
-    private static String decodeUrlComponent(String value) {
-        if (value == null) {
-            return null;
-        }
-        // Only attempt URL decoding if the value contains percent-encoded sequences
-        // This prevents corruption of passwords with literal '+' characters
-        if (!value.contains("%")) {
-            return value;
-        }
-        try {
-            // Pre-escape literal '+' characters to preserve them during decoding
-            // URLDecoder treats '+' as space, but in passwords it should be literal
-            String prepared = value.replace("+", "%2B");
-            return java.net.URLDecoder.decode(prepared, StandardCharsets.UTF_8);
-        } catch (IllegalArgumentException ex) {
-            log.error("Failed to URL-decode datasource credential component (malformed encoding). "
-                + "Fix the percent-encoding in SPRING_DATASOURCE_URL or provide credentials separately.", ex);
-            throw new IllegalStateException(
-                "Cannot decode datasource credential: malformed percent-encoding in URL", ex);
         }
     }
 
