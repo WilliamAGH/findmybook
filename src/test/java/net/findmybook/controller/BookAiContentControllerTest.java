@@ -137,7 +137,7 @@ class BookAiContentControllerTest {
         mockMvc.perform(post("/api/books/slug/ai/content/stream"))
             .andExpect(status().isOk())
             .andExpect(content().contentType("text/event-stream"));
-            
+
         verify(requestQueue).enqueueForeground(eq(0), any());
     }
 
@@ -247,6 +247,33 @@ class BookAiContentControllerTest {
         }
     }
 
+    @Test
+    @DisplayName("POST stream emits stream_timeout before the emitter timeout")
+    void should_EmitStreamTimeout_When_ApplicationDeadlineExpires() throws Exception {
+        controller.shutdownTickerExecutor();
+        ScheduledThreadPoolExecutor deadlineExecutor = new ScheduledThreadPoolExecutor(1);
+        configureController("development", deadlineExecutor, 20L, 200L);
+        UUID bookId = UUID.randomUUID();
+        CompletableFuture<Void> started = new CompletableFuture<>();
+        CompletableFuture<BookAiContentService.GeneratedContent> result = new CompletableFuture<>();
+        BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent> task =
+            new BookAiContentRequestQueue.EnqueuedTask<>("task-timeout-1", started, result);
+        when(aiContentService.resolveBookId("slug")).thenReturn(Optional.of(bookId));
+        when(aiContentService.findCurrent(bookId)).thenReturn(Optional.empty());
+        when(aiContentService.isAvailable()).thenReturn(true);
+        when(requestQueue.<BookAiContentService.GeneratedContent>enqueueForeground(anyInt(), any())).thenReturn(task);
+        when(requestQueue.getPosition("task-timeout-1")).thenReturn(
+            new BookAiContentRequestQueue.QueuePosition(true, 1, 0, 1, 1));
+
+        var response = mockMvc.perform(post("/api/books/slug/ai/content/stream"))
+            .andExpect(status().isOk())
+            .andReturn();
+
+        assertThat(response.getAsyncResult(1_000L)).isNull();
+        assertThat(response.getResponse().getContentAsString()).contains("\"code\":\"stream_timeout\"");
+        verify(requestQueue).cancelPending("task-timeout-1");
+    }
+
     /**
      * Builds a deterministic failed queue task so tests can assert environment-specific
      * error payload handling without duplicating queue orchestration setup.
@@ -285,6 +312,13 @@ class BookAiContentControllerTest {
 
     private void configureController(String environmentMode) {
         controller = new BookAiContentController(aiContentService, requestQueue, new ObjectMapper(), environmentMode);
+        mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+    }
+
+    private void configureController(String environmentMode, ScheduledThreadPoolExecutor executor,
+                                     long applicationDeadlineMillis, long emitterTimeoutMillis) {
+        controller = new BookAiContentController(aiContentService, requestQueue, new ObjectMapper(), environmentMode,
+            executor, applicationDeadlineMillis, emitterTimeoutMillis);
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
     }
 }

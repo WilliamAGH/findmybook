@@ -6,6 +6,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import net.findmybook.support.ai.BookAiContentRequestQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,6 +24,38 @@ class BookAiContentSseOrchestrator {
     private static final Logger log = LoggerFactory.getLogger(BookAiContentSseOrchestrator.class);
     private static final long QUEUE_POSITION_TICK_MILLIS = 350L;
     private static final long KEEPALIVE_INTERVAL_MILLIS = 15_000L;
+
+    /** Owns cancellation of every scheduled task associated with one SSE stream. */
+    static final class Timers {
+        private final ScheduledFuture<?> queueTicker;
+        private final ScheduledFuture<?> keepaliveTicker;
+        private final AtomicReference<ScheduledFuture<?>> applicationDeadline = new AtomicReference<>();
+
+        Timers(ScheduledFuture<?> queueTicker, ScheduledFuture<?> keepaliveTicker) {
+            this.queueTicker = queueTicker;
+            this.keepaliveTicker = keepaliveTicker;
+        }
+
+        void attachDeadline(ScheduledFuture<?> scheduledDeadline) {
+            if (!applicationDeadline.compareAndSet(null, scheduledDeadline)) {
+                scheduledDeadline.cancel(false);
+                throw new IllegalStateException("Application deadline is already attached");
+            }
+        }
+
+        void cancelQueueTicker() {
+            queueTicker.cancel(false);
+        }
+
+        void cancelAll() {
+            queueTicker.cancel(false);
+            keepaliveTicker.cancel(false);
+            ScheduledFuture<?> deadline = applicationDeadline.get();
+            if (deadline != null) {
+                deadline.cancel(false);
+            }
+        }
+    }
 
     private final BookAiContentRequestQueue requestQueue;
     private final ScheduledExecutorService queueTickerExecutor;
@@ -75,31 +108,29 @@ class BookAiContentSseOrchestrator {
         }, KEEPALIVE_INTERVAL_MILLIS, KEEPALIVE_INTERVAL_MILLIS, TimeUnit.MILLISECONDS);
     }
 
+    /** Schedules application-owned timeout handling before the emitter timeout closes the response. */
+    ScheduledFuture<?> scheduleApplicationDeadline(Runnable onDeadline, long delayMillis) {
+        return queueTickerExecutor.schedule(onDeadline, delayMillis, TimeUnit.MILLISECONDS);
+    }
+
     /**
      * Wires completion, timeout, and error callbacks onto the SSE emitter.
      */
     void wireEmitterLifecycle(SseEmitter emitter, UUID bookId, Runnable cancelPendingIfOpen) {
         emitter.onCompletion(cancelPendingIfOpen);
-        emitter.onTimeout(() -> {
-            cancelPendingIfOpen.run();
-            emitTerminalError(emitter, AiErrorCode.STREAM_TIMEOUT, AiErrorCode.STREAM_TIMEOUT.defaultMessage());
-        });
+        emitter.onTimeout(cancelPendingIfOpen);
         emitter.onError(error -> {
             log.warn("AI stream failed for bookId={}", bookId, error);
             cancelPendingIfOpen.run();
         });
     }
 
-    /**
-     * Sends a named SSE event payload with emitter-level synchronization.
-     */
+    /** Sends a named SSE event payload through Spring's thread-safe emitter write path. */
     void sendEvent(SseEmitter emitter, String eventName, BookAiContentSsePayload payload) {
-        synchronized (emitter) {
-            try {
-                emitter.send(SseEmitter.event().name(eventName).data(payload));
-            } catch (IOException ioException) {
-                throw new IllegalStateException("SSE send failed for event: " + eventName, ioException);
-            }
+        try {
+            emitter.send(SseEmitter.event().name(eventName).data(payload));
+        } catch (IOException ioException) {
+            throw new IllegalStateException("SSE send failed for event: " + eventName, ioException);
         }
     }
 
@@ -137,12 +168,10 @@ class BookAiContentSseOrchestrator {
     }
 
     private void sendSseComment(SseEmitter emitter, String comment) {
-        synchronized (emitter) {
-            try {
-                emitter.send(SseEmitter.event().comment(comment));
-            } catch (IOException ioException) {
-                throw new IllegalStateException("SSE comment send failed", ioException);
-            }
+        try {
+            emitter.send(SseEmitter.event().comment(comment));
+        } catch (IOException ioException) {
+            throw new IllegalStateException("SSE comment send failed", ioException);
         }
     }
 }

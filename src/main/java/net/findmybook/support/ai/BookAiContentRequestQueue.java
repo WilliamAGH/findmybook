@@ -81,9 +81,12 @@ public class BookAiContentRequestQueue {
      * Returns a task's current queue position when pending.
      */
     public synchronized QueuePosition getPosition(String taskId) {
+        QueueSnapshot snapshot = snapshot();
+        if (!pendingById.containsKey(taskId)) {
+            return new QueuePosition(false, null, snapshot.running(), snapshot.pending(), snapshot.maxParallel());
+        }
         PositionLookup foregroundPosition = findPendingPosition(pendingForegroundByPriority, taskId, 0);
         if (foregroundPosition.inQueue) {
-            QueueSnapshot snapshot = snapshot();
             return new QueuePosition(true, foregroundPosition.position, snapshot.running(), snapshot.pending(), snapshot.maxParallel());
         }
 
@@ -93,11 +96,9 @@ public class BookAiContentRequestQueue {
             pendingForegroundCount
         );
         if (backgroundPosition.inQueue) {
-            QueueSnapshot snapshot = snapshot();
             return new QueuePosition(true, backgroundPosition.position, snapshot.running(), snapshot.pending(), snapshot.maxParallel());
         }
 
-        QueueSnapshot snapshot = snapshot();
         return new QueuePosition(false, null, snapshot.running(), snapshot.pending(), snapshot.maxParallel());
     }
 

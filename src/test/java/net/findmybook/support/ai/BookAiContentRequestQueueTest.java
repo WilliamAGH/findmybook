@@ -127,6 +127,25 @@ class BookAiContentRequestQueueTest {
     }
 
     @Test
+    void should_ReportTaskAsNotPending_When_TaskHasStarted() throws Exception {
+        BookAiContentRequestQueue queue = new BookAiContentRequestQueue(1);
+        CountDownLatch releaseRunningTask = new CountDownLatch(1);
+        BookAiContentRequestQueue.EnqueuedTask<String> runningTask = queue.enqueue(0, () -> {
+            awaitLatch(releaseRunningTask);
+            return "running";
+        });
+
+        assertThat(runningTask.started().get(TASK_TIMEOUT.toSeconds(), TimeUnit.SECONDS)).isNull();
+
+        BookAiContentRequestQueue.QueuePosition position = queue.getPosition(runningTask.id());
+
+        assertThat(position.inQueue()).isFalse();
+        assertThat(position.position()).isNull();
+        releaseRunningTask.countDown();
+        assertThat(runningTask.result().get(TASK_TIMEOUT.toSeconds(), TimeUnit.SECONDS)).isEqualTo("running");
+    }
+
+    @Test
     void should_ReportSnapshot_When_TasksAreRunningAndPending() {
         BookAiContentRequestQueue queue = new BookAiContentRequestQueue(1);
         CountDownLatch blocker = new CountDownLatch(1);
