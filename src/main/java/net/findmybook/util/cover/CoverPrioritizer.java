@@ -3,6 +3,7 @@ package net.findmybook.util.cover;
 import net.findmybook.dto.BookCard;
 import net.findmybook.model.Book;
 import org.springframework.util.StringUtils;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Comparator;
@@ -263,7 +264,7 @@ public final class CoverPrioritizer {
         if (published == null) {
             return Long.MIN_VALUE;
         }
-        return published.toInstant()
+        return Instant.ofEpochMilli(published.getTime())
             .atZone(ZoneId.systemDefault())
             .toLocalDate()
             .toEpochDay();
