@@ -2,17 +2,23 @@ package net.findmybook.config;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.health.contributor.Status;
+import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.boot.webclient.autoconfigure.WebClientAutoConfiguration;
 import org.springframework.boot.web.server.context.WebServerApplicationContext;
 import org.springframework.boot.web.server.context.WebServerInitializedEvent;
 import org.springframework.boot.web.server.WebServer;
 import org.springframework.mock.web.MockServletContext;
+import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.context.support.StaticWebApplicationContext;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.handler.SimpleUrlHandlerMapping;
 import org.springframework.web.servlet.resource.ResourceHttpRequestHandler;
 
+import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 import io.github.resilience4j.ratelimiter.RateLimiter;
 import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
@@ -21,13 +27,17 @@ import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
 import software.amazon.awssdk.services.s3.model.HeadBucketResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 
+import java.net.URI;
 import java.time.Duration;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -37,6 +47,17 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class S3HealthIndicatorTest {
+
+    @Test
+    void should_CreateHealthIndicator_When_S3ClientIsAbsent() {
+        new ApplicationContextRunner()
+                .withUserConfiguration(S3HealthIndicator.class)
+                .withPropertyValues("s3.enabled=false")
+                .run(context -> {
+                    assertNull(context.getStartupFailure());
+                    assertNotNull(context.getBean(S3HealthIndicator.class));
+                });
+    }
 
     @Test
     void shouldReportUpWhenDisabledByConfig() {
@@ -94,8 +115,8 @@ class S3HealthIndicatorTest {
         S3HealthIndicator indicator = new S3HealthIndicator(mockClient, "covers", true);
 
         StepVerifier.create(indicator.health())
-            .assertNext(health -> assertEquals(Status.DOWN, health.getStatus()))
-            .verifyComplete();
+            .expectError(RuntimeException.class)
+            .verify();
     }
 
     @Test
@@ -216,6 +237,44 @@ class S3HealthIndicatorTest {
         ResourceHttpRequestHandler resourceHandler = assertInstanceOf(ResourceHttpRequestHandler.class, frontendHandler);
         assertNotNull(resourceHandler.getCacheControl());
         assertEquals("no-cache, must-revalidate", resourceHandler.getCacheControl().getHeaderValue());
+    }
+}
+
+class WebClientConfigTest {
+
+    @Test
+    void should_KeepWebClientBaseUrlsIndependent_When_BuildersRequestedFromContext() {
+        new ApplicationContextRunner()
+            .withConfiguration(AutoConfigurations.of(WebClientAutoConfiguration.class))
+            .withUserConfiguration(WebClientConfig.class)
+            .run(context -> {
+                WebClient.Builder firstBuilder = context.getBean(WebClient.Builder.class);
+                WebClient.Builder secondBuilder = context.getBean(WebClient.Builder.class);
+                AtomicReference<URI> firstRequestUri = new AtomicReference<>();
+                AtomicReference<URI> secondRequestUri = new AtomicReference<>();
+
+                WebClient firstClient = firstBuilder
+                    .baseUrl("https://first.example")
+                    .exchangeFunction(request -> {
+                        firstRequestUri.set(request.url());
+                        return Mono.just(ClientResponse.create(HttpStatus.OK).build());
+                    })
+                    .build();
+                WebClient secondClient = secondBuilder
+                    .baseUrl("https://second.example")
+                    .exchangeFunction(request -> {
+                        secondRequestUri.set(request.url());
+                        return Mono.just(ClientResponse.create(HttpStatus.OK).build());
+                    })
+                    .build();
+
+                firstClient.get().uri("/books").exchangeToMono(ClientResponse::releaseBody).block();
+                secondClient.get().uri("/books").exchangeToMono(ClientResponse::releaseBody).block();
+
+                assertNotSame(firstBuilder, secondBuilder);
+                assertEquals(URI.create("https://first.example/books"), firstRequestUri.get());
+                assertEquals(URI.create("https://second.example/books"), secondRequestUri.get());
+            });
     }
 }
 

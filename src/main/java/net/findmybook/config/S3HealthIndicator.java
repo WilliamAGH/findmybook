@@ -1,5 +1,6 @@
 package net.findmybook.config;
 
+import jakarta.annotation.Nullable;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.health.contributor.Health;
 import org.springframework.boot.health.contributor.ReactiveHealthIndicator;
@@ -30,7 +31,7 @@ public class S3HealthIndicator implements ReactiveHealthIndicator {
      * @param s3Enabled whether S3 is enabled
      */
     public S3HealthIndicator(
-            S3Client s3Client,
+            @Nullable S3Client s3Client,
             @Value("${s3.bucket-name:}") String bucketName,
             @Value("${s3.enabled:false}") boolean s3Enabled) {
         this.s3Client = s3Client; // reference only; not exposing mutable rep
@@ -89,12 +90,6 @@ public class S3HealthIndicator implements ReactiveHealthIndicator {
                         .build()))
                 .onErrorResume(SdkClientException.class, ex -> Mono.just(Health.down()
                         .withDetail("s3_status", "sdk_client_error")
-                        .withDetail("bucket", bucketName)
-                        .withDetail("error", ex.getClass().getName())
-                        .withDetail("message", ex.getMessage())
-                        .build()))
-                .onErrorResume(Throwable.class, ex -> Mono.just(Health.down()
-                        .withDetail("s3_status", "unexpected_error")
                         .withDetail("bucket", bucketName)
                         .withDetail("error", ex.getClass().getName())
                         .withDetail("message", ex.getMessage())

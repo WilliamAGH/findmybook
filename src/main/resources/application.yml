@@ -66,6 +66,11 @@ spring:
       max-file-size: 5MB          # Aligns with app.cover-cache.max-file-size-bytes (5242880)
       max-request-size: 6MB       # Slightly above file limit to cover multipart overhead
 
+  http:
+    clients:
+      connect-timeout: 5s
+      redirects: follow
+
   codec: # Correctly nested under spring
     max-in-memory-size: 10MB # Configure global max buffer size for WebClient
 

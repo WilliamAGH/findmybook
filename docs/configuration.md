@@ -61,6 +61,13 @@ Startup now fails fast with a clear error when database-required profiles are ac
 - This prevents stale SPA bundles when entry filenames remain stable (`app.js`, `app.css`).
 - Browser validation happens on each request while still allowing conditional responses (`Last-Modified`/`ETag` semantics).
 
+## Outbound HTTP Clients
+
+- Spring Boot owns prototype `WebClient.Builder` instances so per-service base URLs and request settings cannot leak across clients.
+- Shared connector policy follows redirects and limits connection establishment to 5 seconds through `spring.http.clients`.
+- Response deadlines remain service-owned because cover downloads, metadata providers, and health checks have different limits.
+- WebClient buffering follows `spring.codec.max-in-memory-size` (10 MB); narrower consumers such as the OpenGraph cover loader enforce their own smaller streaming limit.
+
 ## SPA Shell Delivery
 
 - Public HTML routes are served through server-generated SPA shells only (`/`, `/search`, `/explore`, `/categories`, `/book/{identifier}`, `/sitemap`, `/sitemap/{view}/{letter}/{page}`, `/404`, `/error`).
