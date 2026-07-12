@@ -5,11 +5,13 @@ import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.util.BookDomainMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.ObjectMapper;
 
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class BookDomainMapperCoverSourceTest {
 
@@ -76,6 +78,28 @@ class BookDomainMapperCoverSourceTest {
         assertThat(book).isNotNull();
         assertThat(book.getCoverImages()).isNotNull();
         assertThat(book.getCoverImages().getSource()).isEqualTo(CoverImageSource.OPEN_LIBRARY);
+    }
+
+    @Test
+    void should_SanitizeNullableCollections_When_BookDetailDeserialized() throws Exception {
+        BookDetail detail = new ObjectMapper().readValue("""
+            {
+              "id": "detail-id",
+              "slug": "detail-slug",
+              "title": "Detail Title",
+              "authors": ["Author", null],
+              "categories": ["Category", null],
+              "tags": {"award": null},
+              "editions": [null]
+            }
+            """, BookDetail.class);
+
+        assertThat(detail.authors()).containsExactly("Author");
+        assertThat(detail.categories()).containsExactly("Category");
+        assertThat(detail.tags()).containsEntry("award", Map.of());
+        assertThat(detail.editions()).isEmpty();
+        assertThatThrownBy(() -> detail.tags().put("other", Map.of()))
+            .isInstanceOf(UnsupportedOperationException.class);
     }
 
     @Test

@@ -84,6 +84,9 @@ public class Book {
         this.cachedRecommendationIds = new ArrayList<>();
     }
 
+    /**
+     * Creates a book from provider metadata while preserving the same author invariants as setter-based construction.
+     */
     public Book(String id,
                 String title,
                 List<String> authors,
@@ -92,7 +95,7 @@ public class Book {
                 String externalImageUrl) {
         this.id = id;
         this.title = title;
-        this.authors = authors;
+        setAuthors(authors);
         this.description = description;
         this.s3ImagePath = s3ImagePath;
         this.externalImageUrl = externalImageUrl;
@@ -101,18 +104,29 @@ public class Book {
         this.cachedRecommendationIds = new ArrayList<>();
     }
 
+    /**
+     * Removes malformed provider author values before they reach API projections.
+     *
+     * @param authors provider-supplied author labels
+     */
     public void setAuthors(List<String> authors) {
-        if (authors == null) {
-            this.authors = new ArrayList<>();
-            return;
-        }
-        this.authors = authors.stream()
-            .filter(Objects::nonNull)
-            .map(String::trim)
-            .filter(author -> !author.isEmpty())
-            .collect(Collectors.toList());
+        this.authors = sanitizeTextEntries(authors);
     }
 
+    /**
+     * Keeps provider categories safe for immutable API projections.
+     *
+     * @param categories provider-supplied category labels
+     */
+    public void setCategories(List<String> categories) {
+        this.categories = sanitizeTextEntries(categories);
+    }
+
+    /**
+     * Returns collection assignments without exposing mutable provider state.
+     *
+     * @return immutable collection assignments
+     */
     public List<CollectionAssignment> getCollections() {
         if (collections == null || collections.isEmpty()) {
             return List.of();
@@ -120,12 +134,26 @@ public class Book {
         return List.copyOf(collections);
     }
 
+    /**
+     * Removes null provider assignments so immutable collection projections remain safe.
+     *
+     * @param collections provider-supplied collection assignments
+     */
     public void setCollections(List<CollectionAssignment> collections) {
-        this.collections = (collections == null || collections.isEmpty())
-            ? new ArrayList<>()
-            : new ArrayList<>(collections);
+        if (collections == null || collections.isEmpty()) {
+            this.collections = new ArrayList<>();
+            return;
+        }
+        this.collections = collections.stream()
+            .filter(Objects::nonNull)
+            .collect(Collectors.toCollection(ArrayList::new));
     }
 
+    /**
+     * Adds one valid collection assignment while preserving the collection invariant.
+     *
+     * @param assignment collection membership to retain
+     */
     public void addCollection(CollectionAssignment assignment) {
         if (assignment == null) {
             return;
@@ -137,16 +165,31 @@ public class Book {
     }
 
 
+    /**
+     * Drops unusable qualifier entries so strict DTO map copies cannot fail.
+     *
+     * @param qualifiers provider-supplied qualifier metadata
+     */
     public void setQualifiers(Map<String, Object> qualifiers) {
+        this.qualifiers = new HashMap<>();
         if (qualifiers == null || qualifiers.isEmpty()) {
-            this.qualifiers = new HashMap<>();
-        } else {
-            this.qualifiers = new HashMap<>(qualifiers);
+            return;
         }
+        qualifiers.forEach((qualifierKey, qualifierValue) -> {
+            if (qualifierKey != null && !qualifierKey.isBlank() && qualifierValue != null) {
+                this.qualifiers.put(qualifierKey, qualifierValue);
+            }
+        });
     }
 
+    /**
+     * Adds a qualifier only when both its key and value can be represented by downstream contracts.
+     *
+     * @param key qualifier key
+     * @param value qualifier value
+     */
     public void addQualifier(String key, Object value) {
-        if (key == null) {
+        if (key == null || key.isBlank() || value == null) {
             return;
         }
         if (this.qualifiers == null) {
@@ -159,10 +202,20 @@ public class Book {
         return this.qualifiers != null && this.qualifiers.containsKey(key);
     }
 
+    /**
+     * Normalizes cached recommendation identifiers before immutable DTO copies consume them.
+     *
+     * @param cachedRecommendationIds recommendation identifiers from persistence or a provider
+     */
     public void setCachedRecommendationIds(List<String> cachedRecommendationIds) {
-        this.cachedRecommendationIds = cachedRecommendationIds != null ? new ArrayList<>(cachedRecommendationIds) : new ArrayList<>();
+        this.cachedRecommendationIds = sanitizeTextEntries(cachedRecommendationIds);
     }
 
+    /**
+     * Adds distinct, nonblank recommendation identifiers without violating the cached-ID invariant.
+     *
+     * @param newRecommendationIds recommendation identifiers to merge
+     */
     public void addRecommendationIds(List<String> newRecommendationIds) {
         if (newRecommendationIds == null || newRecommendationIds.isEmpty()) {
             return;
@@ -171,10 +224,40 @@ public class Book {
             this.cachedRecommendationIds = new ArrayList<>();
         }
         for (String recommendationId : newRecommendationIds) {
-            if (recommendationId != null && !recommendationId.isEmpty() && !this.cachedRecommendationIds.contains(recommendationId)) {
-                this.cachedRecommendationIds.add(recommendationId);
+            if (recommendationId == null) {
+                continue;
+            }
+            String normalizedRecommendationId = recommendationId.trim();
+            if (!normalizedRecommendationId.isEmpty() && !this.cachedRecommendationIds.contains(normalizedRecommendationId)) {
+                this.cachedRecommendationIds.add(normalizedRecommendationId);
             }
         }
+    }
+
+    /**
+     * Keeps edition projections free of null entries from provider payloads.
+     *
+     * @param otherEditions provider-supplied edition metadata
+     */
+    public void setOtherEditions(List<Edition> otherEditions) {
+        if (otherEditions == null || otherEditions.isEmpty()) {
+            this.otherEditions = new ArrayList<>();
+            return;
+        }
+        this.otherEditions = otherEditions.stream()
+            .filter(Objects::nonNull)
+            .collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    private static List<String> sanitizeTextEntries(List<String> textEntries) {
+        if (textEntries == null || textEntries.isEmpty()) {
+            return new ArrayList<>();
+        }
+        return textEntries.stream()
+            .filter(Objects::nonNull)
+            .map(String::trim)
+            .filter(textEntry -> !textEntry.isEmpty())
+            .collect(Collectors.toCollection(ArrayList::new));
     }
 
     public void setPublisher(String publisher) {

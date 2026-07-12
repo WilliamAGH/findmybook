@@ -4,23 +4,25 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Single source of truth for complete book details (book detail page).
  * Contains all fields actually rendered in book.html template - nothing more, nothing less.
- * 
+ *
  * This DTO is populated by optimized SQL queries that fetch exactly what's needed
  * in 1-2 database queries total (book detail + editions if needed).
- * 
+ *
  * DOES NOT INCLUDE fields never rendered:
  * - dimensions (height, width, thickness, weight)
  * - rawPayload/rawJsonResponse
  * - unused provider metadata
- * 
+ *
  * Used by:
  * - Book detail page (/book/{id})
  * - Book preview modals
- * 
+ *
  * @param id Book UUID as string
  * @param slug URL-friendly book identifier
  * @param title Book title
@@ -54,21 +56,21 @@ public record BookDetail(
     String title,
     String description,
     String publisher,
-    
+
     @JsonProperty("published_date")
     LocalDate publishedDate,
-    
+
     String language,
-    
+
     @JsonProperty("page_count")
     Integer pageCount,
-    
+
     @JsonProperty("authors")
     List<String> authors,
-    
+
     @JsonProperty("categories")
     List<String> categories,
-    
+
     @JsonProperty("cover_url")
     String coverUrl,
 
@@ -95,22 +97,22 @@ public record BookDetail(
 
     @JsonProperty("average_rating")
     Double averageRating,
-    
+
     @JsonProperty("ratings_count")
     Integer ratingsCount,
-    
+
     @JsonProperty("isbn_10")
     String isbn10,
-    
+
     @JsonProperty("isbn_13")
     String isbn13,
-    
+
     @JsonProperty("preview_link")
     String previewLink,
-    
+
     @JsonProperty("info_link")
     String infoLink,
-    
+
     Map<String, Object> tags,
 
     @JsonProperty("cover_grayscale")
@@ -125,16 +127,21 @@ public record BookDetail(
      * Compact constructor ensuring defensive copies for immutability
      */
     public BookDetail {
-        authors = authors == null ? List.of() : List.copyOf(authors);
-        categories = categories == null ? List.of() : List.copyOf(categories);
+        authors = authors == null ? List.of() : authors.stream().filter(Objects::nonNull).toList();
+        categories = categories == null ? List.of() : categories.stream().filter(Objects::nonNull).toList();
         coverS3Key = coverS3Key != null && !coverS3Key.isBlank() ? coverS3Key : null;
         coverFallbackUrl = coverFallbackUrl == null ? coverUrl : coverFallbackUrl;
-        tags = tags == null ? Map.of() : Map.copyOf(tags);
+        tags = tags == null ? Map.of() : tags.entrySet().stream()
+            .filter(entry -> entry.getKey() != null)
+            .collect(Collectors.toUnmodifiableMap(
+                Map.Entry::getKey,
+                entry -> entry.getValue() == null ? Map.of() : entry.getValue()
+            ));
         coverGrayscale = Boolean.TRUE.equals(coverGrayscale) ? Boolean.TRUE : null;
-        editions = editions == null ? List.of() : List.copyOf(editions);
+        editions = editions == null ? List.of() : editions.stream().filter(Objects::nonNull).toList();
     }
 
-    
+
     /** Backward-compatible constructor without coverGrayscale (defaults null). */
     public BookDetail(
         String id, String slug, String title, String description,
@@ -164,7 +171,7 @@ public record BookDetail(
             isbn10, isbn13, previewLink, infoLink, tags, coverGrayscale, newEditions
         );
     }
-    
+
     /**
      * Check if book has editions to display
      */
