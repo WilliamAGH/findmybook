@@ -43,6 +43,7 @@ import java.util.Optional;
 public class SearchPaginationService {
 
     private static final int EXTERNAL_PROVIDER_WINDOW_CAP = ApplicationConstants.Paging.MAX_TIERED_LIMIT;
+    private static final Duration METADATA_AUGMENTATION_BUDGET = Duration.ofSeconds(2);
 
     private final BookSearchService bookSearchService;
     private final PostgresSearchResultHydrator postgresSearchResultHydrator;
@@ -164,7 +165,11 @@ public class SearchPaginationService {
         }
 
         // Always hydrate from offset 0 to keep merged sorting/slicing deterministic for later pages.
-        return streamOpenLibraryCandidates(request, 0, requestedWindow)
+        Flux<Book> primaryCandidateStream = streamOpenLibraryCandidates(request, 0, requestedWindow);
+        if (!shouldSupplementCurrentPage) {
+            primaryCandidateStream = primaryCandidateStream.take(METADATA_AUGMENTATION_BUDGET);
+        }
+        return primaryCandidateStream
             .collectList()
             .flatMap(primaryCandidates -> {
                 if (!shouldFetchGoogleSecondary(

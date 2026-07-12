@@ -367,7 +367,7 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
         openLibraryCandidate.setLanguage("eng");
         openLibraryCandidate.setExternalImageUrl("https://covers.openlibrary.org/b/id/9323420-L.jpg");
         when(openLibraryBookDataService.queryBooksByEverything(eq("john grisham"), anyString(), eq(0), eq(4)))
-            .thenReturn(Flux.just(openLibraryCandidate));
+            .thenReturn(Flux.concat(Flux.just(openLibraryCandidate), Flux.never()));
 
         SearchPaginationService metadataRefreshingService = fallbackEnabledService();
         SearchPaginationService.SearchPage page = metadataRefreshingService.search(searchRequest("john grisham", 0, 2, "relevance")).block();
