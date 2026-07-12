@@ -167,6 +167,19 @@ class BookAiContentServiceTest {
             .hasMessageContaining("AI content response was empty");
     }
 
+    @Test
+    void should_RejectMalformedJson_When_ResponseIsTruncated() {
+        AiContentJsonParser parser = new AiContentJsonParser(new ObjectMapper());
+
+        String truncatedResponse = """
+            {"summary":"A detailed but incomplete response", "keyThemes":["democracy"],
+            """;
+
+        assertThatThrownBy(() -> parser.parse(truncatedResponse))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("valid JSON object");
+    }
+
     private BookAiContentService newService() {
         return new BookAiContentService(
             repository,
