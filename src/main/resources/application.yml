@@ -87,7 +87,7 @@ app:
     max-description-length: ${APP_SEO_MAX_DESCRIPTION_LENGTH:160}
   ai:
     queue:
-      background-max-pending: ${APP_AI_QUEUE_BACKGROUND_MAX_PENDING:100000}
+      background-max-pending: ${APP_AI_QUEUE_BACKGROUND_MAX_PENDING:100}
   recommendations:
     refresh:
       ttl-days: ${APP_RECOMMENDATIONS_REFRESH_TTL_DAYS:30}

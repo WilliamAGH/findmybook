@@ -13,7 +13,7 @@ Key variables in `.env`:
 | `OPENAI_MODEL` | Canonical inference model for AI book content and SEO metadata generation |
 | `OPENAI_EMBEDDINGS_MODEL` | Canonical embeddings model for vector calculations |
 | `AI_DEFAULT_MAX_PARALLEL` | Max concurrent outbound AI requests (queue executor cap) |
-| `APP_AI_QUEUE_BACKGROUND_MAX_PENDING` | Max pending background ingestion AI jobs (default `100000`) |
+| `APP_AI_QUEUE_BACKGROUND_MAX_PENDING` | Max pending background ingestion AI jobs (default `100`) |
 | `APP_SEO_MAX_DESCRIPTION_LENGTH` | Fallback book meta description truncation length when no persisted SEO row exists (default `160`) |
 | `APP_WEEKLY_REFRESH_ENABLED` | Enables the weekly orchestrator that runs NYT ingest + recommendation refresh |
 | `APP_WEEKLY_REFRESH_CRON` | Weekly orchestrator cron expression (default `0 0 4 * * SUN`) |
