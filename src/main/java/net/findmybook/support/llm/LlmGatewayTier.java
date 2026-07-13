@@ -17,14 +17,14 @@ public enum LlmGatewayTier {
      * Live, user-facing render path. Maps to gateway tier {@code production-z} (priority 4,
      * reserved concurrency 1, queue depth 20, queue timeout 30s).
      */
-    LIVE_RENDER("production-z", 105L, 8192L),
+    LIVE_RENDER("production-z", 105L, 8192L, 2),
 
     /**
      * Non-urgent background work (scheduler, demand queue, upsert event, backfill, ingestion
      * coordinator). Maps to gateway tier {@code batch} (priority 9, reserved concurrency 0,
      * queue depth 50, queue timeout 600s).
      */
-    BACKGROUND_BATCH("batch", 720L, 8192L);
+    BACKGROUND_BATCH("batch", 720L, 8192L, 3);
 
     /** HTTP header name the gateway expects on outbound calls. */
     public static final String HEADER_NAME = "X-Tier";
@@ -32,11 +32,18 @@ public enum LlmGatewayTier {
     private final String headerValue;
     private final long callTimeoutSeconds;
     private final long maxCompletionTokens;
+    private final int maxGenerationAttempts;
 
-    LlmGatewayTier(String headerValue, long callTimeoutSeconds, long maxCompletionTokens) {
+    LlmGatewayTier(
+        String headerValue,
+        long callTimeoutSeconds,
+        long maxCompletionTokens,
+        int maxGenerationAttempts
+    ) {
         this.headerValue = headerValue;
         this.callTimeoutSeconds = callTimeoutSeconds;
         this.maxCompletionTokens = maxCompletionTokens;
+        this.maxGenerationAttempts = maxGenerationAttempts;
     }
 
     /**
@@ -68,5 +75,15 @@ public enum LlmGatewayTier {
      */
     public long maxCompletionTokens() {
         return maxCompletionTokens;
+    }
+
+    /**
+     * Returns the application-level generation-attempt budget for this tier. The same value owns
+     * retry behavior and any outer deadline derived from worst-case model-call duration.
+     *
+     * @return maximum application-level generation attempts
+     */
+    public int maxGenerationAttempts() {
+        return maxGenerationAttempts;
     }
 }

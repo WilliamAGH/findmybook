@@ -39,8 +39,15 @@ import tools.jackson.databind.ObjectMapper;
 @RequestMapping("/api/books")
 public class BookAiContentController {
     private static final Logger log = LoggerFactory.getLogger(BookAiContentController.class);
-    private static final long APPLICATION_STREAM_TIMEOUT_MILLIS = Duration.ofMinutes(4).toMillis();
-    private static final long EMITTER_TIMEOUT_MILLIS = APPLICATION_STREAM_TIMEOUT_MILLIS + Duration.ofSeconds(5).toMillis();
+    private static final Duration LIVE_RENDER_ATTEMPT_TIMEOUT =
+        Duration.ofSeconds(LlmGatewayTier.LIVE_RENDER.callTimeoutSeconds());
+    private static final Duration QUEUE_AND_DELIVERY_HEADROOM = Duration.ofMinutes(1);
+    private static final Duration APPLICATION_STREAM_TIMEOUT = LIVE_RENDER_ATTEMPT_TIMEOUT
+        .multipliedBy(LlmGatewayTier.LIVE_RENDER.maxGenerationAttempts())
+        .plus(QUEUE_AND_DELIVERY_HEADROOM);
+    private static final Duration EMITTER_TERMINAL_EVENT_HEADROOM = Duration.ofSeconds(5);
+    private static final long APPLICATION_STREAM_TIMEOUT_MILLIS = APPLICATION_STREAM_TIMEOUT.toMillis();
+    private static final long EMITTER_TIMEOUT_MILLIS = APPLICATION_STREAM_TIMEOUT.plus(EMITTER_TERMINAL_EVENT_HEADROOM).toMillis();
     private static final long MIN_STREAM_TIMEOUT_MILLIS = 1L;
     private static final int DEFAULT_GENERATION_PRIORITY = 0;
     private static final int MIN_QUEUE_TICKER_THREADS = 4;

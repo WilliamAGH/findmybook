@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import BookAiContentPanel from "$lib/components/BookAiContentPanel.svelte";
 import type { Book, BookAiErrorCode } from "$lib/validation/schemas";
@@ -7,10 +7,12 @@ const {
   getBookAiContentQueueStatsMock,
   isBookAiContentStreamErrorMock,
   streamBookAiContentMock,
+  consoleErrorMock,
 } = vi.hoisted(() => ({
   getBookAiContentQueueStatsMock: vi.fn(),
   isBookAiContentStreamErrorMock: vi.fn(() => false),
   streamBookAiContentMock: vi.fn(),
+  consoleErrorMock: vi.fn(),
 }));
 
 vi.mock("$lib/services/books", () => ({
@@ -57,8 +59,9 @@ describe("BookAiContentPanel production behavior", () => {
 
   beforeEach(() => {
     getBookAiContentQueueStatsMock.mockReset();
+    consoleErrorMock.mockReset();
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(consoleErrorMock);
     vi.spyOn(console, "info").mockImplementation(() => {});
     getBookAiContentQueueStatsMock.mockResolvedValue({
       running: 0,
@@ -70,6 +73,10 @@ describe("BookAiContentPanel production behavior", () => {
     isBookAiContentStreamErrorMock.mockReset();
     isBookAiContentStreamErrorMock.mockReturnValue(true);
     streamBookAiContentMock.mockReset();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   /**
@@ -145,8 +152,9 @@ describe("BookAiContentPanel production behavior", () => {
   });
 
   it("shouldKeepPreviousContentAndShowGenericErrorWhenRefreshFailsInProduction", async () => {
+    const providerFailureDetail = "provider detail must remain private";
     streamBookAiContentMock.mockRejectedValue(
-      createStreamError("provider detail must remain private", "generation_failed", true),
+      createStreamError(providerFailureDetail, "generation_failed", true),
     );
     const onAiContentUpdate = vi.fn();
 
@@ -172,7 +180,21 @@ describe("BookAiContentPanel production behavior", () => {
       expect(screen.getByText("Refresh failed. Showing the previous Reader's Guide.")).toBeInTheDocument();
     });
     expect(screen.getByText(/previously generated Reader's Guide remains available/)).toBeInTheDocument();
-    expect(screen.queryByText(/provider detail/)).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(providerFailureDetail);
+    const consoleOutput = consoleErrorMock.mock.calls
+      .flat()
+      .map((argument) => {
+        if (argument instanceof Error) {
+          return argument.message;
+        }
+        return typeof argument === "string" ? argument : JSON.stringify(argument);
+      })
+      .join("\n");
+    expect(consoleOutput).not.toContain(providerFailureDetail);
+    expect(consoleErrorMock).toHaveBeenCalledWith(
+      "[BookAiContentPanel] AI generation failed in production",
+      { code: "generation_failed", retryable: true },
+    );
     expect(onAiContentUpdate).not.toHaveBeenCalled();
   });
 

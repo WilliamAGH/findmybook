@@ -12,8 +12,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 /**
- * Resolves user-facing identifiers (slug, ISBN, external ID) to canonical UUIDs.
- * Centralizing this logic prevents duplicate lookup heuristics across controllers.
+ * Resolves user-facing identifiers (slug, ISBN, external ID) either to the exact matching book or
+ * to the primary edition of its work cluster. Centralizing both explicit contracts prevents
+ * callers from duplicating lookup heuristics or silently changing edition identity.
  *
  * <p><strong>Exception strategy:</strong> {@link DataAccessException} from cluster
  * lookups propagates uncaught. Spring Boot's default error handling converts it to
@@ -35,7 +36,7 @@ public class BookIdentifierResolver {
     }
 
     /**
-     * Resolves a user-facing identifier to a canonical UUID.
+     * Resolves a user-facing identifier to the primary-edition UUID for its work cluster.
      *
      * @param identifier slug, ISBN, external ID, or UUID string
      * @return resolved UUID, or empty if the identifier cannot be matched
@@ -62,7 +63,7 @@ public class BookIdentifierResolver {
     }
 
     /**
-     * Resolves a user-facing identifier to a canonical book ID string.
+     * Resolves a user-facing identifier to the primary-edition book ID for its work cluster.
      *
      * @param identifier slug, ISBN, external ID, or UUID string
      * @return canonical book ID, or empty if the identifier cannot be matched

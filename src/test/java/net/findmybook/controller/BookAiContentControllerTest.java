@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -24,6 +25,7 @@ import net.findmybook.application.ai.BookAiContentService;
 import net.findmybook.domain.ai.BookAiContent;
 import net.findmybook.domain.ai.BookAiContentSnapshot;
 import net.findmybook.support.ai.BookAiContentRequestQueue;
+import net.findmybook.support.llm.LlmGatewayTier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -245,6 +247,20 @@ class BookAiContentControllerTest {
             assertThat(executor.getCorePoolSize()).isEqualTo(BookAiContentController.determineQueueTickerThreadCount());
             assertThat(executor.getCorePoolSize()).isGreaterThan(1);
         }
+    }
+
+    @Test
+    @DisplayName("default stream deadline reserves queue and delivery time after all live render attempts")
+    void should_ReserveQueueAndDeliveryHeadroom_When_DefaultStreamDeadlineIsCalculated() {
+        long applicationDeadlineMillis = (Long) ReflectionTestUtils.getField(controller, "applicationStreamTimeoutMillis");
+        long emitterTimeoutMillis = (Long) ReflectionTestUtils.getField(controller, "emitterTimeoutMillis");
+        long maximumLiveRenderAttemptsMillis = Duration.ofSeconds(LlmGatewayTier.LIVE_RENDER.callTimeoutSeconds())
+            .multipliedBy(LlmGatewayTier.LIVE_RENDER.maxGenerationAttempts())
+            .toMillis();
+
+        assertThat(applicationDeadlineMillis - maximumLiveRenderAttemptsMillis)
+            .isGreaterThanOrEqualTo(Duration.ofMinutes(1).toMillis());
+        assertThat(emitterTimeoutMillis).isGreaterThan(applicationDeadlineMillis);
     }
 
     @Test

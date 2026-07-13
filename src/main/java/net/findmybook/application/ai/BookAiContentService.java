@@ -46,8 +46,6 @@ public class BookAiContentService {
     private static final Logger log = LoggerFactory.getLogger(BookAiContentService.class);
     private static final String DEFAULT_PROVIDER = "openai";
     private static final String DEFAULT_API_MODE = "chat";
-    private static final int LIVE_GENERATION_ATTEMPTS = 2;
-    private static final int BACKGROUND_GENERATION_ATTEMPTS = 3;
     private static final int LIVE_SDK_MAX_RETRIES = 0;
     private static final int BACKGROUND_SDK_MAX_RETRIES = 2;
     private static final int MIN_DESCRIPTION_LENGTH = 50;
@@ -137,30 +135,38 @@ public class BookAiContentService {
     }
 
     /**
-     * Generates fresh AI content, streams text deltas, and persists a new current version.
+     * Generates, validates, and persists fresh AI content before delivering its complete buffered payload.
      *
      * @param bookId canonical book UUID
-     * @param onDelta callback for streamed model deltas
+     * @param onValidatedBufferedPayload callback for the complete payload after validation and persistence
      * @param tier gateway priority tier controlling the {@code X-Tier} header on outbound calls
      * @return generated content + persisted snapshot
      */
-    public GeneratedContent generateAndPersist(UUID bookId, Consumer<String> onDelta, LlmGatewayTier tier) {
+    public GeneratedContent generateAndPersist(
+        UUID bookId,
+        Consumer<String> onValidatedBufferedPayload,
+        LlmGatewayTier tier
+    ) {
         ensureAvailable();
         requireTier(tier);
         String prompt = buildPrompt(loadPromptContext(bookId));
         String promptHash = sha256(prompt);
-        return generateAndPersistFromPrompt(bookId, prompt, promptHash, onDelta, tier);
+        return generateAndPersistFromPrompt(bookId, prompt, promptHash, onValidatedBufferedPayload, tier);
     }
 
     /**
      * Generates fresh AI content only when prompt context has changed since the current version.
      *
      * @param bookId canonical book UUID
-     * @param onDelta callback for streamed model deltas
+     * @param onValidatedBufferedPayload callback for the complete payload after validation and persistence
      * @param tier gateway priority tier controlling the {@code X-Tier} header on outbound calls
      * @return generation outcome with generated/skipped semantics
      */
-    public GenerationOutcome generateAndPersistIfPromptChanged(UUID bookId, Consumer<String> onDelta, LlmGatewayTier tier) {
+    public GenerationOutcome generateAndPersistIfPromptChanged(
+        UUID bookId,
+        Consumer<String> onValidatedBufferedPayload,
+        LlmGatewayTier tier
+    ) {
         ensureAvailable();
         requireTier(tier);
         String prompt = buildPrompt(loadPromptContext(bookId));
@@ -169,7 +175,13 @@ public class BookAiContentService {
         if (existingPromptHash.isPresent() && existingPromptHash.get().equals(promptHash)) {
             return GenerationOutcome.skipped(bookId, promptHash, findCurrent(bookId));
         }
-        GeneratedContent generated = generateAndPersistFromPrompt(bookId, prompt, promptHash, onDelta, tier);
+        GeneratedContent generated = generateAndPersistFromPrompt(
+            bookId,
+            prompt,
+            promptHash,
+            onValidatedBufferedPayload,
+            tier
+        );
         return GenerationOutcome.generated(bookId, promptHash, Optional.of(generated.snapshot()));
     }
 
@@ -179,23 +191,28 @@ public class BookAiContentService {
         }
     }
 
-    private GeneratedContent generateAndPersistFromPrompt(UUID bookId, String prompt, String promptHash, Consumer<String> onDelta, LlmGatewayTier tier) {
-        int maxGenerationAttempts = tier == LlmGatewayTier.LIVE_RENDER
-            ? LIVE_GENERATION_ATTEMPTS
-            : BACKGROUND_GENERATION_ATTEMPTS;
+    private GeneratedContent generateAndPersistFromPrompt(
+        UUID bookId,
+        String prompt,
+        String promptHash,
+        Consumer<String> onValidatedBufferedPayload,
+        LlmGatewayTier tier
+    ) {
+        int maxGenerationAttempts = tier.maxGenerationAttempts();
         BookAiGenerationException lastGenerationFailure = null;
         for (int attempt = 1; attempt <= maxGenerationAttempts; attempt++) {
-            AtomicBoolean emittedDelta = new AtomicBoolean(false);
+            AtomicBoolean deliveredValidatedPayload = new AtomicBoolean(false);
             try {
-                return generateAndPersistSingleAttempt(bookId, prompt, promptHash, delta -> {
-                    emittedDelta.set(true);
-                    onDelta.accept(delta);
+                return generateAndPersistSingleAttempt(bookId, prompt, promptHash, validatedBufferedPayload -> {
+                    deliveredValidatedPayload.set(true);
+                    onValidatedBufferedPayload.accept(validatedBufferedPayload);
                 }, tier);
             } catch (BookAiGenerationException generationFailure) {
                 lastGenerationFailure = generationFailure;
-                boolean retryDoesNotReplayLiveContent = tier == LlmGatewayTier.BACKGROUND_BATCH || !emittedDelta.get();
+                boolean retryDoesNotReplayValidatedPayload = tier == LlmGatewayTier.BACKGROUND_BATCH
+                    || !deliveredValidatedPayload.get();
                 if (attempt < maxGenerationAttempts
-                    && retryDoesNotReplayLiveContent
+                    && retryDoesNotReplayValidatedPayload
                     && isRetryableGenerationFailure(generationFailure, tier)) {
                     log.warn("AI generation attempt {}/{} failed for bookId={} model={} tier={} (will retry): {}",
                         attempt, maxGenerationAttempts, bookId, configuredModel, tier.headerValue(), generationFailure.getMessage());
@@ -222,7 +239,13 @@ public class BookAiContentService {
         throw lastGenerationFailure;
     }
 
-    private GeneratedContent generateAndPersistSingleAttempt(UUID bookId, String prompt, String promptHash, Consumer<String> onDelta, LlmGatewayTier tier) {
+    private GeneratedContent generateAndPersistSingleAttempt(
+        UUID bookId,
+        String prompt,
+        String promptHash,
+        Consumer<String> onValidatedBufferedPayload,
+        LlmGatewayTier tier
+    ) {
         OpenAIClient tieredClient = clientsByTier.get(tier);
         if (tieredClient == null) {
             throw new BookAiGenerationException(BookAiGenerationException.ErrorCode.GENERATION_FAILED,
@@ -311,10 +334,10 @@ public class BookAiContentService {
             );
         }
 
-        String rawMessage = fullResponseBuilder.toString();
+        String validatedBufferedPayload = fullResponseBuilder.toString();
         BookAiContent aiContent;
         try {
-            aiContent = jsonParser.parse(rawMessage);
+            aiContent = jsonParser.parse(validatedBufferedPayload);
         } catch (IllegalStateException parseFailure) {
             log.warn("AI content parsing failed for bookId={} model={} tier={}: {}",
                 bookId, configuredModel, tier.headerValue(), parseFailure.getMessage());
@@ -327,8 +350,20 @@ public class BookAiContentService {
                 "AI content generation failed (%s): %s".formatted(configuredModel, parseMessage), parseFailure);
         }
         BookAiContentSnapshot snapshot = repository.insertNewCurrentVersion(bookId, aiContent, configuredModel, DEFAULT_PROVIDER, promptHash);
-        onDelta.accept(rawMessage);
-        return new GeneratedContent(rawMessage, snapshot);
+        try {
+            onValidatedBufferedPayload.accept(validatedBufferedPayload);
+        } catch (IllegalStateException deliveryFailure) {
+            log.warn(
+                "Validated AI content delivery failed after persistence for bookId={} model={} tier={} version={}",
+                bookId,
+                configuredModel,
+                tier.headerValue(),
+                snapshot.version(),
+                deliveryFailure
+            );
+            throw deliveryFailure;
+        }
+        return new GeneratedContent(validatedBufferedPayload, snapshot);
     }
 
     private boolean isRetryableGenerationFailure(
@@ -424,7 +459,7 @@ public class BookAiContentService {
         }
     }
 
-    /** Immutable generation result used by SSE controllers. */
+    /** Immutable result containing the complete validated buffered payload and its persisted snapshot. */
     public record GeneratedContent(String rawMessage, BookAiContentSnapshot snapshot) {}
 
     /** Immutable outcome used by background ingestion generation workflows. */

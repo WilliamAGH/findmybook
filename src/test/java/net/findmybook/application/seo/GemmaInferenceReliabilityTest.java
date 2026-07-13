@@ -25,6 +25,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import net.findmybook.adapters.persistence.BookAiContentRepository;
 import net.findmybook.adapters.persistence.BookSeoMetadataRepository;
@@ -218,13 +219,21 @@ class GemmaInferenceReliabilityTest {
     void should_PersistValidatedReaderContentBeforeDeliveringBufferedPayload() {
         server.enqueueSse(streamChunk(AI_JSON, null) + streamChunk("", "stop"));
         BookAiContentRepository repository = mock(BookAiContentRepository.class);
+        AtomicBoolean persisted = new AtomicBoolean(false);
         when(repository.insertNewCurrentVersion(any(), any(), anyString(), anyString(), anyString()))
-            .thenAnswer(invocation -> new BookAiContentSnapshot(
-                BOOK_ID, 1, Instant.EPOCH, invocation.getArgument(2), invocation.getArgument(3), invocation.getArgument(1)));
+            .thenAnswer(invocation -> {
+                persisted.set(true);
+                return new BookAiContentSnapshot(
+                    BOOK_ID, 1, Instant.EPOCH, invocation.getArgument(2), invocation.getArgument(3), invocation.getArgument(1));
+            });
 
         assertThatThrownBy(() -> aiService(repository).generateAndPersist(
             BOOK_ID,
-            ignored -> { throw new IllegalStateException("delivery closed"); },
+            validatedBufferedPayload -> {
+                assertThat(persisted).isTrue();
+                assertThat(validatedBufferedPayload).isEqualTo(AI_JSON);
+                throw new IllegalStateException("delivery closed");
+            },
             LlmGatewayTier.LIVE_RENDER
         )).isInstanceOf(IllegalStateException.class).hasMessage("delivery closed");
 
