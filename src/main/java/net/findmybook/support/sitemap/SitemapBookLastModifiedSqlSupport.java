@@ -130,6 +130,37 @@ public final class SitemapBookLastModifiedSqlSupport {
     }
 
     /**
+     * Builds a bounded XML sitemap query that selects the requested book page before
+     * aggregating joined-data timestamps.
+     *
+     * @param bookUpdatedAtAlias SQL alias for the aggregated last-modified timestamp column
+     * @return SQL with {@code LIMIT} and {@code OFFSET} parameters applied before change-event aggregation
+     */
+    public static String pagedBookLastModifiedQuery(String bookUpdatedAtAlias) {
+        validateSqlIdentifier(bookUpdatedAtAlias, "bookUpdatedAtAlias");
+        return """
+                WITH requested_books AS MATERIALIZED (
+                    SELECT b.id, b.slug, b.title
+                    FROM books b
+                    WHERE b.slug IS NOT NULL
+                    ORDER BY lower(b.title) ASC NULLS LAST, b.slug ASC NULLS LAST, b.id ASC
+                    LIMIT ? OFFSET ?
+                ),
+                change_events AS NOT MATERIALIZED (
+                    %s
+                )
+                SELECT rb.id,
+                       rb.slug,
+                       rb.title,
+                       MAX(change_events.changed_at) AS %s
+                FROM requested_books rb
+                LEFT JOIN change_events ON change_events.book_id = rb.id
+                GROUP BY rb.id, rb.slug, rb.title
+                ORDER BY lower(rb.title) ASC NULLS LAST, rb.slug ASC NULLS LAST, rb.id ASC
+                """.formatted(UNION_ALL_CHANGE_EVENTS, bookUpdatedAtAlias);
+    }
+
+    /**
      * Builds an author-scoped sitemap query with canonical book-level last-modified timestamps.
      *
      * @param authorPlaceholders SQL placeholders for the author-id {@code IN (...)} filter

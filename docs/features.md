@@ -13,7 +13,7 @@ See [UML README](../src/main/resources/uml/README.md).
 - The shell also embeds the backend route manifest (`window.__FMB_ROUTE_MANIFEST__`), and the same contract is exposed by `GET /api/pages/routes` for SPA bootstrap.
 - SPA navigation now writes typed history state for each in-app transition so the book detail back action returns to the exact prior route state (including active filters/pagination) instead of reconstructing a generic search URL.
 - Search result links now include a `bookId` query hint (`/book/{slug}?bookId={id}`) so book detail pages can retry canonical API lookups by ID when slug-only lookups temporarily fail.
-- Reader's Guide generation attempts backend description enrichment (Open Library + Google Books) before returning a terminal `description_too_short` stream error.
+- Reader's Guide generation attempts Open Library and Google Books description enrichment independently before returning a terminal `description_too_short` stream error. Background ingestion treats that eligibility result as a Reader's Guide skip and continues SEO metadata generation.
 - Trailing-slash variants of page routes permanently redirect (`308`) to the canonical non-slash path with query strings preserved.
 - Non-HTML crawler endpoints remain explicit and unchanged (`/book/isbn*`, `/sitemap.xml`, `/sitemap-xml/*`, `/robots.txt`).
 - Static fallback HTML at `/frontend/index.html` is not served; only backend controllers provide public HTML entrypoints.
@@ -43,6 +43,8 @@ See [UML README](../src/main/resources/uml/README.md).
   - `make book-similarity-anchor BOOK_IDENTIFIER=<uuid-or-slug-or-isbn>`
 
 ## Sitemap Generation
+XML book pages select their bounded canonical-book page before aggregating joined-data `lastmod` timestamps, preventing one crawler request from materializing and sorting the complete change-event history.
+
 Trigger manual sitemap update:
 ```bash
 curl -X POST http://localhost:8095/admin/trigger-sitemap-update

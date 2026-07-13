@@ -46,6 +46,20 @@ class SitemapBookLastModifiedSqlSupportTest {
     }
 
     @Test
+    void should_PageBooksBeforeAggregatingChangeEvents_When_RenderingXmlQuery() {
+        String sql = SitemapBookLastModifiedSqlSupport.pagedBookLastModifiedQuery("book_updated_at");
+
+        assertThat(sql)
+            .contains("requested_books AS MATERIALIZED")
+            .contains("LIMIT ? OFFSET ?")
+            .contains("change_events AS NOT MATERIALIZED")
+            .contains("LEFT JOIN change_events ON change_events.book_id = rb.id")
+            .contains("MAX(change_events.changed_at) AS book_updated_at")
+            .doesNotContain("%s");
+        assertThat(sql.indexOf("LIMIT ? OFFSET ?")).isLessThan(sql.indexOf("change_events AS NOT MATERIALIZED"));
+    }
+
+    @Test
     void should_ThrowIllegalArgument_When_AliasContainsSqlInjection() {
         assertThatThrownBy(() ->
             SitemapBookLastModifiedSqlSupport.globalBookLastModifiedCte("x; DROP TABLE books"))
@@ -103,5 +117,31 @@ class SitemapBookLastModifiedSqlSupportTest {
                 .contains("ROW_NUMBER() OVER")
                 .contains("ORDER BY CASE bucket")
                 .doesNotContain("%s");
+    }
+
+    @Test
+    void should_UseBoundedPageQuery_When_BookXmlPageIsRequested() {
+        JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+        SitemapRepository sitemapRepository = new SitemapRepository(jdbcTemplate);
+        when(jdbcTemplate.query(
+            anyString(),
+            org.mockito.ArgumentMatchers.<RowMapper<SitemapRepository.BookRow>>any(),
+            eq(5000),
+            eq(10000)
+        )).thenReturn(List.of());
+
+        sitemapRepository.fetchBooksForXml(5000, 10000);
+
+        ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+        verify(jdbcTemplate).query(
+            sqlCaptor.capture(),
+            org.mockito.ArgumentMatchers.<RowMapper<SitemapRepository.BookRow>>any(),
+            eq(5000),
+            eq(10000)
+        );
+        assertThat(sqlCaptor.getValue())
+            .contains("requested_books AS MATERIALIZED")
+            .contains("LIMIT ? OFFSET ?")
+            .doesNotContain("FROM book_last_modified ORDER BY");
     }
 }

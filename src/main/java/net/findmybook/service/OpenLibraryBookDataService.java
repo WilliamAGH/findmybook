@@ -274,12 +274,16 @@ public class OpenLibraryBookDataService {
      * @return a Flux.error wrapping the circuit breaker cause
      */
     public Flux<Book> searchBooksFallback(String query, Throwable cause) {
-        LoggingUtils.warn(log, cause, "OpenLibrary search fallback triggered for query: '{}'", query);
+        log.warn(
+            "OpenLibrary search fallback triggered for query '{}': {}: {}",
+            query,
+            cause.getClass().getSimpleName(),
+            cause.getMessage()
+        );
         return Flux.error(new IllegalStateException("OpenLibrary fallback triggered for search '" + query + "'", cause));
     }
 
     public Flux<Book> searchBooksFallback(String query, String orderBy, Throwable cause) {
-        LoggingUtils.warn(log, cause, "OpenLibrary search fallback triggered for query: '{}' and orderBy '{}'", query, orderBy);
         return searchBooksFallback(query, cause);
     }
 
@@ -288,15 +292,6 @@ public class OpenLibraryBookDataService {
                                           int startIndex,
                                           int maxResults,
                                           Throwable cause) {
-        LoggingUtils.warn(
-            log,
-            cause,
-            "OpenLibrary search fallback triggered for query: '{}' orderBy '{}' startIndex {} maxResults {}",
-            query,
-            orderBy,
-            startIndex,
-            maxResults
-        );
         return searchBooksFallback(query, cause);
     }
 

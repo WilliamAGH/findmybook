@@ -93,8 +93,12 @@ public class BookAiIngestionMetadataCoordinator {
                     log.debug("Skipped ingestion AI summary for unchanged prompt hash book {}", bookId);
                 }
             } catch (BookAiGenerationException aiFailure) {
-                log.error("Failed generating ingestion AI summary for book {}", bookId, aiFailure);
-                firstFailure = aiFailure;
+                if (aiFailure.errorCode() == BookAiGenerationException.ErrorCode.DESCRIPTION_TOO_SHORT) {
+                    log.debug("Skipped ingestion AI summary for ineligible book {}: {}", bookId, aiFailure.getMessage());
+                } else {
+                    log.error("Failed generating ingestion AI summary for book {}", bookId, aiFailure);
+                    firstFailure = aiFailure;
+                }
             }
         }
 

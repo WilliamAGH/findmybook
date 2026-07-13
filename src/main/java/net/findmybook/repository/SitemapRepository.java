@@ -79,14 +79,7 @@ public class SitemapRepository {
     }
 
     public List<BookRow> fetchBooksForXml(int limit, int offset) {
-        String sql = BOOK_CHANGE_EVENTS_CTE +
-                     "SELECT id, slug, title, " + BOOK_UPDATED_AT_ALIAS + " " +
-                     "FROM book_last_modified " +
-                     "ORDER BY " + BOOK_UPDATED_AT_ALIAS + " ASC NULLS LAST, " +
-                     "         lower(title) ASC NULLS LAST, " +
-                     "         slug ASC NULLS LAST, " +
-                     "         id ASC " +
-                     "LIMIT ? OFFSET ?";
+        String sql = SitemapBookLastModifiedSqlSupport.pagedBookLastModifiedQuery(BOOK_UPDATED_AT_ALIAS);
         return jdbcTemplate.query(sql, BOOK_ROW_MAPPER, limit, offset);
     }
 
@@ -153,8 +146,7 @@ public class SitemapRepository {
         String sql = BOOK_CHANGE_EVENTS_CTE +
                 ", ordered AS (" +
                 "    SELECT " + BOOK_UPDATED_AT_ALIAS + "," +
-                "           row_number() OVER (ORDER BY " + BOOK_UPDATED_AT_ALIAS + " ASC NULLS LAST, " +
-                "                                       lower(title) ASC NULLS LAST, " +
+                "           row_number() OVER (ORDER BY lower(title) ASC NULLS LAST, " +
                 "                                       slug ASC NULLS LAST, " +
                 "                                       id ASC) AS rn" +
                 "    FROM book_last_modified" +

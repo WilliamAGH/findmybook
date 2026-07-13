@@ -4,7 +4,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import org.springframework.stereotype.Service;
-
 import net.findmybook.dto.BookAggregate;
 import net.findmybook.dto.BookDetail;
 import net.findmybook.mapper.GoogleBooksMapper;
@@ -19,7 +18,6 @@ import org.slf4j.LoggerFactory;
 import jakarta.annotation.Nullable;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
-
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -66,14 +64,6 @@ public class BookDataOrchestrator {
         if (postgresBookRepository == null) {
             logger.warn("BookDataOrchestrator initialized without PostgresBookRepository — all database lookups will return empty");
         }
-    }
-
-    public void refreshSearchView() {
-        triggerSearchViewRefresh(false);
-    }
-
-    public void refreshSearchViewImmediately() {
-        triggerSearchViewRefresh(true);
     }
 
     /** Reads a canonical book directly from Postgres without external fallback. */
@@ -126,18 +116,6 @@ public class BookDataOrchestrator {
         return queryDatabase(repo -> repo.fetchBySlug(slug));
     }
 
-    private Optional<Book> findInDatabaseByIsbn13(String isbn13) {
-        return queryDatabase(repo -> repo.fetchByIsbn13(isbn13));
-    }
-
-    private Optional<Book> findInDatabaseByIsbn10(String isbn10) {
-        return queryDatabase(repo -> repo.fetchByIsbn10(isbn10));
-    }
-
-    private Optional<Book> findInDatabaseByAnyExternalId(String externalId) {
-        return queryDatabase(repo -> repo.fetchByExternalId(externalId));
-    }
-
     private Optional<Book> queryDatabase(Function<PostgresBookRepository, Optional<Book>> resolver) {
         if (postgresBookRepository == null) {
             throw new IllegalStateException("PostgresBookRepository is not available — database lookups cannot proceed");
@@ -147,8 +125,35 @@ public class BookDataOrchestrator {
 
     private List<Book> fetchDescriptionEnrichmentCandidates(UUID bookId, String query) {
         List<Book> candidates = new ArrayList<>();
-        candidates.addAll(fetchOpenLibraryCandidates(query));
-        candidates.addAll(fetchGoogleCandidates(query));
+        RuntimeException firstProviderFailure = null;
+        boolean providerSucceeded = false;
+        if (openLibraryBookDataService.isPresent()) {
+            try {
+                candidates.addAll(fetchOpenLibraryCandidates(query));
+                providerSucceeded = true;
+            } catch (RuntimeException openLibraryFailure) {
+                firstProviderFailure = openLibraryFailure;
+                logger.warn("Open Library description enrichment failed for bookId={} (continuing with Google Books): {}",
+                    bookId, openLibraryFailure.getMessage());
+            }
+        }
+        if (googleExternalSearchFlow.isAvailable()) {
+            try {
+                candidates.addAll(fetchGoogleCandidates(query));
+                providerSucceeded = true;
+            } catch (RuntimeException googleFailure) {
+                if (firstProviderFailure != null) {
+                    firstProviderFailure.addSuppressed(googleFailure);
+                } else {
+                    firstProviderFailure = googleFailure;
+                }
+                logger.warn("Google Books description enrichment failed for bookId={} (continuing with available candidates): {}",
+                    bookId, googleFailure.getMessage());
+            }
+        }
+        if (!providerSucceeded && firstProviderFailure != null) {
+            throw firstProviderFailure;
+        }
         return candidates;
     }
 
@@ -284,17 +289,17 @@ public class BookDataOrchestrator {
 
             Book result = findInDatabaseBySlug(identifier).orElse(null);
             if (result != null) return result;
-            
+
             result = findInDatabaseById(identifier).orElse(null);
             if (result != null) return result;
-            
-            result = findInDatabaseByIsbn13(identifier).orElse(null);
+
+            result = queryDatabase(repo -> repo.fetchByIsbn13(identifier)).orElse(null);
             if (result != null) return result;
-            
-            result = findInDatabaseByIsbn10(identifier).orElse(null);
+
+            result = queryDatabase(repo -> repo.fetchByIsbn10(identifier)).orElse(null);
             if (result != null) return result;
-            
-            return findInDatabaseByAnyExternalId(identifier).orElse(null);
+
+            return queryDatabase(repo -> repo.fetchByExternalId(identifier)).orElse(null);
         })
         .subscribeOn(Schedulers.boundedElastic())
         .flatMap(book -> book != null ? Mono.just(book) : Mono.empty())
@@ -302,10 +307,10 @@ public class BookDataOrchestrator {
     }
 
     /**
-     * Persists books that were fetched from external APIs during search/recommendations.
-     * This ensures opportunistic upsert: books returned from API calls get saved to Postgres.
-     * @param books List of books to persist
-     * @param context Context string for logging (e.g., "SEARCH", "RECOMMENDATION")
+     * Persists books fetched from external APIs and schedules a throttled search-view refresh.
+     *
+     * @param books external books to persist
+     * @param context operation context used in persistence logs
      */
     public void persistBooksAsync(List<Book> books, String context) {
         bookExternalBatchPersistenceService.persistBooksAsync(books, context, () -> triggerSearchViewRefresh(false));
