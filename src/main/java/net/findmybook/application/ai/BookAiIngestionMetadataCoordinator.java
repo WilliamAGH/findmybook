@@ -96,7 +96,6 @@ public class BookAiIngestionMetadataCoordinator {
                 if (aiFailure.errorCode() == BookAiGenerationException.ErrorCode.DESCRIPTION_TOO_SHORT) {
                     log.debug("Skipped ingestion AI summary for ineligible book {}: {}", bookId, aiFailure.getMessage());
                 } else {
-                    log.error("Failed generating ingestion AI summary for book {}", bookId, aiFailure);
                     firstFailure = aiFailure;
                 }
             }
@@ -123,7 +122,6 @@ public class BookAiIngestionMetadataCoordinator {
                         log.debug("Skipping ingestion SEO metadata generation because relation book_seo_metadata is unavailable.");
                     }
                 } else {
-                    log.error("Failed generating ingestion SEO metadata for book {}", bookId, seoFailure);
                     if (firstFailure == null) {
                         firstFailure = seoFailure;
                     }

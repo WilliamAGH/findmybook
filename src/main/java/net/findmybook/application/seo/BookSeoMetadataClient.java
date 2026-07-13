@@ -33,8 +33,9 @@ class BookSeoMetadataClient {
 
     private static final Logger log = LoggerFactory.getLogger(BookSeoMetadataClient.class);
     private static final String DEFAULT_PROVIDER = "openai";
-    private static final long MAX_COMPLETION_TOKENS = 220L;
+    private static final long MAX_COMPLETION_TOKENS = 1000L;
     private static final int MAX_GENERATION_ATTEMPTS = 3;
+    private static final int SDK_MAX_RETRIES = 2;
     private static final double SAMPLING_TEMPERATURE = 0.2;
 
     private static final String SYSTEM_PROMPT = """
@@ -75,7 +76,7 @@ class BookSeoMetadataClient {
                 clients.put(tier, OpenAIOkHttpClient.builder()
                     .apiKey(openAiProperties.apiKey())
                     .baseUrl(openAiProperties.baseUrl())
-                    .maxRetries(0)
+                    .maxRetries(SDK_MAX_RETRIES)
                     .putHeader(LlmGatewayTier.HEADER_NAME, tier.headerValue())
                     .build());
             }
@@ -175,27 +176,54 @@ class BookSeoMetadataClient {
             .temperature(SAMPLING_TEMPERATURE)
             .build();
 
+        long effectiveRequestTimeoutSeconds = Math.max(requestTimeoutSeconds, tier.minimumCallTimeoutSeconds());
+        long effectiveReadTimeoutSeconds = Math.max(readTimeoutSeconds, tier.minimumCallTimeoutSeconds());
         RequestOptions options = RequestOptions.builder()
             .timeout(Timeout.builder()
-                .request(Duration.ofSeconds(requestTimeoutSeconds))
-                .read(Duration.ofSeconds(readTimeoutSeconds))
+                .request(Duration.ofSeconds(effectiveRequestTimeoutSeconds))
+                .read(Duration.ofSeconds(effectiveReadTimeoutSeconds))
                 .build())
             .build();
 
         try {
             ChatCompletion completion = tieredClient.chat().completions().create(params, options);
             if (completion.choices().isEmpty()) {
-                throw new BookSeoGenerationException("SEO metadata response contained no choices");
+                throw new BookSeoGenerationException(
+                    BookSeoGenerationException.ErrorCode.INVALID_RESPONSE,
+                    "SEO metadata response contained no choices"
+                );
             }
-            String response = completion.choices().get(0).message().content().orElse("");
+            ChatCompletion.Choice choice = completion.choices().get(0);
+            String finishReason = choice.finishReason().asString();
+            if (ChatCompletion.Choice.FinishReason.LENGTH.equals(choice.finishReason())) {
+                throw new BookSeoGenerationException(
+                    "SEO metadata response exhausted completion token budget "
+                        + "(maxCompletionTokens=%d, finishReason=%s)".formatted(MAX_COMPLETION_TOKENS, finishReason)
+                );
+            }
+            if (choice.message().refusal().filter(StringUtils::hasText).isPresent()) {
+                throw new BookSeoGenerationException(
+                    "SEO metadata request was refused (finishReason=%s, refusalPresent=true)".formatted(finishReason)
+                );
+            }
+            if (!ChatCompletion.Choice.FinishReason.STOP.equals(choice.finishReason())) {
+                throw new BookSeoGenerationException(
+                    "SEO metadata response ended without stop (finishReason=%s)".formatted(finishReason)
+                );
+            }
+            String response = choice.message().content().orElse("");
             if (!StringUtils.hasText(response)) {
-                throw new BookSeoGenerationException("SEO metadata response was empty");
+                throw new BookSeoGenerationException(
+                    BookSeoGenerationException.ErrorCode.INVALID_RESPONSE,
+                    "SEO metadata response was empty (finishReason=%s, refusalPresent=false)".formatted(finishReason)
+                );
             }
             return parser.parse(response);
         } catch (OpenAIException openAiException) {
             String detail = BookAiGenerationException.describeApiError(openAiException);
-            log.error("SEO metadata API call failed (model={}, tier={}): {}", configuredModel, tier.headerValue(), detail);
+            log.warn("SEO metadata API call failed (model={}, tier={}): {}", configuredModel, tier.headerValue(), detail);
             throw new BookSeoGenerationException(
+                BookSeoGenerationException.ErrorCode.API_CALL_FAILED,
                 "SEO metadata generation failed (%s, tier=%s): %s".formatted(configuredModel, tier.headerValue(), detail),
                 openAiException
             );
@@ -203,17 +231,7 @@ class BookSeoMetadataClient {
     }
 
     private boolean isRetryableGenerationFailure(BookSeoGenerationException generationFailure) {
-        if (generationFailure.getCause() != null) {
-            return true;
-        }
-        String failureMessage = generationFailure.getMessage();
-        if (!StringUtils.hasText(failureMessage)) {
-            return false;
-        }
-        return failureMessage.contains("response was empty")
-            || failureMessage.contains("did not include a valid JSON object")
-            || failureMessage.contains("JSON parsing failed")
-            || failureMessage.contains("generation failed");
+        return generationFailure.errorCode() == BookSeoGenerationException.ErrorCode.INVALID_RESPONSE;
     }
 
     private void ensureAvailable() {

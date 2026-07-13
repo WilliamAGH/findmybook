@@ -25,7 +25,7 @@ class SeoMetadataJsonParser {
      */
     SeoMetadataCandidate parse(String responseText) {
         if (!StringUtils.hasText(responseText)) {
-            throw new BookSeoGenerationException("SEO metadata response was empty");
+            throw invalidResponse("SEO metadata response was empty");
         }
         JsonNode payload = parseJsonPayload(responseText);
         String seoTitle = requiredText(payload, "seoTitle", "seo_title", "title");
@@ -41,20 +41,28 @@ class SeoMetadataJsonParser {
             int openBrace = cleaned.indexOf('{');
             int closeBrace = cleaned.lastIndexOf('}');
             if (openBrace < 0 || closeBrace <= openBrace) {
-                throw new BookSeoGenerationException("SEO metadata response did not include a valid JSON object");
+                throw invalidResponse("SEO metadata response did not include a valid JSON object");
             }
             String extracted = cleaned.substring(openBrace, closeBrace + 1);
             try {
                 return objectMapper.readTree(extracted);
             } catch (JacksonException parseException) {
-                throw new BookSeoGenerationException("SEO metadata response JSON parsing failed", parseException);
+                throw invalidResponse("SEO metadata response JSON parsing failed", parseException);
             }
         }
     }
 
     private String requiredText(JsonNode payload, String field, String... aliases) {
         return optionalText(payload, field, aliases)
-            .orElseThrow(() -> new IllegalStateException("SEO metadata response missing required field: " + field));
+            .orElseThrow(() -> invalidResponse("SEO metadata response missing required field: " + field));
+    }
+
+    private BookSeoGenerationException invalidResponse(String message) {
+        return new BookSeoGenerationException(BookSeoGenerationException.ErrorCode.INVALID_RESPONSE, message);
+    }
+
+    private BookSeoGenerationException invalidResponse(String message, JacksonException cause) {
+        return new BookSeoGenerationException(BookSeoGenerationException.ErrorCode.INVALID_RESPONSE, message, cause);
     }
 
     private Optional<String> optionalText(JsonNode payload, String field, String... aliases) {

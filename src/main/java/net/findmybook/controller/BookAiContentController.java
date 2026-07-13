@@ -318,7 +318,7 @@ public class BookAiContentController {
                 case DESCRIPTION_TOO_SHORT -> AiErrorCode.DESCRIPTION_TOO_SHORT;
                 case ENRICHMENT_FAILED -> AiErrorCode.ENRICHMENT_FAILED;
                 case DEGENERATE_CONTENT -> AiErrorCode.DEGENERATE_CONTENT;
-                case GENERATION_FAILED -> AiErrorCode.GENERATION_FAILED;
+                case GENERATION_FAILED, INCOMPLETE_RESPONSE, INVALID_RESPONSE -> AiErrorCode.GENERATION_FAILED;
             };
             return new AiErrorDescriptor(code, safeThrowableMessage(current));
         }
