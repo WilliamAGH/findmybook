@@ -1,250 +1,134 @@
 # External API Logging Guide
 
-## Overview
+## Scope
 
-Comprehensive console logging has been added for all external API calls during opportunistic backfill/supplementation. All logs use the `[EXTERNAL-API]` prefix for easy filtering.
+This guide covers records emitted by active `ExternalApiLogger` call sites. Every record described here begins with `[EXTERNAL-API]`.
 
-## Provider Priority and Failure Isolation
+Provider ordering is owned by each calling search flow, so this guide does not prescribe a universal provider sequence. URL parameters named `key`, `api_key`, or `token` are masked in formatter output.
 
-- Open Library is the primary external provider for search fallback/enrichment.
-- Google Books is a secondary provider:
-  - Runs in parallel during realtime enrichment.
-  - Runs after Open Library during synchronous fallback to fill remaining slots.
-- Provider failures are isolated. If one provider fails (for example Google 429), the other provider continues processing.
-- Circuit-breaker fallbacks emit one bounded warning summary; propagated causes are not repeated as stack traces by each fallback overload.
+## Active Record Formats
 
-## Log Format
+Runtime-specific values are shown with angle brackets.
 
-All console logs follow this pattern:
+### Google Books Search Pages
 
 ```text
-[EXTERNAL-API] [Component] Action: details
+[EXTERNAL-API] [GoogleBooks] AUTHENTICATED ATTEMPT: SEARCH_PAGE for query='<query> start=<offset>'
+[EXTERNAL-API] [GoogleBooks] UNAUTHENTICATED ATTEMPT: SEARCH_PAGE for query='<query> start=<offset>'
+[EXTERNAL-API] [GoogleBooks] SUCCESS: SEARCH_PAGE returned <count> result(s) for query='<query> start=<offset>'
+[EXTERNAL-API] [GoogleBooks] FAILURE: SEARCH_PAGE failed for query='<query> start=<offset>' - <reason>
 ```
 
-## What You'll See in Console
+A zero result count is emitted as a `SUCCESS` record.
 
-### 1. Tiered Search Start/Complete
+### Open Library Searches
 
-**Search Initiation:**
+Open Library emits `SEARCH_TITLE`, `SEARCH_AUTHOR`, or `SEARCH_EVERYTHING`.
 
 ```text
-[EXTERNAL-API] [TIERED-SEARCH] START: query='elin hilderbrand', postgresResults=0, desiredTotal=20, needFromExternal=20
+[EXTERNAL-API] [OpenLibrary] UNAUTHENTICATED ATTEMPT: <operation> for query='<query>'
+[EXTERNAL-API] [OpenLibrary] SUCCESS: <operation> returned <count> result(s) for query='<query> start=<offset> limit=<limit>'
 ```
 
-**Search Completion:**
+### Google Books HTTP Records
+
+Google search pages emit request and response records. Google volume fetches emit the response record on success.
 
 ```text
-[EXTERNAL-API] [TIERED-SEARCH] COMPLETE: query='elin hilderbrand', postgresResults=0, externalResults=15, totalResults=15
+[EXTERNAL-API] [HTTP] AUTHENTICATED GET request to: <url>
+[EXTERNAL-API] [HTTP] UNAUTHENTICATED GET request to: <url>
+[EXTERNAL-API] [HTTP] Response: status=<status>, url=<url>, bodySize=<bytes> bytes
 ```
 
-### 2. Search Strategy Detection
-
-**Author Name Detection:**
+### Google Books Volume Failures
 
 ```text
-[EXTERNAL-API] [SEARCH-STRATEGY] Using 'inauthor:elin hilderbrand' for query='elin hilderbrand'
+[EXTERNAL-API] [GoogleBooks] FAILURE: FETCH_VOLUME failed for query='<url>' - <reason>
 ```
 
-### 3. API Call Attempts
+### Circuit Breaker Events
 
-**Primary Search (Authenticated):**
+Authenticated Google calls emit:
 
 ```text
-[EXTERNAL-API] [GoogleBooks] AUTHENTICATED SEARCH_PAGE ATTEMPT: for query='inauthor:elin hilderbrand'
+[EXTERNAL-API] [GoogleBooks] CIRCUIT-BREAKER-OPEN: Blocking authenticated call for query='<query-or-book-id>' (unauthenticated fallback will be attempted)
 ```
 
-**Fallback Search (Unauthenticated):**
+### Persistence Hydration
+
+When externally sourced books are persisted, the batch persistence service emits:
 
 ```text
-[EXTERNAL-API] [GoogleBooks] UNAUTHENTICATED SEARCH_PAGE ATTEMPT: for query='inauthor:elin hilderbrand'
+[EXTERNAL-API] [HYDRATION] <context> START: identifier='<book-id>', correlation='<context>'
+[EXTERNAL-API] [HYDRATION] <context> SUCCESS: identifier='<book-id>', canonicalId='<book-id>', tier='POSTGRES_UPSERT'
 ```
 
-**OpenLibrary Fallback:**
+## Tags Not Emitted by Current Call Sites
 
-```text
-[EXTERNAL-API] [OpenLibrary] UNAUTHENTICATED SEARCH_EVERYTHING ATTEMPT: for query='elin hilderbrand'
-```
-
-### 4. Circuit Breaker Events
-
-**When Circuit Breaker Blocks Authenticated Calls:**
-
-```text
-[EXTERNAL-API] [GoogleBooks] CIRCUIT-BREAKER-OPEN: Blocking authenticated call for query='elin hilderbrand' (unauthenticated fallback will be attempted)
-```
-
-### 5. API Call Results
-
-**Successful Response:**
-
-```text
-[EXTERNAL-API] [GoogleBooks] SUCCESS: SEARCH_PAGE returned 15 result(s) for query='inauthor:elin hilderbrand'
-```
-
-**No Results:**
-
-```text
-[EXTERNAL-API] [GoogleBooks] SUCCESS: SEARCH_PAGE returned 0 result(s) for query='some unknown book'
-```
-
-**Failure:**
-
-```text
-[EXTERNAL-API] [GoogleBooks] FAILURE: SEARCH_PAGE failed for query='problematic query' - HTTP 429: Rate limit exceeded
-```
-
-### 6. HTTP Request/Response Details
-
-**Request:**
-
-```text
-[EXTERNAL-API] [HTTP] AUTHENTICATED GET request to: https://www.googleapis.com/books/v1/volumes?q=inauthor:elin+hilderbrand&startIndex=0&maxResults=40
-```
-
-**Response:**
-
-```text
-[EXTERNAL-API] [HTTP] Response: status=200, url=https://www.googleapis.com/books/v1/volumes..., bodySize=15234 bytes
-```
-
-### 7. Fallback Disabled Events
-
-```text
-[EXTERNAL-API] [GoogleBooks] DISABLED: External fallback disabled for query='test query'
-```
-
-## Typical Search Flow Example
-
-Here's what a complete successful search with supplementation looks like in the console:
-
-```text
-[EXTERNAL-API] [TIERED-SEARCH] START: query='elin hilderbrand', postgresResults=0, desiredTotal=20, needFromExternal=20
-[EXTERNAL-API] [SEARCH-STRATEGY] Using 'inauthor:elin hilderbrand' for query='elin hilderbrand'
-[EXTERNAL-API] [GoogleBooks] AUTHENTICATED SEARCH_PAGE ATTEMPT: for query='inauthor:elin hilderbrand'
-[EXTERNAL-API] [HTTP] AUTHENTICATED GET request to: https://www.googleapis.com/books/v1/volumes?q=inauthor:elin+hilderbrand...
-[EXTERNAL-API] [HTTP] Response: status=200, url=https://www.googleapis.com/books/v1/volumes..., bodySize=23456 bytes
-[EXTERNAL-API] [GoogleBooks] SUCCESS: SEARCH_PAGE returned 20 result(s) for query='inauthor:elin hilderbrand'
-[EXTERNAL-API] [TIERED-SEARCH] COMPLETE: query='elin hilderbrand', postgresResults=0, externalResults=20, totalResults=20
-```
-
-## Graceful Degradation Flow Example
-
-When authenticated calls are blocked by circuit breaker:
-
-```text
-[EXTERNAL-API] [TIERED-SEARCH] START: query='book search', postgresResults=5, desiredTotal=20, needFromExternal=15
-[EXTERNAL-API] [GoogleBooks] AUTHENTICATED SEARCH_PAGE ATTEMPT: for query='book search'
-[EXTERNAL-API] [GoogleBooks] CIRCUIT-BREAKER-OPEN: Blocking authenticated call for query='book search' (unauthenticated fallback will be attempted)
-[EXTERNAL-API] [GoogleBooks] SUCCESS: SEARCH_PAGE returned 0 result(s) for query='book search'
-[EXTERNAL-API] [GoogleBooks] UNAUTHENTICATED SEARCH_PAGE ATTEMPT: for query='book search'
-[EXTERNAL-API] [HTTP] UNAUTHENTICATED GET request to: https://www.googleapis.com/books/v1/volumes?q=book+search...
-[EXTERNAL-API] [HTTP] Response: status=200, url=https://www.googleapis.com/books/v1/volumes..., bodySize=12345 bytes
-[EXTERNAL-API] [GoogleBooks] SUCCESS: SEARCH_PAGE returned 10 result(s) for query='book search'
-[EXTERNAL-API] [TIERED-SEARCH] COMPLETE: query='book search', postgresResults=5, externalResults=10, totalResults=15
-```
+Do not rely on `[TIERED-SEARCH]`, `[SEARCH-STRATEGY]`, or `[GoogleBooks] DISABLED` records. Current production call sites do not emit them.
 
 ## Filtering Logs
 
-### View Only External API Logs
+### All External API Records
 
 ```bash
-# In console/terminal
 grep "\[EXTERNAL-API\]" application.log
-
-# Real-time monitoring
 tail -f application.log | grep "\[EXTERNAL-API\]"
 ```
 
-### View Only Errors
+### Failures
 
 ```bash
-grep "\[EXTERNAL-API\].*ERROR\|FAILURE" application.log
+grep "\[EXTERNAL-API\].*FAILURE" application.log
 ```
 
-### View Only Successful API Calls
+### Google Search Pages
 
 ```bash
-grep "\[EXTERNAL-API\].*SUCCESS" application.log
+grep "\[EXTERNAL-API\].*SEARCH_PAGE" application.log
 ```
 
-### View Circuit Breaker Events
+### Open Library Searches
 
 ```bash
-grep "\[EXTERNAL-API\].*CIRCUIT-BREAKER" application.log
+grep "\[EXTERNAL-API\] \[OpenLibrary\]" application.log
 ```
 
-### View Search Flow (Start to Complete)
+### Circuit Breaker Events
 
 ```bash
-grep "\[EXTERNAL-API\].*TIERED-SEARCH" application.log
+grep "\[EXTERNAL-API\].*CIRCUIT-BREAKER-OPEN" application.log
 ```
 
-## Key Indicators
+### Hydration Events
 
-### ✅ Healthy Operation
-
-- See SEARCH_PAGE SUCCESS with results > 0
-- See TIERED-SEARCH COMPLETE with merged results
-- HTTP responses with status=200
-- No CIRCUIT-BREAKER-OPEN messages
-
-### ⚠️ Degraded Operation (But Working)
-
-- CIRCUIT-BREAKER-OPEN messages
-- SEARCH_PAGE returning 0 results for authenticated calls
-- Unauthenticated fallback attempts being made
-- Unauthenticated SEARCH_PAGE SUCCESS with results > 0
-
-### ❌ Complete Failure
-
-- All searches returning 0 results
-- Multiple FAILURE messages
-- HTTP errors (429, 500, etc.)
-- OpenLibrary also failing
-
-## Troubleshooting with Logs
-
-### Problem: No external results ever returned
-
-**Look for:**
-
-```text
-[EXTERNAL-API] [GoogleBooks] DISABLED
+```bash
+grep "\[EXTERNAL-API\].*\[HYDRATION\]" application.log
 ```
 
-**Solution:** Check `app.features.external-fallback.enabled` in `application.yml`
+## Troubleshooting
 
-### Problem: Circuit breaker constantly open
+### No external results
 
-**Look for:**
+Verify `app.features.external-fallback.enabled` in `application.yml`. Disabling the fallback does not currently emit an `[EXTERNAL-API] [GoogleBooks] DISABLED` record.
+
+### Authenticated Google calls are blocked
+
+Look for:
 
 ```text
 [EXTERNAL-API] [GoogleBooks] CIRCUIT-BREAKER-OPEN
 ```
 
-**Solution:** Check for rate limit errors (HTTP 429) in logs, may need to wait for circuit breaker cooldown
+Then inspect nearby `FAILURE` records for the triggering reason.
 
-### Problem: Author searches not working
+### Open Library author searches
 
-**Look for:**
+Look for an Open Library `SEARCH_AUTHOR` attempt. The application does not emit a `[SEARCH-STRATEGY]` record for author-query detection.
 
-```text
-[EXTERNAL-API] [SEARCH-STRATEGY] Using 'inauthor:...
-```
+## Active Integration Points
 
-**If missing:** Author detection heuristic may not be recognizing the query as an author name
-
-## Integration Points
-
-All logging is implemented in:
-
-1. **ExternalApiLogger.java** - Centralized logging utility
-2. **GoogleApiFetcher.java** - Low-level API calls
-
-## Next Steps
-
-Once the system is stable and working 100%, you can:
-
-1. Reduce logging verbosity by removing `System.out.println()` calls
-2. Change log levels from `INFO` to `DEBUG` for routine operations
-3. Keep `WARN`/`ERROR` level logs for genuine issues
+1. **ExternalApiLogger.java** — canonical formatter and sensitive-parameter masking.
+2. **GoogleApiFetcher.java** — Google search-page, volume-failure, HTTP, and circuit-breaker records.
+3. **OpenLibraryBookDataService.java** — Open Library search attempt and success records.
+4. **BookExternalBatchPersistenceService.java** — hydration start and success records.
