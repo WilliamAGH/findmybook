@@ -152,7 +152,7 @@ class AiContentJsonParser {
             .replace("```json", "")
             .replace("```", "")
             .trim();
-        if (!StringUtils.hasText(cleaned)) {
+        if (!StringUtils.hasText(cleaned) || cleaned.startsWith("{") || cleaned.startsWith("[")) {
             return Optional.empty();
         }
 

@@ -11,6 +11,7 @@ package net.findmybook.model;
 
 import net.findmybook.model.image.CoverImages;
 import net.findmybook.util.ValidationUtils;
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
@@ -69,7 +70,7 @@ public class Book {
     private Integer editionNumber;
     private List<Edition> otherEditions;
     private String asin;
-    private Map<String, Object> qualifiers;
+    private Map<String, Serializable> qualifiers;
     private List<String> cachedRecommendationIds;
     private transient String rawJsonResponse;
 
@@ -84,6 +85,9 @@ public class Book {
         this.cachedRecommendationIds = new ArrayList<>();
     }
 
+    /**
+     * Creates a book from provider metadata while preserving the same author invariants as setter-based construction.
+     */
     public Book(String id,
                 String title,
                 List<String> authors,
@@ -92,7 +96,7 @@ public class Book {
                 String externalImageUrl) {
         this.id = id;
         this.title = title;
-        this.authors = authors;
+        setAuthors(authors);
         this.description = description;
         this.s3ImagePath = s3ImagePath;
         this.externalImageUrl = externalImageUrl;
@@ -101,18 +105,29 @@ public class Book {
         this.cachedRecommendationIds = new ArrayList<>();
     }
 
+    /**
+     * Removes malformed provider author values before they reach API projections.
+     *
+     * @param authors provider-supplied author labels
+     */
     public void setAuthors(List<String> authors) {
-        if (authors == null) {
-            this.authors = new ArrayList<>();
-            return;
-        }
-        this.authors = authors.stream()
-            .filter(Objects::nonNull)
-            .map(String::trim)
-            .filter(author -> !author.isEmpty())
-            .collect(Collectors.toList());
+        this.authors = sanitizeTextEntries(authors);
     }
 
+    /**
+     * Keeps provider categories safe for immutable API projections.
+     *
+     * @param categories provider-supplied category labels
+     */
+    public void setCategories(List<String> categories) {
+        this.categories = sanitizeTextEntries(categories);
+    }
+
+    /**
+     * Returns collection assignments without exposing mutable provider state.
+     *
+     * @return immutable collection assignments
+     */
     public List<CollectionAssignment> getCollections() {
         if (collections == null || collections.isEmpty()) {
             return List.of();
@@ -120,12 +135,26 @@ public class Book {
         return List.copyOf(collections);
     }
 
+    /**
+     * Removes null provider assignments so immutable collection projections remain safe.
+     *
+     * @param collections provider-supplied collection assignments
+     */
     public void setCollections(List<CollectionAssignment> collections) {
-        this.collections = (collections == null || collections.isEmpty())
-            ? new ArrayList<>()
-            : new ArrayList<>(collections);
+        if (collections == null || collections.isEmpty()) {
+            this.collections = new ArrayList<>();
+            return;
+        }
+        this.collections = collections.stream()
+            .filter(Objects::nonNull)
+            .collect(Collectors.toCollection(ArrayList::new));
     }
 
+    /**
+     * Adds one valid collection assignment while preserving the collection invariant.
+     *
+     * @param assignment collection membership to retain
+     */
     public void addCollection(CollectionAssignment assignment) {
         if (assignment == null) {
             return;
@@ -137,32 +166,117 @@ public class Book {
     }
 
 
-    public void setQualifiers(Map<String, Object> qualifiers) {
+    /**
+     * Drops absent qualifier entries and rejects values outside the supported JSON value contract.
+     *
+     * @param qualifiers provider-supplied qualifier metadata
+     */
+    public void setQualifiers(Map<String, ?> qualifiers) {
+        Map<String, Serializable> sanitizedQualifiers = new HashMap<>();
         if (qualifiers == null || qualifiers.isEmpty()) {
-            this.qualifiers = new HashMap<>();
-        } else {
-            this.qualifiers = new HashMap<>(qualifiers);
+            this.qualifiers = sanitizedQualifiers;
+            return;
         }
+        qualifiers.forEach((qualifierKey, qualifierValue) -> {
+            if (qualifierKey == null || qualifierKey.isBlank() || qualifierValue == null) {
+                return;
+            }
+            if (!(qualifierValue instanceof Serializable serializableValue)) {
+                throw new IllegalArgumentException(
+                    "Unsupported qualifier metadata type: " + qualifierValue.getClass().getName());
+            }
+            requireSupportedQualifierValue(serializableValue);
+            sanitizedQualifiers.put(qualifierKey, serializableValue);
+        });
+        this.qualifiers = sanitizedQualifiers;
     }
 
-    public void addQualifier(String key, Object value) {
-        if (key == null) {
+    /**
+     * Adds a qualifier only when both its key and serializable value can be represented downstream.
+     *
+     * @param key qualifier key
+     * @param value qualifier value
+     */
+    public void addQualifier(String key, Serializable value) {
+        if (key == null || key.isBlank() || value == null) {
             return;
         }
         if (this.qualifiers == null) {
             this.qualifiers = new HashMap<>();
         }
+        requireSupportedQualifierValue(value);
         this.qualifiers.put(key, value);
+    }
+
+    /**
+     * Validates the canonical JSON-shaped value contract shared by qualifier and tag projections.
+     * Unsupported values fail explicitly instead of disappearing or reaching API serialization.
+     *
+     * @param qualifierValue scalar, string-keyed map, or iterable qualifier value
+     * @throws IllegalArgumentException when any value or nested member is not JSON-shaped
+     */
+    public static void requireSupportedQualifierValue(Serializable qualifierValue) {
+        if (qualifierValue instanceof String || qualifierValue instanceof Boolean) {
+            return;
+        }
+        if (qualifierValue instanceof Number number) {
+            if ((number instanceof Double doubleValue && !Double.isFinite(doubleValue))
+                    || (number instanceof Float floatValue && !Float.isFinite(floatValue))) {
+                throw new IllegalArgumentException("Qualifier numeric metadata must be finite");
+            }
+            return;
+        }
+        if (qualifierValue instanceof Map<?, ?> mapValue) {
+            mapValue.forEach((nestedKey, nestedValue) -> {
+                if (!(nestedKey instanceof String)) {
+                    throw new IllegalArgumentException("Qualifier metadata map keys must be strings");
+                }
+                if (nestedValue == null) {
+                    return;
+                }
+                if (!(nestedValue instanceof Serializable serializableValue)) {
+                    throw new IllegalArgumentException(
+                        "Unsupported nested qualifier metadata type: " + nestedValue.getClass().getName());
+                }
+                requireSupportedQualifierValue(serializableValue);
+            });
+            return;
+        }
+        if (qualifierValue instanceof Iterable<?> iterableValue) {
+            iterableValue.forEach(nestedValue -> {
+                if (nestedValue == null) {
+                    return;
+                }
+                if (!(nestedValue instanceof Serializable serializableValue)) {
+                    throw new IllegalArgumentException(
+                        "Unsupported nested qualifier metadata type: " + nestedValue.getClass().getName());
+                }
+                requireSupportedQualifierValue(serializableValue);
+            });
+            return;
+        }
+        throw new IllegalArgumentException(
+            "Unsupported qualifier metadata type: " + qualifierValue.getClass().getName());
     }
 
     public boolean hasQualifier(String key) {
         return this.qualifiers != null && this.qualifiers.containsKey(key);
     }
 
+    /**
+     * Normalizes cached recommendation identifiers before immutable DTO copies consume them.
+     *
+     * @param cachedRecommendationIds recommendation identifiers from persistence or a provider
+     */
     public void setCachedRecommendationIds(List<String> cachedRecommendationIds) {
-        this.cachedRecommendationIds = cachedRecommendationIds != null ? new ArrayList<>(cachedRecommendationIds) : new ArrayList<>();
+        this.cachedRecommendationIds = sanitizeTextEntries(cachedRecommendationIds);
     }
 
+    /**
+     * Adds distinct, nonblank recommendation identifiers without violating the cached-ID invariant.
+     *
+     * @param newRecommendationIds recommendation identifiers to merge
+     */
     public void addRecommendationIds(List<String> newRecommendationIds) {
         if (newRecommendationIds == null || newRecommendationIds.isEmpty()) {
             return;
@@ -171,10 +285,40 @@ public class Book {
             this.cachedRecommendationIds = new ArrayList<>();
         }
         for (String recommendationId : newRecommendationIds) {
-            if (recommendationId != null && !recommendationId.isEmpty() && !this.cachedRecommendationIds.contains(recommendationId)) {
-                this.cachedRecommendationIds.add(recommendationId);
+            if (recommendationId == null) {
+                continue;
+            }
+            String normalizedRecommendationId = recommendationId.trim();
+            if (!normalizedRecommendationId.isEmpty() && !this.cachedRecommendationIds.contains(normalizedRecommendationId)) {
+                this.cachedRecommendationIds.add(normalizedRecommendationId);
             }
         }
+    }
+
+    /**
+     * Keeps edition projections free of null entries from provider payloads.
+     *
+     * @param otherEditions provider-supplied edition metadata
+     */
+    public void setOtherEditions(List<Edition> otherEditions) {
+        if (otherEditions == null || otherEditions.isEmpty()) {
+            this.otherEditions = new ArrayList<>();
+            return;
+        }
+        this.otherEditions = otherEditions.stream()
+            .filter(Objects::nonNull)
+            .collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    private static List<String> sanitizeTextEntries(List<String> textEntries) {
+        if (textEntries == null || textEntries.isEmpty()) {
+            return new ArrayList<>();
+        }
+        return textEntries.stream()
+            .filter(Objects::nonNull)
+            .map(String::trim)
+            .filter(textEntry -> !textEntry.isEmpty())
+            .collect(Collectors.toCollection(ArrayList::new));
     }
 
     public void setPublisher(String publisher) {

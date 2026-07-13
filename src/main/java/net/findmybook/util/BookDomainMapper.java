@@ -17,7 +17,6 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Date;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -58,7 +57,7 @@ public final class BookDomainMapper {
         book.setIsbn13(detail.isbn13());
         book.setPreviewLink(detail.previewLink());
         book.setInfoLink(detail.infoLink());
-        book.setQualifiers(copyMap(detail.tags()));
+        book.setQualifiers(detail.tags());
         book.setOtherEditions(toEdition(detail.editions()));
         String primaryCover = StringUtils.hasText(detail.coverS3Key())
             ? detail.coverS3Key()
@@ -93,7 +92,7 @@ public final class BookDomainMapper {
         book.setAverageRating(card.averageRating());
         book.setRatingsCount(card.ratingsCount());
         book.setPublishedDate(toDate(card.publishedDate()));
-        book.setQualifiers(copyMap(card.tags()));
+        book.setQualifiers(card.tags());
         String primaryCover = StringUtils.hasText(card.coverS3Key())
             ? card.coverS3Key()
             : card.coverUrl();
@@ -132,7 +131,7 @@ public final class BookDomainMapper {
         book.setAverageRating(item.averageRating());
         book.setRatingsCount(item.ratingsCount());
         book.setPublishedDate(toDate(item.publishedDate()));
-        book.setQualifiers(copyMap(item.tags()));
+        book.setQualifiers(item.tags());
         String primaryCover = StringUtils.hasText(item.coverS3Key())
             ? item.coverS3Key()
             : item.coverUrl();
@@ -330,13 +329,6 @@ public final class BookDomainMapper {
 
     private static Date toDate(LocalDate value) {
         return value == null ? null : Date.from(value.atStartOfDay(ZoneId.systemDefault()).toInstant());
-    }
-
-    private static Map<String, Object> copyMap(Map<String, Object> source) {
-        if (source == null || source.isEmpty()) {
-            return new LinkedHashMap<>();
-        }
-        return new LinkedHashMap<>(source);
     }
 
     private static List<Edition> toEdition(List<EditionSummary> summaries) {

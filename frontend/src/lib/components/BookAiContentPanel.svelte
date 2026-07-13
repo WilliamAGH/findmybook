@@ -110,8 +110,9 @@
       return;
     }
 
-    console.error("[BookAiContentPanel] AI failure in production:", failure.code, failure.message);
-    aiErrorMessage = null;
+    aiErrorMessage = refresh && hasRenderableAiContent(book)
+      ? "Refresh failed. Showing the previous Reader's Guide."
+      : null;
     if (failure.code === "queue_busy") {
       aiQueueMessage = "Queue is busy right now. Try again shortly.";
       aiAutoTriggerDeferred = !refresh;
@@ -171,7 +172,11 @@
       aiServiceAvailable = true;
       return true;
     } catch (queueError) {
-      console.error("[BookAiContentPanel] Queue stats failed:", queueError);
+      if (aiFailureDiagnosticsEnabled()) {
+        console.error("[BookAiContentPanel] Queue stats failed:", queueError);
+      } else {
+        console.error("[BookAiContentPanel] Queue stats unavailable in production");
+      }
       const message = queueError instanceof Error
         ? queueError.message
         : "Unable to check queue status";
@@ -246,7 +251,14 @@
       }
       const failure = resolveAiStreamFailure(error);
       applyAiFailureState(failure, refresh);
-      console.error("Book AI content generation failed:", error);
+      if (aiFailureDiagnosticsEnabled()) {
+        console.error("Book AI content generation failed:", error);
+      } else {
+        console.error("[BookAiContentPanel] AI generation failed in production", {
+          code: failure.code,
+          retryable: failure.retryable,
+        });
+      }
     } finally {
       if (activeRequestToken === requestToken) {
         activeRequestToken = null;

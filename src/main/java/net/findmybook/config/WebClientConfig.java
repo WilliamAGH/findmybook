@@ -1,64 +1,34 @@
 /**
  * Configuration for WebClient
- * - Defines beans for creating WebClient instances
- * - Sets up default timeouts and connection settings
+ * - Adds application-wide headers to Boot-managed WebClient builders
  *
  * @author William Callahan
  */
 package net.findmybook.config;
 
-import io.netty.channel.ChannelOption;
-import io.netty.handler.timeout.ReadTimeoutHandler;
-import io.netty.handler.timeout.WriteTimeoutHandler;
+import org.springframework.boot.webclient.WebClientCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.client.reactive.ReactorClientHttpConnector;
-import org.springframework.web.reactive.function.client.ExchangeStrategies;
-import org.springframework.web.reactive.function.client.WebClient;
-import reactor.netty.http.client.HttpClient;
-
-import java.time.Duration;
-import java.util.concurrent.TimeUnit;
 
 /**
- * Configures the application's WebClient instances
- * - Provides a pre-configured WebClient Builder
- * - Ensures consistent HTTP client behavior
+ * Configures Boot-managed WebClient builders with application-wide headers.
+ *
+ * <p>Spring Boot owns the prototype builder, shared HTTP resources, codecs, and
+ * connector policy. This configuration is additive so Boot customizers remain active.
  */
-@Configuration
+@Configuration(proxyBeanMethods = false)
 public class WebClientConfig {
 
     private static final String DEFAULT_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
     /**
-     * Creates a pre-configured WebClient Builder bean
-     * - Sets connection timeout to 5000ms
-     * - Sets read and write timeouts to 5 seconds
-     * - Sets response timeout to 5 seconds
+     * Adds the canonical outbound user agent to each Boot-managed builder.
      *
-     * @return A WebClient Builder instance
+     * @return additive customizer applied to every auto-configured builder
      */
     @Bean
-    public WebClient.Builder webClientBuilder() {
-        HttpClient httpClient = HttpClient.create()
-            .followRedirect(true)
-            .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5000)
-            .doOnConnected(conn -> conn
-                .addHandlerLast(new ReadTimeoutHandler(5, TimeUnit.SECONDS))
-                .addHandlerLast(new WriteTimeoutHandler(5, TimeUnit.SECONDS))
-            )
-            .responseTimeout(Duration.ofSeconds(5));
-
-        ExchangeStrategies exchangeStrategies = ExchangeStrategies.builder()
-            .codecs(configurer -> configurer
-                .defaultCodecs()
-                .maxInMemorySize(10 * 1024 * 1024)) // 10MB
-            .build();
-
-        return WebClient.builder()
-            .defaultHeader(HttpHeaders.USER_AGENT, DEFAULT_USER_AGENT)
-            .exchangeStrategies(exchangeStrategies)
-            .clientConnector(new ReactorClientHttpConnector(httpClient));
+    public WebClientCustomizer defaultUserAgentWebClientCustomizer() {
+        return builder -> builder.defaultHeader(HttpHeaders.USER_AGENT, DEFAULT_USER_AGENT);
     }
 }

@@ -1,5 +1,6 @@
 package net.findmybook.util.cover;
 
+import java.io.Serializable;
 import net.findmybook.dto.BookCard;
 import net.findmybook.model.Book;
 import net.findmybook.util.ApplicationConstants;
@@ -8,12 +9,10 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Date;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -31,7 +30,6 @@ class CoverPrioritizerTest {
     }
 
     @Test
-    @DisplayName("hasColorCover rejects grayscale and placeholder cards")
     void should_RejectGrayscaleAndPlaceholder_When_CheckingHasColorCover() {
         BookCard grayscale = new BookCard(
             "gray",
@@ -77,8 +75,7 @@ class CoverPrioritizerTest {
     }
 
     @Test
-    @DisplayName("cardComparator orders cards by cover quality before original order")
-    void cardComparatorOrdersByCoverScore() {
+    void should_OrderCardsByCoverScore_When_CoverQualitiesDiffer() {
         BookCard high = new BookCard(
             "1",
             "high",
@@ -89,7 +86,7 @@ class CoverPrioritizerTest {
             "https://cdn.test/covers/high.jpg",
             4.5,
             100,
-            Map.<String, Object>of()
+            Map.<String, Serializable>of()
         );
         BookCard medium = new BookCard(
             "2",
@@ -101,7 +98,7 @@ class CoverPrioritizerTest {
             "https://images.test/medium.jpg?w=320&h=480",
             4.2,
             50,
-            Map.<String, Object>of()
+            Map.<String, Serializable>of()
         );
         BookCard low = new BookCard(
             "3",
@@ -113,7 +110,7 @@ class CoverPrioritizerTest {
             "https://example.test/low.jpg?w=120&h=180",
             4.0,
             10,
-            Map.<String, Object>of()
+            Map.<String, Serializable>of()
         );
         BookCard placeholder = new BookCard(
             "4",
@@ -125,16 +122,11 @@ class CoverPrioritizerTest {
             ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH,
             3.8,
             5,
-            Map.<String, Object>of()
+            Map.<String, Serializable>of()
         );
 
         List<BookCard> cards = new ArrayList<>(List.of(low, placeholder, medium, high));
-        Map<String, Integer> originalOrder = new LinkedHashMap<>();
-        for (int i = 0; i < cards.size(); i++) {
-            originalOrder.put(cards.get(i).id(), i);
-        }
-
-        cards.sort(CoverPrioritizer.cardComparator(originalOrder));
+        cards.sort(CoverPrioritizer.cardComparator(Map.of()));
 
         assertThat(cards)
             .extracting(BookCard::id)
@@ -142,8 +134,7 @@ class CoverPrioritizerTest {
     }
 
     @Test
-    @DisplayName("score(BookCard) uses S3 key when cover URL is missing")
-    void scoreUsesS3KeyWhenCoverUrlMissing() {
+    void should_UseS3Key_When_CoverUrlIsMissing() {
         BookCard s3Only = new BookCard(
             "s3-only",
             "s3-only",
@@ -161,8 +152,7 @@ class CoverPrioritizerTest {
     }
 
     @Test
-    @DisplayName("score(BookCard) ignores bare S3 key when CDN is disabled")
-    void scoreIgnoresBareS3KeyWhenCdnDisabled() {
+    void should_IgnoreBareS3Key_When_CdnIsDisabled() {
         CoverUrlResolver.setCdnBase(null);
         BookCard s3Only = new BookCard(
             "s3-only-disabled",
@@ -181,21 +171,15 @@ class CoverPrioritizerTest {
     }
 
     @Test
-    @DisplayName("resolve() treats uppercase HTTP schemes as external URLs")
-    void resolveHandlesUppercaseHttpScheme() {
+    void should_TreatUppercaseHttpSchemeAsExternalUrl_When_ResolvingCover() {
         CoverUrlResolver.setCdnBase(null);
-        try {
-            CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve("HTTPS://example.test/image.jpg");
-            assertThat(resolved.url()).isEqualTo("HTTPS://example.test/image.jpg");
-            assertThat(resolved.fromS3()).isFalse();
-        } finally {
-            CoverUrlResolver.setCdnBase("https://cdn.test/");
-        }
+        CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve("HTTPS://example.test/image.jpg");
+        assertThat(resolved.url()).isEqualTo("HTTPS://example.test/image.jpg");
+        assertThat(resolved.fromS3()).isFalse();
     }
 
     @Test
-    @DisplayName("resolve() does not mark default dimensions as high resolution")
-    void resolveDefaultDimensionsNotHighRes() {
+    void should_NotMarkDefaultDimensionsAsHighResolution_When_ResolvingCover() {
         CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve("covers/missing.jpg");
         assertThat(resolved.width()).isEqualTo(512);
         assertThat(resolved.height()).isEqualTo(768);
@@ -203,8 +187,7 @@ class CoverPrioritizerTest {
     }
 
     @Test
-    @DisplayName("resolve() treats null-equivalent primary values as missing and uses fallback")
-    void resolveUsesFallbackWhenPrimaryIsNullEquivalent() {
+    void should_UseFallbackCover_When_PrimaryCoverIsNullEquivalent() {
         CoverUrlResolver.ResolvedCover resolved = CoverUrlResolver.resolve(
             "null",
             "https://example.test/fallback.jpg"
@@ -216,7 +199,6 @@ class CoverPrioritizerTest {
     }
 
     @Test
-    @DisplayName("bookComparatorWithPrimarySort keeps no-cover rows behind color covers")
     void should_DemoteNoCoverRows_When_PrimarySortIsProvided() {
         Book noCoverHighRelevance = book("1", null, null, null, null, false);
         noCoverHighRelevance.addQualifier("search.relevanceScore", 0.99d);
@@ -224,17 +206,12 @@ class CoverPrioritizerTest {
         colorLowerRelevance.addQualifier("search.relevanceScore", 0.50d);
 
         List<Book> books = new ArrayList<>(List.of(noCoverHighRelevance, colorLowerRelevance));
-        Map<String, Integer> insertionOrder = new LinkedHashMap<>();
-        for (int index = 0; index < books.size(); index++) {
-            insertionOrder.put(books.get(index).getId(), index);
-        }
-
         Comparator<Book> relevanceSort = Comparator.<Book>comparingDouble(b -> {
-            Object raw = b.getQualifiers().get("search.relevanceScore");
+            Serializable raw = b.getQualifiers().get("search.relevanceScore");
             return raw instanceof Number number ? number.doubleValue() : 0.0d;
         }).reversed();
 
-        books.sort(CoverPrioritizer.bookComparatorWithPrimarySort(insertionOrder, relevanceSort));
+        books.sort(CoverPrioritizer.bookComparatorWithPrimarySort(Map.of(), relevanceSort));
 
         assertThat(books)
             .extracting(Book::getId)
@@ -242,20 +219,14 @@ class CoverPrioritizerTest {
     }
 
     @Test
-    @DisplayName("bookComparator ranks books by best cover before insertion order")
-    void bookComparatorOrdersByCoverScore() {
+    void should_OrderBooksByCoverScore_When_CoverQualitiesDiffer() {
         Book high = book("1", "https://cdn.test/covers/high.jpg", null, 900, 1400, true);
         Book medium = book("2", "https://images.test/medium.jpg?w=512&h=768", null, 512, 768, true);
         Book low = book("3", "https://example.test/low.jpg?w=160&h=220", null, 160, 220, false);
         Book fallback = book("4", ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH, null, null, null, false);
 
         List<Book> books = new ArrayList<>(List.of(low, high, fallback, medium));
-        Map<String, Integer> insertionOrder = new LinkedHashMap<>();
-        for (int i = 0; i < books.size(); i++) {
-            insertionOrder.put(books.get(i).getId(), i);
-        }
-
-        books.sort(CoverPrioritizer.bookComparator(insertionOrder));
+        books.sort(CoverPrioritizer.bookComparator(Map.of()));
 
         assertThat(books)
             .extracting(Book::getId)
@@ -263,18 +234,12 @@ class CoverPrioritizerTest {
     }
 
     @Test
-    @DisplayName("bookComparator demotes null-equivalent cover values behind real covers")
-    void bookComparatorDemotesNullEquivalentValues() {
+    void should_DemoteNullEquivalentCovers_When_ValidCoverExists() {
         Book valid = book("1", "https://cdn.test/covers/valid.jpg", null, 800, 1200, true);
         Book invalid = book("2", null, "null", null, null, false);
 
         List<Book> books = new ArrayList<>(List.of(invalid, valid));
-        Map<String, Integer> insertionOrder = new LinkedHashMap<>();
-        for (int i = 0; i < books.size(); i++) {
-            insertionOrder.put(books.get(i).getId(), i);
-        }
-
-        books.sort(CoverPrioritizer.bookComparator(insertionOrder));
+        books.sort(CoverPrioritizer.bookComparator(Map.of()));
 
         assertThat(books)
             .extracting(Book::getId)
@@ -299,7 +264,6 @@ class CoverPrioritizerTest {
     }
 
     @Test
-    @DisplayName("bookComparator prefers newer published date among same-quality covers")
     void should_PreferNewerBook_When_CoverQualityIsEqual() {
         Book older = book("older", "https://cdn.test/covers/a.jpg", null, 900, 1400, true);
         older.setPublishedDate(toDate(LocalDate.of(2010, 1, 1)));
@@ -308,11 +272,7 @@ class CoverPrioritizerTest {
         newer.setPublishedDate(toDate(LocalDate.of(2024, 6, 15)));
 
         List<Book> books = new ArrayList<>(List.of(older, newer));
-        Map<String, Integer> insertionOrder = new LinkedHashMap<>();
-        insertionOrder.put("older", 0);
-        insertionOrder.put("newer", 1);
-
-        books.sort(CoverPrioritizer.bookComparator(insertionOrder));
+        books.sort(CoverPrioritizer.bookComparator(Map.of()));
 
         assertThat(books)
             .extracting(Book::getId)
@@ -320,7 +280,23 @@ class CoverPrioritizerTest {
     }
 
     @Test
-    @DisplayName("bookComparator ranks null published date after dated books")
+    void should_PreferNewerSqlDate_When_CoverQualityIsEqual() {
+        Book older = book("older", "https://cdn.test/covers/a.jpg", null, 900, 1400, true);
+        older.setPublishedDate(java.sql.Date.valueOf(LocalDate.of(2010, 1, 1)));
+
+        Book newer = book("newer", "https://cdn.test/covers/b.jpg", null, 900, 1400, true);
+        newer.setPublishedDate(java.sql.Date.valueOf(LocalDate.of(2024, 6, 15)));
+
+        List<Book> books = new ArrayList<>(List.of(older, newer));
+
+        books.sort(CoverPrioritizer.bookComparator(Map.of()));
+
+        assertThat(books)
+            .extracting(Book::getId)
+            .containsExactly("newer", "older");
+    }
+
+    @Test
     void should_DemoteNullDate_When_OtherBookHasDate() {
         Book dated = book("dated", "https://cdn.test/covers/a.jpg", null, 900, 1400, true);
         dated.setPublishedDate(toDate(LocalDate.of(2020, 3, 10)));
@@ -329,11 +305,7 @@ class CoverPrioritizerTest {
         // publishedDate stays null
 
         List<Book> books = new ArrayList<>(List.of(undated, dated));
-        Map<String, Integer> insertionOrder = new LinkedHashMap<>();
-        insertionOrder.put("undated", 0);
-        insertionOrder.put("dated", 1);
-
-        books.sort(CoverPrioritizer.bookComparator(insertionOrder));
+        books.sort(CoverPrioritizer.bookComparator(Map.of()));
 
         assertThat(books)
             .extracting(Book::getId)
@@ -341,27 +313,22 @@ class CoverPrioritizerTest {
     }
 
     @Test
-    @DisplayName("cardComparator prefers newer published date among same-quality cards")
     void should_PreferNewerCard_When_CoverQualityIsEqual() {
         BookCard olderCard = new BookCard(
             "1", "older", "Older Book", List.of("Author"),
             "https://cdn.test/covers/old.jpg", "covers/old.jpg", "https://cdn.test/covers/old.jpg",
-            4.0, 10, Map.<String, Object>of(), null,
+            4.0, 10, Map.<String, Serializable>of(), null,
             LocalDate.of(2010, 1, 1)
         );
         BookCard newerCard = new BookCard(
             "2", "newer", "Newer Book", List.of("Author"),
             "https://cdn.test/covers/new.jpg", "covers/new.jpg", "https://cdn.test/covers/new.jpg",
-            4.0, 10, Map.<String, Object>of(), null,
+            4.0, 10, Map.<String, Serializable>of(), null,
             LocalDate.of(2024, 6, 15)
         );
 
         List<BookCard> cards = new ArrayList<>(List.of(olderCard, newerCard));
-        Map<String, Integer> originalOrder = new LinkedHashMap<>();
-        originalOrder.put("1", 0);
-        originalOrder.put("2", 1);
-
-        cards.sort(CoverPrioritizer.cardComparator(originalOrder));
+        cards.sort(CoverPrioritizer.cardComparator(Map.of()));
 
         assertThat(cards)
             .extracting(BookCard::id)

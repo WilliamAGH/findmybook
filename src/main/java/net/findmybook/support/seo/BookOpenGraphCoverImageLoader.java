@@ -5,12 +5,16 @@ import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.time.Duration;
+import java.util.Iterator;
 import java.util.Locale;
 import java.util.concurrent.TimeoutException;
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
 import net.findmybook.service.image.CoverUrlSafetyValidator;
 import net.findmybook.util.ApplicationConstants;
 import net.findmybook.util.cover.CoverUrlResolver;
@@ -18,12 +22,16 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.core.io.buffer.DataBufferLimitException;
+import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientRequestException;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
@@ -38,7 +46,7 @@ public class BookOpenGraphCoverImageLoader {
 
     private static final Logger log = LoggerFactory.getLogger(BookOpenGraphCoverImageLoader.class);
 
-    private static final long MAX_DOWNLOAD_BYTES = 4 * 1024 * 1024;
+    static final int MAX_DOWNLOAD_BYTES = 4 * 1024 * 1024;
     private static final long MAX_INPUT_PIXELS = 40_000_000L;
     private static final String HTTP_SCHEME = "http";
     private static final String HTTPS_SCHEME = "https";
@@ -111,8 +119,8 @@ public class BookOpenGraphCoverImageLoader {
         if (!resource.exists()) {
             return null;
         }
-        try {
-            return normalizeDecodedImage(ImageIO.read(resource.getInputStream()));
+        try (InputStream imageInputStream = resource.getInputStream()) {
+            return decodeBoundedImage(imageInputStream);
         } catch (IOException ioException) {
             log.warn("Failed to read classpath image {} for OpenGraph rendering", candidate, ioException);
             return null;
@@ -163,9 +171,13 @@ public class BookOpenGraphCoverImageLoader {
                 if (contentLength > MAX_DOWNLOAD_BYTES) {
                     return Mono.empty();
                 }
-                return response.bodyToMono(byte[].class);
+                return aggregateResponseBody(response.bodyToFlux(DataBuffer.class));
             })
             .timeout(remoteFetchTimeout)
+            .onErrorResume(DataBufferLimitException.class, error -> {
+                log.warn("OpenGraph cover response exceeded {} bytes for {}", MAX_DOWNLOAD_BYTES, imageUri);
+                return Mono.empty();
+            })
             .onErrorResume(WebClientRequestException.class, error -> {
                 log.warn("OpenGraph cover request failed for {}", imageUri, error);
                 return Mono.empty();
@@ -184,20 +196,61 @@ public class BookOpenGraphCoverImageLoader {
             return null;
         }
 
-        try {
-            return normalizeDecodedImage(ImageIO.read(new ByteArrayInputStream(imageBytes)));
+        try (InputStream imageInputStream = new ByteArrayInputStream(imageBytes)) {
+            return decodeBoundedImage(imageInputStream);
         } catch (IOException ioException) {
             log.warn("Failed to decode OpenGraph cover payload from {}", imageUri, ioException);
             return null;
         }
     }
 
+    private Mono<byte[]> aggregateResponseBody(Flux<DataBuffer> responseBody) {
+        return DataBufferUtils.join(responseBody, MAX_DOWNLOAD_BYTES)
+            .map(this::readAndRelease);
+    }
+
+    private byte[] readAndRelease(DataBuffer joinedBuffer) {
+        try {
+            byte[] imageBytes = new byte[joinedBuffer.readableByteCount()];
+            joinedBuffer.read(imageBytes);
+            return imageBytes;
+        } finally {
+            DataBufferUtils.release(joinedBuffer);
+        }
+    }
+
+    private BufferedImage decodeBoundedImage(InputStream imageInputStream) throws IOException {
+        try (ImageInputStream imageStream = ImageIO.createImageInputStream(imageInputStream)) {
+            if (imageStream == null) {
+                return null;
+            }
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(imageStream);
+            if (!readers.hasNext()) {
+                return null;
+            }
+            ImageReader reader = readers.next();
+            try {
+                reader.setInput(imageStream, true, true);
+                if (!isWithinPixelLimit(reader.getWidth(0), reader.getHeight(0))) {
+                    return null;
+                }
+                return normalizeDecodedImage(reader.read(0));
+            } finally {
+                reader.dispose();
+            }
+        }
+    }
+
+    private boolean isWithinPixelLimit(int width, int height) {
+        long pixels = (long) width * (long) height;
+        return pixels > 0 && pixels <= MAX_INPUT_PIXELS;
+    }
+
     private BufferedImage normalizeDecodedImage(BufferedImage image) {
         if (image == null) {
             return null;
         }
-        long pixels = (long) image.getWidth() * (long) image.getHeight();
-        if (pixels <= 0 || pixels > MAX_INPUT_PIXELS) {
+        if (!isWithinPixelLimit(image.getWidth(), image.getHeight())) {
             return null;
         }
         BufferedImage normalized = new BufferedImage(image.getWidth(), image.getHeight(), BufferedImage.TYPE_INT_RGB);

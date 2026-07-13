@@ -1,26 +1,30 @@
 package net.findmybook.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.io.Serializable;
 import java.time.LocalDate;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Single source of truth for complete book details (book detail page).
  * Contains all fields actually rendered in book.html template - nothing more, nothing less.
- * 
+ *
  * This DTO is populated by optimized SQL queries that fetch exactly what's needed
  * in 1-2 database queries total (book detail + editions if needed).
- * 
+ *
  * DOES NOT INCLUDE fields never rendered:
  * - dimensions (height, width, thickness, weight)
  * - rawPayload/rawJsonResponse
  * - unused provider metadata
- * 
+ *
  * Used by:
  * - Book detail page (/book/{id})
  * - Book preview modals
- * 
+ *
  * @param id Book UUID as string
  * @param slug URL-friendly book identifier
  * @param title Book title
@@ -54,21 +58,21 @@ public record BookDetail(
     String title,
     String description,
     String publisher,
-    
+
     @JsonProperty("published_date")
     LocalDate publishedDate,
-    
+
     String language,
-    
+
     @JsonProperty("page_count")
     Integer pageCount,
-    
+
     @JsonProperty("authors")
     List<String> authors,
-    
+
     @JsonProperty("categories")
     List<String> categories,
-    
+
     @JsonProperty("cover_url")
     String coverUrl,
 
@@ -95,23 +99,23 @@ public record BookDetail(
 
     @JsonProperty("average_rating")
     Double averageRating,
-    
+
     @JsonProperty("ratings_count")
     Integer ratingsCount,
-    
+
     @JsonProperty("isbn_10")
     String isbn10,
-    
+
     @JsonProperty("isbn_13")
     String isbn13,
-    
+
     @JsonProperty("preview_link")
     String previewLink,
-    
+
     @JsonProperty("info_link")
     String infoLink,
-    
-    Map<String, Object> tags,
+
+    Map<String, Serializable> tags,
 
     @JsonProperty("cover_grayscale")
     Boolean coverGrayscale,
@@ -125,16 +129,29 @@ public record BookDetail(
      * Compact constructor ensuring defensive copies for immutability
      */
     public BookDetail {
-        authors = authors == null ? List.of() : List.copyOf(authors);
-        categories = categories == null ? List.of() : List.copyOf(categories);
+        authors = authors == null ? List.of() : authors.stream().filter(Objects::nonNull).toList();
+        categories = categories == null ? List.of() : categories.stream().filter(Objects::nonNull).toList();
         coverS3Key = coverS3Key != null && !coverS3Key.isBlank() ? coverS3Key : null;
         coverFallbackUrl = coverFallbackUrl == null ? coverUrl : coverFallbackUrl;
-        tags = tags == null ? Map.of() : Map.copyOf(tags);
+        if (tags == null || tags.isEmpty()) {
+            tags = Map.of();
+        } else {
+            Map<String, Serializable> sanitizedTags = new LinkedHashMap<>();
+            tags.forEach((key, metadata) -> {
+                if (key != null) {
+                    Serializable safeMetadata = metadata == null
+                        ? (Serializable) Map.of()
+                        : metadata;
+                    sanitizedTags.put(key, safeMetadata);
+                }
+            });
+            tags = Collections.unmodifiableMap(sanitizedTags);
+        }
         coverGrayscale = Boolean.TRUE.equals(coverGrayscale) ? Boolean.TRUE : null;
-        editions = editions == null ? List.of() : List.copyOf(editions);
+        editions = editions == null ? List.of() : editions.stream().filter(Objects::nonNull).toList();
     }
 
-    
+
     /** Backward-compatible constructor without coverGrayscale (defaults null). */
     public BookDetail(
         String id, String slug, String title, String description,
@@ -144,7 +161,7 @@ public record BookDetail(
         Integer coverWidth, Integer coverHeight, Boolean coverHighResolution,
         String dataSource, Double averageRating, Integer ratingsCount,
         String isbn10, String isbn13, String previewLink, String infoLink,
-        Map<String, Object> tags, List<EditionSummary> editions
+        Map<String, Serializable> tags, List<EditionSummary> editions
     ) {
         this(id, slug, title, description, publisher, publishedDate, language, pageCount,
             authors, categories, coverUrl, coverS3Key, coverFallbackUrl, thumbnailUrl,
@@ -164,7 +181,7 @@ public record BookDetail(
             isbn10, isbn13, previewLink, infoLink, tags, coverGrayscale, newEditions
         );
     }
-    
+
     /**
      * Check if book has editions to display
      */

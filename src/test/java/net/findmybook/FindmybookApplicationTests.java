@@ -4,6 +4,7 @@ package net.findmybook;
 import net.findmybook.config.DatabaseUrlEnvironmentPostProcessor;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.SpringApplication;
+import org.springframework.boot.http.client.autoconfigure.HttpClientsProperties;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,6 +17,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import software.amazon.awssdk.services.s3.S3Client;
 
+import java.time.Duration;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -73,6 +75,9 @@ class FindmybookApplicationTests {
     @Autowired
     private Environment environment;
 
+    @Autowired
+    private HttpClientsProperties httpClientsProperties;
+
     // No-op: cached repository removed
 
     /**
@@ -84,17 +89,31 @@ class FindmybookApplicationTests {
     }
 
     @Test
-    void normalizePostgresUrl_decodesCredentialsAndDatabase() {
+    void should_DecodePercentEncodedCredentialsAndDatabase_When_NormalizingPostgresUrl() {
         Optional<DatabaseUrlEnvironmentPostProcessor.JdbcParseResult> result =
             DatabaseUrlEnvironmentPostProcessor.normalizePostgresUrl(
-                "postgres://user:pass%23word@localhost:5432/my%20db"
+                "postgres://user:pass%23word%2Bmore@localhost:5432/my%20db%2Barchive"
             );
 
         assertTrue(result.isPresent());
         DatabaseUrlEnvironmentPostProcessor.JdbcParseResult parsed = result.get();
-        assertEquals("jdbc:postgresql://localhost:5432/my db", parsed.jdbcUrl);
+        assertEquals("jdbc:postgresql://localhost:5432/my db+archive", parsed.jdbcUrl);
         assertEquals("user", parsed.username);
-        assertEquals("pass#word", parsed.password);
+        assertEquals("pass#word+more", parsed.password);
+    }
+
+    @Test
+    void should_PreserveLiteralPlusCharacters_When_NormalizingPostgresUrl() {
+        Optional<DatabaseUrlEnvironmentPostProcessor.JdbcParseResult> result =
+            DatabaseUrlEnvironmentPostProcessor.normalizePostgresUrl(
+                "postgres://user:p+ss@localhost:5432/books+archive"
+            );
+
+        assertTrue(result.isPresent());
+        DatabaseUrlEnvironmentPostProcessor.JdbcParseResult parsed = result.get();
+        assertEquals("jdbc:postgresql://localhost:5432/books+archive", parsed.jdbcUrl);
+        assertEquals("user", parsed.username);
+        assertEquals("p+ss", parsed.password);
     }
 
     @Test
@@ -114,14 +133,14 @@ class FindmybookApplicationTests {
     @Test
     void should_ApplyDatabaseUrlFallback_When_SpringDatasourceUrlMissing() {
         MockEnvironment environment = new MockEnvironment();
-        environment.setProperty("DATABASE_URL", "postgres://fallback_user:fallback_pass@db.example.com:5433/books");
+        environment.setProperty("DATABASE_URL", "postgres://fallback_user:fallback+pass@db.example.com:5433/books+archive");
 
         DatabaseUrlEnvironmentPostProcessor processor = new DatabaseUrlEnvironmentPostProcessor();
         processor.postProcessEnvironment(environment, new SpringApplication(FindmybookApplication.class));
 
-        assertEquals("jdbc:postgresql://db.example.com:5433/books", environment.getProperty("spring.datasource.url"));
+        assertEquals("jdbc:postgresql://db.example.com:5433/books+archive", environment.getProperty("spring.datasource.url"));
         assertEquals("fallback_user", environment.getProperty("spring.datasource.username"));
-        assertEquals("fallback_pass", environment.getProperty("spring.datasource.password"));
+        assertEquals("fallback+pass", environment.getProperty("spring.datasource.password"));
     }
 
     @Test
@@ -213,6 +232,14 @@ class FindmybookApplicationTests {
     @Test
     void should_DefaultServerPortTo8095_WhenNotOverridden() {
         assertEquals("8095", environment.getProperty("server.port"));
+    }
+
+    /**
+     * Keeps stalled outbound responses bounded after delegating WebClient construction to Spring Boot.
+     */
+    @Test
+    void should_DefaultOutboundHttpReadTimeoutToFiveSeconds_WhenNotOverridden() {
+        assertEquals(Duration.ofSeconds(5), httpClientsProperties.getReadTimeout());
     }
 
     /**

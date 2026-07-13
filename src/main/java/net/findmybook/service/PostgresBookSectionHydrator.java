@@ -8,6 +8,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 
+import java.io.Serializable;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -18,7 +19,7 @@ import java.util.UUID;
  */
 final class PostgresBookSectionHydrator {
     private static final Logger LOG = LoggerFactory.getLogger(PostgresBookSectionHydrator.class);
-    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
+    private static final TypeReference<LinkedHashMap<String, Serializable>> MAP_TYPE = new TypeReference<>() {};
     /**
      * COALESCE fallback for nullable {@code position} columns (PostgreSQL {@code integer}).
      * Uses the maximum 4-byte signed integer so unpositioned rows sort after all
@@ -137,8 +138,8 @@ final class PostgresBookSectionHydrator {
                 WHERE bta.book_id = ?::uuid
                 """;
         try {
-            Map<String, Object> tags = jdbcTemplate.query(sql, ps -> ps.setObject(1, canonicalId), rs -> {
-                Map<String, Object> result = new LinkedHashMap<>();
+            Map<String, Serializable> tags = jdbcTemplate.query(sql, ps -> ps.setObject(1, canonicalId), rs -> {
+                Map<String, Serializable> result = new LinkedHashMap<>();
                 while (rs.next()) {
                     String key = rs.getString("key");
                     if (key == null || key.isBlank()) {
@@ -146,7 +147,7 @@ final class PostgresBookSectionHydrator {
                     }
                     String camelCaseKey = snakeToCamelCase(key);
 
-                    Map<String, Object> attributes = new LinkedHashMap<>();
+                    LinkedHashMap<String, Serializable> attributes = new LinkedHashMap<>();
                     String displayName = rs.getString("display_name");
                     if (displayName != null && !displayName.isBlank()) {
                         attributes.put("displayName", displayName);
@@ -159,7 +160,7 @@ final class PostgresBookSectionHydrator {
                     if (confidence != null) {
                         attributes.put("confidence", confidence);
                     }
-                    Map<String, Object> metadata = parseJsonAttributes(rs.getObject("metadata"));
+                    LinkedHashMap<String, Serializable> metadata = parseJsonAttributes(rs.getObject("metadata"));
                     if (!metadata.isEmpty()) {
                         attributes.put("metadata", metadata);
                     }
@@ -202,29 +203,35 @@ final class PostgresBookSectionHydrator {
      * absence contract, not a silent fallback.  Malformed JSON or
      * unsupported driver types still throw.
      */
-    private Map<String, Object> parseJsonAttributes(Object value) {
+    private LinkedHashMap<String, Serializable> parseJsonAttributes(Object value) {
         if (value == null) {
-            return Map.of();
+            return new LinkedHashMap<>();
         }
 
         if (value instanceof org.postgresql.util.PGobject pgObject) {
             String json = pgObject.getValue();
             if (json == null || json.isBlank()) {
-                return Map.of();
+                return new LinkedHashMap<>();
             }
             return parseJson(json);
         }
 
         if (value instanceof String json) {
             if (json.isBlank()) {
-                return Map.of();
+                return new LinkedHashMap<>();
             }
             return parseJson(json);
         }
 
         if (value instanceof Map<?, ?> mapValue) {
-            Map<String, Object> copy = new LinkedHashMap<>();
-            mapValue.forEach((k, v) -> copy.put(String.valueOf(k), v));
+            LinkedHashMap<String, Serializable> copy = new LinkedHashMap<>();
+            mapValue.forEach((key, metadataValue) -> {
+                if (metadataValue != null && !(metadataValue instanceof Serializable)) {
+                    throw new IllegalStateException(
+                        "Unsupported tag metadata value type: " + metadataValue.getClass().getName());
+                }
+                copy.put(String.valueOf(key), (Serializable) metadataValue);
+            });
             return copy;
         }
 
@@ -232,7 +239,7 @@ final class PostgresBookSectionHydrator {
             "Unsupported tag metadata type: " + value.getClass().getName());
     }
 
-    private Map<String, Object> parseJson(String json) {
+    private LinkedHashMap<String, Serializable> parseJson(String json) {
         try {
             return objectMapper.readValue(json, MAP_TYPE);
         } catch (tools.jackson.core.JacksonException ex) {

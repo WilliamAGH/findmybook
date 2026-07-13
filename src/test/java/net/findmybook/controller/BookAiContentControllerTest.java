@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -24,6 +25,7 @@ import net.findmybook.application.ai.BookAiContentService;
 import net.findmybook.domain.ai.BookAiContent;
 import net.findmybook.domain.ai.BookAiContentSnapshot;
 import net.findmybook.support.ai.BookAiContentRequestQueue;
+import net.findmybook.support.llm.LlmGatewayTier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -137,7 +139,7 @@ class BookAiContentControllerTest {
         mockMvc.perform(post("/api/books/slug/ai/content/stream"))
             .andExpect(status().isOk())
             .andExpect(content().contentType("text/event-stream"));
-            
+
         verify(requestQueue).enqueueForeground(eq(0), any());
     }
 
@@ -247,6 +249,47 @@ class BookAiContentControllerTest {
         }
     }
 
+    @Test
+    @DisplayName("default stream deadline reserves queue and delivery time after all live render attempts")
+    void should_ReserveQueueAndDeliveryHeadroom_When_DefaultStreamDeadlineIsCalculated() {
+        long applicationDeadlineMillis = (Long) ReflectionTestUtils.getField(controller, "applicationStreamTimeoutMillis");
+        long emitterTimeoutMillis = (Long) ReflectionTestUtils.getField(controller, "emitterTimeoutMillis");
+        long maximumLiveRenderAttemptsMillis = Duration.ofSeconds(LlmGatewayTier.LIVE_RENDER.callTimeoutSeconds())
+            .multipliedBy(LlmGatewayTier.LIVE_RENDER.maxGenerationAttempts())
+            .toMillis();
+
+        assertThat(applicationDeadlineMillis - maximumLiveRenderAttemptsMillis)
+            .isGreaterThanOrEqualTo(Duration.ofMinutes(1).toMillis());
+        assertThat(emitterTimeoutMillis).isGreaterThan(applicationDeadlineMillis);
+    }
+
+    @Test
+    @DisplayName("POST stream emits stream_timeout before the emitter timeout")
+    void should_EmitStreamTimeout_When_ApplicationDeadlineExpires() throws Exception {
+        controller.shutdownTickerExecutor();
+        ScheduledThreadPoolExecutor deadlineExecutor = new ScheduledThreadPoolExecutor(1);
+        configureController("development", deadlineExecutor, 20L, 200L);
+        UUID bookId = UUID.randomUUID();
+        CompletableFuture<Void> started = new CompletableFuture<>();
+        CompletableFuture<BookAiContentService.GeneratedContent> result = new CompletableFuture<>();
+        BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent> task =
+            new BookAiContentRequestQueue.EnqueuedTask<>("task-timeout-1", started, result);
+        when(aiContentService.resolveBookId("slug")).thenReturn(Optional.of(bookId));
+        when(aiContentService.findCurrent(bookId)).thenReturn(Optional.empty());
+        when(aiContentService.isAvailable()).thenReturn(true);
+        when(requestQueue.<BookAiContentService.GeneratedContent>enqueueForeground(anyInt(), any())).thenReturn(task);
+        when(requestQueue.getPosition("task-timeout-1")).thenReturn(
+            new BookAiContentRequestQueue.QueuePosition(true, 1, 0, 1, 1));
+
+        var response = mockMvc.perform(post("/api/books/slug/ai/content/stream"))
+            .andExpect(status().isOk())
+            .andReturn();
+
+        assertThat(response.getAsyncResult(1_000L)).isNull();
+        assertThat(response.getResponse().getContentAsString()).contains("\"code\":\"stream_timeout\"");
+        verify(requestQueue).cancelPending("task-timeout-1");
+    }
+
     /**
      * Builds a deterministic failed queue task so tests can assert environment-specific
      * error payload handling without duplicating queue orchestration setup.
@@ -285,6 +328,13 @@ class BookAiContentControllerTest {
 
     private void configureController(String environmentMode) {
         controller = new BookAiContentController(aiContentService, requestQueue, new ObjectMapper(), environmentMode);
+        mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+    }
+
+    private void configureController(String environmentMode, ScheduledThreadPoolExecutor executor,
+                                     long applicationDeadlineMillis, long emitterTimeoutMillis) {
+        controller = new BookAiContentController(aiContentService, requestQueue, new ObjectMapper(), environmentMode,
+            executor, applicationDeadlineMillis, emitterTimeoutMillis);
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
     }
 }

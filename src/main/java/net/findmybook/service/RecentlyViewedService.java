@@ -210,7 +210,8 @@ public class RecentlyViewedService {
      * Resolves the canonical work-cluster book identifier when possible.
      *
      * @param originalBookId identifier submitted by a caller
-     * @return canonical book ID when the cluster lookup succeeds; otherwise the original ID
+     * @return canonical book ID when the cluster lookup succeeds; otherwise the original ID,
+     * including when the optional lookup is unavailable
      */
     private String resolveCanonicalBookId(String originalBookId) {
         if (!StringUtils.hasText(originalBookId) || jdbcTemplate == null) {
@@ -241,7 +242,7 @@ public class RecentlyViewedService {
             return originalBookId;
         } catch (DataAccessException ex) {
             log.error("Failed to resolve canonical book ID for {}: {}", originalBookId, ex.getMessage(), ex);
-            throw new IllegalStateException("Canonical book ID resolution failed for " + originalBookId, ex);
+            return originalBookId;
         }
     }
 

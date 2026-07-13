@@ -2,21 +2,24 @@ package net.findmybook.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import org.springframework.util.StringUtils;
+import java.io.Serializable;
 import java.time.LocalDate;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
  * Single source of truth for book list view in search results.
  * Extends card data with description and categories for richer display.
- * 
+ *
  * This DTO is populated by optimized SQL queries that fetch exactly what's needed
  * in a single database round-trip.
- * 
+ *
  * Used by:
  * - Search results list view
  * - Category browse list view
- * 
+ *
  * @param id Book UUID as string
  * @param slug URL-friendly book identifier
  * @param title Book title
@@ -39,13 +42,13 @@ public record BookListItem(
     String slug,
     String title,
     String description,
-    
+
     @JsonProperty("authors")
     List<String> authors,
-    
+
     @JsonProperty("categories")
     List<String> categories,
-    
+
     @JsonProperty("cover_url")
     String coverUrl,
     @JsonProperty("cover_s3_key")
@@ -61,11 +64,11 @@ public record BookListItem(
 
     @JsonProperty("average_rating")
     Double averageRating,
-    
+
     @JsonProperty("ratings_count")
     Integer ratingsCount,
-    
-    Map<String, Object> tags,
+
+    Map<String, Serializable> tags,
     @JsonProperty("published_date")
     LocalDate publishedDate,
 
@@ -80,7 +83,9 @@ public record BookListItem(
         categories = categories == null ? List.of() : List.copyOf(categories);
         coverS3Key = StringUtils.hasText(coverS3Key) ? coverS3Key : null;
         coverFallbackUrl = coverFallbackUrl == null ? coverUrl : coverFallbackUrl;
-        tags = tags == null ? Map.of() : Map.copyOf(tags);
+        tags = tags == null || tags.isEmpty()
+            ? Map.of()
+            : Collections.unmodifiableMap(new LinkedHashMap<>(tags));
         coverGrayscale = Boolean.TRUE.equals(coverGrayscale) ? Boolean.TRUE : null;
     }
 
@@ -97,7 +102,7 @@ public record BookListItem(
                         Boolean coverHighResolution,
                         Double averageRating,
                         Integer ratingsCount,
-                        Map<String, Object> tags) {
+                        Map<String, Serializable> tags) {
         this(id, slug, title, description, authors, categories,
             coverUrl, null, coverUrl, coverWidth, coverHeight, coverHighResolution,
             averageRating, ratingsCount, tags, null, null);
@@ -118,7 +123,7 @@ public record BookListItem(
                         Boolean coverHighResolution,
                         Double averageRating,
                         Integer ratingsCount,
-                        Map<String, Object> tags) {
+                        Map<String, Serializable> tags) {
         this(id, slug, title, description, authors, categories,
             coverUrl, coverS3Key, coverFallbackUrl, coverWidth, coverHeight, coverHighResolution,
             averageRating, ratingsCount, tags, null, null);
@@ -139,13 +144,13 @@ public record BookListItem(
                         Boolean coverHighResolution,
                         Double averageRating,
                         Integer ratingsCount,
-                        Map<String, Object> tags,
+                        Map<String, Serializable> tags,
                         LocalDate publishedDate) {
         this(id, slug, title, description, authors, categories,
             coverUrl, coverS3Key, coverFallbackUrl, coverWidth, coverHeight, coverHighResolution,
             averageRating, ratingsCount, tags, publishedDate, null);
     }
-    
+
     /**
      * Get truncated description for list view
      */

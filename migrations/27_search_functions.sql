@@ -1,11 +1,13 @@
--- Function to refresh the search view (call after bulk updates)
+-- Maintenance-only refresh for controlled bulk loads where reader blocking is acceptable.
 drop function if exists refresh_book_search_view();
-create or replace function refresh_book_search_view()
+drop function if exists refresh_book_search_view_after_bulk_load();
+create or replace function refresh_book_search_view_after_bulk_load()
 returns void
 language plpgsql
 as $$
 begin
-  -- Non-concurrent so it can run inside the initializer's transaction and within a function
+  -- Non-concurrent so controlled bulk loaders can call it inside their transaction.
+  -- Live application refreshes use the separately owned concurrent runtime query.
   refresh materialized view book_search_view;
 end;
 $$;
@@ -307,4 +309,5 @@ comment on materialized view book_search_view is 'Denormalized view optimized fo
 comment on function search_books is 'Smart search combining exact, full-text, and fuzzy matching strategies';
 comment on function search_by_isbn is 'Search for books by ISBN-10 or ISBN-13, handles various formats';
 comment on function search_authors is 'Search for authors with relevance ranking and book count';
-comment on function refresh_book_search_view is 'Refresh the search materialized view after bulk updates';
+comment on function refresh_book_search_view_after_bulk_load is
+  'Maintenance-only blocking refresh after controlled bulk loads; live runtime refreshes are concurrent';

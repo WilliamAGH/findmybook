@@ -11,6 +11,7 @@ Comprehensive console logging has been added for all external API calls during o
   - Runs in parallel during realtime enrichment.
   - Runs after Open Library during synchronous fallback to fill remaining slots.
 - Provider failures are isolated. If one provider fails (for example Google 429), the other provider continues processing.
+- Circuit-breaker fallbacks emit one bounded warning summary; propagated causes are not repeated as stack traces by each fallback overload.
 
 ## Log Format
 

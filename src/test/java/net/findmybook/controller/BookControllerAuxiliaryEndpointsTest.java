@@ -1,6 +1,8 @@
 package net.findmybook.controller;
 
+import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -116,7 +118,10 @@ class BookControllerAuxiliaryEndpointsTest extends AbstractBookControllerMvcTest
             fixtureBook.getCoverImages().getFallbackUrl(),
             4.7,
             321,
-            Map.<String, Object>of("reason", Map.<String, Object>of("type", "AUTHOR"))
+            Map.of(
+                "reason",
+                new LinkedHashMap<String, Serializable>(Map.of("type", "AUTHOR"))
+            )
         );
         List<RecommendationCard> cards = List.of(new RecommendationCard(card, 0.9, "AUTHOR", "SAME_AUTHOR"));
         when(bookSearchService.fetchRecommendationCards(bookUuid, 3)).thenReturn(cards);
@@ -190,7 +195,10 @@ class BookControllerAuxiliaryEndpointsTest extends AbstractBookControllerMvcTest
             fixtureBook.getCoverImages().getFallbackUrl(),
             4.5,
             150,
-            Map.of("reason", Map.of("type", "AUTHOR"))
+            Map.of(
+                "reason",
+                new LinkedHashMap<String, Serializable>(Map.of("type", "AUTHOR"))
+            )
         );
         when(bookSearchService.fetchRecommendationCards(bookUuid, 3))
             .thenReturn(List.of(new RecommendationCard(staleCard, 0.72, "AUTHOR", "SAME_AUTHOR")));

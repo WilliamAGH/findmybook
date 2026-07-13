@@ -12,6 +12,7 @@ import net.findmybook.service.event.SearchResultsUpdatedEvent;
 import net.findmybook.util.SearchExternalProviderUtils;
 import net.findmybook.util.SearchQueryUtils;
 import org.springframework.util.StringUtils;
+import java.io.Serializable;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -220,7 +221,7 @@ final class SearchRealtimeCoordinator {
             if (book == null || book.getQualifiers() == null) {
                 continue;
             }
-            Object qualifierValue = book.getQualifiers().get(SEARCH_SOURCE_QUALIFIER);
+            Serializable qualifierValue = book.getQualifiers().get(SEARCH_SOURCE_QUALIFIER);
             if (qualifierValue != null && EXTERNAL_FALLBACK_SOURCE.equalsIgnoreCase(qualifierValue.toString())) {
                 return true;
             }

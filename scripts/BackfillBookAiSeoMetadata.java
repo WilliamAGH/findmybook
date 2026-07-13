@@ -27,6 +27,7 @@ import net.findmybook.FindmybookApplication;
 import net.findmybook.application.ai.BookAiContentService;
 import net.findmybook.application.ai.BookAiGenerationException;
 import net.findmybook.application.seo.BookSeoMetadataGenerationService;
+import net.findmybook.support.llm.LlmGatewayTier;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -146,7 +147,7 @@ void runAiContentBackfill(BookAiContentService aiContentService, UUID bookId, bo
 
     if (force) {
         BookAiContentService.GeneratedContent result = aiContentService.generateAndPersist(bookId, ignoredDelta -> {
-        });
+        }, LlmGatewayTier.BACKGROUND_BATCH);
         System.out.printf(
             "AI summary generated (force=true): version=%d model=%s provider=%s%n",
             result.snapshot().version(),
@@ -159,7 +160,8 @@ void runAiContentBackfill(BookAiContentService aiContentService, UUID bookId, bo
     BookAiContentService.GenerationOutcome outcome = aiContentService.generateAndPersistIfPromptChanged(
         bookId,
         ignoredDelta -> {
-        }
+        },
+        LlmGatewayTier.BACKGROUND_BATCH
     );
     if (outcome.generated()) {
         int version = outcome.snapshot().map(s -> s.version())

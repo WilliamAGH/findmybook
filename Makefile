@@ -158,7 +158,7 @@ db-verify-book-title-constraints:
 		exit 1; \
 	fi
 
-# Refresh search materialized view
+# Maintenance-only blocking refresh after controlled bulk updates
 db-refresh-search:
 	@echo "Refreshing search view..."
 	@if [ -f .env ]; then \
@@ -167,7 +167,7 @@ db-refresh-search:
 			echo "❌ Error: SPRING_DATASOURCE_URL not found in .env"; \
 			exit 1; \
 		fi && \
-		psql "$$SPRING_DATASOURCE_URL" -c "SELECT refresh_book_search_view();" && \
+		psql "$$SPRING_DATASOURCE_URL" -c "SELECT refresh_book_search_view_after_bulk_load();" && \
 		echo "✅ Search view refreshed"; \
 	else \
 		echo "❌ Error: .env file not found"; \

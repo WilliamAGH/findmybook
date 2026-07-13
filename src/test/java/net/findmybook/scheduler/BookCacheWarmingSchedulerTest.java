@@ -1,5 +1,6 @@
 package net.findmybook.scheduler;
 
+import java.io.Serializable;
 import net.findmybook.dto.BookDetail;
 import net.findmybook.repository.BookQueryRepository;
 import net.findmybook.service.ApiRequestMonitor;
@@ -103,7 +104,7 @@ class BookCacheWarmingSchedulerTest {
             "1234567890123",
             "https://example.test/preview",
             "https://example.test/info",
-            Map.<String, Object>of(),
+            Map.<String, Serializable>of(),
             List.<net.findmybook.dto.EditionSummary>of()
         );
 

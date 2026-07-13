@@ -363,26 +363,18 @@ export const BookAiContentStreamDoneSchema = z.object({
 export const RealtimeSearchHitCandidateSchema = z.object({
   id: z.string(),
   slug: z.string().optional(),
-  title: z.string().optional(),
-  source: z.string().optional(),
+  title: z.string().nullable().optional(),
+  source: z.string().nullable().optional(),
   description: z.string().nullable().optional(),
-  authors: z.array(z.string()).default([]),
-  categories: z.array(z.string()).default([]),
-  publishedDate: z.union([z.string(), z.number()]).optional(),
-  language: z.string().optional(),
-  pageCount: z.number().optional(),
-  publisher: z.string().optional(),
-  cover: z
-    .object({
-      s3ImagePath: z.string().optional(),
-      externalImageUrl: z.string().optional(),
-      preferredUrl: z.string().optional(),
-      fallbackUrl: z.string().optional(),
-      source: z.string().optional(),
-    })
-    .optional(),
-  matchType: z.string().optional(),
-  relevanceScore: z.number().optional(),
+  authors: z.array(z.string()).nullable().optional(),
+  categories: z.array(z.string()).nullable().optional(),
+  publishedDate: z.union([z.string(), z.number()]).nullable().optional(),
+  language: z.string().nullable().optional(),
+  pageCount: z.number().nullable().optional(),
+  publisher: z.string().nullable().optional(),
+  cover: RawCoverSchema.nullable().optional(),
+  matchType: z.string().nullable().optional(),
+  relevanceScore: z.number().nullable().optional(),
 });
 
 export type Cover = z.infer<typeof CoverSchema>;

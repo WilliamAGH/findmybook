@@ -2,7 +2,8 @@
 
 ## Key Endpoints
 - **Web Interface:** `http://localhost:{SERVER_PORT}` or `https://findmybook.net`
-- **Health Check:** `/actuator/health`
+- **Health diagnostics:** `/actuator/health`
+- **Container readiness:** `/readyz` when the image-provided probe configuration is active
 - **Book API:**
   - `GET /api/books/search?query={keyword}`
   - `GET /api/books/{identifier}`
@@ -142,7 +143,7 @@
     - `environmentMode: string` (`development`, `production`, or `test`)
   - Queue semantics:
     - Foreground (interactive Svelte) tasks are always dequeued ahead of background ingestion tasks.
-    - Background enqueue is capped by `APP_AI_QUEUE_BACKGROUND_MAX_PENDING` (default `100000`).
+    - Background enqueue is capped by `APP_AI_QUEUE_BACKGROUND_MAX_PENDING` (default `100`).
 - `POST /api/books/{identifier}/ai/content/stream`
   - Query params:
     - `refresh` (`false` by default; when `false`, cached Postgres AI snapshot is returned when present)
@@ -154,6 +155,8 @@
     - `started`: `{ running, pending, maxParallel, queueWaitMs }`
     - `message_start`: `{ id, model, apiMode }`
     - `message_delta`: `{ delta }`
+      - The service buffers provider output and emits the complete validated payload only after
+        persistence succeeds, so failed or retried generations never expose partial content.
     - `message_done`: `{ message }`
     - `done`: `{ message, aiContent }` where `aiContent` matches the `book.aiContent` contract
     - `error`: `{ error, code, retryable }`

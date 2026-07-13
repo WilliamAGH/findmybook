@@ -25,7 +25,7 @@
 | `S3_ACL_DRY_RUN=true make fix-s3-acl-public-all` | Preview ACL changes without mutating S3 |
 | `S3_ACL_SCOPE=images make fix-s3-acl-public-all` | Repair ACLs for image-like object keys only |
 | `S3_ACL_SCOPE=json make fix-s3-acl-public-all` | Repair ACLs for `.json` object keys only |
-| `make backfill-ai-seo` | Run AI summary + SEO metadata backfill for **all books missing current SEO rows** (description length must be >= 50) |
+| `make backfill-ai-seo` | Run AI summary + SEO metadata backfill for books missing current SEO rows or holding deterministic fallback rows (description length must be >= 50) |
 | `make backfill-ai-seo LIMIT=25 REGENERATE=true` | Backfill 25 eligible books and force AI regeneration even when prompt hash is unchanged |
 | `BACKFILL_BASE_URL=<url> BACKFILL_MODEL=<model> BACKFILL_API_KEY=<key> make backfill-ai-seo` | Override `.env` AI URL/model/key for this run only (single command line) |
 | `make backfill-ai-seo-one BOOK_IDENTIFIER=<uuid-or-slug-or-isbn>` | Backfill one eligible book (same 50-char minimum description requirement) |

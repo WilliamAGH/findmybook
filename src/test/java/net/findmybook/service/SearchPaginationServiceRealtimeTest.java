@@ -10,6 +10,8 @@ import reactor.core.publisher.Flux;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -27,14 +29,7 @@ class SearchPaginationServiceRealtimeTest extends AbstractSearchPaginationServic
     @Test
     @DisplayName("search() publishes realtime external candidates when Postgres has baseline results")
     void searchPublishesRealtimeExternalCandidates() {
-        UUID postgresId = UUID.randomUUID();
-
-        when(bookSearchService.searchBooks("distributed systems", 24)).thenReturn(List.of(
-            new BookSearchService.SearchResult(postgresId, 0.96, "FULLTEXT")
-        ));
-        when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(List.of(
-            buildListItem(postgresId, "Designing Data-Intensive Applications")
-        ));
+        stubCompletePostgresPage("distributed systems", 24, 12, null);
 
         when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
         when(googleApiFetcher.streamSearchItems("distributed systems", 12, "relevance", null, true))
@@ -79,22 +74,7 @@ class SearchPaginationServiceRealtimeTest extends AbstractSearchPaginationServic
     @Test
     @DisplayName("search() publishes realtime events on filter-scoped query hash")
     void should_PublishRealtimeEventsOnFilterScopedTopic_When_FiltersArePresent() {
-        UUID postgresId = UUID.randomUUID();
-        when(bookSearchService.searchBooks("distributed systems", 24)).thenReturn(List.of(
-            new BookSearchService.SearchResult(postgresId, 0.96, "FULLTEXT")
-        ));
-        when(bookQueryRepository.fetchPublishedYears(anyList())).thenReturn(java.util.Map.of(postgresId, 2024));
-        when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(List.of(
-            buildListItem(
-                postgresId,
-                "Designing Data-Intensive Applications",
-                600,
-                900,
-                true,
-                "https://example.test/baseline.jpg",
-                LocalDate.of(2024, 1, 1)
-            )
-        ));
+        stubCompletePostgresPage("distributed systems", 24, 12, LocalDate.of(2024, 1, 1));
 
         when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
         when(googleApiFetcher.streamSearchItems("distributed systems", 12, "relevance", null, true))
@@ -142,13 +122,7 @@ class SearchPaginationServiceRealtimeTest extends AbstractSearchPaginationServic
     @Test
     @DisplayName("search() publishes realtime events on clamped page-size query hash")
     void should_PublishRealtimeEventsOnClampedTopic_When_MaxResultsExceedsLimit() {
-        UUID postgresId = UUID.randomUUID();
-        when(bookSearchService.searchBooks("distributed systems", 200)).thenReturn(List.of(
-            new BookSearchService.SearchResult(postgresId, 0.96, "FULLTEXT")
-        ));
-        when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(List.of(
-            buildListItem(postgresId, "Designing Data-Intensive Applications")
-        ));
+        stubCompletePostgresPage("distributed systems", 200, 100, null);
 
         when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
         when(googleApiFetcher.streamSearchItems("distributed systems", 20, "relevance", null, true))
@@ -182,5 +156,37 @@ class SearchPaginationServiceRealtimeTest extends AbstractSearchPaginationServic
             event instanceof SearchResultsUpdatedEvent updatedEvent
                 && expectedQueryHash.equals(updatedEvent.getQueryHash())
         ));
+    }
+
+    private void stubCompletePostgresPage(String query,
+                                          int searchWindow,
+                                          int resultCount,
+                                          LocalDate publishedDate) {
+        List<UUID> bookIds = IntStream.range(0, resultCount)
+            .mapToObj(ignored -> UUID.randomUUID())
+            .toList();
+        List<BookSearchService.SearchResult> searchResults = IntStream.range(0, resultCount)
+            .mapToObj(index -> new BookSearchService.SearchResult(
+                bookIds.get(index),
+                1.0 - (index * 0.001),
+                "FULLTEXT"
+            ))
+            .toList();
+        when(bookSearchService.searchBooks(query, searchWindow)).thenReturn(searchResults);
+        when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(IntStream.range(0, resultCount)
+            .mapToObj(index -> buildListItem(
+                bookIds.get(index),
+                "Postgres baseline " + index,
+                600,
+                900,
+                true,
+                "https://example.test/baseline-" + index + ".jpg",
+                publishedDate
+            ))
+            .toList());
+        if (publishedDate != null) {
+            when(bookQueryRepository.fetchPublishedYears(anyList())).thenReturn(bookIds.stream()
+                .collect(Collectors.toMap(bookId -> bookId, ignored -> publishedDate.getYear())));
+        }
     }
 }

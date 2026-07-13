@@ -14,6 +14,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.io.Serializable;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -72,14 +73,14 @@ public class BookSupplementalPersistenceService {
 
     /**
      * Persists categories for a book with normalization and deduplication.
-     * 
+     *
      * <p>Uses {@link CategoryNormalizer#normalizeAndDeduplicate(List)} to:
      * <ul>
      *   <li>Split compound categories (e.g., "Fiction / Science Fiction")</li>
      *   <li>Remove duplicates (case-insensitive)</li>
      *   <li>Filter out invalid/empty entries</li>
      * </ul>
-     * 
+     *
      * @param bookId Book UUID
      * @param categories Raw category list from external source
      * @see CategoryNormalizer#normalizeAndDeduplicate(List)
@@ -98,7 +99,7 @@ public class BookSupplementalPersistenceService {
         }
     }
 
-    public void assignQualifierTags(String bookId, Map<String, Object> qualifiers) {
+    public void assignQualifierTags(String bookId, Map<String, Serializable> qualifiers) {
         if (!StringUtils.hasText(bookId) || ValidationUtils.isNullOrEmpty(qualifiers)) {
             return;
         }
@@ -125,12 +126,12 @@ public class BookSupplementalPersistenceService {
                            String displayName,
                            String source,
                            Double confidence,
-                           Map<String, Object> metadata) {
+                           Map<String, Serializable> metadata) {
         if (!StringUtils.hasText(bookId) || !StringUtils.hasText(key)) {
             return;
         }
         String resolvedDisplayName = displayName != null ? displayName : key;
-        Map<String, Object> metadataMap = !ValidationUtils.isNullOrEmpty(metadata)
+        Map<String, Serializable> metadataMap = !ValidationUtils.isNullOrEmpty(metadata)
             ? metadata
             : Map.of("value", resolvedDisplayName);
         String metadataJson = serializeMetadata(metadataMap);
@@ -186,7 +187,7 @@ public class BookSupplementalPersistenceService {
         }
     }
 
-    private String serializeQualifierMetadata(Object value) {
+    private String serializeQualifierMetadata(Serializable value) {
         try {
             // Map.of doesn't allow null values, handle null explicitly
             if (value == null) {
@@ -198,7 +199,7 @@ public class BookSupplementalPersistenceService {
         }
     }
 
-    private String serializeMetadata(Map<String, Object> metadata) {
+    private String serializeMetadata(Map<String, Serializable> metadata) {
         try {
             return objectMapper.writeValueAsString(metadata);
         } catch (JacksonException ex) {

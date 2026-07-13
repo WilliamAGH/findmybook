@@ -91,7 +91,7 @@ class BookAiContentServiceTest {
     }
 
     @Test
-    void should_ReturnTrueForRetryableFailure_When_GenerationFailureIsCausedByOpenAiException() {
+    void should_ReturnTrueForRetryableFailure_When_LiveTransportFailsBeforeContent() {
         BookAiContentService service = newService();
         OpenAIException openAiException = mock(OpenAIException.class);
         BookAiGenerationException generationFailure = new BookAiGenerationException(
@@ -100,21 +100,50 @@ class BookAiContentServiceTest {
             openAiException
         );
 
-        Boolean retryable = ReflectionTestUtils.invokeMethod(service, "isRetryableGenerationFailure", generationFailure);
+        Boolean retryable = ReflectionTestUtils.invokeMethod(
+            service,
+            "isRetryableGenerationFailure",
+            generationFailure,
+            net.findmybook.support.llm.LlmGatewayTier.LIVE_RENDER
+        );
 
         assertThat(retryable).isTrue();
     }
 
     @Test
-    void should_ReturnTrueForRetryableFailure_When_ParseFailureHasRetryableMessage() {
+    void should_ReturnFalseForRetryableFailure_When_BackgroundSdkOwnsTransportRetries() {
         BookAiContentService service = newService();
+        OpenAIException openAiException = mock(OpenAIException.class);
         BookAiGenerationException generationFailure = new BookAiGenerationException(
             BookAiGenerationException.ErrorCode.GENERATION_FAILED,
-            "AI content generation failed (gpt-5-mini): AI response did not include a valid JSON object",
-            new IllegalStateException("AI response did not include a valid JSON object")
+            "AI content generation failed (gpt-5-mini): HTTP 503 server error",
+            openAiException
         );
 
-        Boolean retryable = ReflectionTestUtils.invokeMethod(service, "isRetryableGenerationFailure", generationFailure);
+        Boolean retryable = ReflectionTestUtils.invokeMethod(
+            service,
+            "isRetryableGenerationFailure",
+            generationFailure,
+            net.findmybook.support.llm.LlmGatewayTier.BACKGROUND_BATCH
+        );
+
+        assertThat(retryable).isFalse();
+    }
+
+    @Test
+    void should_ReturnTrueForRetryableFailure_When_ResponseIsInvalid() {
+        BookAiContentService service = newService();
+        BookAiGenerationException generationFailure = new BookAiGenerationException(
+            BookAiGenerationException.ErrorCode.INVALID_RESPONSE,
+            "AI content generation failed (gpt-5-mini): invalid response"
+        );
+
+        Boolean retryable = ReflectionTestUtils.invokeMethod(
+            service,
+            "isRetryableGenerationFailure",
+            generationFailure,
+            net.findmybook.support.llm.LlmGatewayTier.LIVE_RENDER
+        );
 
         assertThat(retryable).isTrue();
     }
@@ -127,7 +156,12 @@ class BookAiContentServiceTest {
             "Book description is missing or too short for faithful AI generation."
         );
 
-        Boolean retryable = ReflectionTestUtils.invokeMethod(service, "isRetryableGenerationFailure", validationFailure);
+        Boolean retryable = ReflectionTestUtils.invokeMethod(
+            service,
+            "isRetryableGenerationFailure",
+            validationFailure,
+            net.findmybook.support.llm.LlmGatewayTier.LIVE_RENDER
+        );
 
         assertThat(retryable).isFalse();
     }
@@ -165,6 +199,19 @@ class BookAiContentServiceTest {
         assertThatThrownBy(() -> parser.parse("   "))
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("AI content response was empty");
+    }
+
+    @Test
+    void should_RejectMalformedJson_When_ResponseIsTruncated() {
+        AiContentJsonParser parser = new AiContentJsonParser(new ObjectMapper());
+
+        String truncatedResponse = """
+            {"summary":"A detailed but incomplete response", "keyThemes":["democracy"],
+            """;
+
+        assertThatThrownBy(() -> parser.parse(truncatedResponse))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("valid JSON object");
     }
 
     private BookAiContentService newService() {

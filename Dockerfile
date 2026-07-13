@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 ##
 ## Multi-stage build for Java Spring Boot application (Gradle + Java 25)
 ## Base registry defaults to AWS ECR Public mirror but can be overridden
@@ -55,9 +56,14 @@ FROM ${BASE_REGISTRY}/eclipse-temurin:25-jre AS runtime
 WORKDIR /app
 ENV SERVER_PORT=8095
 ENV JAVA_TOOL_OPTIONS="--enable-preview -XX:MaxRAMPercentage=75.0 -Dio.netty.noUnsafe=true"
+ENV MANAGEMENT_ENDPOINT_HEALTH_PROBES_ADD_ADDITIONAL_PATHS=true
 EXPOSE 8095
 
-RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && addgroup --system appgroup \
+    && adduser --system --ingroup appgroup appuser
 
 # Copy the extracted layers individually for optimal Docker caching
 COPY --from=extractor --chown=appuser:appgroup /app/extracted/dependencies/ ./
@@ -66,6 +72,11 @@ COPY --from=extractor --chown=appuser:appgroup /app/extracted/snapshot-dependenc
 COPY --from=extractor --chown=appuser:appgroup /app/extracted/application/ ./
 
 USER appuser
+
+# Gate Coolify rolling updates on Spring's application-readiness lifecycle. This
+# intentionally excludes external diagnostics such as S3 from deployment health.
+HEALTHCHECK --interval=10s --timeout=5s --start-period=90s --retries=6 \
+    CMD curl --fail --silent --show-error --max-time 4 "http://127.0.0.1:${SERVER_PORT}/readyz" || exit 1
 
 # Run the extracted application jar (tools jarmode layout: application.jar + lib/)
 # JAVA_TOOL_OPTIONS is automatically picked up by the JVM at startup

@@ -5,11 +5,14 @@ import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.util.BookDomainMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.ObjectMapper;
 
+import java.io.Serializable;
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class BookDomainMapperCoverSourceTest {
 
@@ -26,7 +29,7 @@ class BookDomainMapperCoverSourceTest {
             "https://books.google.com/books/content?id=ABC123&printsec=frontcover&zoom=1&edge=curl",
             4.2,
             120,
-            Map.<String, Object>of()
+            Map.<String, Serializable>of()
         );
 
         Book book = BookDomainMapper.fromCard(card);
@@ -49,7 +52,7 @@ class BookDomainMapperCoverSourceTest {
             "https://cdn.example.com/covers/undersized-fallback.jpg?w=120&h=160",
             4.5,
             42,
-            Map.<String, Object>of()
+            Map.<String, Serializable>of()
         );
 
         Book book = BookDomainMapper.fromCard(card);
@@ -79,6 +82,29 @@ class BookDomainMapperCoverSourceTest {
     }
 
     @Test
+    void should_SanitizeNullableCollections_When_BookDetailDeserialized() throws Exception {
+        BookDetail detail = new ObjectMapper().readValue("""
+            {
+              "id": "detail-id",
+              "slug": "detail-slug",
+              "title": "Detail Title",
+              "authors": ["Author", null],
+              "categories": ["Category", null],
+              "tags": {"award": null},
+              "editions": [null]
+            }
+            """, BookDetail.class);
+        Serializable emptyAttributes = (Serializable) Map.of();
+
+        assertThat(detail.authors()).containsExactly("Author");
+        assertThat(detail.categories()).containsExactly("Category");
+        assertThat(detail.tags()).containsEntry("award", emptyAttributes);
+        assertThat(detail.editions()).isEmpty();
+        assertThatThrownBy(() -> detail.tags().put("other", emptyAttributes))
+            .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
     @DisplayName("toBook(BookListItem) leaves unknown sources as UNDEFINED")
     void toBookFromListItem_defaultsToUndefinedForUnknownSources() {
         BookListItem item = new BookListItem(
@@ -96,7 +122,7 @@ class BookDomainMapperCoverSourceTest {
             false,
             3.9,
             80,
-            Map.<String, Object>of()
+            Map.<String, Serializable>of()
         );
 
         Book book = BookDomainMapper.fromListItem(item);
@@ -124,7 +150,7 @@ class BookDomainMapperCoverSourceTest {
             false,
             4.1,
             55,
-            Map.<String, Object>of()
+            Map.<String, Serializable>of()
         );
 
         Book book = BookDomainMapper.fromListItem(item);
@@ -191,7 +217,7 @@ class BookDomainMapperCoverSourceTest {
             "isbn13",
             "preview",
             "info",
-            Map.<String, Object>of(),
+            Map.<String, Serializable>of(),
             List.<EditionSummary>of()
         );
     }

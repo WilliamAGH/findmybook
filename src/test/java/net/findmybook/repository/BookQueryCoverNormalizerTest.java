@@ -11,6 +11,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.PreparedStatementSetter;
 import org.springframework.jdbc.core.ResultSetExtractor;
 
+import java.io.Serializable;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -43,6 +44,20 @@ class BookQueryCoverNormalizerTest {
         // Jackson 3.x ObjectMapper (tools.jackson namespace) — transitive via Spring Boot 4.0.x BOM
         var resultSetSupport = new BookQueryResultSetSupport(new tools.jackson.databind.ObjectMapper());
         normalizer = new BookQueryCoverNormalizer(jdbcTemplate, resultSetSupport);
+    }
+
+    @Test
+    void should_PreserveNestedJsonMetadata_When_TagsAreParsed() throws Exception {
+        String json = """
+            {"award":{"rank":1,"active":true,"note":null,"nested":{"source":"NYT"},"items":["a",2]}}
+            """.trim();
+        var objectMapper = new tools.jackson.databind.ObjectMapper();
+        var resultSetSupport = new BookQueryResultSetSupport(objectMapper);
+
+        Map<String, Serializable> tags = resultSetSupport.parseJsonb(json);
+
+        assertThat(tags.get("award")).isInstanceOf(Serializable.class);
+        assertThat(objectMapper.writeValueAsString(tags)).isEqualTo(json);
     }
 
     @Test

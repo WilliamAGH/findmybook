@@ -11,6 +11,7 @@ import net.findmybook.util.cover.ImageDimensionUtils;
 import net.findmybook.util.cover.UrlSourceDetector;
 import org.springframework.util.StringUtils;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -178,7 +179,7 @@ public final class SearchPageAssembler {
         if (book == null || !StringUtils.hasText(key) || book.getQualifiers() == null) {
             return null;
         }
-        Object value = book.getQualifiers().get(key);
+        Serializable value = book.getQualifiers().get(key);
         if (value instanceof Number number) {
             return number.doubleValue();
         }

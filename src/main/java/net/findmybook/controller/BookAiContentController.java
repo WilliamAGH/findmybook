@@ -7,9 +7,9 @@ import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicBoolean;
 import net.findmybook.application.ai.BookAiGenerationException;
@@ -20,6 +20,7 @@ import net.findmybook.support.ai.BookAiContentRequestQueue;
 import net.findmybook.support.llm.LlmGatewayTier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -38,7 +39,16 @@ import tools.jackson.databind.ObjectMapper;
 @RequestMapping("/api/books")
 public class BookAiContentController {
     private static final Logger log = LoggerFactory.getLogger(BookAiContentController.class);
-    private static final long SSE_TIMEOUT_MILLIS = Duration.ofMinutes(4).toMillis();
+    private static final Duration LIVE_RENDER_ATTEMPT_TIMEOUT =
+        Duration.ofSeconds(LlmGatewayTier.LIVE_RENDER.callTimeoutSeconds());
+    private static final Duration QUEUE_AND_DELIVERY_HEADROOM = Duration.ofMinutes(1);
+    private static final Duration APPLICATION_STREAM_TIMEOUT = LIVE_RENDER_ATTEMPT_TIMEOUT
+        .multipliedBy(LlmGatewayTier.LIVE_RENDER.maxGenerationAttempts())
+        .plus(QUEUE_AND_DELIVERY_HEADROOM);
+    private static final Duration EMITTER_TERMINAL_EVENT_HEADROOM = Duration.ofSeconds(5);
+    private static final long APPLICATION_STREAM_TIMEOUT_MILLIS = APPLICATION_STREAM_TIMEOUT.toMillis();
+    private static final long EMITTER_TIMEOUT_MILLIS = APPLICATION_STREAM_TIMEOUT.plus(EMITTER_TERMINAL_EVENT_HEADROOM).toMillis();
+    private static final long MIN_STREAM_TIMEOUT_MILLIS = 1L;
     private static final int DEFAULT_GENERATION_PRIORITY = 0;
     private static final int MIN_QUEUE_TICKER_THREADS = 4;
     private static final int MAX_QUEUE_TICKER_THREADS = 16;
@@ -49,26 +59,59 @@ public class BookAiContentController {
     private final ObjectMapper objectMapper;
     private final BookAiContentSseOrchestrator sseOrchestrator;
     private final ScheduledExecutorService queueTickerExecutor;
+    private final long applicationStreamTimeoutMillis;
+    private final long emitterTimeoutMillis;
     private final String environmentMode;
     private final boolean exposeDetailedErrors;
 
     /** Creates a controller with queue/state dependencies. */
+    @Autowired
     public BookAiContentController(BookAiContentService aiContentService,
                                    BookAiContentRequestQueue requestQueue,
                                    ObjectMapper objectMapper,
                                    @Value("${app.environment.mode:production}") String environmentMode) {
+        this(
+            aiContentService,
+            requestQueue,
+            objectMapper,
+            environmentMode,
+            createQueueTickerExecutor(),
+            APPLICATION_STREAM_TIMEOUT_MILLIS,
+            EMITTER_TIMEOUT_MILLIS
+        );
+    }
+
+    BookAiContentController(BookAiContentService aiContentService,
+                            BookAiContentRequestQueue requestQueue,
+                            ObjectMapper objectMapper,
+                            String environmentMode,
+                            ScheduledExecutorService queueTickerExecutor,
+                            long applicationStreamTimeoutMillis,
+                            long emitterTimeoutMillis) {
+        if (applicationStreamTimeoutMillis < MIN_STREAM_TIMEOUT_MILLIS
+                || emitterTimeoutMillis <= applicationStreamTimeoutMillis) {
+            throw new IllegalArgumentException("Emitter timeout must exceed the application stream deadline");
+        }
         this.aiContentService = aiContentService;
         this.requestQueue = requestQueue;
         this.objectMapper = objectMapper;
         this.environmentMode = normalizeEnvironmentMode(environmentMode);
         this.exposeDetailedErrors = !PRODUCTION_ENVIRONMENT_MODE.equals(this.environmentMode);
+        this.queueTickerExecutor = queueTickerExecutor;
+        this.applicationStreamTimeoutMillis = applicationStreamTimeoutMillis;
+        this.emitterTimeoutMillis = emitterTimeoutMillis;
+        this.sseOrchestrator = new BookAiContentSseOrchestrator(requestQueue, queueTickerExecutor);
+    }
+
+    private static ScheduledExecutorService createQueueTickerExecutor() {
         int queueTickerThreads = determineQueueTickerThreadCount();
         ThreadFactory threadFactory = Thread.ofPlatform()
             .name("book-ai-queue-ticker-", 0)
             .daemon(true)
             .factory();
-        this.queueTickerExecutor = Executors.newScheduledThreadPool(queueTickerThreads, threadFactory);
-        this.sseOrchestrator = new BookAiContentSseOrchestrator(requestQueue, queueTickerExecutor);
+        ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(queueTickerThreads, threadFactory);
+        executor.setRemoveOnCancelPolicy(true);
+        return executor;
     }
 
     /** Returns global queue depth for AI generation tasks. */
@@ -88,7 +131,7 @@ public class BookAiContentController {
         response.setHeader("X-Accel-Buffering", "no");
         response.setHeader("Cache-Control", "no-cache, no-transform");
 
-        SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MILLIS);
+        SseEmitter emitter = new SseEmitter(emitterTimeoutMillis);
         OptionalResolution resolution = resolveBookIdentifier(identifier);
         if (resolution.bookId() == null) {
             sseOrchestrator.emitTerminalError(emitter, resolution.errorCode(), resolveClientMessage(resolution.errorCode(), resolution.error()));
@@ -142,45 +185,58 @@ public class BookAiContentController {
         sseOrchestrator.sendEvent(emitter, "queued", sseOrchestrator.toQueuePositionPayload(requestQueue.getPosition(queuedTask.id())));
         ScheduledFuture<?> queueTicker = sseOrchestrator.scheduleQueuePositionTicker(emitter, bookId, queuedTask.id(), state.streamClosed());
         ScheduledFuture<?> keepaliveTicker = sseOrchestrator.scheduleKeepaliveTicker(emitter, bookId, queuedTask.id(), state.streamClosed());
-        Runnable cancelPendingIfOpen = () -> {
-            if (state.streamClosed().compareAndSet(false, true)) {
-                queueTicker.cancel(true);
-                keepaliveTicker.cancel(true);
-                requestQueue.cancelPending(queuedTask.id());
+        BookAiContentSseOrchestrator.Timers timers = new BookAiContentSseOrchestrator.Timers(queueTicker, keepaliveTicker);
+        ScheduledFuture<?> applicationDeadline = sseOrchestrator.scheduleApplicationDeadline(() -> {
+            if (claimTerminalOwnership(state, timers, queuedTask.id())) {
+                sseOrchestrator.emitTerminalError(emitter, AiErrorCode.STREAM_TIMEOUT, AiErrorCode.STREAM_TIMEOUT.defaultMessage());
             }
-        };
+        }, applicationStreamTimeoutMillis);
+        timers.attachDeadline(applicationDeadline);
+        Runnable cancelPendingIfOpen = () -> claimTerminalOwnership(state, timers, queuedTask.id());
         sseOrchestrator.wireEmitterLifecycle(emitter, bookId, cancelPendingIfOpen);
-        wireStartedHandler(state, queuedTask, enqueuedAtMs);
-        wireResultHandler(state, queuedTask, queueTicker, keepaliveTicker);
+        wireStartedHandler(state, queuedTask, enqueuedAtMs, timers);
+        wireResultHandler(state, queuedTask, timers);
+    }
+
+    private boolean claimTerminalOwnership(QueuedStreamState state, BookAiContentSseOrchestrator.Timers timers, String taskId) {
+        if (!state.streamClosed().compareAndSet(false, true)) {
+            return false;
+        }
+        timers.cancelAll();
+        requestQueue.cancelPending(taskId);
+        return true;
     }
 
     private BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent> enqueueGenerationTask(
             QueuedStreamState state) {
         AtomicBoolean messageStarted = new AtomicBoolean(false);
         return requestQueue.enqueueForeground(DEFAULT_GENERATION_PRIORITY, () -> {
-            sendMessageStartEvent(state.emitter(), messageStarted);
+            sendMessageStartEvent(state, messageStarted);
             BookAiContentService.GeneratedContent generated = aiContentService.generateAndPersist(
                 state.bookId(),
-                delta -> sseOrchestrator.sendEvent(state.emitter(), "message_delta", new MessageDeltaPayload(delta)),
+                delta -> sendEventIfOpen(state, "message_delta", new MessageDeltaPayload(delta)),
                 LlmGatewayTier.LIVE_RENDER
             );
-            sseOrchestrator.sendEvent(state.emitter(), "message_done", new MessageDonePayload(generated.rawMessage()));
+            sendEventIfOpen(state, "message_done", new MessageDonePayload(generated.rawMessage()));
             return generated;
         });
     }
 
     private void wireStartedHandler(QueuedStreamState state,
-                                     BookAiContentRequestQueue.EnqueuedTask<?> queuedTask, long enqueuedAtMs) {
+                                     BookAiContentRequestQueue.EnqueuedTask<?> queuedTask,
+                                     long enqueuedAtMs,
+                                     BookAiContentSseOrchestrator.Timers timers) {
         queuedTask.started().thenRun(() -> {
             if (state.streamClosed().get()) {
                 return;
             }
+            timers.cancelQueueTicker();
             long queueWaitMs = Math.max(0L, System.currentTimeMillis() - enqueuedAtMs);
             BookAiContentRequestQueue.QueueSnapshot snapshot = requestQueue.snapshot();
-            sseOrchestrator.sendEvent(state.emitter(), "started", new QueueStartedPayload(
+            sendEventIfOpen(state, "started", new QueueStartedPayload(
                 snapshot.running(), snapshot.pending(), snapshot.maxParallel(), queueWaitMs));
         }).exceptionally(throwable -> {
-            if (!state.streamClosed().get()) {
+            if (claimTerminalOwnership(state, timers, queuedTask.id())) {
                 AiErrorDescriptor descriptor = resolveThrowableError(throwable);
                 sseOrchestrator.emitTerminalError(state.emitter(), descriptor.code(), resolveClientMessage(descriptor.code(), descriptor.message()));
             } else {
@@ -192,11 +248,9 @@ public class BookAiContentController {
 
     private void wireResultHandler(QueuedStreamState state,
                                     BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent> queuedTask,
-                                    ScheduledFuture<?> queueTicker, ScheduledFuture<?> keepaliveTicker) {
+                                    BookAiContentSseOrchestrator.Timers timers) {
         queuedTask.result().whenComplete((result, throwable) -> {
-            queueTicker.cancel(true);
-            keepaliveTicker.cancel(true);
-            if (!state.streamClosed().compareAndSet(false, true)) {
+            if (!claimTerminalOwnership(state, timers, queuedTask.id())) {
                 if (throwable != null) {
                     log.debug("Stream already closed when result-handler exception occurred: {}", throwable.getMessage());
                 }
@@ -224,10 +278,24 @@ public class BookAiContentController {
         });
     }
 
-    private void sendMessageStartEvent(SseEmitter emitter, AtomicBoolean messageStarted) {
+    private void sendMessageStartEvent(QueuedStreamState state, AtomicBoolean messageStarted) {
         if (messageStarted.compareAndSet(false, true)) {
-            sseOrchestrator.sendEvent(emitter, "message_start", new MessageStartPayload(
+            sendEventIfOpen(state, "message_start", new MessageStartPayload(
                 UUID.randomUUID().toString(), aiContentService.configuredModel(), aiContentService.apiMode()));
+        }
+    }
+
+    private void sendEventIfOpen(QueuedStreamState state, String eventName, BookAiContentSsePayload payload) {
+        try {
+            if (state.streamClosed().get()) {
+                return;
+            }
+            sseOrchestrator.sendEvent(state.emitter(), eventName, payload);
+        } catch (IllegalStateException deliveryFailure) {
+            if (!state.streamClosed().get()) {
+                throw deliveryFailure;
+            }
+            log.debug("Skipped {} event after stream closed for bookId={}", eventName, state.bookId());
         }
     }
 
@@ -257,7 +325,7 @@ public class BookAiContentController {
                 case DESCRIPTION_TOO_SHORT -> AiErrorCode.DESCRIPTION_TOO_SHORT;
                 case ENRICHMENT_FAILED -> AiErrorCode.ENRICHMENT_FAILED;
                 case DEGENERATE_CONTENT -> AiErrorCode.DEGENERATE_CONTENT;
-                case GENERATION_FAILED -> AiErrorCode.GENERATION_FAILED;
+                case GENERATION_FAILED, INCOMPLETE_RESPONSE, INVALID_RESPONSE -> AiErrorCode.GENERATION_FAILED;
             };
             return new AiErrorDescriptor(code, safeThrowableMessage(current));
         }

@@ -4,6 +4,7 @@ import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.util.cover.UrlSourceDetector;
 import org.junit.jupiter.api.Test;
 
+import java.io.Serializable;
 import java.util.List;
 import java.util.Map;
 
@@ -43,7 +44,7 @@ class UrlSourceDetectorTest {
             "https://covers.openlibrary.org/b/id/12345-M.jpg",
             4.5,
             100,
-            Map.<String, Object>of()
+            Map.<String, Serializable>of()
         );
 
         assertThat(UrlSourceDetector.detectSource(card.coverUrl()))
@@ -62,7 +63,7 @@ class UrlSourceDetectorTest {
             "https://books.google.com/books/content?id=ABC123&printsec=frontcover&zoom=1",
             4.5,
             100,
-            Map.<String, Object>of()
+            Map.<String, Serializable>of()
         );
 
         assertThat(UrlSourceDetector.detectSource(card.coverUrl()))
@@ -81,7 +82,7 @@ class UrlSourceDetectorTest {
             "https://covers.openlibrary.org/b/id/12345-M.jpg",
             4.5,
             100,
-            Map.<String, Object>of()
+            Map.<String, Serializable>of()
         );
 
         assertThat(UrlSourceDetector.detectSource(card.coverUrl()))
@@ -130,7 +131,7 @@ class UrlSourceDetectorTest {
             false,
             4.5,
             100,
-            Map.<String, Object>of()
+            Map.<String, Serializable>of()
         );
 
         assertThat(UrlSourceDetector.detectSource(item.coverUrl()))
@@ -166,7 +167,7 @@ class UrlSourceDetectorTest {
             null,
             "preview",
             "info",
-            Map.<String, Object>of(),
+            Map.<String, Serializable>of(),
             List.<EditionSummary>of()
         );
     }
