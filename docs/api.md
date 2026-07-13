@@ -112,7 +112,7 @@
   - Unknown identifiers return `404 application/problem+json`.
 - `POST /api/covers/{identifier}/ingest`
   - Purpose:
-    - Persist a browser-fetched cover image (for example a Google Books cover already rendered in UI) into S3 and canonical cover metadata.
+    - Persist a browser-fetched cover image into S3 and canonical cover metadata. Automatic relay skips server-managed provider hosts (Open Library, Google Books).
   - Request content type:
     - `multipart/form-data`
   - Required fields:
