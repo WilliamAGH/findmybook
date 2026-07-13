@@ -9,6 +9,10 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -35,7 +39,9 @@ import org.mockito.Mockito;
 import org.springframework.http.HttpHeaders;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Mono;
 
 class CoverS3UploadCoordinatorTest {
@@ -183,6 +189,40 @@ class CoverS3UploadCoordinatorTest {
             "GOOGLE_BOOKS"
         );
         verify(coverPersistenceService, never()).updateAfterS3Upload(any(), any());
+    }
+
+    @Test
+    void should_LogTypedNoCoverAtWarnAndOtherFailuresAtError_When_UploadFails() {
+        Logger coordinatorLogger = (Logger) LoggerFactory.getLogger(CoverS3UploadCoordinator.class);
+        ListAppender<ILoggingEvent> logEvents = new ListAppender<>();
+        boolean originalAdditivity = coordinatorLogger.isAdditive();
+        coordinatorLogger.setAdditive(false);
+        logEvents.start();
+        coordinatorLogger.addAppender(logEvents);
+
+        try {
+            ReflectionTestUtils.invokeMethod(coordinator, "handleUploadError",
+                new CoverProcessingException("book-1", "https://example.com/one.jpg",
+                    CoverRejectionReason.PLACEHOLDER_TOO_SMALL, "placeholder cover"), "book-1");
+            ReflectionTestUtils.invokeMethod(coordinator, "handleUploadError",
+                new CoverProcessingException("book-2", "https://example.com/two.jpg", "codec failure"), "book-2");
+            ReflectionTestUtils.invokeMethod(coordinator, "handleUploadError",
+                new CoverProcessingException("book-3", "https://example.com/three.jpg",
+                    (CoverRejectionReason) null, "missing rejection reason"), "book-3");
+            ReflectionTestUtils.invokeMethod(coordinator, "handleUploadError",
+                new IllegalStateException("unexpected failure"), "book-4");
+
+            assertThat(logEvents.list).satisfiesExactly(
+                event -> assertThat(event.getLevel()).isEqualTo(Level.WARN),
+                event -> assertThat(event.getLevel()).isEqualTo(Level.ERROR),
+                event -> assertThat(event.getLevel()).isEqualTo(Level.ERROR),
+                event -> assertThat(event.getLevel()).isEqualTo(Level.ERROR)
+            );
+        } finally {
+            coordinatorLogger.detachAppender(logEvents);
+            logEvents.stop();
+            coordinatorLogger.setAdditive(originalAdditivity);
+        }
     }
 
     @Test

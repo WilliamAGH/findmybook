@@ -84,7 +84,8 @@ public class ApiCircuitBreakerService {
                 authenticatedCircuit,
                 failureTime,
                 "Recorded rate limit failure #{} at {} PT",
-                "Circuit breaker OPENED due to rate limit (429) - blocking ALL authenticated API calls until next Pacific day (quota reset). Date: {}"
+                "Circuit breaker OPENED due to rate limit (429) - blocking ALL authenticated API calls until next Pacific day (quota reset). Date: {}",
+                CircuitOpenLogLevel.ERROR
         );
     }
 
@@ -100,7 +101,8 @@ public class ApiCircuitBreakerService {
                 fallbackCircuit,
                 failureTime,
                 "Recorded fallback rate limit failure #{} at {} PT",
-                "Fallback circuit OPENED due to rate limit (429) - blocking ALL unauthenticated API calls until next Pacific day. Date: {}"
+                "Fallback circuit OPENED due to rate limit (429) - blocking ALL unauthenticated API calls until next Pacific day. Date: {}",
+                CircuitOpenLogLevel.WARN
         );
     }
 
@@ -193,7 +195,8 @@ public class ApiCircuitBreakerService {
     private void recordRateLimitFailure(AtomicReference<CircuitSnapshot> circuit,
                                         LocalDateTime failureTime,
                                         String failureMessage,
-                                        String openedMessage) {
+                                        String openedMessage,
+                                        CircuitOpenLogLevel openLogLevel) {
         Objects.requireNonNull(failureTime, "failureTime must not be null");
         while (true) {
             CircuitSnapshot previous = circuit.get();
@@ -203,7 +206,10 @@ public class ApiCircuitBreakerService {
             }
             log.warn(failureMessage, updated.failureCount(), failureTime);
             if (updated.openedOnNewDateComparedTo(previous)) {
-                log.error(openedMessage, updated.openDate());
+                switch (openLogLevel) {
+                    case WARN -> log.warn(openedMessage, updated.openDate());
+                    case ERROR -> log.error(openedMessage, updated.openDate());
+                }
             }
             return;
         }
@@ -233,6 +239,11 @@ public class ApiCircuitBreakerService {
     private enum CircuitState {
         CLOSED,
         OPEN
+    }
+
+    private enum CircuitOpenLogLevel {
+        WARN,
+        ERROR
     }
 
     private record CircuitSnapshot(CircuitState state,

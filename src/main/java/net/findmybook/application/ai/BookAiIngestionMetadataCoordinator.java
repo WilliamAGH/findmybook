@@ -8,11 +8,12 @@ import net.findmybook.service.event.BookUpsertEvent;
 import net.findmybook.support.ai.BookAiContentRequestQueue;
 import net.findmybook.support.ai.BookAiQueueCapacityExceededException;
 import net.findmybook.support.llm.LlmGatewayTier;
-import org.springframework.dao.DataAccessException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.event.EventListener;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.util.StringUtils;
 
 /**
@@ -42,9 +43,9 @@ public class BookAiIngestionMetadataCoordinator {
     }
 
     /**
-     * Enqueues background metadata generation when a canonical book upsert is published.
+     * Enqueues background metadata generation after a transactional canonical book upsert commits.
      */
-    @EventListener
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void handleBookUpsert(BookUpsertEvent event) {
         if (event == null || !StringUtils.hasText(event.getBookId())) {
             log.warn("Skipping ingestion metadata enqueue: missing bookId in BookUpsertEvent");

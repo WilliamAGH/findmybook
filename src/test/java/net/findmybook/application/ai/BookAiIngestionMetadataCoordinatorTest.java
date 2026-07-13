@@ -1,5 +1,8 @@
 package net.findmybook.application.ai;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
@@ -9,6 +12,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -22,6 +26,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
+import org.springframework.transaction.event.TransactionalEventListenerFactory;
 
 @ExtendWith(MockitoExtension.class)
 class BookAiIngestionMetadataCoordinatorTest {
@@ -32,6 +42,58 @@ class BookAiIngestionMetadataCoordinatorTest {
     private BookAiContentService bookAiContentService;
     @Mock
     private BookSeoMetadataGenerationService bookSeoMetadataGenerationService;
+
+    @Test
+    void should_ListenAfterCommitWithoutFallback_When_BookUpsertEventIsPublished() throws NoSuchMethodException {
+        TransactionalEventListener listener = BookAiIngestionMetadataCoordinator.class
+            .getDeclaredMethod("handleBookUpsert", BookUpsertEvent.class)
+            .getAnnotation(TransactionalEventListener.class);
+
+        assertNotNull(listener);
+        assertEquals(TransactionPhase.AFTER_COMMIT, listener.phase());
+        assertFalse(listener.fallbackExecution());
+    }
+
+    @Test
+    void should_EnqueueOnlyAfterCommit_When_TransactionPublishesBookUpsertEvent() {
+        UUID bookId = UUID.randomUUID();
+        BookUpsertEvent event = new BookUpsertEvent(
+            bookId.toString(),
+            "book-slug",
+            "Book title",
+            true,
+            "GOOGLE_BOOKS",
+            null,
+            null,
+            "GOOGLE_BOOKS"
+        );
+        when(bookAiContentService.isAvailable()).thenReturn(true);
+        when(requestQueue.<Void>enqueueBackground(anyInt(), any()))
+            .thenReturn(new BookAiContentRequestQueue.EnqueuedTask<>(
+                "after-commit-task",
+                CompletableFuture.completedFuture(null),
+                CompletableFuture.completedFuture(null)
+            ));
+
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            context.registerBean(TransactionalEventListenerFactory.class);
+            context.registerBean(BookAiIngestionMetadataCoordinator.class, this::newCoordinator);
+            context.refresh();
+
+            beginTransactionSynchronization();
+            context.publishEvent(event);
+            verify(requestQueue, never()).enqueueBackground(anyInt(), any());
+            completeTransactionSynchronization(TransactionSynchronization.STATUS_COMMITTED);
+            verify(requestQueue).enqueueBackground(eq(0), any());
+
+            beginTransactionSynchronization();
+            context.publishEvent(event);
+            completeTransactionSynchronization(TransactionSynchronization.STATUS_ROLLED_BACK);
+            verify(requestQueue, times(1)).enqueueBackground(anyInt(), any());
+        } finally {
+            clearTransactionSynchronization();
+        }
+    }
 
     @Test
     void should_EnqueueBackgroundGeneration_When_BookUpsertEventHasValidUuid() {
@@ -204,5 +266,26 @@ class BookAiIngestionMetadataCoordinatorTest {
             bookAiContentService,
             bookSeoMetadataGenerationService
         );
+    }
+
+    private void beginTransactionSynchronization() {
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+        TransactionSynchronizationManager.initSynchronization();
+    }
+
+    private void completeTransactionSynchronization(int completionStatus) {
+        List<TransactionSynchronization> synchronizations = TransactionSynchronizationManager.getSynchronizations();
+        if (completionStatus == TransactionSynchronization.STATUS_COMMITTED) {
+            synchronizations.forEach(TransactionSynchronization::afterCommit);
+        }
+        synchronizations.forEach(synchronization -> synchronization.afterCompletion(completionStatus));
+        clearTransactionSynchronization();
+    }
+
+    private void clearTransactionSynchronization() {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+        TransactionSynchronizationManager.setActualTransactionActive(false);
     }
 }

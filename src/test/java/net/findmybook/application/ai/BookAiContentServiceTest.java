@@ -321,6 +321,41 @@ class BookAiContentServiceTest {
             .hasMessageContaining("valid JSON object");
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"```", "```json"})
+    void should_AcceptCanonicalJson_When_ResponseUsesAllowedWholeResponseFence(String fenceOpener) {
+        AiContentJsonParser parser = new AiContentJsonParser(new ObjectMapper());
+
+        BookAiContent content = parser.parse(fencedAiContentJson(fenceOpener));
+
+        assertThat(content).isEqualTo(parser.parse(validAiContentJson()));
+    }
+
+    @Test
+    void should_RejectProseOutsideFence_When_ModelReturnsFencedJson() {
+        AiContentJsonParser parser = new AiContentJsonParser(new ObjectMapper());
+        String fencedResponse = fencedAiContentJson("```json");
+
+        assertThatThrownBy(() -> parser.parse("Here is the requested JSON:\n" + fencedResponse))
+            .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> parser.parse(fencedResponse + "\nThis is the requested JSON."))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("whole-response");
+    }
+
+    @Test
+    void should_RejectUnknownOrMultipleFences_When_ResponseIsNotOneAllowedFence() {
+        AiContentJsonParser parser = new AiContentJsonParser(new ObjectMapper());
+        String canonicalJson = validAiContentJson();
+        String fencedResponse = fencedAiContentJson("```json");
+
+        assertThatThrownBy(() -> parser.parse("```yaml\n" + canonicalJson + "\n```"))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("whole-response");
+        assertThatThrownBy(() -> parser.parse(fencedResponse + "\n```json\n" + canonicalJson + "\n```"))
+            .isInstanceOf(IllegalStateException.class);
+    }
+
     @Test
     void should_ThrowWhenParserCannotBuildSummary_When_ResponseHasNoUsefulContent() {
         AiContentJsonParser parser = new AiContentJsonParser(new ObjectMapper());
@@ -440,6 +475,10 @@ class BookAiContentServiceTest {
             List.of("Keep contracts explicit."),
             "A concise context for the reader guide."
         )).toString();
+    }
+
+    private String fencedAiContentJson(String fenceOpener) {
+        return "%s%n%s%n```".formatted(fenceOpener, validAiContentJson());
     }
 
     private BookAiContentService newService() {

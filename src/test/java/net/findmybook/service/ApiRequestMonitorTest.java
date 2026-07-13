@@ -260,6 +260,55 @@ public class ApiRequestMonitorTest {
     }
 
     @Test
+    void should_LogFallbackCircuitTransitionAtWarn_When_FallbackQuotaIsExhausted() {
+        ApiCircuitBreakerService circuitBreakerService = new ApiCircuitBreakerService();
+        Logger circuitBreakerLogger = (Logger) LoggerFactory.getLogger(ApiCircuitBreakerService.class);
+        ListAppender<ILoggingEvent> logEvents = new ListAppender<>();
+        logEvents.start();
+        circuitBreakerLogger.addAppender(logEvents);
+
+        try {
+            circuitBreakerService.recordFallbackRateLimitFailure(LocalDateTime.of(2026, 1, 1, 12, 0));
+
+            List<ILoggingEvent> circuitOpenEvents = logEvents.list.stream()
+                    .filter(event -> event.getFormattedMessage().startsWith("Fallback circuit OPENED due to rate limit"))
+                    .toList();
+
+            assertEquals(1, circuitOpenEvents.size());
+            assertEquals(Level.WARN, circuitOpenEvents.getFirst().getLevel());
+            assertEquals(0, logEvents.list.stream()
+                    .filter(event -> event.getLevel() == Level.ERROR)
+                    .count());
+        } finally {
+            circuitBreakerLogger.detachAppender(logEvents);
+            logEvents.stop();
+        }
+    }
+
+    @Test
+    void should_LogAuthenticatedCircuitTransitionAtError_When_AuthenticatedQuotaIsExhausted() {
+        ApiCircuitBreakerService circuitBreakerService = new ApiCircuitBreakerService();
+        Logger circuitBreakerLogger = (Logger) LoggerFactory.getLogger(ApiCircuitBreakerService.class);
+        ListAppender<ILoggingEvent> logEvents = new ListAppender<>();
+        logEvents.start();
+        circuitBreakerLogger.addAppender(logEvents);
+
+        try {
+            circuitBreakerService.recordRateLimitFailure(LocalDateTime.of(2026, 1, 1, 12, 0));
+
+            List<ILoggingEvent> circuitOpenEvents = logEvents.list.stream()
+                    .filter(event -> event.getFormattedMessage().startsWith("Circuit breaker OPENED due to rate limit"))
+                    .toList();
+
+            assertEquals(1, circuitOpenEvents.size());
+            assertEquals(Level.ERROR, circuitOpenEvents.getFirst().getLevel());
+        } finally {
+            circuitBreakerLogger.detachAppender(logEvents);
+            logEvents.stop();
+        }
+    }
+
+    @Test
     void should_KeepFallbackCircuitOpen_When_ResetAndRateLimitFailureMeetAtMidnight() {
         LocalDate resetDate = LocalDate.of(2026, 1, 2);
         LocalDateTime previousDayFailure = resetDate.minusDays(1).atTime(23, 59);

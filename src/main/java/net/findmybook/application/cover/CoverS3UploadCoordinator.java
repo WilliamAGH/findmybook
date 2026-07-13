@@ -329,7 +329,7 @@ public class CoverS3UploadCoordinator {
             case CoverProcessingException e -> new UploadFailureDetail(
                 S3UploadErrorCode.PROCESSING_FAILED,
                 e.getRejectionReason() != null ? e.getRejectionReason().name() : resolveFailureReason(e),
-                false);
+                e.isNoCoverAvailable());
             case CoverTooLargeException e -> new UploadFailureDetail(
                 S3UploadErrorCode.TOO_LARGE,
                 "image-too-large actual=" + e.getActualSize() + " max=" + e.getMaxSize(),

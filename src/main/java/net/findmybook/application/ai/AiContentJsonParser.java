@@ -6,11 +6,14 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import net.findmybook.domain.ai.BookAiContent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.util.StringUtils;
 import tools.jackson.core.JacksonException;
+import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -18,13 +21,21 @@ import tools.jackson.databind.ObjectMapper;
  * Parses raw LLM response text into a structured {@link BookAiContent} record.
  *
  * <p>Accepts only the canonical JSON object contract requested from the provider,
- * so malformed or drifted responses are rejected and retried by the calling service.
+ * either raw or in one permitted whole-response Markdown fence, so malformed or
+ * drifted responses are rejected and retried by the calling service.
  */
 class AiContentJsonParser {
 
     private static final Logger log = LoggerFactory.getLogger(AiContentJsonParser.class);
     private static final int MAX_KEY_THEME_COUNT = 6;
     private static final int MAX_TAKEAWAY_COUNT = 5;
+    private static final String CODE_FENCE_DELIMITER = "```";
+    private static final String JSON_FENCE_LANGUAGE = "json";
+    private static final Pattern WHOLE_RESPONSE_JSON_FENCE = Pattern.compile(
+        "\\A" + CODE_FENCE_DELIMITER + "(?:" + JSON_FENCE_LANGUAGE + ")?\\R(?<payload>.*)\\R"
+            + CODE_FENCE_DELIMITER + "\\z",
+        Pattern.DOTALL
+    );
     private static final Set<String> CANONICAL_TOP_LEVEL_FIELDS = Arrays.stream(BookAiContent.class.getRecordComponents())
         .map(recordComponent -> recordComponent.getName())
         .collect(Collectors.toUnmodifiableSet());
@@ -43,7 +54,8 @@ class AiContentJsonParser {
      * may be JSON {@code null}; the nullable {@code takeaways} domain field may
      * also be JSON {@code null}, while an empty array remains valid.</p>
      *
-     * @param responseText raw LLM JSON output
+     * @param responseText raw LLM JSON output, optionally enclosed in one whole-response
+     *                     {@code ```} or {@code ```json} fence
      * @return parsed content with nullable optional fields per {@link BookAiContent}
      * @throws IllegalStateException if the response violates the canonical JSON contract
      */
@@ -73,8 +85,11 @@ class AiContentJsonParser {
     }
 
     private JsonNode parseJsonPayload(String responseText) {
+        String jsonPayload = extractCanonicalJsonPayload(responseText);
         try {
-            JsonNode payload = objectMapper.readTree(responseText.trim());
+            JsonNode payload = objectMapper
+                .reader(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                .readTree(jsonPayload);
             if (!payload.isObject()) {
                 throw new IllegalStateException("AI response must be a JSON object");
             }
@@ -82,6 +97,21 @@ class AiContentJsonParser {
         } catch (JacksonException exception) {
             throw new IllegalStateException("AI response did not include a valid JSON object", exception);
         }
+    }
+
+    private String extractCanonicalJsonPayload(String responseText) {
+        String trimmedResponse = responseText.trim();
+        if (!trimmedResponse.startsWith(CODE_FENCE_DELIMITER)) {
+            return trimmedResponse;
+        }
+
+        Matcher fence = WHOLE_RESPONSE_JSON_FENCE.matcher(trimmedResponse);
+        if (!fence.matches()) {
+            throw new IllegalStateException(
+                "AI response must be a JSON object or one whole-response ``` or ```json fenced JSON block"
+            );
+        }
+        return fence.group("payload");
     }
 
     private String requiredText(JsonNode payload, String field) {
