@@ -5,6 +5,7 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 
+import java.io.Serializable;
 import java.sql.Date;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
@@ -20,7 +21,7 @@ import java.util.Set;
 import java.util.WeakHashMap;
 
 final class BookQueryResultSetSupport {
-    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
+    private static final TypeReference<Map<String, Serializable>> MAP_TYPE = new TypeReference<>() {};
 
     /**
      * Cache column labels per {@link ResultSet} to avoid recalculating metadata for every column lookup.
@@ -44,7 +45,7 @@ final class BookQueryResultSetSupport {
         return array == null ? List.of() : Arrays.asList(array);
     }
 
-    Map<String, Object> parseJsonb(String jsonb) {
+    Map<String, Serializable> parseJsonb(String jsonb) {
         if (jsonb == null || jsonb.isBlank() || jsonb.equals("{}")) {
             return Map.of();
         }

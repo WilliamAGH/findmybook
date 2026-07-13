@@ -43,7 +43,6 @@ import java.util.Optional;
 public class SearchPaginationService {
 
     private static final int EXTERNAL_PROVIDER_WINDOW_CAP = ApplicationConstants.Paging.MAX_TIERED_LIMIT;
-
     private final BookSearchService bookSearchService;
     private final PostgresSearchResultHydrator postgresSearchResultHydrator;
     private final SearchPageAssembler searchPageAssembler;
@@ -154,12 +153,8 @@ public class SearchPaginationService {
         }
 
         boolean shouldSupplementCurrentPage = currentPage.totalUnique() == 0
-            || (window.startIndex() > 0 && currentPage.pageItems().size() < window.limit());
-        boolean shouldAugmentWithOpenLibrary = window.startIndex() == 0
-            && openLibraryAvailable
-            && (hasCoverGap(currentPage, window.limit()) || hasMetadataGap(currentPage, window.limit()));
-
-        if (!shouldSupplementCurrentPage && !shouldAugmentWithOpenLibrary) {
+            || currentPage.pageItems().size() < window.limit();
+        if (!shouldSupplementCurrentPage) {
             return Mono.just(currentPage);
         }
 
@@ -339,40 +334,6 @@ public class SearchPaginationService {
         }
         seenCandidates.add(candidate);
         return true;
-    }
-
-    private boolean hasCoverGap(SearchPage page, int pageSize) {
-        if (page == null || page.pageItems() == null || page.pageItems().isEmpty()) {
-            return true;
-        }
-        int inspected = Math.min(Math.max(pageSize, 0), page.pageItems().size());
-        if (inspected == 0) {
-            return true;
-        }
-
-        long coveredCount = page.pageItems().stream()
-            .limit(inspected)
-            .filter(this::hasRenderableCover)
-            .count();
-        return coveredCount < inspected;
-    }
-
-    private boolean hasMetadataGap(SearchPage page, int pageSize) {
-        if (page == null || page.pageItems() == null || page.pageItems().isEmpty()) {
-            return true;
-        }
-        int inspected = Math.min(Math.max(pageSize, 0), page.pageItems().size());
-        if (inspected == 0) {
-            return true;
-        }
-
-        long fullyDescribedCount = page.pageItems().stream()
-            .limit(inspected)
-            .filter(book -> book != null)
-            .filter(book -> StringUtils.hasText(book.getDescription()))
-            .filter(book -> book.getPageCount() != null && book.getPageCount() > 0)
-            .count();
-        return fullyDescribedCount < inspected;
     }
 
     private List<Book> filterMetadataRefreshCandidates(List<Book> candidates, List<Book> existingResults) {

@@ -5,6 +5,7 @@ import net.findmybook.dto.BookDetail;
 import net.findmybook.dto.EditionSummary;
 import net.findmybook.dto.RecommendationCard;
 import net.findmybook.repository.BookQueryRepository;
+import net.findmybook.util.ApplicationConstants;
 import net.findmybook.util.IsbnUtils;
 import net.findmybook.util.PagingUtils;
 import net.findmybook.util.SearchQueryUtils;
@@ -191,21 +192,15 @@ public class BookSearchService {
         );
         int safeMinBooks = minBooks == null ? 1 : Math.clamp(minBooks, 0, MAX_CATEGORY_FACET_MIN_BOOKS);
         String sql = """
-            SELECT category_name,
-                   book_count::int AS book_count
-            FROM (
-                SELECT DISTINCT ON (bc.normalized_name)
-                       bc.display_name AS category_name,
-                       COUNT(DISTINCT bcj.book_id) OVER (PARTITION BY bc.normalized_name) AS book_count,
-                       bc.normalized_name
-                FROM book_collections bc
-                JOIN book_collections_join bcj ON bcj.collection_id = bc.id
-                WHERE bc.collection_type = 'CATEGORY'
-                  AND bc.display_name IS NOT NULL
-                  AND TRIM(bc.display_name) <> ''
-                ORDER BY bc.normalized_name, bc.display_name
-            ) deduped
-            WHERE book_count >= ?
+            SELECT MIN(bc.display_name) AS category_name,
+                   COUNT(DISTINCT bcj.book_id)::int AS book_count
+            FROM book_collections bc
+            JOIN book_collections_join bcj ON bcj.collection_id = bc.id
+            WHERE bc.collection_type = 'CATEGORY'
+              AND bc.display_name IS NOT NULL
+              AND TRIM(bc.display_name) <> ''
+            GROUP BY bc.normalized_name
+            HAVING COUNT(DISTINCT bcj.book_id) >= ?
             ORDER BY book_count DESC, category_name ASC
             LIMIT ?
             """;
@@ -269,7 +264,7 @@ public class BookSearchService {
             return;
         }
         try {
-            jdbcTemplate.execute("SELECT refresh_book_search_view()");
+            jdbcTemplate.execute(ApplicationConstants.Database.Queries.REFRESH_SEARCH_VIEW_CONCURRENTLY);
         } catch (DataAccessException ex) {
             // Non-critical: search still works with stale materialized view data
             log.warn("Non-critical: Failed to refresh book_search_view: {}", ex.getMessage());

@@ -1,8 +1,10 @@
 package net.findmybook.controller;
 
+import java.io.Serializable;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -169,10 +171,9 @@ abstract class AbstractBookControllerMvcTest {
             "https://cdn.test/preferred/" + id + ".jpg",
             "https://cdn.test/fallback/" + id + ".jpg",
             CoverImageSource.GOOGLE_BOOKS));
-        book.setQualifiers(new java.util.HashMap<>(Map.<String, Object>of(
-            "nytBestseller",
-            Map.<String, Object>of("rank", 1)
-        )));
+        LinkedHashMap<String, Serializable> bestsellerAttributes = new LinkedHashMap<>();
+        bestsellerAttributes.put("rank", 1);
+        book.setQualifiers(Map.of("nytBestseller", bestsellerAttributes));
         book.setCachedRecommendationIds(List.of("rec-1", "rec-2"));
         book.setPublishedDate(Date.from(Instant.parse("2020-01-01T00:00:00Z")));
         book.setDataSource("POSTGRES");
@@ -180,11 +181,6 @@ abstract class AbstractBookControllerMvcTest {
     }
 
     protected BookDetail buildDetailFromBook(Book book) {
-        Map<String, Object> tags = Map.<String, Object>of(
-            "nytBestseller",
-            Map.<String, Object>of("rank", 1)
-        );
-
         String preferredCover = book.getCoverImages().getPreferredUrl();
         String fallbackCover = book.getCoverImages().getFallbackUrl();
 
@@ -213,7 +209,7 @@ abstract class AbstractBookControllerMvcTest {
             "1234567890123",
             "https://preview",
             "https://info",
-            tags,
+            book.getQualifiers(),
             List.<EditionSummary>of()
         );
     }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeSearchHits } from "$lib/services/searchHitNormalization";
+import { mergeSearchHits, normalizeRealtimeSearchHits } from "$lib/services/searchHitNormalization";
 import { type SearchHit, buildCover } from "$lib/validation/schemas";
 
 function createSearchHit(id: string, overrides: Partial<SearchHit> = {}): SearchHit {
@@ -91,5 +91,50 @@ describe("mergeSearchHits", () => {
 
     // Open Library hits should rank ahead of Google hits when all other keys tie.
     expect(merged.map((hit) => hit.id)).toEqual(["book-1", "book-2"]);
+  });
+});
+
+describe("normalizeRealtimeSearchHits", () => {
+  it("should_RetainOpenLibraryHit_When_OptionalWireFieldsAreExplicitlyNull", () => {
+    const normalizedHits = normalizeRealtimeSearchHits([{
+      id: "OL42425854W",
+      slug: "OL42425854W",
+      title: "Taste of Home Vintage Recipes Made Easy",
+      source: "OPEN_LIBRARY",
+      description: null,
+      authors: null,
+      categories: null,
+      publishedDate: null,
+      language: null,
+      pageCount: null,
+      publisher: null,
+      cover: {
+        s3ImagePath: null,
+        externalImageUrl: null,
+        width: null,
+        height: null,
+        highResolution: null,
+        preferredUrl: null,
+        fallbackUrl: null,
+        source: null,
+      },
+      matchType: null,
+      relevanceScore: null,
+    }]);
+
+    expect(normalizedHits).toHaveLength(1);
+    expect(normalizedHits[0]).toMatchObject({
+      id: "OL42425854W",
+      authors: [],
+      categories: [],
+      relevanceScore: null,
+      publication: {
+        publishedDate: null,
+        language: null,
+        pageCount: null,
+        publisher: null,
+      },
+    });
+    expect(normalizedHits[0].cover?.displayUrl).toBeNull();
   });
 });

@@ -26,10 +26,13 @@ import org.jsoup.safety.Cleaner;
 import org.jsoup.safety.Safelist;
 import org.springframework.util.StringUtils;
 
+import java.io.Serializable;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -82,7 +85,7 @@ public final class BookDtoMapper {
 
         List<AuthorDto> authors = mapAuthors(book);
         List<String> categories = book.getCategories() == null ? List.of() : List.copyOf(book.getCategories());
-        List<TagDto> tags = mapTags(book);
+        List<TagDto> tags = toTagDtos(book.getQualifiers());
         List<CollectionDto> collections = mapCollections(book);
         List<EditionDto> editions = mapEditions(book);
         List<String> recommendationIds = book.getCachedRecommendationIds() == null
@@ -481,7 +484,7 @@ public final class BookDtoMapper {
             .toList();
     }
 
-    private static List<TagDto> toTagDtos(Map<String, Object> tags) {
+    private static List<TagDto> toTagDtos(Map<String, Serializable> tags) {
         if (tags == null || tags.isEmpty()) {
             return List.of();
         }
@@ -676,15 +679,6 @@ public final class BookDtoMapper {
                 .toList();
     }
 
-    private static List<TagDto> mapTags(Book book) {
-        if (book.getQualifiers() == null || book.getQualifiers().isEmpty()) {
-            return List.of();
-        }
-        return book.getQualifiers().entrySet().stream()
-                .map(entry -> new TagDto(entry.getKey(), toAttributeMap(entry.getValue())))
-                .toList();
-    }
-
     private static List<CollectionDto> mapCollections(Book book) {
         List<Book.CollectionAssignment> assignments = book.getCollections();
         if (assignments == null || assignments.isEmpty()) {
@@ -701,11 +695,24 @@ public final class BookDtoMapper {
                 .toList();
     }
 
-    private static Map<String, Object> toAttributeMap(Object value) {
+    private static Map<String, Serializable> toAttributeMap(Serializable value) {
+        if (value == null) {
+            return Map.of();
+        }
+        Book.requireSupportedQualifierValue(value);
         if (value instanceof Map<?, ?> mapValue) {
-            return mapValue.entrySet().stream()
-                    .filter(e -> e.getKey() != null)
-                    .collect(Collectors.toMap(e -> e.getKey().toString(), Map.Entry::getValue));
+            Map<String, Serializable> attributes = new LinkedHashMap<>();
+            mapValue.forEach((attributeKey, attributeValue) -> {
+                if (attributeKey == null) {
+                    return;
+                }
+                if (attributeValue != null && !(attributeValue instanceof Serializable)) {
+                    throw new IllegalStateException(
+                        "Unsupported tag attribute value type: " + attributeValue.getClass().getName());
+                }
+                attributes.put(attributeKey.toString(), (Serializable) attributeValue);
+            });
+            return Collections.unmodifiableMap(attributes);
         }
         return Map.of("value", value);
     }

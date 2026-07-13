@@ -12,8 +12,8 @@ Key variables in `.env`:
 | `OPENAI_BASE_URL` | OpenAI-compatible base URL for generation and embeddings |
 | `OPENAI_MODEL` | Canonical inference model for AI book content and SEO metadata generation |
 | `OPENAI_EMBEDDINGS_MODEL` | Canonical embeddings model for vector calculations |
-| `AI_DEFAULT_MAX_PARALLEL` | Max concurrent outbound AI requests (queue executor cap) |
-| `APP_AI_QUEUE_BACKGROUND_MAX_PENDING` | Max pending background ingestion AI jobs (default `100000`) |
+| `AI_DEFAULT_MAX_PARALLEL` | Global outbound AI queue executor cap, coerced to `2..20`; background work may occupy at most `cap - 1` so one slot remains available for foreground generation |
+| `APP_AI_QUEUE_BACKGROUND_MAX_PENDING` | Max pending background ingestion AI jobs (default `100`) |
 | `APP_SEO_MAX_DESCRIPTION_LENGTH` | Fallback book meta description truncation length when no persisted SEO row exists (default `160`) |
 | `APP_WEEKLY_REFRESH_ENABLED` | Enables the weekly orchestrator that runs NYT ingest + recommendation refresh |
 | `APP_WEEKLY_REFRESH_CRON` | Weekly orchestrator cron expression (default `0 0 4 * * SUN`) |
@@ -36,6 +36,14 @@ Key variables in `.env`:
 | `APP_ADMIN_PASSWORD` | Admin user password |
 | `APP_USER_PASSWORD` | Basic user password |
 | `SPRING_MVC_PROBLEMDETAILS_ENABLED` | Enables RFC 9457 Problem Details responses for MVC exception flows (`true` by default in this repo) |
+
+## Container Health and Rolling Deployments
+
+The production image exposes Spring Boot's readiness and liveness probe groups on the main server port. Its Docker health check calls `GET /readyz`, allowing Coolify to keep the previous container routed until the replacement reports `ACCEPTING_TRAFFIC`.
+
+Deployment readiness intentionally uses Spring's `readinessState` group rather than `/actuator/health`. The aggregate endpoint includes page, search, database, and S3 diagnostics whose external failures are operational signals but must not make an otherwise ready replacement fail its rollout.
+
+Keep Coolify's UI-generated health check disabled for this Dockerfile deployment. Coolify detects the image-owned `HEALTHCHECK`, waits for Docker to report the replacement healthy, and only then removes the previous container. The probe reads `SERVER_PORT` at runtime so the same image works with the repository default (`8095`) and Coolify's configured container port (`8080`).
 
 ## User Accounts
 
@@ -61,6 +69,13 @@ Startup now fails fast with a clear error when database-required profiles are ac
 - This prevents stale SPA bundles when entry filenames remain stable (`app.js`, `app.css`).
 - Browser validation happens on each request while still allowing conditional responses (`Last-Modified`/`ETag` semantics).
 
+## Outbound HTTP Clients
+
+- Spring Boot owns prototype `WebClient.Builder` instances so per-service base URLs and request settings cannot leak across clients.
+- Shared connector policy follows redirects and limits both connection establishment and stalled response reads to 5 seconds through `spring.http.clients`.
+- Services may apply shorter request deadlines when their user-facing latency budget requires faster failure.
+- WebClient buffering follows `spring.codec.max-in-memory-size` (10 MB); narrower consumers such as the OpenGraph cover loader enforce their own smaller streaming limit.
+
 ## SPA Shell Delivery
 
 - Public HTML routes are served through server-generated SPA shells only (`/`, `/search`, `/explore`, `/categories`, `/book/{identifier}`, `/sitemap`, `/sitemap/{view}/{letter}/{page}`, `/404`, `/error`).
@@ -68,6 +83,7 @@ Startup now fails fast with a clear error when database-required profiles are ac
 - Book detail `og:image` metadata points to the dynamic PNG endpoint `GET /api/pages/og/book/{identifier}`.
 - Route matching/canonicalization rules are delivered by the backend route manifest, embedded as `window.__FMB_ROUTE_MANIFEST__` and available at `GET /api/pages/routes`.
 - Trailing-slash page requests are permanently redirected (`308`) to canonical non-slash routes before security filtering; query strings are preserved.
+- Public origin metadata is not trusted from client-supplied forwarding headers; the sitemap landing route emits an origin-relative canonical redirect so TLS-terminating proxies cannot introduce scheme or host drift.
 - `/frontend/index.html` is intentionally not part of runtime static assets. If generated during frontend build, Gradle fails packaging to prevent fallback HTML reintroduction.
 
 ## SEO Image Cache

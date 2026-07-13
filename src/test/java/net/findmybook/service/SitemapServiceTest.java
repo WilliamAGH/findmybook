@@ -22,6 +22,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -74,6 +75,27 @@ class SitemapServiceTest {
         List<SitemapService.SitemapPageMetadata> secondCall = sitemapService.getBookSitemapPageMetadata();
         assertThat(secondCall).isEqualTo(metadata);
         verify(sitemapRepository, times(1)).fetchBookPageMetadata(5000);
+    }
+
+    @Test
+    void should_ReturnBulkAuthorMetadata_When_RepositoryProvidesAuthorPageMetadata() {
+        List<PageMetadata> expected = List.of(
+                new PageMetadata(1, Instant.parse("2024-02-01T00:00:00Z")),
+                new PageMetadata(2, Instant.parse("2024-02-02T00:00:00Z"))
+        );
+        when(sitemapRepository.fetchAuthorPageMetadata(100, 5000)).thenReturn(expected);
+
+        List<SitemapService.SitemapPageMetadata> metadata = sitemapService.getAuthorSitemapPageMetadata();
+
+        assertThat(metadata).containsExactly(
+                new SitemapService.SitemapPageMetadata(1, Instant.parse("2024-02-01T00:00:00Z")),
+                new SitemapService.SitemapPageMetadata(2, Instant.parse("2024-02-02T00:00:00Z"))
+        );
+        assertThat(sitemapService.getAuthorSitemapPageMetadata()).isEqualTo(metadata);
+        verify(sitemapRepository, times(1)).fetchAuthorPageMetadata(100, 5000);
+        verify(sitemapRepository, never()).fetchAuthorsForBucket(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt());
+        verify(sitemapRepository, never()).fetchBooksForAuthors(org.mockito.ArgumentMatchers.anySet());
     }
 
     @Test
@@ -219,5 +241,15 @@ class SitemapServiceTest {
         assertThatThrownBy(() -> sitemapService.getBookSitemapPageMetadata())
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("book sitemap metadata");
+    }
+
+    @Test
+    void should_ThrowIllegalStateException_When_AuthorMetadataRepositoryIsUnavailable() {
+        when(sitemapRepository.fetchAuthorPageMetadata(100, 5000))
+                .thenThrow(new CannotGetJdbcConnectionException("db down", new SQLException("auth")));
+
+        assertThatThrownBy(() -> sitemapService.getAuthorSitemapPageMetadata())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("author sitemap metadata");
     }
 }

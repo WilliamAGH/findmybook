@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.util.UriUtils;
 
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
@@ -49,14 +50,24 @@ public class SitemapController extends SpaShellController {
         this.sitemapProperties = sitemapProperties;
     }
 
+    /**
+     * Redirects the sitemap landing page to its canonical route with a relative
+     * location so TLS-terminating proxies cannot rewrite or poison the origin.
+     *
+     * @param view requested sitemap view
+     * @param letter requested author or book bucket
+     * @param page requested page number
+     * @return a relative canonical redirect
+     */
     @GetMapping("/sitemap")
-    public String sitemapLanding(@RequestParam(name = "view", required = false) String view,
-                                 @RequestParam(name = "letter", required = false) String letter,
-                                 @RequestParam(name = "page", required = false, defaultValue = "1") int page) {
+    public ResponseEntity<Void> sitemapLanding(@RequestParam(name = "view", required = false) String view,
+                                               @RequestParam(name = "letter", required = false) String letter,
+                                               @RequestParam(name = "page", required = false, defaultValue = "1") int page) {
         String normalizedView = normalizeView(view);
         String bucket = sitemapService.normalizeBucket(letter);
         int safePage = PagingUtils.atLeast(page, 1);
-        return "redirect:/sitemap/" + normalizedView + "/" + bucket + "/" + safePage;
+        URI canonicalLocation = URI.create("/sitemap/" + normalizedView + "/" + bucket + "/" + safePage);
+        return ResponseEntity.status(HttpStatus.FOUND).location(canonicalLocation).build();
     }
 
     @GetMapping("/sitemap/{view}/{letter}/{page}")
@@ -69,7 +80,7 @@ public class SitemapController extends SpaShellController {
 
         if (!normalizedView.equals(view) || !bucket.equals(letter) || safePage != page) {
             return ResponseEntity.status(HttpStatus.SEE_OTHER)
-                .location(java.net.URI.create("/sitemap/" + normalizedView + "/" + bucket + "/" + safePage))
+                .location(URI.create("/sitemap/" + normalizedView + "/" + bucket + "/" + safePage))
                 .build();
         }
 

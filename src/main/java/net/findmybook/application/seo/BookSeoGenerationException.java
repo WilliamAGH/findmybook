@@ -16,6 +16,8 @@ public class BookSeoGenerationException extends RuntimeException {
      */
     public enum ErrorCode {
         GENERATION_FAILED,
+        API_CALL_FAILED,
+        INVALID_RESPONSE,
         DESCRIPTION_TOO_SHORT
     }
 

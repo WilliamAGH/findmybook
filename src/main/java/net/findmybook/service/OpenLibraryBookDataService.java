@@ -206,13 +206,8 @@ public class OpenLibraryBookDataService {
             response = enrichWithWorkDetails(response, queryValue);
         }
 
-        return response
-                .doOnError(e -> LoggingUtils.error(log, e, "Error searching books by {} '{}' from OpenLibrary", queryParamName, queryValue))
-                .onErrorMap(e -> {
-                     LoggingUtils.warn(log, e, "Error during OpenLibrary search for {} '{}', returning empty Flux", queryParamName, queryValue);
-                     ExternalApiLogger.logApiCallFailure(log, "OpenLibrary", apiOperation, queryValue, e.getMessage());
-                     return new IllegalStateException("OpenLibrary " + queryParamName + " search failed for '" + queryValue + "'", e);
-                });
+        return response.onErrorMap(e -> new IllegalStateException(
+            "OpenLibrary " + queryParamName + " search failed for '" + queryValue + "'", e));
     }
 
     private Flux<Book> fetchSearchPage(String queryParamName,
@@ -274,12 +269,16 @@ public class OpenLibraryBookDataService {
      * @return a Flux.error wrapping the circuit breaker cause
      */
     public Flux<Book> searchBooksFallback(String query, Throwable cause) {
-        LoggingUtils.warn(log, cause, "OpenLibrary search fallback triggered for query: '{}'", query);
+        log.warn(
+            "OpenLibrary search fallback triggered for query '{}': {}: {}",
+            query,
+            cause.getClass().getSimpleName(),
+            cause.getMessage()
+        );
         return Flux.error(new IllegalStateException("OpenLibrary fallback triggered for search '" + query + "'", cause));
     }
 
     public Flux<Book> searchBooksFallback(String query, String orderBy, Throwable cause) {
-        LoggingUtils.warn(log, cause, "OpenLibrary search fallback triggered for query: '{}' and orderBy '{}'", query, orderBy);
         return searchBooksFallback(query, cause);
     }
 
@@ -288,15 +287,6 @@ public class OpenLibraryBookDataService {
                                           int startIndex,
                                           int maxResults,
                                           Throwable cause) {
-        LoggingUtils.warn(
-            log,
-            cause,
-            "OpenLibrary search fallback triggered for query: '{}' orderBy '{}' startIndex {} maxResults {}",
-            query,
-            orderBy,
-            startIndex,
-            maxResults
-        );
         return searchBooksFallback(query, cause);
     }
 

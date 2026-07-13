@@ -186,15 +186,15 @@ public class SitemapService {
         // Fetch latest fingerprints from database
         DatasetFingerprint latestBook = sitemapRepository.fetchBookFingerprint();
         DatasetFingerprint latestAuthor = sitemapRepository.fetchAuthorFingerprint();
-        
+
         // Thread-safe comparison and update using compareAndSet pattern
         DatasetFingerprint previousBook = bookFingerprintRef.get();
         DatasetFingerprint previousAuthor = authorFingerprintRef.get();
-        
+
         boolean bookChanged = !Objects.equals(previousBook, latestBook);
         boolean authorChanged = !Objects.equals(previousAuthor, latestAuthor);
         boolean changed = bookChanged || authorChanged;
-        
+
         if (changed) {
             // Update fingerprints atomically
             if (bookChanged) {
@@ -311,11 +311,7 @@ public class SitemapService {
     private List<SitemapPageMetadata> loadBookPageMetadata() {
         int pageSize = properties.getXmlPageSize();
         try {
-            List<PageMetadata> metadata = sitemapRepository.fetchBookPageMetadata(pageSize);
-            if (metadata.isEmpty()) {
-                return List.of();
-            }
-            return metadata.stream()
+            return sitemapRepository.fetchBookPageMetadata(pageSize).stream()
                     .map(entry -> new SitemapPageMetadata(entry.pageNumber(), entry.lastModified()))
                     .toList();
         } catch (DataAccessException ex) {
@@ -325,19 +321,12 @@ public class SitemapService {
 
     private List<SitemapPageMetadata> loadAuthorPageMetadata() {
         try {
-            int totalPages = getAuthorXmlPageCount();
-            if (totalPages == 0) {
-                return List.of();
-            }
-            List<SitemapPageMetadata> results = new ArrayList<>(totalPages);
-            for (int page = 1; page <= totalPages; page++) {
-                Instant lastModified = getAuthorListingsForXmlPage(page).stream()
-                        .map(AuthorListingXmlItem::lastModified)
-                        .max(Instant::compareTo)
-                        .orElseGet(() -> currentAuthorFingerprint().lastModified());
-                results.add(new SitemapPageMetadata(page, lastModified));
-            }
-            return List.copyOf(results);
+            return sitemapRepository.fetchAuthorPageMetadata(
+                            properties.getHtmlPageSize(),
+                            properties.getXmlPageSize()
+                    ).stream()
+                    .map(entry -> new SitemapPageMetadata(entry.pageNumber(), entry.lastModified()))
+                    .toList();
         } catch (DataAccessException ex) {
             throw new IllegalStateException("Failed to load author sitemap metadata", ex);
         }

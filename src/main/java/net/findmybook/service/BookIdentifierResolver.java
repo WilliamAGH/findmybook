@@ -12,8 +12,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 /**
- * Resolves user-facing identifiers (slug, ISBN, external ID) to canonical UUIDs.
- * Centralizing this logic prevents duplicate lookup heuristics across controllers.
+ * Resolves user-facing identifiers (slug, ISBN, external ID) either to the exact matching book or
+ * to the primary edition of its work cluster. Centralizing both explicit contracts prevents
+ * callers from duplicating lookup heuristics or silently changing edition identity.
  *
  * <p><strong>Exception strategy:</strong> {@link DataAccessException} from cluster
  * lookups propagates uncaught. Spring Boot's default error handling converts it to
@@ -35,7 +36,7 @@ public class BookIdentifierResolver {
     }
 
     /**
-     * Resolves a user-facing identifier to a canonical UUID.
+     * Resolves a user-facing identifier to the primary-edition UUID for its work cluster.
      *
      * @param identifier slug, ISBN, external ID, or UUID string
      * @return resolved UUID, or empty if the identifier cannot be matched
@@ -48,13 +49,31 @@ public class BookIdentifierResolver {
     }
 
     /**
-     * Resolves a user-facing identifier to a canonical book ID string.
+     * Resolves a user-facing identifier to the exact matching book UUID without changing editions.
+     * Detail-scoped mutations use this contract so data is written to the same book rendered by
+     * the detail API rather than to a work-cluster primary edition.
+     *
+     * @param identifier slug, ISBN, external ID, or UUID string
+     * @return exact resolved UUID, or empty if the identifier cannot be matched
+     */
+    public Optional<UUID> resolveExactBookUuid(String identifier) {
+        return resolveExactBookId(identifier)
+            .map(UuidUtils::parseUuidOrNull)
+            .filter(Objects::nonNull);
+    }
+
+    /**
+     * Resolves a user-facing identifier to the primary-edition book ID for its work cluster.
      *
      * @param identifier slug, ISBN, external ID, or UUID string
      * @return canonical book ID, or empty if the identifier cannot be matched
      * @throws DataAccessException if the work-cluster database lookup fails
      */
     public Optional<String> resolveCanonicalId(String identifier) throws DataAccessException {
+        return resolveExactBookId(identifier).flatMap(this::resolveToPrimaryEdition);
+    }
+
+    private Optional<String> resolveExactBookId(String identifier) {
         if (!StringUtils.hasText(identifier)) {
             return Optional.empty();
         }
@@ -63,13 +82,13 @@ public class BookIdentifierResolver {
 
         UUID uuid = UuidUtils.parseUuidOrNull(trimmed);
         if (uuid != null) {
-            return resolveToPrimaryEdition(uuid.toString());
+            return Optional.of(uuid.toString());
         }
 
         // Try slug resolution via Postgres projections
         Optional<BookDetail> bySlug = bookQueryRepository.fetchBookDetailBySlug(trimmed);
         if (bySlug.isPresent() && StringUtils.hasText(bySlug.get().id())) {
-            return resolveToPrimaryEdition(bySlug.get().id());
+            return Optional.of(bySlug.get().id());
         }
 
         if (bookLookupService == null) {
@@ -77,8 +96,7 @@ public class BookIdentifierResolver {
         }
 
         return bookLookupService.findBookIdByExternalIdentifier(trimmed)
-            .or(() -> bookLookupService.findBookIdByIsbn(trimmed))
-            .flatMap(this::resolveToPrimaryEdition);
+            .or(() -> bookLookupService.findBookIdByIsbn(trimmed));
     }
 
     /**
@@ -105,6 +123,9 @@ public class BookIdentifierResolver {
               ON primary_wcm.cluster_id = wcm.cluster_id
              AND primary_wcm.is_primary = true
             WHERE wcm.book_id = ?::uuid
+            ORDER BY (primary_wcm.book_id = wcm.book_id) DESC,
+                     wcm.cluster_id ASC,
+                     primary_wcm.book_id ASC
             LIMIT 1
             """,
             rs -> rs.next() ? rs.getString(1) : null,

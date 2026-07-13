@@ -1,7 +1,9 @@
 package net.findmybook.service;
 
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
 import net.findmybook.dto.BookAggregate;
+import net.findmybook.dto.BookDetail;
 import net.findmybook.model.Book;
 import net.findmybook.util.ApplicationConstants;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,12 +24,15 @@ import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import reactor.core.publisher.Flux;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -170,6 +175,51 @@ class BookDataOrchestratorPersistenceScenariosTest {
         verify(bookUpsertService).upsert(aggregateCaptor.capture());
         BookAggregate aggregate = aggregateCaptor.getValue();
         assertThat(aggregate.getPublishedDate()).isEqualTo(LocalDate.of(1997, 1, 1));
+    }
+
+    @Test
+    void enrichDescription_continuesWithGoogle_When_OpenLibraryFails() {
+        UUID bookId = UUID.randomUUID();
+        OpenLibraryBookDataService openLibrary = mock(OpenLibraryBookDataService.class);
+        GoogleApiFetcher googleApiFetcher = mock(GoogleApiFetcher.class);
+        JsonNode googlePayload = mock(JsonNode.class);
+        BookDetail detail = new BookDetail(
+            bookId.toString(), "canonical-title", "Canonical title", "", "Canonical publisher",
+            LocalDate.of(2020, 1, 1), "en", 250, List.of("Canonical author"), List.of("Fiction"),
+            "https://example.com/cover.jpg", "covers/canonical.jpg", "https://example.com/fallback.jpg",
+            "https://example.com/thumbnail.jpg", 600, 900, true, "GOOGLE_BOOKS", 4.0, 10,
+            "1234567890", "9781234567890", "https://example.com/preview", "https://example.com/info",
+            java.util.Map.of("source", "test"), List.of()
+        );
+        when(openLibrary.queryBooksByEverything("isbn:9781234567890", "relevance", 0, 6))
+            .thenReturn(Flux.error(new IllegalStateException("Open Library unavailable")));
+        when(googleApiFetcher.isApiKeyAvailable()).thenReturn(false);
+        when(googleApiFetcher.isFallbackAllowed()).thenReturn(true);
+        when(googleApiFetcher.streamSearchItems(
+                eq("isbn:9781234567890"), eq(6), eq("relevance"), isNull(), eq(false)))
+            .thenReturn(Flux.just(googlePayload));
+        when(googleBooksMapper.map(googlePayload)).thenReturn(BookAggregate.builder()
+            .title("Different title")
+            .identifiers(BookAggregate.ExternalIdentifiers.builder()
+                .source("GOOGLE_BOOKS")
+                .externalId("google-candidate")
+                .build())
+            .build());
+        BookDataOrchestrator enrichmentOrchestrator = new BookDataOrchestrator(
+            bookSearchService,
+            postgresBookRepository,
+            batchPersistenceService,
+            Optional.of(openLibrary),
+            Optional.of(googleApiFetcher),
+            Optional.of(googleBooksMapper),
+            bookUpsertService
+        );
+
+        String description = enrichmentOrchestrator.enrichDescriptionForAiIfNeeded(bookId, detail, null, 50);
+
+        assertThat(description).isNull();
+        verify(googleApiFetcher).streamSearchItems(
+            eq("isbn:9781234567890"), eq(6), eq("relevance"), isNull(), eq(false));
     }
 
     @Test

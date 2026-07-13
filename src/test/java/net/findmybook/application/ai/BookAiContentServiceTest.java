@@ -1,9 +1,12 @@
 package net.findmybook.application.ai;
 
-import com.openai.errors.OpenAIException;
+import com.openai.errors.OpenAIServiceException;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -11,6 +14,11 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import net.findmybook.adapters.persistence.BookAiContentRepository;
 import net.findmybook.boot.OpenAiProperties;
 import net.findmybook.domain.ai.BookAiContent;
@@ -20,6 +28,8 @@ import net.findmybook.service.BookIdentifierResolver;
 import net.findmybook.service.BookSearchService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.test.util.ReflectionTestUtils;
 import tools.jackson.databind.ObjectMapper;
 
@@ -91,30 +101,182 @@ class BookAiContentServiceTest {
     }
 
     @Test
-    void should_ReturnTrueForRetryableFailure_When_GenerationFailureIsCausedByOpenAiException() {
+    void should_StopBeforeGenerationAndPersistence_When_RequestIsCancelledAfterPromptLoad() {
         BookAiContentService service = newService();
-        OpenAIException openAiException = mock(OpenAIException.class);
+        UUID bookId = UUID.randomUUID();
+        String description = "A sufficiently detailed description that can support grounded reader guide generation.";
+        BookDetail detail = bookDetailWithDescription(description);
+        BookAiContentService.GenerationControl generationControl = new BookAiContentService.GenerationControl();
+        when(bookSearchService.fetchBookDetail(bookId)).thenReturn(java.util.Optional.of(detail));
+        when(bookDataOrchestrator.enrichDescriptionForAiIfNeeded(bookId, detail, description, 50))
+            .thenAnswer(invocation -> {
+                generationControl.cancel();
+                return description;
+            });
+
+        assertThatThrownBy(() -> service.generateAndPersist(
+            bookId,
+            ignored -> { },
+            net.findmybook.support.llm.LlmGatewayTier.LIVE_RENDER,
+            generationControl
+        )).isInstanceOf(CancellationException.class)
+            .hasMessage("AI content generation cancelled");
+
+        verify(repository, never()).insertNewCurrentVersion(any(), any(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void should_AllowClaimedPersistenceToFinish_When_CancellationArrivesAfterClaim() throws Exception {
+        BookAiContentService.GenerationControl generationControl = new BookAiContentService.GenerationControl();
+        CountDownLatch persistenceClaimed = new CountDownLatch(1);
+        CountDownLatch releasePersistence = new CountDownLatch(1);
+
+        CompletableFuture<String> persistenceResult = CompletableFuture.supplyAsync(() ->
+            generationControl.persistIfActive(() -> {
+                persistenceClaimed.countDown();
+                try {
+                    if (!releasePersistence.await(5, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("Persistence release timed out");
+                    }
+                } catch (InterruptedException interruptedException) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("Persistence was interrupted", interruptedException);
+                }
+                return "persisted";
+            })
+        );
+
+        assertThat(persistenceClaimed.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(generationControl.cancel()).isFalse();
+        releasePersistence.countDown();
+
+        assertThat(persistenceResult.get(5, TimeUnit.SECONDS)).isEqualTo("persisted");
+    }
+
+    @Test
+    void should_NotInsert_When_CancellationClaimsPersistenceBoundaryFirst() throws Exception {
+        BookAiContentService.GenerationControl generationControl = new BookAiContentService.GenerationControl();
+        CountDownLatch persistenceBoundaryReached = new CountDownLatch(1);
+        CountDownLatch allowPersistenceClaim = new CountDownLatch(1);
+        AtomicReference<Throwable> persistenceFailure = new AtomicReference<>();
+        BookAiContent aiContent = new BookAiContent(
+            "Summary",
+            "Reader fit",
+            List.of("Theme"),
+            List.of("Takeaway"),
+            "Context"
+        );
+        UUID bookId = UUID.randomUUID();
+
+        Thread persistenceThread = Thread.ofPlatform().start(() -> {
+            persistenceBoundaryReached.countDown();
+            try {
+                boolean released = allowPersistenceClaim.await(5, TimeUnit.SECONDS);
+                if (!released) {
+                    persistenceFailure.set(new IllegalStateException("Persistence boundary release timed out"));
+                    return;
+                }
+                generationControl.persistIfActive(
+                    () -> repository.insertNewCurrentVersion(bookId, aiContent, "model", "provider", "hash")
+                );
+            } catch (InterruptedException interruptedException) {
+                Thread.currentThread().interrupt();
+                persistenceFailure.set(interruptedException);
+            } catch (CancellationException cancellation) {
+                persistenceFailure.set(cancellation);
+            }
+        });
+
+        assertThat(persistenceBoundaryReached.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(generationControl.cancel()).isTrue();
+        allowPersistenceClaim.countDown();
+        persistenceThread.join(TimeUnit.SECONDS.toMillis(5));
+
+        assertThat(persistenceThread.isAlive()).isFalse();
+        assertThat(persistenceFailure.get())
+            .isInstanceOf(CancellationException.class)
+            .hasMessage("AI content generation cancelled before persistence");
+        verify(repository, never()).insertNewCurrentVersion(any(), any(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void should_ReturnTrueForRetryableFailure_When_LiveTransportFailsBeforeContent() {
+        BookAiContentService service = newService();
+        OpenAIServiceException openAiException = mock(OpenAIServiceException.class);
+        when(openAiException.statusCode()).thenReturn(503);
         BookAiGenerationException generationFailure = new BookAiGenerationException(
             BookAiGenerationException.ErrorCode.GENERATION_FAILED,
             "AI content generation failed (gpt-5-mini): HTTP 503 server error",
             openAiException
         );
 
-        Boolean retryable = ReflectionTestUtils.invokeMethod(service, "isRetryableGenerationFailure", generationFailure);
+        Boolean retryable = ReflectionTestUtils.invokeMethod(
+            service,
+            "isRetryableGenerationFailure",
+            generationFailure,
+            net.findmybook.support.llm.LlmGatewayTier.LIVE_RENDER
+        );
 
         assertThat(retryable).isTrue();
     }
 
     @Test
-    void should_ReturnTrueForRetryableFailure_When_ParseFailureHasRetryableMessage() {
+    void should_ReturnFalseForRetryableFailure_When_BackgroundSdkOwnsTransportRetries() {
         BookAiContentService service = newService();
+        OpenAIServiceException openAiException = mock(OpenAIServiceException.class);
+        when(openAiException.statusCode()).thenReturn(503);
         BookAiGenerationException generationFailure = new BookAiGenerationException(
             BookAiGenerationException.ErrorCode.GENERATION_FAILED,
-            "AI content generation failed (gpt-5-mini): AI response did not include a valid JSON object",
-            new IllegalStateException("AI response did not include a valid JSON object")
+            "AI content generation failed (gpt-5-mini): HTTP 503 server error",
+            openAiException
         );
 
-        Boolean retryable = ReflectionTestUtils.invokeMethod(service, "isRetryableGenerationFailure", generationFailure);
+        Boolean retryable = ReflectionTestUtils.invokeMethod(
+            service,
+            "isRetryableGenerationFailure",
+            generationFailure,
+            net.findmybook.support.llm.LlmGatewayTier.BACKGROUND_BATCH
+        );
+
+        assertThat(retryable).isFalse();
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {400, 401, 403, 404, 422})
+    void should_ReturnFalseForRetryableFailure_When_LiveRequestHasNonRetryableStatus(int statusCode) {
+        BookAiContentService service = newService();
+        OpenAIServiceException openAiException = mock(OpenAIServiceException.class);
+        when(openAiException.statusCode()).thenReturn(statusCode);
+        BookAiGenerationException generationFailure = new BookAiGenerationException(
+            BookAiGenerationException.ErrorCode.GENERATION_FAILED,
+            "AI content generation failed (gpt-5-mini): HTTP %d".formatted(statusCode),
+            openAiException
+        );
+
+        Boolean retryable = ReflectionTestUtils.invokeMethod(
+            service,
+            "isRetryableGenerationFailure",
+            generationFailure,
+            net.findmybook.support.llm.LlmGatewayTier.LIVE_RENDER
+        );
+
+        assertThat(retryable).isFalse();
+    }
+
+    @Test
+    void should_ReturnTrueForRetryableFailure_When_ResponseIsInvalid() {
+        BookAiContentService service = newService();
+        BookAiGenerationException generationFailure = new BookAiGenerationException(
+            BookAiGenerationException.ErrorCode.INVALID_RESPONSE,
+            "AI content generation failed (gpt-5-mini): invalid response"
+        );
+
+        Boolean retryable = ReflectionTestUtils.invokeMethod(
+            service,
+            "isRetryableGenerationFailure",
+            generationFailure,
+            net.findmybook.support.llm.LlmGatewayTier.LIVE_RENDER
+        );
 
         assertThat(retryable).isTrue();
     }
@@ -127,13 +289,18 @@ class BookAiContentServiceTest {
             "Book description is missing or too short for faithful AI generation."
         );
 
-        Boolean retryable = ReflectionTestUtils.invokeMethod(service, "isRetryableGenerationFailure", validationFailure);
+        Boolean retryable = ReflectionTestUtils.invokeMethod(
+            service,
+            "isRetryableGenerationFailure",
+            validationFailure,
+            net.findmybook.support.llm.LlmGatewayTier.LIVE_RENDER
+        );
 
         assertThat(retryable).isFalse();
     }
 
     @Test
-    void should_ParsePlainTextFallback_When_ModelReturnsNonJsonSections() {
+    void should_RejectPlainText_When_ModelReturnsNonJsonSections() {
         AiContentJsonParser parser = new AiContentJsonParser(new ObjectMapper());
 
         String plainTextResponse = """
@@ -149,13 +316,9 @@ class BookAiContentServiceTest {
             Context: Aligns modern SRE ideas with day-to-day delivery pressure.
             """;
 
-        BookAiContent parsed = parser.parse(plainTextResponse);
-
-        assertThat(parsed.summary()).contains("practical guide");
-        assertThat(parsed.readerFit()).contains("Engineers and technical leads");
-        assertThat(parsed.keyThemes()).contains("incident response", "observability");
-        assertThat(parsed.takeaways()).contains("Establish shared ownership for reliability outcomes.");
-        assertThat(parsed.context()).contains("SRE ideas");
+        assertThatThrownBy(() -> parser.parse(plainTextResponse))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("valid JSON object");
     }
 
     @Test
@@ -165,6 +328,118 @@ class BookAiContentServiceTest {
         assertThatThrownBy(() -> parser.parse("   "))
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("AI content response was empty");
+    }
+
+    @Test
+    void should_RejectMalformedJson_When_ResponseIsTruncated() {
+        AiContentJsonParser parser = new AiContentJsonParser(new ObjectMapper());
+
+        String truncatedResponse = """
+            {"summary":"A detailed but incomplete response", "keyThemes":["democracy"],
+            """;
+
+        assertThatThrownBy(() -> parser.parse(truncatedResponse))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("valid JSON object");
+    }
+
+    @Test
+    void should_RejectUnknownTopLevelField_When_ResponseDriftsFromCanonicalContract() {
+        AiContentJsonParser parser = new AiContentJsonParser(new ObjectMapper());
+        String response = validAiContentJson().replace("}", ",\"unexpected\":true}");
+
+        assertThatThrownBy(() -> parser.parse(response))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("unknown field: unexpected");
+    }
+
+    @Test
+    void should_RejectNonStringSummary_When_ResponseHasWrongScalarType() {
+        AiContentJsonParser parser = new AiContentJsonParser(new ObjectMapper());
+        String response = validAiContentJson().replace("\"A reliable summary with enough words for validation.\"", "42");
+
+        assertThatThrownBy(() -> parser.parse(response))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("summary must be a nonblank JSON string");
+    }
+
+    @Test
+    void should_RejectBlankSummary_When_ResponseHasNoRequiredProse() {
+        AiContentJsonParser parser = new AiContentJsonParser(new ObjectMapper());
+        String response = validAiContentJson().replace("\"A reliable summary with enough words for validation.\"", "\"  \"");
+
+        assertThatThrownBy(() -> parser.parse(response))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("field must be nonblank: summary");
+    }
+
+    @Test
+    void should_RejectNonStringReaderFit_When_OptionalTextHasWrongScalarType() {
+        AiContentJsonParser parser = new AiContentJsonParser(new ObjectMapper());
+        String response = validAiContentJson().replace("\"Readers who value grounded recommendations.\"", "false");
+
+        assertThatThrownBy(() -> parser.parse(response))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("readerFit must be a JSON string or null");
+    }
+
+    @Test
+    void should_RejectNonArrayKeyThemes_When_ResponseHasWrongCollectionType() {
+        AiContentJsonParser parser = new AiContentJsonParser(new ObjectMapper());
+        String response = validAiContentJson().replace("[\"reliability\"]", "\"reliability\"");
+
+        assertThatThrownBy(() -> parser.parse(response))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("keyThemes must be an array of JSON strings");
+    }
+
+    @Test
+    void should_RejectNonStringTheme_When_ResponseHasWrongArrayElementType() {
+        AiContentJsonParser parser = new AiContentJsonParser(new ObjectMapper());
+        String response = validAiContentJson().replace("\"reliability\"", "42");
+
+        assertThatThrownBy(() -> parser.parse(response))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("keyThemes[0] must be a nonblank JSON string");
+    }
+
+    @Test
+    void should_RejectAliasField_When_ResponseOmitsCanonicalFieldName() {
+        AiContentJsonParser parser = new AiContentJsonParser(new ObjectMapper());
+        String response = validAiContentJson().replace("\"readerFit\":", "\"reader_fit\":");
+
+        assertThatThrownBy(() -> parser.parse(response))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("unknown field: reader_fit");
+    }
+
+    @Test
+    void should_AcceptNullOptionalTextAndEmptyArrays_When_ResponseUsesCanonicalShape() {
+        AiContentJsonParser parser = new AiContentJsonParser(new ObjectMapper());
+        String response = new ObjectMapper().valueToTree(new BookAiContent(
+            "A reliable summary with enough words for validation.",
+            null,
+            List.of(),
+            null,
+            null
+        )).toString();
+
+        BookAiContent content = parser.parse(response);
+
+        assertThat(content.readerFit()).isNull();
+        assertThat(content.keyThemes()).isEmpty();
+        assertThat(content.takeaways()).isNull();
+        assertThat(content.context()).isNull();
+    }
+
+    private String validAiContentJson() {
+        return new ObjectMapper().valueToTree(new BookAiContent(
+            "A reliable summary with enough words for validation.",
+            "Readers who value grounded recommendations.",
+            List.of("reliability"),
+            List.of("Keep contracts explicit."),
+            "A concise context for the reader guide."
+        )).toString();
     }
 
     private BookAiContentService newService() {

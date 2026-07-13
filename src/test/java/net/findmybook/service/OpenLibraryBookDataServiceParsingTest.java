@@ -1,17 +1,54 @@
 package net.findmybook.service;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import net.findmybook.model.Book;
 import net.findmybook.util.DateParsingUtils;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.test.StepVerifier;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class OpenLibraryBookDataServiceParsingTest {
+
+    @Test
+    @DisplayName("paged fallback logs one bounded warning without a throwable stack")
+    void searchBooksFallback_logsOneBoundedWarning() {
+        OpenLibraryBookDataService service = new OpenLibraryBookDataService(
+            WebClient.builder(),
+            "https://openlibrary.org",
+            true
+        );
+        Logger logger = (Logger) LoggerFactory.getLogger(OpenLibraryBookDataService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+
+        try {
+            StepVerifier.create(service.searchBooksFallback(
+                    "query", "relevance", 0, 6, new IllegalStateException("provider unavailable")))
+                .expectErrorSatisfies(error -> assertThat(error)
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("OpenLibrary fallback triggered"))
+                .verify();
+
+            assertThat(appender.list).singleElement().satisfies(event -> {
+                assertThat(event.getFormattedMessage())
+                    .contains("query", "IllegalStateException", "provider unavailable");
+                assertThat(event.getThrowableProxy()).isNull();
+            });
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
 
     @Test
     @DisplayName("parseOpenLibrarySearchDoc maps page count and first sentence description")

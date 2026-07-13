@@ -97,6 +97,48 @@ class BookAiIngestionMetadataCoordinatorTest {
     }
 
     @Test
+    void should_ContinueSeoGeneration_When_AiDescriptionIsTooShort() {
+        UUID bookId = UUID.randomUUID();
+        BookAiIngestionMetadataCoordinator coordinator = newCoordinator();
+        BookUpsertEvent event = new BookUpsertEvent(
+            bookId.toString(),
+            "book-slug",
+            "Book title",
+            true,
+            "GOOGLE_BOOKS",
+            null,
+            null,
+            "GOOGLE_BOOKS"
+        );
+
+        when(bookAiContentService.isAvailable()).thenReturn(true);
+        when(bookSeoMetadataGenerationService.isAvailable()).thenReturn(true);
+        when(requestQueue.<Void>enqueueBackground(anyInt(), any()))
+            .thenAnswer(invocation -> {
+                Supplier<Void> supplier = invocation.getArgument(1);
+                supplier.get();
+                return new BookAiContentRequestQueue.EnqueuedTask<>(
+                    "task-description-too-short",
+                    CompletableFuture.completedFuture(null),
+                    CompletableFuture.completedFuture(null)
+                );
+            });
+        when(bookAiContentService.generateAndPersistIfPromptChanged(eq(bookId), any(), any()))
+            .thenThrow(new BookAiGenerationException(
+                BookAiGenerationException.ErrorCode.DESCRIPTION_TOO_SHORT,
+                "Book description is missing or too short"
+            ));
+        when(bookSeoMetadataGenerationService.generateAndPersistIfPromptChanged(bookId))
+            .thenReturn(new BookSeoMetadataGenerationService.GenerationOutcome(
+                bookId, true, "hash-seo", Optional.empty()));
+
+        coordinator.handleBookUpsert(event);
+
+        verify(bookAiContentService).generateAndPersistIfPromptChanged(eq(bookId), any(), any());
+        verify(bookSeoMetadataGenerationService).generateAndPersistIfPromptChanged(bookId);
+    }
+
+    @Test
     void should_DisableSeoIngestionGeneration_When_SeoMetadataTableIsMissing() {
         UUID firstBookId = UUID.randomUUID();
         UUID secondBookId = UUID.randomUUID();

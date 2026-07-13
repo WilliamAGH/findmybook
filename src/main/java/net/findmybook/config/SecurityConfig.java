@@ -34,8 +34,13 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.header.HeaderWriter;
+import org.springframework.security.web.header.writers.CacheControlHeadersWriter;
+import org.springframework.security.web.header.writers.DelegatingRequestMatcherHeaderWriter;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 import org.springframework.security.web.header.writers.StaticHeadersWriter;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.NegatedRequestMatcher;
 import org.springframework.util.StringUtils;
 
 @Configuration
@@ -56,6 +61,7 @@ public class SecurityConfig {
     private static final String CDN_TAILWIND = "https://cdn.tailwindcss.com";
     private static final String FONTS_GOOGLEAPIS = "https://fonts.googleapis.com";
     private static final String FONTS_GSTATIC = "https://fonts.gstatic.com";
+    private static final String OPEN_GRAPH_IMAGE_PATH_PATTERN = "/api/pages/og/**";
 
     private static final String ROLE_ADMIN = "ADMIN";
     private static final String ROLE_USER = "USER";
@@ -129,7 +135,10 @@ public class SecurityConfig {
             // state-changing endpoints live under /admin/** and require HTTP Basic Auth.  Public
             // routes are read-only (GET/HEAD).  Re-evaluate if cookie-based sessions or form-login
             // are introduced.
-            .csrf(csrf -> csrf.disable());
+            .csrf(csrf -> csrf.disable())
+            .headers(headers -> headers
+                .cacheControl(cacheControl -> cacheControl.disable())
+                .addHeaderWriter(nonOpenGraphCacheControlHeaderWriter()));
 
         // Configure headers if CSP is enabled
         if (cspEnabled) {
@@ -137,6 +146,13 @@ public class SecurityConfig {
         }
 
         return http.build();
+    }
+
+    static HeaderWriter nonOpenGraphCacheControlHeaderWriter() {
+        return new DelegatingRequestMatcherHeaderWriter(
+            new NegatedRequestMatcher(PathPatternRequestMatcher.pathPattern(OPEN_GRAPH_IMAGE_PATH_PATTERN)),
+            new CacheControlHeadersWriter()
+        );
     }
 
     private void configureSecurity(HttpSecurity http) throws Exception {

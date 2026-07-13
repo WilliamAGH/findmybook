@@ -1,5 +1,6 @@
 package net.findmybook.service;
 
+import java.io.Serializable;
 import net.findmybook.application.ai.BookAiContentService;
 import net.findmybook.application.book.BookDetailResponseUseCase;
 import net.findmybook.application.book.SimilarBooksResponseUseCase;
@@ -26,6 +27,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -170,8 +172,10 @@ class BookControllerPaginationIntegrationTest {
     }
 
     private BookListItem buildListItem(UUID id, String title) {
-        Map<String, Object> tags = new HashMap<>();
-        tags.put("nytBestseller", Map.<String, Object>of("rank", 1));
+        LinkedHashMap<String, Serializable> bestsellerAttributes = new LinkedHashMap<>();
+        bestsellerAttributes.put("rank", 1);
+        Map<String, Serializable> tags = new HashMap<>();
+        tags.put("nytBestseller", bestsellerAttributes);
         return new BookListItem(
             id.toString(),
             "slug-" + id,

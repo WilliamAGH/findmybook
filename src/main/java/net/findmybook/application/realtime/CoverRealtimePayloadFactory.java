@@ -1,6 +1,7 @@
 package net.findmybook.application.realtime;
 
 import jakarta.annotation.Nullable;
+import java.io.Serializable;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -134,7 +135,7 @@ public class CoverRealtimePayloadFactory {
 
     @Nullable
     private String qualifierAsString(Book book, String key) {
-        Map<String, Object> qualifiers = book.getQualifiers();
+        Map<String, Serializable> qualifiers = book.getQualifiers();
         if (qualifiers == null || !StringUtils.hasText(key)) {
             return null;
         }
@@ -144,7 +145,7 @@ public class CoverRealtimePayloadFactory {
     }
 
     private Optional<Double> qualifierAsDouble(Book book, String key) {
-        Map<String, Object> qualifiers = book.getQualifiers();
+        Map<String, Serializable> qualifiers = book.getQualifiers();
         if (qualifiers == null || !StringUtils.hasText(key)) {
             return Optional.empty();
         }

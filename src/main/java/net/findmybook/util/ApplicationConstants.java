@@ -113,7 +113,8 @@ public final class ApplicationConstants {
 
             // Search queries
             public static final String SEARCH_BOOKS = "SELECT * FROM book_search_view WHERE search_vector @@ plainto_tsquery('english', ?) ORDER BY ts_rank(search_vector, plainto_tsquery('english', ?)) DESC LIMIT ?";
-            public static final String REFRESH_SEARCH_VIEW = "SELECT refresh_book_search_view()";
+            public static final String REFRESH_SEARCH_VIEW_CONCURRENTLY =
+                "REFRESH MATERIALIZED VIEW CONCURRENTLY book_search_view";
 
             // Sitemap queries
             public static final String COUNT_BOOKS_WITH_SLUG = "SELECT COUNT(*) FROM books WHERE slug IS NOT NULL";

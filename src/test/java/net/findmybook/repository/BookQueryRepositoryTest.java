@@ -5,6 +5,7 @@ import net.findmybook.dto.BookDetail;
 import net.findmybook.dto.BookListItem;
 import net.findmybook.dto.EditionSummary;
 import net.findmybook.dto.RecommendationCard;
+import net.findmybook.service.BookSearchService;
 import net.findmybook.test.annotations.DbIntegrationTest;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
@@ -34,12 +35,18 @@ class BookQueryRepositoryTest {
     @Autowired(required = false)
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired(required = false)
+    private BookSearchService bookSearchService;
+
     @Test
-    void contextLoads() {
-        // Verify beans are wired correctly when DB available
-        Assumptions.assumeTrue(bookQueryRepository != null, "Skipping: no DB connection");
-        assertThat(bookQueryRepository).isNotNull();
-        assertThat(jdbcTemplate).isNotNull();
+    void should_ReturnCategoryFacets_When_CategoryFacetQueryRunsAgainstPostgres() {
+        Assumptions.assumeTrue(bookSearchService != null, "Skipping: no DB connection");
+
+        assertThat(bookSearchService.fetchCategoryFacets(24, 0))
+            .allSatisfy(facet -> {
+                assertThat(facet.name()).isNotBlank();
+                assertThat(facet.bookCount()).isGreaterThanOrEqualTo(0);
+            });
     }
 
     @Test
