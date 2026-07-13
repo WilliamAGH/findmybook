@@ -165,9 +165,9 @@
     - `message_done`: `{ message }`
     - `done`: `{ message, aiContent }` where `aiContent` matches the `book.aiContent` contract
     - `error`: `{ error, code, retryable }`
-      - Queue wait is kept alive for at most ten minutes and then ends with `queue_busy`; the
-        `stream_timeout` generation deadline (4 minutes) applies from request start, so total
-        wait plus generation must complete within that window.
+      - Queue wait ends with `queue_busy` after at most ten minutes. After `started`, the
+        `stream_timeout` generation-and-delivery deadline lasts four minutes thirty seconds, so
+        queued work cannot consume that budget.
       - Cancellation and persistence share one atomic commitment boundary. Cancellation that claims
         first prevents a new AI-content version; persistence that claims first completes its insert,
         while the closed stream suppresses any later delivery.
