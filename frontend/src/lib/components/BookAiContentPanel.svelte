@@ -1,7 +1,12 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
   import BookAiContentPanelView from "$lib/components/BookAiContentPanelView.svelte";
-  import { isBookAiContentStreamError, streamBookAiContent } from "$lib/services/bookAiContentStream";
+  import {
+    BookAiContentRequestAttempt,
+    cancelBookAiContentRequest,
+    isBookAiContentStreamError,
+    streamBookAiContent,
+  } from "$lib/services/bookAiContentStream";
   import { getBookAiContentQueueStats } from "$lib/services/books";
   import {
     hasRenderableAiContent,
@@ -12,18 +17,15 @@
   import type {
     Book,
     BookAiContentModelStreamUpdate,
+    BookAiContentQueuedUpdate,
     BookAiContentQueueUpdate,
     BookAiContentSnapshot,
     BookAiErrorCode,
   } from "$lib/validation/schemas";
 
-  interface Props {
-    identifier: string;
-    book: Book;
-    onAiContentUpdate: (aiContent: BookAiContentSnapshot) => void;
-  }
-
-  let { identifier, book, onAiContentUpdate }: Props = $props();
+  let { identifier, book, onAiContentUpdate }: {
+    identifier: string; book: Book; onAiContentUpdate: (aiContent: BookAiContentSnapshot) => void;
+  } = $props();
 
   const COLLAPSE_STORAGE_KEY = "findmybook:ai-collapsed";
 
@@ -35,17 +37,11 @@
   let aiServiceAvailable = $state(true);
   let aiEnvironmentMode = $state(import.meta.env.DEV ? "development" : PRODUCTION_ENVIRONMENT_MODE);
   let collapsed = $state(false);
-  let aiAbortController: AbortController | null = null;
-  let activeRequestToken: symbol | null = null;
   let lastAutoTriggerIdentifier = $state<string | null>(null);
 
-  /** True when the auto-trigger $effect is about to fire but hasn't yet set aiLoading. */
-  let willAutoTrigger = $derived(
-    !!identifier
-      && !hasRenderableAiContent(book)
-      && !aiAutoTriggerDeferred
-      && lastAutoTriggerIdentifier !== identifier,
-  );
+  let activeGenerationAttempt: BookAiContentRequestAttempt | null = null;
+  let willAutoTrigger = $derived(!!identifier && !hasRenderableAiContent(book)
+    && !aiAutoTriggerDeferred && lastAutoTriggerIdentifier !== identifier);
 
   function readCollapseState(): boolean {
     try {
@@ -75,6 +71,18 @@
 
   function shouldDisplayPanel(): boolean {
     return shouldRenderPanel(aiFailureDiagnosticsEnabled(), aiServiceAvailable, book);
+  }
+
+  function isActiveAttempt(attempt: BookAiContentRequestAttempt): boolean {
+    return activeGenerationAttempt === attempt && identifier === attempt.identifier && !attempt.isCanceled;
+  }
+
+  function cancelActiveGeneration(): void {
+    const attempt = activeGenerationAttempt;
+    if (attempt !== null) {
+      attempt.cancel();
+      activeGenerationAttempt = null;
+    }
   }
 
   interface AiStreamFailure {
@@ -110,8 +118,9 @@
       return;
     }
 
-    console.error("[BookAiContentPanel] AI failure in production:", failure.code, failure.message);
-    aiErrorMessage = null;
+    aiErrorMessage = refresh && hasRenderableAiContent(book)
+      ? "Refresh failed. Showing the previous Reader's Guide."
+      : null;
     if (failure.code === "queue_busy") {
       aiQueueMessage = "Queue is busy right now. Try again shortly.";
       aiAutoTriggerDeferred = !refresh;
@@ -125,7 +134,19 @@
     }
   }
 
-  function handleAiQueueUpdate(update: BookAiContentQueueUpdate): void {
+  function handleAiQueued(attempt: BookAiContentRequestAttempt, update: BookAiContentQueuedUpdate): void {
+    attempt.captureRequestId(update.requestId);
+    if (!isActiveAttempt(attempt)) {
+      attempt.cancel();
+      return;
+    }
+    handleAiQueueUpdate(attempt, update);
+  }
+
+  function handleAiQueueUpdate(attempt: BookAiContentRequestAttempt, update: BookAiContentQueueUpdate): void {
+    if (!isActiveAttempt(attempt)) {
+      return;
+    }
     if (update.event === "queued" || update.event === "queue") {
       aiQueueMessage = update.position != null
         ? `Queued (position ${update.position}, ${update.running}/${update.maxParallel} running)`
@@ -137,22 +158,18 @@
     aiLoadingMessage = "Generating AI content...";
   }
 
-  function handleAiStreamEvent(event: BookAiContentModelStreamUpdate): void {
-    if (event.event === "message_start") {
+  function handleAiStreamEvent(attempt: BookAiContentRequestAttempt, event: BookAiContentModelStreamUpdate): void {
+    if (isActiveAttempt(attempt) && event.event === "message_start") {
       aiLoadingMessage = "Generating AI content...";
-      return;
-    }
-    if (event.event === "message_delta") {
-      return;
-    }
-    if (event.event === "message_done") {
-      /* noop — result arrives via the resolved promise */
     }
   }
 
-  async function hasQueueCapacity(refresh: boolean): Promise<boolean> {
+  async function hasQueueCapacity(refresh: boolean, attempt: BookAiContentRequestAttempt): Promise<boolean> {
     try {
       const queueStats = await getBookAiContentQueueStats();
+      if (!isActiveAttempt(attempt)) {
+        return false;
+      }
       aiEnvironmentMode = normalizeEnvironmentMode(queueStats.environmentMode);
       if (!queueStats.available) {
         aiServiceAvailable = false;
@@ -171,7 +188,14 @@
       aiServiceAvailable = true;
       return true;
     } catch (queueError) {
-      console.error("[BookAiContentPanel] Queue stats failed:", queueError);
+      if (!isActiveAttempt(attempt)) {
+        return false;
+      }
+      if (aiFailureDiagnosticsEnabled()) {
+        console.error("[BookAiContentPanel] Queue stats failed:", queueError);
+      } else {
+        console.error("[BookAiContentPanel] Queue stats unavailable in production");
+      }
       const message = queueError instanceof Error
         ? queueError.message
         : "Unable to check queue status";
@@ -197,8 +221,8 @@
     }
 
     const requestIdentifier = identifier;
-    const requestToken = Symbol("book-ai-content-request");
-    activeRequestToken = requestToken;
+    const attempt = new BookAiContentRequestAttempt(requestIdentifier, cancelBookAiContentRequest);
+    activeGenerationAttempt = attempt;
     aiLoading = true;
     aiErrorMessage = null;
     aiQueueMessage = null;
@@ -207,30 +231,35 @@
       ? "Refreshing AI content..."
       : "Generating AI content...";
 
-    const queueHasCapacity = await hasQueueCapacity(refresh);
-    if (activeRequestToken !== requestToken || identifier !== requestIdentifier) {
+    const queueHasCapacity = await hasQueueCapacity(refresh, attempt);
+    if (!isActiveAttempt(attempt)) {
       return;
     }
     if (!queueHasCapacity) {
-      activeRequestToken = null;
+      attempt.complete();
+      activeGenerationAttempt = null;
       aiLoading = false;
       return;
     }
 
-    aiAbortController?.abort();
-    aiAbortController = new AbortController();
     aiErrorMessage = null;
     aiQueueMessage = null;
 
     try {
       const result = await streamBookAiContent(requestIdentifier, {
         refresh,
-        signal: aiAbortController.signal,
-        onQueueUpdate: handleAiQueueUpdate,
-        onStreamEvent: handleAiStreamEvent,
+        signal: attempt.signal,
+        onRequestId: (requestId) => {
+          attempt.captureRequestId(requestId);
+          if (!isActiveAttempt(attempt)) attempt.cancel();
+        },
+        onQueued: (update) => handleAiQueued(attempt, update),
+        onQueueUpdate: (update) => update.event !== "queued" && handleAiQueueUpdate(attempt, update),
+        onStreamEvent: (event) => handleAiStreamEvent(attempt, event),
       });
 
-      if (activeRequestToken !== requestToken || identifier !== requestIdentifier) {
+      attempt.complete();
+      if (!isActiveAttempt(attempt)) {
         return;
       }
       onAiContentUpdate(result.aiContent);
@@ -238,46 +267,46 @@
       aiQueueMessage = null;
       aiErrorMessage = null;
     } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") {
+      if (error instanceof DOMException && error.name === "AbortError" && attempt.isCanceled) {
         return;
       }
-      if (activeRequestToken !== requestToken) {
+      const attemptWasActive = isActiveAttempt(attempt);
+      if (!isBookAiContentStreamError(error)) attempt.cancel();
+      attempt.complete();
+      if (!attemptWasActive) {
         return;
       }
       const failure = resolveAiStreamFailure(error);
       applyAiFailureState(failure, refresh);
-      console.error("Book AI content generation failed:", error);
+      if (aiFailureDiagnosticsEnabled()) {
+        console.error("Book AI content generation failed:", error);
+      } else {
+        console.error("[BookAiContentPanel] AI generation failed in production", {
+          code: failure.code,
+          retryable: failure.retryable,
+        });
+      }
     } finally {
-      if (activeRequestToken === requestToken) {
-        activeRequestToken = null;
+      if (activeGenerationAttempt === attempt) {
+        activeGenerationAttempt = null;
         aiLoading = false;
       }
     }
   }
 
-  function refreshAiContent(): void {
-    void triggerAiGeneration(true);
-  }
+  function refreshAiContent(): void { void triggerAiGeneration(true); }
 
   onMount(() => {
     collapsed = readCollapseState();
-
-    return () => {
-      aiAbortController?.abort();
-    };
+    return cancelActiveGeneration;
   });
 
   $effect(() => {
-    // untrack lastAutoTriggerIdentifier so writing it doesn't create a
-    // tracked dependency that would trigger a re-run whose cleanup
-    // clearTimeout kills the pending auto-trigger before it can fire.
     if (!identifier || untrack(() => lastAutoTriggerIdentifier) === identifier) {
       return;
     }
 
-    aiAbortController?.abort();
-    aiAbortController = null;
-    activeRequestToken = null;
+    cancelActiveGeneration();
     aiLoading = false;
     aiErrorMessage = null;
     aiQueueMessage = null;
@@ -288,15 +317,11 @@
     const scheduledIdentifier = identifier;
 
     const autoTriggerDelay = setTimeout(() => {
-      // Mark this identifier as processed inside the callback so
-      // willAutoTrigger stays true (showing the spinner) until the
-      // trigger actually fires — avoiding a flash of empty content.
       lastAutoTriggerIdentifier = scheduledIdentifier;
       if (identifier !== scheduledIdentifier) {
         return;
       }
       if (!hasRenderableAiContent(book) && !aiLoading && !aiAutoTriggerDeferred) {
-        // Existing-but-degenerate snapshots must bypass cache to force regeneration.
         const requiresRefresh = Boolean(book?.aiContent);
         void triggerAiGeneration(requiresRefresh);
       }

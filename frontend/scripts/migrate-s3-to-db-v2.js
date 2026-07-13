@@ -822,11 +822,11 @@ class BookMigrator {
         currency_code = COALESCE(EXCLUDED.currency_code, book_external_ids.currency_code)`,
       [
         generateNanoId(10), bookId, 'GOOGLE_BOOKS', googleBooksId,
-        providerIsbn10, providerIsbn13, 
-        this.normalizeToHttps(fields.infoLink), 
+        providerIsbn10, providerIsbn13,
+        this.normalizeToHttps(fields.infoLink),
         this.normalizeToHttps(fields.previewLink),
-        this.normalizeToHttps(fields.webReaderLink), 
-        this.normalizeToHttps(fields.canonicalVolumeLink), 
+        this.normalizeToHttps(fields.webReaderLink),
+        this.normalizeToHttps(fields.canonicalVolumeLink),
         fields.averageRating,
         fields.ratingsCount, fields.isEbook, fields.pdfAvailable,
         fields.epubAvailable, fields.embeddable, fields.publicDomain,
@@ -1514,12 +1514,12 @@ function parsePostgresUrl(pgUrl) {
   if (['require', 'verify-full', 'verify-ca'].includes(sslMode)) {
     ssl = buildSecureSslConfig();
     console.log(`[DB] TLS mode: strict verification (sslmode=${sslMode})`);
-  } 
+  }
   // Explicit disable: honor it (typically for local dev)
   else if (sslMode === 'disable') {
     ssl = false;
     console.log('[DB] TLS mode: disabled (sslmode=disable)');
-  } 
+  }
   // Permissive modes (prefer/allow) or no sslmode: relax by default, but allow opt-in to strict
   else {
     if (requireVerify) {
@@ -1678,9 +1678,9 @@ async function migrate() {
   processedLists += listResult.processed;
   errors += listResult.errors;
 
-  // Refresh materialized view
+  // Maintenance-only blocking refresh after this controlled bulk load.
   console.log('\n🔄 Refreshing search view...');
-  await pgClient.query('SELECT refresh_book_search_view()');
+  await pgClient.query('SELECT refresh_book_search_view_after_bulk_load()');
 
   await pgClient.end();
 

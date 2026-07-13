@@ -3,6 +3,8 @@ package net.findmybook.util.cover;
 import net.findmybook.dto.BookCard;
 import net.findmybook.model.Book;
 import org.springframework.util.StringUtils;
+import java.io.Serializable;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Comparator;
@@ -223,7 +225,7 @@ public final class CoverPrioritizer {
     }
 
     private static double relevanceScore(Book book) {
-        Object value = qualifier(book, "search.relevanceScore");
+        Serializable value = qualifier(book, "search.relevanceScore");
         if (value instanceof Number number) {
             return number.doubleValue();
         }
@@ -238,15 +240,15 @@ public final class CoverPrioritizer {
     }
 
     private static String qualifierAsString(Book book, String key) {
-        Object value = qualifier(book, key);
+        Serializable value = qualifier(book, key);
         return value == null ? null : value.toString();
     }
 
-    private static Object qualifier(Book book, String key) {
+    private static Serializable qualifier(Book book, String key) {
         if (book == null || !StringUtils.hasText(key)) {
             return null;
         }
-        Map<String, Object> qualifiers = book.getQualifiers();
+        Map<String, Serializable> qualifiers = book.getQualifiers();
         if (qualifiers == null) {
             return null;
         }
@@ -263,7 +265,7 @@ public final class CoverPrioritizer {
         if (published == null) {
             return Long.MIN_VALUE;
         }
-        return published.toInstant()
+        return Instant.ofEpochMilli(published.getTime())
             .atZone(ZoneId.systemDefault())
             .toLocalDate()
             .toEpochDay();

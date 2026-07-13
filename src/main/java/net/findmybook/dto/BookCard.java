@@ -2,22 +2,25 @@ package net.findmybook.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import org.springframework.util.StringUtils;
+import java.io.Serializable;
 import java.time.LocalDate;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
  * Single source of truth for book card displays (homepage, search grid).
  * Contains ONLY fields actually rendered in card templates - no over-fetching.
- * 
+ *
  * This DTO is populated by optimized SQL queries that fetch exactly what's needed
  * in a single database round-trip, eliminating N+1 query problems.
- * 
+ *
  * Used by:
  * - Homepage bestsellers grid
  * - Search results grid view
  * - Recently viewed books section
- * 
+ *
  * @param id Book UUID as string
  * @param slug URL-friendly book identifier
  * @param title Book title
@@ -33,10 +36,10 @@ public record BookCard(
     String id,
     String slug,
     String title,
-    
+
     @JsonProperty("authors")
     List<String> authors,
-    
+
     @JsonProperty("cover_url")
     String coverUrl,
 
@@ -45,13 +48,13 @@ public record BookCard(
 
     @JsonProperty("fallback_cover_url")
     String fallbackCoverUrl,
-    
+
     @JsonProperty("average_rating")
     Double averageRating,
-    
+
     @JsonProperty("ratings_count")
     Integer ratingsCount,
-    
+
     /**
      * Tags/qualifiers for rendering badges like "NYT Bestseller", "Award Winner", etc.
      * Key is tag type (e.g., "nyt_bestseller"), value is metadata object
@@ -59,7 +62,7 @@ public record BookCard(
      * Bug #9 Fix: Single canonical representation - NO duplication with extras field.
      * This is the ONLY place qualifiers are stored in DTOs.
      */
-    Map<String, Object> tags,
+    Map<String, Serializable> tags,
 
     @JsonProperty("cover_grayscale")
     Boolean coverGrayscale,
@@ -76,7 +79,9 @@ public record BookCard(
         // Keep fallbackCoverUrl as-is (null if not provided) to enable proper fallback cascade
         // Do NOT default to coverUrl - that breaks the fallback chain
         fallbackCoverUrl = StringUtils.hasText(fallbackCoverUrl) ? fallbackCoverUrl : null;
-        tags = tags == null ? Map.of() : Map.copyOf(tags);
+        tags = tags == null || tags.isEmpty()
+            ? Map.of()
+            : Collections.unmodifiableMap(new LinkedHashMap<>(tags));
         coverGrayscale = Boolean.TRUE.equals(coverGrayscale) ? Boolean.TRUE : null;
     }
 
@@ -90,7 +95,7 @@ public record BookCard(
                     String fallbackCoverUrl,
                     Double averageRating,
                     Integer ratingsCount,
-                    Map<String, Object> tags,
+                    Map<String, Serializable> tags,
                     Boolean coverGrayscale) {
         this(id, slug, title, authors, coverUrl, coverS3Key, fallbackCoverUrl, averageRating, ratingsCount, tags, coverGrayscale, null);
     }
@@ -105,7 +110,7 @@ public record BookCard(
                     String fallbackCoverUrl,
                     Double averageRating,
                     Integer ratingsCount,
-                    Map<String, Object> tags) {
+                    Map<String, Serializable> tags) {
         this(id, slug, title, authors, coverUrl, coverS3Key, fallbackCoverUrl, averageRating, ratingsCount, tags, null, null);
     }
 
@@ -117,10 +122,10 @@ public record BookCard(
                     String coverUrl,
                     Double averageRating,
                     Integer ratingsCount,
-                    Map<String, Object> tags) {
+                    Map<String, Serializable> tags) {
         this(id, slug, title, authors, coverUrl, null, coverUrl, averageRating, ratingsCount, tags, null, null);
     }
-    
+
     /**
      * Check if book has a specific qualifier tag
      */

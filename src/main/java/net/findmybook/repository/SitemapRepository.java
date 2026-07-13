@@ -27,6 +27,8 @@ public class SitemapRepository {
             "ELSE '0-9' END";
 
     private static final String BOOK_UPDATED_AT_ALIAS = "book_updated_at";
+    private static final String AUTHOR_UPDATED_AT_ALIAS = "author_updated_at";
+    private static final String AUTHOR_PAGE_NUMBER_ALIAS = "author_page_number";
     private static final String SQL_EPOCH_TIMESTAMP = "TIMESTAMP 'epoch'";
     private static final String BOOK_CHANGE_EVENTS_CTE =
             SitemapBookLastModifiedSqlSupport.globalBookLastModifiedCte(BOOK_UPDATED_AT_ALIAS);
@@ -77,14 +79,7 @@ public class SitemapRepository {
     }
 
     public List<BookRow> fetchBooksForXml(int limit, int offset) {
-        String sql = BOOK_CHANGE_EVENTS_CTE +
-                     "SELECT id, slug, title, " + BOOK_UPDATED_AT_ALIAS + " " +
-                     "FROM book_last_modified " +
-                     "ORDER BY " + BOOK_UPDATED_AT_ALIAS + " ASC NULLS LAST, " +
-                     "         lower(title) ASC NULLS LAST, " +
-                     "         slug ASC NULLS LAST, " +
-                     "         id ASC " +
-                     "LIMIT ? OFFSET ?";
+        String sql = SitemapBookLastModifiedSqlSupport.pagedBookLastModifiedQuery(BOOK_UPDATED_AT_ALIAS);
         return jdbcTemplate.query(sql, BOOK_ROW_MAPPER, limit, offset);
     }
 
@@ -151,8 +146,7 @@ public class SitemapRepository {
         String sql = BOOK_CHANGE_EVENTS_CTE +
                 ", ordered AS (" +
                 "    SELECT " + BOOK_UPDATED_AT_ALIAS + "," +
-                "           row_number() OVER (ORDER BY " + BOOK_UPDATED_AT_ALIAS + " ASC NULLS LAST, " +
-                "                                       lower(title) ASC NULLS LAST, " +
+                "           row_number() OVER (ORDER BY lower(title) ASC NULLS LAST, " +
                 "                                       slug ASC NULLS LAST, " +
                 "                                       id ASC) AS rn" +
                 "    FROM book_last_modified" +
@@ -164,6 +158,85 @@ public class SitemapRepository {
                 rs.getInt("page_number"),
                 rs.getTimestamp("last_modified").toInstant()
         ), pageSize);
+    }
+
+    /**
+     * Computes XML sitemap metadata for all author listing pages in one database round trip.
+     *
+     * <p>Author XML pages contain links to HTML author listing pages rather than individual
+     * authors. This query preserves that listing order while aggregating author and canonical
+     * book last-modified timestamps in the database.</p>
+     *
+     * @param htmlPageSize number of authors in one HTML listing page
+     * @param xmlPageSize number of HTML listing pages in one XML sitemap page
+     * @return page metadata ordered by XML sitemap page number
+     */
+    public List<PageMetadata> fetchAuthorPageMetadata(int htmlPageSize, int xmlPageSize) {
+        if (htmlPageSize <= 0) {
+            throw new IllegalArgumentException("HTML page size must be positive, got: " + htmlPageSize);
+        }
+        if (xmlPageSize <= 0) {
+            throw new IllegalArgumentException("XML page size must be positive, got: " + xmlPageSize);
+        }
+        String authorBucketExpression = LETTER_BUCKET_EXPRESSION.formatted(
+                "COALESCE(a.normalized_name, a.name)",
+                "COALESCE(a.normalized_name, a.name)"
+        );
+        String sql = BOOK_CHANGE_EVENTS_CTE + """
+                , ranked_authors AS (
+                    SELECT a.id,
+                           %s AS bucket,
+                           COALESCE(a.updated_at, a.created_at, NOW()) AS %s,
+                           CAST(FLOOR((ROW_NUMBER() OVER (
+                               PARTITION BY %s
+                               ORDER BY lower(COALESCE(a.name, '')) NULLS LAST, a.id ASC
+                           ) - 1) / ?::numeric) AS bigint) + 1 AS %s
+                    FROM authors a
+                ),
+                author_listing_pages AS (
+                    SELECT ranked_authors.bucket,
+                           ranked_authors.%s,
+                           MAX(GREATEST(
+                               ranked_authors.%s,
+                               COALESCE(book_last_modified.%s, %s)
+                           )) AS last_modified
+                    FROM ranked_authors
+                    LEFT JOIN book_authors_join ON book_authors_join.author_id = ranked_authors.id
+                    LEFT JOIN book_last_modified ON book_last_modified.id = book_authors_join.book_id
+                    GROUP BY ranked_authors.bucket, ranked_authors.%s
+                ),
+                ordered_author_listing_pages AS (
+                    SELECT last_modified,
+                           ROW_NUMBER() OVER (
+                               ORDER BY CASE bucket
+                                   WHEN '0-9' THEN 27
+                                   ELSE ASCII(bucket) - ASCII('a') + 1
+                               END,
+                               %s
+                           ) AS rn
+                    FROM author_listing_pages
+                )
+                SELECT CAST(FLOOR((rn - 1) / ?::numeric) AS bigint) + 1 AS page_number,
+                       MAX(last_modified) AS last_modified
+                FROM ordered_author_listing_pages
+                GROUP BY page_number
+                ORDER BY page_number
+                """.formatted(
+                authorBucketExpression,
+                AUTHOR_UPDATED_AT_ALIAS,
+                authorBucketExpression,
+                AUTHOR_PAGE_NUMBER_ALIAS,
+                AUTHOR_PAGE_NUMBER_ALIAS,
+                AUTHOR_UPDATED_AT_ALIAS,
+                BOOK_UPDATED_AT_ALIAS,
+                SQL_EPOCH_TIMESTAMP,
+                AUTHOR_PAGE_NUMBER_ALIAS,
+                AUTHOR_PAGE_NUMBER_ALIAS
+        );
+        return jdbcTemplate.query(sql, (rs, rowNum) -> new PageMetadata(
+                rs.getInt("page_number"),
+                rs.getTimestamp("last_modified").toInstant()
+        ), htmlPageSize, xmlPageSize);
     }
 
     public DatasetFingerprint fetchBookFingerprint() {

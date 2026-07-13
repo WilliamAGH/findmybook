@@ -2,7 +2,10 @@ package net.findmybook.application.similarity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -11,6 +14,7 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import net.findmybook.adapters.persistence.BookEmbeddingSectionRepository;
 import net.findmybook.adapters.persistence.BookSimilarityEmbeddingRepository;
 import net.findmybook.boot.BookSimilarityEmbeddingProperties;
@@ -194,6 +198,43 @@ class BookEmbeddingClientTest {
 
         assertThat(enqueued).isFalse();
         verify(repository).isVectorFresh(bookId, modelVersion, "profile-hash");
+    }
+
+    @Test
+    void should_SuppressDuplicateRefreshesUntilTaskFinishes_When_ResultIsAlreadyTerminal() {
+        UUID bookId = UUID.fromString("019da3e5-3838-703e-9112-bad4a489239e");
+        CompletableFuture<Void> taskResult = new CompletableFuture<>();
+        CompletableFuture<Void> taskFinished = new CompletableFuture<>();
+        BookAiContentRequestQueue requestQueue = mock(BookAiContentRequestQueue.class);
+        when(requestQueue.<Void>enqueueBackground(anyInt(), any()))
+            .thenReturn(new BookAiContentRequestQueue.EnqueuedTask<>(
+                "pending-similarity-refresh",
+                new CompletableFuture<>(),
+                taskResult,
+                taskFinished
+            ));
+        BookSimilarityEmbeddingService service = similarityService(
+            mock(BookSimilarityEmbeddingRepository.class),
+            requestQueue,
+            new BookSimilarityEmbeddingProperties()
+        );
+
+        assertThat(service.enqueueDemandRefresh(bookId)).isTrue();
+        assertThat(taskResult).isNotDone();
+        assertThat(service.enqueueDemandRefresh(bookId)).isFalse();
+        verify(requestQueue).enqueueBackground(anyInt(), any());
+
+        taskResult.complete(null);
+
+        assertThat(taskResult).isCompleted();
+        assertThat(taskFinished).isNotDone();
+        assertThat(service.enqueueDemandRefresh(bookId)).isFalse();
+        verify(requestQueue).enqueueBackground(anyInt(), any());
+
+        taskFinished.complete(null);
+
+        assertThat(service.enqueueDemandRefresh(bookId)).isTrue();
+        verify(requestQueue, times(2)).enqueueBackground(anyInt(), any());
     }
 
     private static org.assertj.core.data.Offset<Float> withinTolerance() {

@@ -289,9 +289,19 @@ export const BookAiContentQueueStatsSchema = z.object({
   environmentMode: z.string().default("production"),
 });
 
+export const BookAiContentQueuedUpdateSchema = z.object({
+  event: z.literal("queued"),
+  requestId: z.string().min(1),
+  position: z.int().nullable().optional(),
+  running: z.int().nonnegative(),
+  pending: z.int().nonnegative(),
+  maxParallel: z.int().positive(),
+});
+
 export const BookAiContentQueueUpdateSchema = z.union([
+  BookAiContentQueuedUpdateSchema,
   z.object({
-    event: z.enum(["queued", "queue"]),
+    event: z.literal("queue"),
     position: z.int().nullable().optional(),
     running: z.int().nonnegative(),
     pending: z.int().nonnegative(),
@@ -363,26 +373,18 @@ export const BookAiContentStreamDoneSchema = z.object({
 export const RealtimeSearchHitCandidateSchema = z.object({
   id: z.string(),
   slug: z.string().optional(),
-  title: z.string().optional(),
-  source: z.string().optional(),
+  title: z.string().nullable().optional(),
+  source: z.string().nullable().optional(),
   description: z.string().nullable().optional(),
-  authors: z.array(z.string()).default([]),
-  categories: z.array(z.string()).default([]),
-  publishedDate: z.union([z.string(), z.number()]).optional(),
-  language: z.string().optional(),
-  pageCount: z.number().optional(),
-  publisher: z.string().optional(),
-  cover: z
-    .object({
-      s3ImagePath: z.string().optional(),
-      externalImageUrl: z.string().optional(),
-      preferredUrl: z.string().optional(),
-      fallbackUrl: z.string().optional(),
-      source: z.string().optional(),
-    })
-    .optional(),
-  matchType: z.string().optional(),
-  relevanceScore: z.number().optional(),
+  authors: z.array(z.string()).nullable().optional(),
+  categories: z.array(z.string()).nullable().optional(),
+  publishedDate: z.union([z.string(), z.number()]).nullable().optional(),
+  language: z.string().nullable().optional(),
+  pageCount: z.number().nullable().optional(),
+  publisher: z.string().nullable().optional(),
+  cover: RawCoverSchema.nullable().optional(),
+  matchType: z.string().nullable().optional(),
+  relevanceScore: z.number().nullable().optional(),
 });
 
 export type Cover = z.infer<typeof CoverSchema>;
@@ -390,6 +392,7 @@ export type Book = z.infer<typeof BookSchema>;
 export type ViewMetrics = z.infer<typeof ViewMetricsSchema>;
 export type BookAiContentSnapshot = z.infer<typeof BookAiContentSnapshotSchema>;
 export type BookAiContentQueueStats = z.infer<typeof BookAiContentQueueStatsSchema>;
+export type BookAiContentQueuedUpdate = z.infer<typeof BookAiContentQueuedUpdateSchema>;
 export type BookAiContentQueueUpdate = z.infer<typeof BookAiContentQueueUpdateSchema>;
 export type BookAiContentModelStreamUpdate = z.infer<typeof BookAiContentModelStreamUpdateSchema>;
 export type BookAiErrorCode = z.infer<typeof BookAiErrorCodeSchema>;

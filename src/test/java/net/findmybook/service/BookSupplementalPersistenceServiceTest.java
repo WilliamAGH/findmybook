@@ -1,5 +1,6 @@
 package net.findmybook.service;
 
+import java.io.Serializable;
 import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -10,6 +11,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -49,10 +51,13 @@ class BookSupplementalPersistenceServiceTest {
         ArgumentCaptor<String> metadataCaptor = ArgumentCaptor.forClass(String.class);
         // Use a valid UUID for book ID
         String bookId = "11111111-1111-4111-8111-111111111111";
+        LinkedHashMap<String, Serializable> metadata = new LinkedHashMap<>();
+        metadata.put("list", "hardcover-fiction");
+        metadata.put("rank", 1);
 
         service.assignQualifierTags(
                 bookId,
-                Map.of("nytBestseller", Map.of("list", "hardcover-fiction", "rank", 1))
+                Map.of("nytBestseller", metadata)
         );
 
         verify(jdbcTemplate).update(

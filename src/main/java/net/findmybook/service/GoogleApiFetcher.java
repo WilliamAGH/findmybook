@@ -308,9 +308,6 @@ public class GoogleApiFetcher {
                         return Flux.empty();
                     }))
                     .onErrorMap(e -> {
-                        LoggingUtils.warn(log, e,
-                                "GoogleApiFetcher: Error during {} search page for query '{}' at startIndex {}.",
-                                authenticated ? "authenticated" : "unauthenticated", query, startIndex);
                         ExternalApiLogger.logApiCallFailure(log, "GoogleBooks", "SEARCH_PAGE", String.format("%s start=%d", query, startIndex), e.getMessage());
                         return new IllegalStateException(
                             "Google API search page failed for query '" + query + "' at startIndex " + startIndex,
@@ -379,21 +376,18 @@ public class GoogleApiFetcher {
                             return throwable instanceof IOException || throwable instanceof WebClientRequestException;
                         })
                         .doBeforeRetry(retrySignal -> {
-                            String targetUrl = url; // Or a more generic endpoint description
                             if (retrySignal.failure() instanceof WebClientResponseException wcre) {
-                                LoggingUtils.warn(log, wcre,
-                                        "Retrying unauthenticated API search call to {} after status {}. Attempt #{}",
-                                        targetUrl, wcre.getStatusCode(), retrySignal.totalRetries() + 1);
+                                log.debug(
+                                        "Retrying unauthenticated Google Books search after status {} (attempt={})",
+                                        wcre.getStatusCode(), retrySignal.totalRetries() + 1);
                             } else {
-                                LoggingUtils.warn(log, retrySignal.failure(),
-                                        "Retrying unauthenticated API search call to {} after error. Attempt #{}",
-                                        targetUrl, retrySignal.totalRetries() + 1);
+                                log.debug(
+                                        "Retrying unauthenticated Google Books search after {} (attempt={})",
+                                        retrySignal.failure().getClass().getSimpleName(),
+                                        retrySignal.totalRetries() + 1);
                             }
                         })
                         .onRetryExhaustedThrow((retryBackoffSpec, retrySignal) -> {
-                            LoggingUtils.error(log, retrySignal.failure(),
-                                    "All retries failed for unauthenticated API search call for query '{}', startIndex {}",
-                                    query, startIndex);
                             apiRequestMonitor.recordFailedRequest(endpoint, "All retries failed: " + retrySignal.failure().getMessage());
                             return retrySignal.failure();
                         }))
@@ -411,21 +405,13 @@ public class GoogleApiFetcher {
                 .map(responseEntity -> responseEntity != null ? responseEntity.getBody() : null)
                 .onErrorMap(e -> {
                     if (e instanceof PrematureCloseException) {
-                        LoggingUtils.warn(log, e,
-                            "Connection prematurely closed during Google API search ({}) for query '{}' at startIndex {}",
-                            authStatus, query, startIndex);
                         apiRequestMonitor.recordFailedRequest(endpoint, "Premature close: " + e.getMessage());
-                        ExternalApiLogger.logApiCallFailure(log, "GoogleBooks", "SEARCH_HTTP", url, e.getMessage());
                         return new IllegalStateException(
                             "Google API search connection closed early for query '" + query + "' at startIndex " + startIndex,
                             e
                         );
                     }
                     if (e instanceof WebClientResponseException wcre) {
-                        LoggingUtils.error(log, wcre,
-                            "Error fetching page for API search call ({}) for query '{}' at startIndex {} after retries: HTTP Status {}, Body: {}",
-                            authStatus, query, startIndex, wcre.getStatusCode(), wcre.getResponseBodyAsString());
-
                         // Record circuit breaker failure for authenticated calls
                         if (authenticated) {
                             if (wcre.getStatusCode().value() == HttpStatus.TOO_MANY_REQUESTS.value()) {
@@ -441,9 +427,6 @@ public class GoogleApiFetcher {
                             }
                         }
                     } else {
-                        LoggingUtils.error(log, e,
-                            "Error fetching page for API search call ({}) for query '{}' at startIndex {} after retries",
-                            authStatus, query, startIndex);
                         if (authenticated) {
                             circuitBreakerService.recordGeneralFailure();
                         } else {
@@ -451,7 +434,6 @@ public class GoogleApiFetcher {
                         }
                     }
                     apiRequestMonitor.recordFailedRequest(endpoint, e.getMessage());
-                    ExternalApiLogger.logApiCallFailure(log, "GoogleBooks", "SEARCH_HTTP", url, e.getMessage());
                     return new IllegalStateException(
                         "Google API search failed for query '" + query + "' at startIndex " + startIndex,
                         e

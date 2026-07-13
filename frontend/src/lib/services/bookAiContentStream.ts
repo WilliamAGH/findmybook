@@ -2,6 +2,7 @@ import { validateWithSchema } from "$lib/validation/validate";
 import {
   type BookAiErrorCode,
   type BookAiContentModelStreamUpdate,
+  type BookAiContentQueuedUpdate,
   type BookAiContentQueueUpdate,
   type BookAiContentSnapshot,
   BookAiContentStreamErrorSchema,
@@ -13,6 +14,8 @@ import {
 export interface StreamBookAiContentOptions {
   refresh?: boolean;
   signal?: AbortSignal;
+  onRequestId?: (requestId: string) => void;
+  onQueued?: (update: BookAiContentQueuedUpdate) => void;
   onQueueUpdate?: (update: BookAiContentQueueUpdate) => void;
   onStreamEvent?: (event: BookAiContentModelStreamUpdate) => void;
 }
@@ -27,10 +30,78 @@ export interface BookAiContentStreamError extends Error {
   retryable: boolean;
 }
 
+/** Owns browser transport state for exactly one AI generation attempt. */
+export class BookAiContentRequestAttempt {
+  readonly abortController = new AbortController();
+  private requestId: string | null = null;
+  private canceled = false;
+  private cancellationSent = false;
+  private terminal = false;
+
+  constructor(readonly identifier: string,
+    private readonly deliverCancellation: (requestId: string) => void = cancelBookAiContentRequest,
+  ) {}
+
+  get signal(): AbortSignal { return this.abortController.signal; }
+
+  get isCanceled(): boolean { return this.canceled; }
+
+  captureRequestId(requestId: string): void {
+    if (this.requestId !== null && this.requestId !== requestId) {
+      throw new Error("Book AI request ID changed during one generation attempt");
+    }
+    this.requestId = requestId;
+    this.sendCancellationIfNeeded();
+  }
+
+  cancel(): void {
+    if (this.terminal) {
+      return;
+    }
+    this.canceled = true;
+    this.abortController.abort();
+    this.sendCancellationIfNeeded();
+  }
+
+  complete(): void {
+    this.requestId = null;
+    this.terminal = true;
+  }
+
+  private sendCancellationIfNeeded(): void {
+    if (!this.canceled || this.requestId === null || this.cancellationSent || this.terminal) {
+      return;
+    }
+    this.cancellationSent = true;
+    this.deliverCancellation(this.requestId);
+  }
+}
+
 export function isBookAiContentStreamError(error: unknown): error is BookAiContentStreamError {
   return error instanceof Error
     && typeof (error as { code?: unknown }).code === "string"
     && typeof (error as { retryable?: unknown }).retryable === "boolean";
+}
+
+/** Delivers a bodyless, same-origin cancellation without blocking route teardown. */
+export function cancelBookAiContentRequest(requestId: string): void {
+  const cancelUrl = `/api/books/ai/content/requests/${encodeURIComponent(requestId)}/cancel`;
+  if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+    try {
+      if (navigator.sendBeacon(cancelUrl)) {
+        return;
+      }
+    } catch {
+      // A rejected beacon falls through to the keepalive fetch transport.
+    }
+  }
+
+  void fetch(cancelUrl, {
+    method: "POST",
+    keepalive: true,
+  }).then((response) => {
+    if (!response.ok) console.warn("[BookAiContentStream] Explicit cancellation delivery failed");
+  }, () => console.warn("[BookAiContentStream] Explicit cancellation delivery failed"));
 }
 
 function createBookAiContentStreamError(
@@ -98,6 +169,7 @@ async function assertSseContentType(response: Response): Promise<void> {
 async function readBookAiContentSseStream(
   response: Response,
   options: StreamBookAiContentOptions,
+  initialRequestId: string | null,
 ): Promise<StreamBookAiContentResult> {
   const reader = response.body?.getReader();
   if (!reader) {
@@ -107,6 +179,7 @@ async function readBookAiContentSseStream(
   const decoder = new TextDecoder();
   let buffer = "";
   let pendingCarriageReturn = false;
+  let requestId = initialRequestId;
 
   const processMessage = (message: { event: string; payloadText: string }): StreamBookAiContentResult | null => {
     if (message.event === "error") {
@@ -136,6 +209,16 @@ async function readBookAiContentSseStream(
         `bookAiContentQueueUpdate:${message.event}`,
       );
       if (queueUpdate.success) {
+        if (queueUpdate.data.event === "queued") {
+          if (requestId !== null && requestId !== queueUpdate.data.requestId) {
+            throw new Error("Book AI request ID did not match queued stream payload");
+          }
+          if (requestId === null) {
+            requestId = queueUpdate.data.requestId;
+            options.onRequestId?.(requestId);
+          }
+          options.onQueued?.(queueUpdate.data);
+        }
         options.onQueueUpdate?.(queueUpdate.data);
       }
       return null;
@@ -258,6 +341,10 @@ export async function streamBookAiContent(
     throw new Error(`Book AI stream failed (HTTP ${response.status}): ${responseText || response.statusText}`);
   }
 
+  const headerRequestId = response.headers.get("X-Book-AI-Request-Id")?.trim() || null;
+  if (headerRequestId !== null) {
+    options.onRequestId?.(headerRequestId);
+  }
   await assertSseContentType(response);
-  return readBookAiContentSseStream(response, options);
+  return readBookAiContentSseStream(response, options, headerRequestId);
 }

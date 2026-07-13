@@ -6,6 +6,10 @@ import com.openai.core.RequestOptions;
 import com.openai.core.Timeout;
 import com.openai.core.http.StreamResponse;
 import com.openai.errors.OpenAIException;
+import com.openai.errors.OpenAIInvalidDataException;
+import com.openai.errors.OpenAIIoException;
+import com.openai.errors.OpenAIRetryableException;
+import com.openai.errors.OpenAIServiceException;
 import com.openai.models.ChatModel;
 import com.openai.models.chat.completions.ChatCompletionChunk;
 import com.openai.models.chat.completions.ChatCompletionCreateParams;
@@ -18,7 +22,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import net.findmybook.adapters.persistence.BookAiContentRepository;
 import net.findmybook.boot.OpenAiProperties;
 import net.findmybook.support.llm.LlmGatewayTier;
@@ -43,22 +51,21 @@ public class BookAiContentService {
     private static final Logger log = LoggerFactory.getLogger(BookAiContentService.class);
     private static final String DEFAULT_PROVIDER = "openai";
     private static final String DEFAULT_API_MODE = "chat";
-    private static final long MAX_COMPLETION_TOKENS = 1000L;
-    private static final int MAX_GENERATION_ATTEMPTS = 3;
+    private static final int LIVE_SDK_MAX_RETRIES = 0;
+    private static final int BACKGROUND_SDK_MAX_RETRIES = 2;
     private static final int MIN_DESCRIPTION_LENGTH = 50;
     private static final double SAMPLING_TEMPERATURE = 0.2;
-
     private static final String SYSTEM_PROMPT = """
         You are a knowledgeable book content writer. You receive a book's title, authors, publisher, and description. Use all context plus your genre/subject knowledge.
         ACCURACY RULES:
         - You MAY infer genre, audience, themes, and context from provided metadata.
         - You MUST NOT fabricate quotes, page counts, chapter titles, plot points, sales, awards, publication details, or biography claims absent from the description.
         - You MUST NOT invent statistics, studies, or research findings.
-        - If a field cannot be reasonably inferred, return null (string) or [] (array).
+        - If an optional field cannot be reasonably inferred, return null (string) or [] (array).
         Return ONLY strict JSON with this exact shape:
-        {"summary": string|null, "readerFit": string|null, "keyThemes": string[], "takeaways": string[], "context": string|null}
+        {"summary": string, "readerFit": string|null, "keyThemes": string[], "takeaways": string[], "context": string|null}
         Field rules:
-        - summary: 2 concise sentences. Null only if description is truly empty.
+        - summary: Exactly 2 concise, non-empty sentences grounded in the supplied description.
         - readerFit: 1-2 sentences on audience. Null if indeterminate.
         - keyThemes: 3-6 short phrases. [] only when source is too vague.
         - takeaways: 2-5 specific points. [] if unsupported.
@@ -101,7 +108,7 @@ public class BookAiContentService {
                 clients.put(tier, OpenAIOkHttpClient.builder()
                     .apiKey(openAiProperties.apiKey())
                     .baseUrl(openAiProperties.baseUrl())
-                    .maxRetries(0)
+                    .maxRetries(tier == LlmGatewayTier.LIVE_RENDER ? LIVE_SDK_MAX_RETRIES : BACKGROUND_SDK_MAX_RETRIES)
                     .putHeader(LlmGatewayTier.HEADER_NAME, tier.headerValue())
                     .build());
             }
@@ -121,9 +128,9 @@ public class BookAiContentService {
         log.warn("Book AI content service is disabled: missing OPENAI_API_KEY, OPENAI_BASE_URL, or OPENAI_MODEL");
     }
 
-    /** Resolves any user-facing book identifier to canonical UUID. */
+    /** Resolves any user-facing book identifier to the exact displayed-book UUID. */
     public Optional<UUID> resolveBookId(String identifier) {
-        return identifierResolver.resolveToUuid(identifier);
+        return identifierResolver.resolveExactBookUuid(identifier);
     }
 
     /** Loads the current persisted AI snapshot for a canonical book UUID. */
@@ -132,30 +139,67 @@ public class BookAiContentService {
     }
 
     /**
-     * Generates fresh AI content, streams text deltas, and persists a new current version.
+     * Generates, validates, and persists fresh AI content before delivering its complete buffered payload.
      *
      * @param bookId canonical book UUID
-     * @param onDelta callback for streamed model deltas
+     * @param onValidatedBufferedPayload callback for the complete payload after validation and persistence
      * @param tier gateway priority tier controlling the {@code X-Tier} header on outbound calls
      * @return generated content + persisted snapshot
      */
-    public GeneratedContent generateAndPersist(UUID bookId, Consumer<String> onDelta, LlmGatewayTier tier) {
+    public GeneratedContent generateAndPersist(
+        UUID bookId,
+        Consumer<String> onValidatedBufferedPayload,
+        LlmGatewayTier tier
+    ) {
+        return generateAndPersist(bookId, onValidatedBufferedPayload, tier, new GenerationControl());
+    }
+
+    /**
+     * Generates and persists fresh AI content while honoring caller-owned cancellation.
+     *
+     * @param bookId canonical book UUID
+     * @param onValidatedBufferedPayload callback for the complete payload after validation and persistence
+     * @param tier gateway priority tier controlling the {@code X-Tier} header on outbound calls
+     * @param generationControl atomically coordinates cancellation with the persistence boundary
+     * @return generated content + persisted snapshot
+     */
+    public GeneratedContent generateAndPersist(
+        UUID bookId,
+        Consumer<String> onValidatedBufferedPayload,
+        LlmGatewayTier tier,
+        GenerationControl generationControl
+    ) {
+        requireGenerationControl(generationControl);
+        throwIfGenerationCancelled(generationControl);
         ensureAvailable();
         requireTier(tier);
         String prompt = buildPrompt(loadPromptContext(bookId));
         String promptHash = sha256(prompt);
-        return generateAndPersistFromPrompt(bookId, prompt, promptHash, onDelta, tier);
+        return generateAndPersistFromPrompt(
+            bookId,
+            prompt,
+            promptHash,
+            onValidatedBufferedPayload,
+            tier,
+            generationControl
+        );
     }
 
     /**
      * Generates fresh AI content only when prompt context has changed since the current version.
      *
      * @param bookId canonical book UUID
-     * @param onDelta callback for streamed model deltas
+     * @param onValidatedBufferedPayload callback for the complete payload after validation and persistence
      * @param tier gateway priority tier controlling the {@code X-Tier} header on outbound calls
      * @return generation outcome with generated/skipped semantics
      */
-    public GenerationOutcome generateAndPersistIfPromptChanged(UUID bookId, Consumer<String> onDelta, LlmGatewayTier tier) {
+    public GenerationOutcome generateAndPersistIfPromptChanged(
+        UUID bookId,
+        Consumer<String> onValidatedBufferedPayload,
+        LlmGatewayTier tier
+    ) {
+        GenerationControl generationControl = new GenerationControl();
+        throwIfGenerationCancelled(generationControl);
         ensureAvailable();
         requireTier(tier);
         String prompt = buildPrompt(loadPromptContext(bookId));
@@ -164,7 +208,14 @@ public class BookAiContentService {
         if (existingPromptHash.isPresent() && existingPromptHash.get().equals(promptHash)) {
             return GenerationOutcome.skipped(bookId, promptHash, findCurrent(bookId));
         }
-        GeneratedContent generated = generateAndPersistFromPrompt(bookId, prompt, promptHash, onDelta, tier);
+        GeneratedContent generated = generateAndPersistFromPrompt(
+            bookId,
+            prompt,
+            promptHash,
+            onValidatedBufferedPayload,
+            tier,
+            generationControl
+        );
         return GenerationOutcome.generated(bookId, promptHash, Optional.of(generated.snapshot()));
     }
 
@@ -174,16 +225,34 @@ public class BookAiContentService {
         }
     }
 
-    private GeneratedContent generateAndPersistFromPrompt(UUID bookId, String prompt, String promptHash, Consumer<String> onDelta, LlmGatewayTier tier) {
+    private GeneratedContent generateAndPersistFromPrompt(
+        UUID bookId,
+        String prompt,
+        String promptHash,
+        Consumer<String> onValidatedBufferedPayload,
+        LlmGatewayTier tier,
+        GenerationControl generationControl
+    ) {
+        int maxGenerationAttempts = tier.maxGenerationAttempts();
         BookAiGenerationException lastGenerationFailure = null;
-        for (int attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt++) {
+        for (int attempt = 1; attempt <= maxGenerationAttempts; attempt++) {
+            throwIfGenerationCancelled(generationControl);
+            AtomicBoolean deliveredValidatedPayload = new AtomicBoolean(false);
             try {
-                return generateAndPersistSingleAttempt(bookId, prompt, promptHash, onDelta, tier);
+                return generateAndPersistSingleAttempt(bookId, prompt, promptHash, validatedBufferedPayload -> {
+                    deliveredValidatedPayload.set(true);
+                    onValidatedBufferedPayload.accept(validatedBufferedPayload);
+                }, tier, generationControl);
             } catch (BookAiGenerationException generationFailure) {
+                throwIfGenerationCancelled(generationControl);
                 lastGenerationFailure = generationFailure;
-                if (attempt < MAX_GENERATION_ATTEMPTS && isRetryableGenerationFailure(generationFailure)) {
+                boolean retryDoesNotReplayValidatedPayload = tier == LlmGatewayTier.BACKGROUND_BATCH
+                    || !deliveredValidatedPayload.get();
+                if (attempt < maxGenerationAttempts
+                    && retryDoesNotReplayValidatedPayload
+                    && isRetryableGenerationFailure(generationFailure, tier)) {
                     log.warn("AI generation attempt {}/{} failed for bookId={} model={} tier={} (will retry): {}",
-                        attempt, MAX_GENERATION_ATTEMPTS, bookId, configuredModel, tier.headerValue(), generationFailure.getMessage());
+                        attempt, maxGenerationAttempts, bookId, configuredModel, tier.headerValue(), generationFailure.getMessage());
                     continue;
                 }
                 break;
@@ -194,10 +263,28 @@ public class BookAiContentService {
             throw new BookAiGenerationException(BookAiGenerationException.ErrorCode.GENERATION_FAILED,
                 "AI content generation failed (%s)".formatted(configuredModel));
         }
+        if (tier == LlmGatewayTier.LIVE_RENDER) {
+            log.error(
+                "AI generation exhausted attempts for bookId={} model={} tier={} attempts={}: {}",
+                bookId,
+                configuredModel,
+                tier.headerValue(),
+                maxGenerationAttempts,
+                lastGenerationFailure.getMessage()
+            );
+        }
         throw lastGenerationFailure;
     }
 
-    private GeneratedContent generateAndPersistSingleAttempt(UUID bookId, String prompt, String promptHash, Consumer<String> onDelta, LlmGatewayTier tier) {
+    private GeneratedContent generateAndPersistSingleAttempt(
+        UUID bookId,
+        String prompt,
+        String promptHash,
+        Consumer<String> onValidatedBufferedPayload,
+        LlmGatewayTier tier,
+        GenerationControl generationControl
+    ) {
+        throwIfGenerationCancelled(generationControl);
         OpenAIClient tieredClient = clientsByTier.get(tier);
         if (tieredClient == null) {
             throw new BookAiGenerationException(BookAiGenerationException.ErrorCode.GENERATION_FAILED,
@@ -209,71 +296,196 @@ public class BookAiContentService {
                 ChatCompletionMessageParam.ofSystem(ChatCompletionSystemMessageParam.builder().content(SYSTEM_PROMPT).build()),
                 ChatCompletionMessageParam.ofUser(ChatCompletionUserMessageParam.builder().content(prompt).build())
             ))
-            .maxCompletionTokens(MAX_COMPLETION_TOKENS)
+            .maxCompletionTokens(tier.maxCompletionTokens())
             .temperature(SAMPLING_TEMPERATURE)
             .build();
 
+        long effectiveRequestTimeoutSeconds = tier == LlmGatewayTier.LIVE_RENDER
+            ? Math.min(requestTimeoutSeconds, tier.callTimeoutSeconds())
+            : Math.max(requestTimeoutSeconds, tier.callTimeoutSeconds());
+        long effectiveReadTimeoutSeconds = tier == LlmGatewayTier.LIVE_RENDER
+            ? Math.min(readTimeoutSeconds, tier.callTimeoutSeconds())
+            : Math.max(readTimeoutSeconds, tier.callTimeoutSeconds());
         RequestOptions options = RequestOptions.builder()
-            .timeout(Timeout.builder().request(Duration.ofSeconds(requestTimeoutSeconds)).read(Duration.ofSeconds(readTimeoutSeconds)).build())
+            .timeout(Timeout.builder()
+                .request(Duration.ofSeconds(effectiveRequestTimeoutSeconds))
+                .read(Duration.ofSeconds(effectiveReadTimeoutSeconds))
+                .build())
             .build();
         StringBuilder fullResponseBuilder = new StringBuilder();
+        AtomicReference<ChatCompletionChunk.Choice.FinishReason> finishReason = new AtomicReference<>();
+        AtomicBoolean refusalPresent = new AtomicBoolean(false);
         try (StreamResponse<ChatCompletionChunk> stream = tieredClient.chat().completions().createStreaming(params, options)) {
             stream.stream().forEach(chunk -> {
+                throwIfGenerationCancelled(generationControl);
                 if (chunk.choices().isEmpty()) {
                     return;
                 }
-                String delta = chunk.choices().get(0).delta().content().orElse("");
+                ChatCompletionChunk.Choice choice = chunk.choices().get(0);
+                choice.finishReason().ifPresent(finishReason::set);
+                choice.delta().refusal()
+                    .filter(StringUtils::hasText)
+                    .ifPresent(refusal -> refusalPresent.set(true));
+                String delta = choice.delta().content().orElse("");
                 if (!delta.isEmpty()) {
                     fullResponseBuilder.append(delta);
-                    onDelta.accept(delta);
                 }
             });
         } catch (OpenAIException ex) {
+            throwIfGenerationCancelled(generationControl);
             String detail = BookAiGenerationException.describeApiError(ex);
-            log.error("AI streaming failed for bookId={} model={} tier={}: {}", bookId, configuredModel, tier.headerValue(), detail);
-            throw new BookAiGenerationException(BookAiGenerationException.ErrorCode.GENERATION_FAILED,
+            log.warn("AI streaming failed for bookId={} model={} tier={}: {}", bookId, configuredModel, tier.headerValue(), detail);
+            BookAiGenerationException.ErrorCode errorCode = ex instanceof OpenAIInvalidDataException
+                ? BookAiGenerationException.ErrorCode.INVALID_RESPONSE
+                : BookAiGenerationException.ErrorCode.GENERATION_FAILED;
+            throw new BookAiGenerationException(errorCode,
                 "AI content generation failed (%s, tier=%s): %s".formatted(configuredModel, tier.headerValue(), detail), ex);
         }
 
-        String rawMessage = fullResponseBuilder.toString();
+        throwIfGenerationCancelled(generationControl);
+        if (ChatCompletionChunk.Choice.FinishReason.LENGTH.equals(finishReason.get())) {
+            log.warn(
+                "AI content response exhausted completion token budget for bookId={} model={} tier={} maxCompletionTokens={} finishReason=length",
+                bookId, configuredModel, tier.headerValue(), tier.maxCompletionTokens()
+            );
+            throw new BookAiGenerationException(
+                BookAiGenerationException.ErrorCode.INCOMPLETE_RESPONSE,
+                "AI content response exhausted completion token budget "
+                    + "(maxCompletionTokens=%d, finishReason=length)".formatted(tier.maxCompletionTokens())
+            );
+        }
+        if (refusalPresent.get()) {
+            log.warn(
+                "AI content request was refused for bookId={} model={} tier={} refusalPresent=true",
+                bookId, configuredModel, tier.headerValue()
+            );
+            throw new BookAiGenerationException(
+                BookAiGenerationException.ErrorCode.GENERATION_FAILED,
+                "AI content request was refused (refusalPresent=true)"
+            );
+        }
+        if (!ChatCompletionChunk.Choice.FinishReason.STOP.equals(finishReason.get())) {
+            String terminalReason = finishReason.get() == null ? "missing" : finishReason.get().asString();
+            log.warn(
+                "AI content response ended without stop for bookId={} model={} tier={} finishReason={} responseCharacters={}",
+                bookId, configuredModel, tier.headerValue(), terminalReason, fullResponseBuilder.length()
+            );
+            throw new BookAiGenerationException(
+                BookAiGenerationException.ErrorCode.INCOMPLETE_RESPONSE,
+                "AI content response ended without stop (finishReason=%s)".formatted(terminalReason)
+            );
+        }
+
+        String validatedBufferedPayload = fullResponseBuilder.toString();
+        throwIfGenerationCancelled(generationControl);
         BookAiContent aiContent;
         try {
-            aiContent = jsonParser.parse(rawMessage);
+            aiContent = jsonParser.parse(validatedBufferedPayload);
         } catch (IllegalStateException parseFailure) {
-            log.error("AI content parsing failed for bookId={} model={}: {}", bookId, configuredModel, parseFailure.getMessage());
+            log.warn("AI content parsing failed for bookId={} model={} tier={}: {}",
+                bookId, configuredModel, tier.headerValue(), parseFailure.getMessage());
             String parseMessage = StringUtils.hasText(parseFailure.getMessage()) ? parseFailure.getMessage() : "invalid JSON response";
             boolean isQualityFailure = parseMessage.contains("quality check failed");
             BookAiGenerationException.ErrorCode errorCode = isQualityFailure
                 ? BookAiGenerationException.ErrorCode.DEGENERATE_CONTENT
-                : BookAiGenerationException.ErrorCode.GENERATION_FAILED;
+                : BookAiGenerationException.ErrorCode.INVALID_RESPONSE;
             throw new BookAiGenerationException(errorCode,
                 "AI content generation failed (%s): %s".formatted(configuredModel, parseMessage), parseFailure);
         }
-        BookAiContentSnapshot snapshot = repository.insertNewCurrentVersion(bookId, aiContent, configuredModel, DEFAULT_PROVIDER, promptHash);
-        return new GeneratedContent(rawMessage, snapshot);
+        throwIfGenerationCancelled(generationControl);
+        BookAiContentSnapshot snapshot = generationControl.persistIfActive(
+            () -> repository.insertNewCurrentVersion(bookId, aiContent, configuredModel, DEFAULT_PROVIDER, promptHash)
+        );
+        throwIfGenerationCancelled(generationControl);
+        try {
+            onValidatedBufferedPayload.accept(validatedBufferedPayload);
+        } catch (IllegalStateException deliveryFailure) {
+            log.warn(
+                "Validated AI content delivery failed after persistence for bookId={} model={} tier={} version={}",
+                bookId,
+                configuredModel,
+                tier.headerValue(),
+                snapshot.version(),
+                deliveryFailure
+            );
+            throw deliveryFailure;
+        }
+        return new GeneratedContent(validatedBufferedPayload, snapshot);
     }
 
-    private boolean isRetryableGenerationFailure(BookAiGenerationException generationFailure) {
-        if (generationFailure.errorCode() == BookAiGenerationException.ErrorCode.DEGENERATE_CONTENT) {
-            return true;
+    private static void requireGenerationControl(GenerationControl generationControl) {
+        if (generationControl == null) {
+            throw new IllegalArgumentException("generationControl is required");
         }
-        if (generationFailure.errorCode() != BookAiGenerationException.ErrorCode.GENERATION_FAILED) {
-            return false;
+    }
+
+    private static void throwIfGenerationCancelled(GenerationControl generationControl) {
+        if (generationControl.isCancellationRequested() || Thread.currentThread().isInterrupted()) {
+            throw new CancellationException("AI content generation cancelled");
         }
-        Throwable cause = generationFailure.getCause();
-        if (cause instanceof OpenAIException) {
-            return true;
+    }
+
+    /**
+     * One-generation state machine that gives either cancellation or persistence an atomic claim.
+     * Persistence that claims first is allowed to finish; cancellation that claims first prevents it.
+     */
+    public static final class GenerationControl {
+        private final AtomicReference<GenerationState> state = new AtomicReference<>(GenerationState.ACTIVE);
+
+        /**
+         * Claims cancellation while persistence has not started.
+         *
+         * @return true when cancellation won and the running queue task should be interrupted
+         */
+        public boolean cancel() {
+            return state.compareAndSet(GenerationState.ACTIVE, GenerationState.CANCELLED);
         }
-        if (cause instanceof IllegalStateException parseFailure) {
-            String message = parseFailure.getMessage();
-            if (!StringUtils.hasText(message)) {
-                return false;
+
+        private boolean isCancellationRequested() {
+            return state.get() == GenerationState.CANCELLED;
+        }
+
+        <T> T persistIfActive(Supplier<T> persistence) {
+            if (!state.compareAndSet(GenerationState.ACTIVE, GenerationState.PERSISTING)) {
+                throw new CancellationException("AI content generation cancelled before persistence");
             }
-            return message.contains("response was empty")
-                || message.contains("did not include a valid JSON object")
-                || message.contains("JSON parsing failed")
-                || message.contains("missing required field")
-                || message.contains("contained no choices");
+            try {
+                return persistence.get();
+            } finally {
+                state.compareAndSet(GenerationState.PERSISTING, GenerationState.COMPLETED);
+            }
+        }
+
+        private enum GenerationState {
+            ACTIVE,
+            CANCELLED,
+            PERSISTING,
+            COMPLETED
+        }
+    }
+
+    private boolean isRetryableGenerationFailure(
+        BookAiGenerationException generationFailure,
+        LlmGatewayTier tier
+    ) {
+        return switch (generationFailure.errorCode()) {
+            case DEGENERATE_CONTENT, INCOMPLETE_RESPONSE, INVALID_RESPONSE -> true;
+            case GENERATION_FAILED -> tier == LlmGatewayTier.LIVE_RENDER
+                && isRetryableOpenAiFailure(generationFailure.getCause());
+            case DESCRIPTION_TOO_SHORT, ENRICHMENT_FAILED -> false;
+        };
+    }
+
+    private boolean isRetryableOpenAiFailure(Throwable failure) {
+        if (failure instanceof OpenAIIoException || failure instanceof OpenAIRetryableException) {
+            return true;
+        }
+        if (failure instanceof OpenAIServiceException serviceFailure) {
+            int statusCode = serviceFailure.statusCode();
+            return statusCode == 408
+                || statusCode == 409
+                || statusCode == 429
+                || (statusCode >= 500 && statusCode <= 599);
         }
         return false;
     }
@@ -359,7 +571,7 @@ public class BookAiContentService {
         }
     }
 
-    /** Immutable generation result used by SSE controllers. */
+    /** Immutable result containing the complete validated buffered payload and its persisted snapshot. */
     public record GeneratedContent(String rawMessage, BookAiContentSnapshot snapshot) {}
 
     /** Immutable outcome used by background ingestion generation workflows. */

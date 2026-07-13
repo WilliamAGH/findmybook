@@ -31,6 +31,11 @@ import java.util.Set;
 @Component
 public class RequestLoggingFilter implements Filter {
     private static final Logger logger = LoggerFactory.getLogger(RequestLoggingFilter.class);
+    private static final Set<String> STATIC_RESOURCE_EXTENSIONS = Set.of(
+        "png", "jpg", "jpeg", "svg", "css", "js", "ico", "html"
+    );
+    private static final int HTTP_CLIENT_ERROR_MIN = 400;
+    private static final int HTTP_SERVER_ERROR_MIN = 500;
 
     /**
      * Processes HTTP request through the filter chain with logging
@@ -38,7 +43,7 @@ public class RequestLoggingFilter implements Filter {
      * - Tracks request processing time
      * - Logs completion status and duration
      * - Skips logging for common static resource extensions
-     * 
+     *
      * @param request The incoming servlet request
      * @param response The servlet response
      * @param chain The filter processing chain
@@ -57,17 +62,34 @@ public class RequestLoggingFilter implements Filter {
             ext = uri.substring(dotIdx + 1).toLowerCase(Locale.ROOT);
         }
         boolean isApi = uri.startsWith("/api");
-        Set<String> logExts = Set.of("png","jpg","jpeg","svg","css","js","ico","html");
-        // Skip logging for non-API with non-whitelisted extensions
-        if (!isApi && !ext.isEmpty() && !logExts.contains(ext)) {
+        if (!isApi && STATIC_RESOURCE_EXTENSIONS.contains(ext)) {
             chain.doFilter(request, response);
             return;
         }
         long startTime = System.currentTimeMillis();
-        logger.info("Incoming request: {} {} from {}", req.getMethod(), uri, req.getRemoteAddr());
-        chain.doFilter(request, response);
+        logger.debug("Incoming request: {} {} from {}", req.getMethod(), uri, req.getRemoteAddr());
+        try {
+            chain.doFilter(request, response);
+        } catch (IOException | ServletException | RuntimeException requestFailure) {
+            long duration = System.currentTimeMillis() - startTime;
+            logger.error(
+                "Request failed: {} {} with status 500 in {} ms (exceptionType={}, message={})",
+                req.getMethod(),
+                uri,
+                duration,
+                requestFailure.getClass().getSimpleName(),
+                requestFailure.getMessage()
+            );
+            throw requestFailure;
+        }
         long duration = System.currentTimeMillis() - startTime;
         int status = response instanceof HttpServletResponse ? ((HttpServletResponse) response).getStatus() : 0;
-        logger.info("Completed request: {} {} with status {} in {} ms", req.getMethod(), uri, status, duration);
+        if (status >= HTTP_SERVER_ERROR_MIN) {
+            logger.error("Completed request: {} {} with status {} in {} ms", req.getMethod(), uri, status, duration);
+        } else if (status >= HTTP_CLIENT_ERROR_MIN) {
+            logger.info("Completed request: {} {} with status {} in {} ms", req.getMethod(), uri, status, duration);
+        } else {
+            logger.debug("Completed request: {} {} with status {} in {} ms", req.getMethod(), uri, status, duration);
+        }
     }
 }
