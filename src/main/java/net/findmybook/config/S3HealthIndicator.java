@@ -1,6 +1,8 @@
 package net.findmybook.config;
 
 import jakarta.annotation.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.health.contributor.Health;
 import org.springframework.boot.health.contributor.ReactiveHealthIndicator;
@@ -14,14 +16,21 @@ import software.amazon.awssdk.core.exception.SdkClientException;
 
 import java.time.Duration;
 
+/**
+ * Reports bounded S3 bucket reachability through Actuator without allowing provider failures to
+ * break the health endpoint contract.
+ */
 @Component("s3HealthIndicator")
 public class S3HealthIndicator implements ReactiveHealthIndicator {
+
+    private static final Logger logger = LoggerFactory.getLogger(S3HealthIndicator.class);
+    private static final Duration S3_TIMEOUT = Duration.ofSeconds(5);
+    private static final String MISSING_ERROR_MESSAGE = "No error message was provided.";
 
     // S3Client is thread-safe and immutable per AWS SDK v2; storing reference is safe
     private final S3Client s3Client;
     private final String bucketName;
     private final boolean s3Enabled;
-    private static final Duration S3_TIMEOUT = Duration.ofSeconds(5);
 
     /**
      * Constructs S3HealthIndicator with optional S3Client.
@@ -39,6 +48,12 @@ public class S3HealthIndicator implements ReactiveHealthIndicator {
         this.s3Enabled = s3Enabled;
     }
 
+    /**
+     * Checks the configured bucket and converts every provider outcome into a completed health
+     * payload so Actuator callers always receive an operational status.
+     *
+     * @return a single health result describing S3 availability or its failure category
+     */
     @Override
     public Mono<Health> health() {
         if (!s3Enabled) {
@@ -93,6 +108,16 @@ public class S3HealthIndicator implements ReactiveHealthIndicator {
                         .withDetail("bucket", bucketName)
                         .withDetail("error", ex.getClass().getName())
                         .withDetail("message", ex.getMessage())
-                        .build()));
+                        .build()))
+                .onErrorResume(Throwable.class, ex -> {
+                    logger.error("Unexpected S3 health check failure for bucket {}", bucketName, ex);
+                    String failureMessage = ex.getMessage() == null ? MISSING_ERROR_MESSAGE : ex.getMessage();
+                    return Mono.just(Health.down()
+                            .withDetail("s3_status", "unexpected_error")
+                            .withDetail("bucket", bucketName)
+                            .withDetail("error", ex.getClass().getName())
+                            .withDetail("message", failureMessage)
+                            .build());
+                });
     }
 }

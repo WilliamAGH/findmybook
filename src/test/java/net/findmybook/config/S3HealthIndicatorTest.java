@@ -107,7 +107,7 @@ class S3HealthIndicatorTest {
     }
 
     @Test
-    void shouldReportDownWhenS3ThrowsUnexpectedError() {
+    void should_ReportDownAndComplete_When_S3ThrowsUnexpectedRuntimeException() {
         S3Client mockClient = mock(S3Client.class);
         when(mockClient.headBucket(any(HeadBucketRequest.class)))
             .thenThrow(new RuntimeException("boom"));
@@ -115,8 +115,13 @@ class S3HealthIndicatorTest {
         S3HealthIndicator indicator = new S3HealthIndicator(mockClient, "covers", true);
 
         StepVerifier.create(indicator.health())
-            .expectError(RuntimeException.class)
-            .verify();
+            .assertNext(health -> {
+                assertEquals(Status.DOWN, health.getStatus());
+                assertEquals("unexpected_error", health.getDetails().get("s3_status"));
+                assertEquals("covers", health.getDetails().get("bucket"));
+                assertEquals(RuntimeException.class.getName(), health.getDetails().get("error"));
+            })
+            .verifyComplete();
     }
 
     @Test
