@@ -150,6 +150,7 @@ s3:
 # Server configuration (common, can be overridden by application.properties or profiles)
 server:
   port: ${SERVER_PORT:8095} # Default from YML, application.properties will override if SERVER_PORT is set
+  forward-headers-strategy: framework # Preserve the public scheme/host behind Railway and other trusted reverse proxies
   compression:
     enabled: true
 

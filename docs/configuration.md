@@ -45,6 +45,8 @@ Deployment readiness intentionally uses Spring's `readinessState` group rather t
 
 Keep Coolify's UI-generated health check disabled for this Dockerfile deployment. Coolify detects the image-owned `HEALTHCHECK`, waits for Docker to report the replacement healthy, and only then removes the previous container. The probe reads `SERVER_PORT` at runtime so the same image works with the repository default (`8095`) and Coolify's configured container port (`8080`).
 
+Public deployments run behind a trusted reverse proxy. `server.forward-headers-strategy=framework` makes redirects and generated request URLs honor the proxy-provided public scheme and host, preventing HTTPS requests from being redirected through an internal HTTP origin.
+
 ## User Accounts
 
 | Username | Role(s) | Access | Password Env Variable |
