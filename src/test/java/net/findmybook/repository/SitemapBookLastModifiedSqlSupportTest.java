@@ -53,7 +53,7 @@ class SitemapBookLastModifiedSqlSupportTest {
             .contains("requested_books AS MATERIALIZED")
             .contains("LIMIT ? OFFSET ?")
             .contains("change_events AS NOT MATERIALIZED")
-            .contains("LEFT JOIN change_events ON change_events.book_id = rb.id")
+            .contains("LEFT JOIN change_events ON change_events.book_id = rb.book_id")
             .contains("MAX(change_events.changed_at) AS book_updated_at")
             .doesNotContain("%s");
         assertThat(sql.indexOf("LIMIT ? OFFSET ?")).isLessThan(sql.indexOf("change_events AS NOT MATERIALIZED"));

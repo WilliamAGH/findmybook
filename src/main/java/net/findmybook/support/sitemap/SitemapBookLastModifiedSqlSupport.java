@@ -26,169 +26,6 @@ public final class SitemapBookLastModifiedSqlSupport {
                                COALESCE(b.created_at, TIMESTAMP 'epoch')
                            ) AS changed_at
                     FROM books b
-                    WHERE b.slug IS NOT NULL
-                    UNION ALL
-                    SELECT be.book_id,
-                           GREATEST(
-                               COALESCE(be.last_updated, TIMESTAMP 'epoch'),
-                               COALESCE(be.created_at, TIMESTAMP 'epoch')
-                           )
-                    FROM book_external_ids be
-                    UNION ALL
-                    SELECT br.book_id,
-                           GREATEST(
-                               COALESCE(br.fetched_at, TIMESTAMP 'epoch'),
-                               COALESCE(br.contributed_at, TIMESTAMP 'epoch'),
-                               COALESCE(br.created_at, TIMESTAMP 'epoch')
-                           )
-                    FROM book_raw_data br
-                    UNION ALL
-                    SELECT bil.book_id,
-                           GREATEST(
-                               COALESCE(bil.updated_at, TIMESTAMP 'epoch'),
-                               COALESCE(bil.s3_uploaded_at, TIMESTAMP 'epoch'),
-                               COALESCE(bil.created_at, TIMESTAMP 'epoch')
-                           )
-                    FROM book_image_links bil
-                    UNION ALL
-                    SELECT bd.book_id,
-                           GREATEST(
-                               COALESCE(bd.updated_at, TIMESTAMP 'epoch'),
-                               COALESCE(bd.created_at, TIMESTAMP 'epoch')
-                           )
-                    FROM book_dimensions bd
-                    UNION ALL
-                    SELECT bta.book_id,
-                           GREATEST(
-                               COALESCE(bta.created_at, TIMESTAMP 'epoch'),
-                               COALESCE(bt.updated_at, TIMESTAMP 'epoch'),
-                               COALESCE(bt.created_at, TIMESTAMP 'epoch')
-                           )
-                    FROM book_tag_assignments bta
-                    JOIN book_tags bt ON bt.id = bta.tag_id
-                    UNION ALL
-                    SELECT baj.book_id,
-                           GREATEST(
-                               COALESCE(baj.updated_at, TIMESTAMP 'epoch'),
-                               COALESCE(baj.created_at, TIMESTAMP 'epoch'),
-                               COALESCE(a.updated_at, TIMESTAMP 'epoch'),
-                               COALESCE(a.created_at, TIMESTAMP 'epoch')
-                           )
-                    FROM book_authors_join baj
-                    JOIN authors a ON a.id = baj.author_id
-                    UNION ALL
-                    SELECT bcj.book_id,
-                           GREATEST(
-                               COALESCE(bcj.updated_at, TIMESTAMP 'epoch'),
-                               COALESCE(bcj.created_at, TIMESTAMP 'epoch'),
-                               COALESCE(bcj.added_at, TIMESTAMP 'epoch'),
-                               COALESCE(bc.updated_at, TIMESTAMP 'epoch'),
-                               COALESCE(bc.created_at, TIMESTAMP 'epoch')
-                           )
-                    FROM book_collections_join bcj
-                    JOIN book_collections bc ON bc.id = bcj.collection_id
-                    UNION ALL
-                    SELECT bac.book_id,
-                           COALESCE(bac.created_at, TIMESTAMP 'epoch')
-                    FROM book_ai_content bac
-                    UNION ALL
-                    SELECT bsm.book_id,
-                           COALESCE(bsm.created_at, TIMESTAMP 'epoch')
-                    FROM book_seo_metadata bsm
-                    UNION ALL
-                    SELECT bsr.book_id,
-                           COALESCE(bsr.created_at, TIMESTAMP 'epoch')
-                    FROM book_slug_redirect bsr
-                """;
-
-    private SitemapBookLastModifiedSqlSupport() {
-    }
-
-    /**
-     * Builds the global {@code book_last_modified} CTE for sitemap projections.
-     *
-     * @param bookUpdatedAtAlias SQL alias for the aggregated last-modified timestamp column
-     * @return formatted SQL containing {@code change_events} and {@code book_last_modified} CTEs
-     */
-    public static String globalBookLastModifiedCte(String bookUpdatedAtAlias) {
-        validateSqlIdentifier(bookUpdatedAtAlias, "bookUpdatedAtAlias");
-        return """
-                WITH change_events AS (
-                    %s
-                ),
-                book_last_modified AS (
-                    SELECT b.id,
-                           b.slug,
-                           b.title,
-                           MAX(change_events.changed_at) AS %s
-                    FROM books b
-                    LEFT JOIN change_events ON change_events.book_id = b.id
-                    WHERE b.slug IS NOT NULL
-                    GROUP BY b.id, b.slug, b.title
-                )
-                """.formatted(UNION_ALL_CHANGE_EVENTS, bookUpdatedAtAlias);
-    }
-
-    /**
-     * Builds a bounded XML sitemap query that selects the requested book page before
-     * aggregating joined-data timestamps.
-     *
-     * @param bookUpdatedAtAlias SQL alias for the aggregated last-modified timestamp column
-     * @return SQL with {@code LIMIT} and {@code OFFSET} parameters applied before change-event aggregation
-     */
-    public static String pagedBookLastModifiedQuery(String bookUpdatedAtAlias) {
-        validateSqlIdentifier(bookUpdatedAtAlias, "bookUpdatedAtAlias");
-        return """
-                WITH requested_books AS MATERIALIZED (
-                    SELECT b.id, b.slug, b.title
-                    FROM books b
-                    WHERE b.slug IS NOT NULL
-                    ORDER BY lower(b.title) ASC NULLS LAST, b.slug ASC NULLS LAST, b.id ASC
-                    LIMIT ? OFFSET ?
-                ),
-                change_events AS NOT MATERIALIZED (
-                    %s
-                )
-                SELECT rb.id,
-                       rb.slug,
-                       rb.title,
-                       MAX(change_events.changed_at) AS %s
-                FROM requested_books rb
-                LEFT JOIN change_events ON change_events.book_id = rb.id
-                GROUP BY rb.id, rb.slug, rb.title
-                ORDER BY lower(rb.title) ASC NULLS LAST, rb.slug ASC NULLS LAST, rb.id ASC
-                """.formatted(UNION_ALL_CHANGE_EVENTS, bookUpdatedAtAlias);
-    }
-
-    /**
-     * Builds an author-scoped sitemap query with canonical book-level last-modified timestamps.
-     *
-     * @param authorPlaceholders SQL placeholders for the author-id {@code IN (...)} filter
-     * @param bookUpdatedAtAlias SQL alias for the aggregated last-modified timestamp column
-     * @return formatted SQL string for author-scoped sitemap rows
-     */
-    public static String scopedAuthorBookLastModifiedQuery(String authorPlaceholders, String bookUpdatedAtAlias) {
-        validateSqlPlaceholders(authorPlaceholders);
-        validateSqlIdentifier(bookUpdatedAtAlias, "bookUpdatedAtAlias");
-        return """
-                WITH requested_authors AS (
-                    SELECT baj.author_id
-                    FROM book_authors_join baj
-                    WHERE baj.author_id IN (%s)
-                    GROUP BY baj.author_id
-                ),
-                requested_books AS (
-                    SELECT DISTINCT baj.book_id
-                    FROM book_authors_join baj
-                    JOIN requested_authors ra ON ra.author_id = baj.author_id
-                ),
-                change_events AS (
-                    SELECT b.id AS book_id,
-                           GREATEST(
-                               COALESCE(b.updated_at, TIMESTAMP 'epoch'),
-                               COALESCE(b.created_at, TIMESTAMP 'epoch')
-                           ) AS changed_at
-                    FROM books b
                     JOIN requested_books rb ON rb.book_id = b.id
                     WHERE b.slug IS NOT NULL
                     UNION ALL
@@ -273,6 +110,95 @@ public final class SitemapBookLastModifiedSqlSupport {
                            COALESCE(bsr.created_at, TIMESTAMP 'epoch')
                     FROM book_slug_redirect bsr
                     JOIN requested_books rb ON rb.book_id = bsr.book_id
+                """;
+
+    private SitemapBookLastModifiedSqlSupport() {
+    }
+
+    /**
+     * Builds the global {@code book_last_modified} CTE for sitemap projections.
+     *
+     * @param bookUpdatedAtAlias SQL alias for the aggregated last-modified timestamp column
+     * @return formatted SQL containing {@code change_events} and {@code book_last_modified} CTEs
+     */
+    public static String globalBookLastModifiedCte(String bookUpdatedAtAlias) {
+        validateSqlIdentifier(bookUpdatedAtAlias, "bookUpdatedAtAlias");
+        return """
+                WITH requested_books AS NOT MATERIALIZED (
+                    SELECT b.id AS book_id, b.slug, b.title
+                    FROM books b
+                    WHERE b.slug IS NOT NULL
+                ),
+                change_events AS NOT MATERIALIZED (
+                    %s
+                ),
+                book_last_modified AS (
+                    SELECT rb.book_id AS id,
+                           rb.slug,
+                           rb.title,
+                           MAX(change_events.changed_at) AS %s
+                    FROM requested_books rb
+                    LEFT JOIN change_events ON change_events.book_id = rb.book_id
+                    GROUP BY rb.book_id, rb.slug, rb.title
+                )
+                """.formatted(UNION_ALL_CHANGE_EVENTS, bookUpdatedAtAlias);
+    }
+
+    /**
+     * Builds a bounded XML sitemap query that selects the requested book page before
+     * aggregating joined-data timestamps.
+     *
+     * @param bookUpdatedAtAlias SQL alias for the aggregated last-modified timestamp column
+     * @return SQL with {@code LIMIT} and {@code OFFSET} parameters applied before change-event aggregation
+     */
+    public static String pagedBookLastModifiedQuery(String bookUpdatedAtAlias) {
+        validateSqlIdentifier(bookUpdatedAtAlias, "bookUpdatedAtAlias");
+        return """
+                WITH requested_books AS MATERIALIZED (
+                    SELECT b.id AS book_id, b.slug, b.title
+                    FROM books b
+                    WHERE b.slug IS NOT NULL
+                    ORDER BY lower(b.title) ASC NULLS LAST, b.slug ASC NULLS LAST, b.id ASC
+                    LIMIT ? OFFSET ?
+                ),
+                change_events AS NOT MATERIALIZED (
+                    %s
+                )
+                SELECT rb.book_id AS id,
+                       rb.slug,
+                       rb.title,
+                       MAX(change_events.changed_at) AS %s
+                FROM requested_books rb
+                LEFT JOIN change_events ON change_events.book_id = rb.book_id
+                GROUP BY rb.book_id, rb.slug, rb.title
+                ORDER BY lower(rb.title) ASC NULLS LAST, rb.slug ASC NULLS LAST, rb.book_id ASC
+                """.formatted(UNION_ALL_CHANGE_EVENTS, bookUpdatedAtAlias);
+    }
+
+    /**
+     * Builds an author-scoped sitemap query with canonical book-level last-modified timestamps.
+     *
+     * @param authorPlaceholders SQL placeholders for the author-id {@code IN (...)} filter
+     * @param bookUpdatedAtAlias SQL alias for the aggregated last-modified timestamp column
+     * @return formatted SQL string for author-scoped sitemap rows
+     */
+    public static String scopedAuthorBookLastModifiedQuery(String authorPlaceholders, String bookUpdatedAtAlias) {
+        validateSqlPlaceholders(authorPlaceholders);
+        validateSqlIdentifier(bookUpdatedAtAlias, "bookUpdatedAtAlias");
+        return """
+                WITH requested_authors AS (
+                    SELECT baj.author_id
+                    FROM book_authors_join baj
+                    WHERE baj.author_id IN (%s)
+                    GROUP BY baj.author_id
+                ),
+                requested_books AS (
+                    SELECT DISTINCT baj.book_id
+                    FROM book_authors_join baj
+                    JOIN requested_authors ra ON ra.author_id = baj.author_id
+                ),
+                change_events AS NOT MATERIALIZED (
+                    %s
                 ),
                 book_last_modified AS (
                     SELECT b.id,
@@ -290,7 +216,7 @@ public final class SitemapBookLastModifiedSqlSupport {
                 JOIN requested_authors ra ON ra.author_id = baj.author_id
                 JOIN book_last_modified blm ON blm.id = baj.book_id
                 ORDER BY baj.author_id, lower(blm.title), blm.slug
-                """.formatted(authorPlaceholders, bookUpdatedAtAlias, bookUpdatedAtAlias);
+                """.formatted(authorPlaceholders, UNION_ALL_CHANGE_EVENTS, bookUpdatedAtAlias, bookUpdatedAtAlias);
     }
 
     private static void validateSqlIdentifier(String value, String parameterName) {

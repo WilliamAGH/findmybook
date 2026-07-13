@@ -68,11 +68,24 @@ public class RequestLoggingFilter implements Filter {
         }
         long startTime = System.currentTimeMillis();
         logger.debug("Incoming request: {} {} from {}", req.getMethod(), uri, req.getRemoteAddr());
-        chain.doFilter(request, response);
+        try {
+            chain.doFilter(request, response);
+        } catch (IOException | ServletException | RuntimeException requestFailure) {
+            long duration = System.currentTimeMillis() - startTime;
+            logger.error(
+                "Request failed: {} {} with status 500 in {} ms (exceptionType={}, message={})",
+                req.getMethod(),
+                uri,
+                duration,
+                requestFailure.getClass().getSimpleName(),
+                requestFailure.getMessage()
+            );
+            throw requestFailure;
+        }
         long duration = System.currentTimeMillis() - startTime;
         int status = response instanceof HttpServletResponse ? ((HttpServletResponse) response).getStatus() : 0;
         if (status >= HTTP_SERVER_ERROR_MIN) {
-            logger.warn("Completed request: {} {} with status {} in {} ms", req.getMethod(), uri, status, duration);
+            logger.error("Completed request: {} {} with status {} in {} ms", req.getMethod(), uri, status, duration);
         } else if (status >= HTTP_CLIENT_ERROR_MIN) {
             logger.info("Completed request: {} {} with status {} in {} ms", req.getMethod(), uri, status, duration);
         } else {

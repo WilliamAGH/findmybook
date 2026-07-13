@@ -206,13 +206,8 @@ public class OpenLibraryBookDataService {
             response = enrichWithWorkDetails(response, queryValue);
         }
 
-        return response
-                .doOnError(e -> LoggingUtils.error(log, e, "Error searching books by {} '{}' from OpenLibrary", queryParamName, queryValue))
-                .onErrorMap(e -> {
-                     LoggingUtils.warn(log, e, "Error during OpenLibrary search for {} '{}', returning empty Flux", queryParamName, queryValue);
-                     ExternalApiLogger.logApiCallFailure(log, "OpenLibrary", apiOperation, queryValue, e.getMessage());
-                     return new IllegalStateException("OpenLibrary " + queryParamName + " search failed for '" + queryValue + "'", e);
-                });
+        return response.onErrorMap(e -> new IllegalStateException(
+            "OpenLibrary " + queryParamName + " search failed for '" + queryValue + "'", e));
     }
 
     private Flux<Book> fetchSearchPage(String queryParamName,
