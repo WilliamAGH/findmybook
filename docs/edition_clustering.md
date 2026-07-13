@@ -51,15 +51,15 @@ SELECT * FROM get_clustering_stats();
 ### Current Status (as of NYT migration)
 
 - **372 clusters** created
-- **773 books** grouped into edition families  
+- **773 books** grouped into edition families
 - **47,361 unclustered books** (unique works with single editions)
 - **Average: 2.08 books per cluster**
 
 ## Frontend Integration
 
-The `PostgresBookDetailHydrator.hydrateEditions()` method queries `work_cluster_members` to populate the `Book.editions` field, which the frontend uses to display the "Other Editions" dropdown.
+The `PostgresBookDetailHydrator.hydrateEditions()` method queries `work_cluster_members` to populate the domain `Book.otherEditions` collection. `BookDtoMapper` exposes it as the API `editions` field, which the Svelte `BookEditions` component renders as an Editions card grid.
 
-**Frontend query:**
+**Backend hydration query (abbreviated):**
 
 ```sql
 SELECT b.id, b.slug, b.title, b.isbn13, b.publisher, b.published_date
