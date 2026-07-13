@@ -163,6 +163,9 @@
       - Queue wait is kept alive for at most ten minutes and then ends with `queue_busy`; the
         `stream_timeout` generation deadline begins only after `started`, so queued work cannot
         consume the model's inference budget.
+      - Cancellation and persistence share one atomic commitment boundary. Cancellation that claims
+        first prevents a new AI-content version; persistence that claims first completes its insert,
+        while the closed stream suppresses any later delivery.
       - `code` values include:
         - `identifier_required`
         - `book_not_found`
@@ -170,6 +173,7 @@
         - `stream_timeout`
         - `empty_generation`
         - `cache_serialization_failed`
+        - `queue_busy`
         - `description_too_short` (emitted only after canonical description enrichment attempts from Open Library and Google Books still fail to satisfy minimum content requirements)
         - `enrichment_failed` (emitted when book description enrichment providers are unavailable)
         - `generation_failed`

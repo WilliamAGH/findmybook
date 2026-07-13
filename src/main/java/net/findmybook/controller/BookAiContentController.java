@@ -198,7 +198,8 @@ public class BookAiContentController {
         SseEmitter emitter,
         UUID bookId,
         AtomicBoolean streamClosed,
-        AtomicReference<QueuedStreamPhase> phase
+        AtomicReference<QueuedStreamPhase> phase,
+        BookAiContentService.GenerationControl generationControl
     ) {}
 
     private void beginQueuedStream(SseEmitter emitter, UUID bookId) {
@@ -207,16 +208,43 @@ public class BookAiContentController {
             emitter,
             bookId,
             new AtomicBoolean(false),
-            new AtomicReference<>(QueuedStreamPhase.WAITING)
+            new AtomicReference<>(QueuedStreamPhase.WAITING),
+            new BookAiContentService.GenerationControl()
         );
-        var queuedTask = enqueueGenerationTask(state);
+        enqueueGenerationTask(state, enqueuedAtMs);
+    }
+
+    private void wireQueuedTaskLifecycle(
+        QueuedStreamState state,
+        BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent> queuedTask,
+        long enqueuedAtMs
+    ) {
+        SseEmitter emitter = state.emitter();
+        UUID bookId = state.bookId();
         sseOrchestrator.sendEvent(emitter, "queued", sseOrchestrator.toQueuePositionPayload(requestQueue.getPosition(queuedTask.id())));
-        ScheduledFuture<?> queueTicker = sseOrchestrator.scheduleQueuePositionTicker(emitter, bookId, queuedTask.id(), state.streamClosed());
-        ScheduledFuture<?> keepaliveTicker = sseOrchestrator.scheduleKeepaliveTicker(emitter, bookId, queuedTask.id(), state.streamClosed());
+        AtomicReference<Optional<BookAiContentSseOrchestrator.Timers>> timersReference =
+            new AtomicReference<>(Optional.empty());
+        Runnable cancelWorkIfOpen = () -> timersReference.get().ifPresent(
+            timers -> claimTerminalOwnership(state, timers, queuedTask.id(), true)
+        );
+        ScheduledFuture<?> queueTicker = sseOrchestrator.scheduleQueuePositionTicker(
+            emitter,
+            bookId,
+            queuedTask.id(),
+            state.streamClosed(),
+            cancelWorkIfOpen
+        );
+        ScheduledFuture<?> keepaliveTicker = sseOrchestrator.scheduleKeepaliveTicker(
+            emitter,
+            bookId,
+            state.streamClosed(),
+            cancelWorkIfOpen
+        );
         BookAiContentSseOrchestrator.Timers timers = new BookAiContentSseOrchestrator.Timers(queueTicker, keepaliveTicker);
+        timersReference.set(Optional.of(timers));
         ScheduledFuture<?> queueWaitDeadline = sseOrchestrator.scheduleApplicationDeadline(() -> {
             if (state.phase().compareAndSet(QueuedStreamPhase.WAITING, QueuedStreamPhase.CLOSED)
-                    && claimTerminalOwnership(state, timers, queuedTask.id())) {
+                    && claimTerminalOwnership(state, timers, queuedTask.id(), true)) {
                 sseOrchestrator.emitTerminalError(
                     emitter,
                     AiErrorCode.QUEUE_BUSY,
@@ -225,24 +253,33 @@ public class BookAiContentController {
             }
         }, queueWaitDeadlineMillis);
         timers.replaceDeadline(queueWaitDeadline);
-        Runnable cancelPendingIfOpen = () -> claimTerminalOwnership(state, timers, queuedTask.id());
-        sseOrchestrator.wireEmitterLifecycle(emitter, bookId, cancelPendingIfOpen);
+        sseOrchestrator.wireEmitterLifecycle(emitter, bookId, cancelWorkIfOpen);
         wireStartedHandler(state, queuedTask, enqueuedAtMs, timers);
         wireResultHandler(state, queuedTask, timers);
     }
 
-    private boolean claimTerminalOwnership(QueuedStreamState state, BookAiContentSseOrchestrator.Timers timers, String taskId) {
+    private boolean claimTerminalOwnership(
+        QueuedStreamState state,
+        BookAiContentSseOrchestrator.Timers timers,
+        String taskId,
+        boolean cancelWork
+    ) {
         if (!state.streamClosed().compareAndSet(false, true)) {
             return false;
         }
         state.phase().set(QueuedStreamPhase.CLOSED);
         timers.cancelAll();
-        requestQueue.cancelPending(taskId);
+        if (cancelWork) {
+            if (state.generationControl().cancel()) {
+                requestQueue.cancel(taskId);
+            }
+        }
         return true;
     }
 
     private BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent> enqueueGenerationTask(
-            QueuedStreamState state) {
+            QueuedStreamState state,
+            long enqueuedAtMs) {
         AtomicBoolean messageStarted = new AtomicBoolean(false);
         return requestQueue.enqueueForeground(DEFAULT_GENERATION_PRIORITY, () -> {
             if (state.streamClosed().get() || state.phase().get() != QueuedStreamPhase.GENERATING) {
@@ -252,11 +289,12 @@ public class BookAiContentController {
             BookAiContentService.GeneratedContent generated = aiContentService.generateAndPersist(
                 state.bookId(),
                 delta -> sendEventIfOpen(state, "message_delta", new MessageDeltaPayload(delta)),
-                LlmGatewayTier.LIVE_RENDER
+                LlmGatewayTier.LIVE_RENDER,
+                state.generationControl()
             );
             sendEventIfOpen(state, "message_done", new MessageDonePayload(generated.rawMessage()));
             return generated;
-        });
+        }, queuedTask -> wireQueuedTaskLifecycle(state, queuedTask, enqueuedAtMs));
     }
 
     private void wireStartedHandler(QueuedStreamState state,
@@ -270,7 +308,7 @@ public class BookAiContentController {
             }
             timers.cancelQueueTicker();
             ScheduledFuture<?> generationDeadline = sseOrchestrator.scheduleApplicationDeadline(() -> {
-                if (claimTerminalOwnership(state, timers, queuedTask.id())) {
+                if (claimTerminalOwnership(state, timers, queuedTask.id(), true)) {
                     sseOrchestrator.emitTerminalError(
                         state.emitter(),
                         AiErrorCode.STREAM_TIMEOUT,
@@ -288,7 +326,7 @@ public class BookAiContentController {
             sendEventIfOpen(state, "started", new QueueStartedPayload(
                 snapshot.running(), snapshot.pending(), snapshot.maxParallel(), queueWaitMs));
         }).exceptionally(throwable -> {
-            if (claimTerminalOwnership(state, timers, queuedTask.id())) {
+            if (claimTerminalOwnership(state, timers, queuedTask.id(), true)) {
                 AiErrorDescriptor descriptor = resolveThrowableError(throwable);
                 sseOrchestrator.emitTerminalError(state.emitter(), descriptor.code(), resolveClientMessage(descriptor.code(), descriptor.message()));
             } else {
@@ -302,7 +340,7 @@ public class BookAiContentController {
                                     BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent> queuedTask,
                                     BookAiContentSseOrchestrator.Timers timers) {
         queuedTask.result().whenComplete((result, throwable) -> {
-            if (!claimTerminalOwnership(state, timers, queuedTask.id())) {
+            if (!claimTerminalOwnership(state, timers, queuedTask.id(), false)) {
                 if (throwable != null) {
                     log.debug("Stream already closed when result-handler exception occurred: {}", throwable.getMessage());
                 }

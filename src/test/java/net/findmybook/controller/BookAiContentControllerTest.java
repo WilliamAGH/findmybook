@@ -22,6 +22,7 @@ import java.util.UUID;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import net.findmybook.application.ai.BookAiGenerationException;
 import net.findmybook.application.ai.BookAiContentService;
@@ -132,10 +133,7 @@ class BookAiContentControllerTest {
         BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent> task =
             new BookAiContentRequestQueue.EnqueuedTask<>("task-1", new CompletableFuture<>(), new CompletableFuture<>());
 
-        when(requestQueue.<BookAiContentService.GeneratedContent>enqueueForeground(
-            anyInt(),
-            org.mockito.ArgumentMatchers.<Supplier<BookAiContentService.GeneratedContent>>any()
-        )).thenReturn(task);
+        stubForegroundEnqueue(task);
         when(requestQueue.getPosition("task-1")).thenReturn(
             new BookAiContentRequestQueue.QueuePosition(true, 1, 0, 1, 5)
         );
@@ -144,7 +142,58 @@ class BookAiContentControllerTest {
             .andExpect(status().isOk())
             .andExpect(content().contentType("text/event-stream"));
 
-        verify(requestQueue).enqueueForeground(eq(0), any());
+        verify(requestQueue).enqueueForeground(eq(0), any(), any());
+    }
+
+    @Test
+    @DisplayName("POST stream cannot invoke an immediately started supplier before controller lifecycle wiring")
+    void should_GenerateSuccessfully_When_QueueStartsSupplierBeforeEnqueueReturns() throws Exception {
+        UUID bookId = UUID.randomUUID();
+        BookAiContentSnapshot snapshot = new BookAiContentSnapshot(
+            bookId,
+            1,
+            Instant.EPOCH,
+            "gemma-4-26b-a4b",
+            "openai",
+            new BookAiContent("Summary", "Audience", List.of("Theme"), List.of("Insight"), "Context")
+        );
+        BookAiContentService.GeneratedContent generated =
+            new BookAiContentService.GeneratedContent("{\"summary\":\"Summary\"}", snapshot);
+        CompletableFuture<Void> started = new CompletableFuture<>();
+        CompletableFuture<BookAiContentService.GeneratedContent> result = new CompletableFuture<>();
+        BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent> task =
+            new BookAiContentRequestQueue.EnqueuedTask<>("task-immediate-1", started, result);
+
+        when(aiContentService.resolveBookId("immediate-slug")).thenReturn(Optional.of(bookId));
+        when(aiContentService.isAvailable()).thenReturn(true);
+        when(aiContentService.configuredModel()).thenReturn("gemma-4-26b-a4b");
+        when(aiContentService.apiMode()).thenReturn("openai");
+        when(aiContentService.generateAndPersist(eq(bookId), any(), eq(LlmGatewayTier.LIVE_RENDER), any()))
+            .thenReturn(generated);
+        when(requestQueue.<BookAiContentService.GeneratedContent>enqueueForeground(anyInt(), any(), any()))
+            .thenAnswer(invocation -> {
+                Supplier<BookAiContentService.GeneratedContent> supplier = invocation.getArgument(1);
+                Consumer<BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent>> lifecycleSetup =
+                    invocation.getArgument(2);
+                lifecycleSetup.accept(task);
+                started.complete(null);
+                result.complete(supplier.get());
+                return task;
+            });
+        when(requestQueue.getPosition("task-immediate-1")).thenReturn(
+            new BookAiContentRequestQueue.QueuePosition(false, null, 1, 0, 1));
+        when(requestQueue.snapshot()).thenReturn(new BookAiContentRequestQueue.QueueSnapshot(1, 0, 1));
+
+        var response = mockMvc.perform(post("/api/books/immediate-slug/ai/content/stream?refresh=true"))
+            .andExpect(status().isOk())
+            .andReturn();
+
+        assertThat(response.getAsyncResult(1_000L)).isNull();
+        assertThat(response.getResponse().getContentAsString())
+            .contains("event:message_start")
+            .contains("event:done")
+            .doesNotContain("event:error");
+        verify(aiContentService).generateAndPersist(eq(bookId), any(), eq(LlmGatewayTier.LIVE_RENDER), any());
     }
 
     @Test
@@ -157,10 +206,7 @@ class BookAiContentControllerTest {
 
         BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent> task =
             new BookAiContentRequestQueue.EnqueuedTask<>("task-busy-1", new CompletableFuture<>(), new CompletableFuture<>());
-        when(requestQueue.<BookAiContentService.GeneratedContent>enqueueForeground(
-            anyInt(),
-            org.mockito.ArgumentMatchers.<Supplier<BookAiContentService.GeneratedContent>>any()
-        )).thenReturn(task);
+        stubForegroundEnqueue(task);
         when(requestQueue.getPosition("task-busy-1")).thenReturn(
             new BookAiContentRequestQueue.QueuePosition(true, 1, 1, 6000, 1)
         );
@@ -169,7 +215,7 @@ class BookAiContentControllerTest {
             .andExpect(status().isOk())
             .andExpect(content().contentType("text/event-stream"));
 
-        verify(requestQueue).enqueueForeground(eq(0), any());
+        verify(requestQueue).enqueueForeground(eq(0), any(), any());
     }
 
     @Test
@@ -282,7 +328,7 @@ class BookAiContentControllerTest {
         when(aiContentService.resolveBookId("slug")).thenReturn(Optional.of(bookId));
         when(aiContentService.findCurrent(bookId)).thenReturn(Optional.empty());
         when(aiContentService.isAvailable()).thenReturn(true);
-        when(requestQueue.<BookAiContentService.GeneratedContent>enqueueForeground(anyInt(), any())).thenReturn(task);
+        stubForegroundEnqueue(task);
         when(requestQueue.getPosition("task-timeout-1")).thenReturn(
             new BookAiContentRequestQueue.QueuePosition(true, 1, 0, 1, 1));
         when(requestQueue.snapshot()).thenReturn(new BookAiContentRequestQueue.QueueSnapshot(1, 0, 1));
@@ -296,6 +342,7 @@ class BookAiContentControllerTest {
         started.complete(null);
         assertThat(response.getAsyncResult(1_000L)).isNull();
         assertThat(response.getResponse().getContentAsString()).contains("\"code\":\"stream_timeout\"");
+        verify(requestQueue).cancel("task-timeout-1");
     }
 
     @Test
@@ -313,8 +360,14 @@ class BookAiContentControllerTest {
         when(aiContentService.resolveBookId("slug")).thenReturn(Optional.of(bookId));
         when(aiContentService.findCurrent(bookId)).thenReturn(Optional.empty());
         when(aiContentService.isAvailable()).thenReturn(true);
-        when(requestQueue.<BookAiContentService.GeneratedContent>enqueueForeground(anyInt(), supplierCaptor.capture()))
-            .thenReturn(task);
+        when(requestQueue.<BookAiContentService.GeneratedContent>enqueueForeground(
+            anyInt(), supplierCaptor.capture(), any()
+        )).thenAnswer(invocation -> {
+            Consumer<BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent>> lifecycleSetup =
+                invocation.getArgument(2);
+            lifecycleSetup.accept(task);
+            return task;
+        });
         when(requestQueue.getPosition("task-queue-timeout-1")).thenReturn(
             new BookAiContentRequestQueue.QueuePosition(true, 1, 0, 1, 1));
 
@@ -324,11 +377,11 @@ class BookAiContentControllerTest {
 
         assertThat(response.getAsyncResult(1_000L)).isNull();
         assertThat(response.getResponse().getContentAsString()).contains("\"code\":\"queue_busy\"");
-        verify(requestQueue).cancelPending("task-queue-timeout-1");
+        verify(requestQueue).cancel("task-queue-timeout-1");
         assertThatThrownBy(() -> supplierCaptor.getValue().get())
             .isInstanceOf(CancellationException.class)
             .hasMessage("AI stream closed before generation started");
-        verify(aiContentService, never()).generateAndPersist(any(), any(), any());
+        verify(aiContentService, never()).generateAndPersist(any(), any(), any(), any());
     }
 
     /**
@@ -351,10 +404,7 @@ class BookAiContentControllerTest {
 
         BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent> task =
             new BookAiContentRequestQueue.EnqueuedTask<>("task-failed-1", started, failedResult);
-        when(requestQueue.<BookAiContentService.GeneratedContent>enqueueForeground(
-            anyInt(),
-            org.mockito.ArgumentMatchers.<Supplier<BookAiContentService.GeneratedContent>>any()
-        )).thenReturn(task);
+        stubForegroundEnqueue(task);
         when(requestQueue.getPosition("task-failed-1")).thenReturn(
             new BookAiContentRequestQueue.QueuePosition(true, 1, 0, 1, 0)
         );
@@ -370,6 +420,18 @@ class BookAiContentControllerTest {
     private void configureController(String environmentMode) {
         controller = new BookAiContentController(aiContentService, requestQueue, new ObjectMapper(), environmentMode);
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+    }
+
+    private void stubForegroundEnqueue(
+        BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent> task
+    ) {
+        when(requestQueue.<BookAiContentService.GeneratedContent>enqueueForeground(anyInt(), any(), any()))
+            .thenAnswer(invocation -> {
+                Consumer<BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent>> lifecycleSetup =
+                    invocation.getArgument(2);
+                lifecycleSetup.accept(task);
+                return task;
+            });
     }
 
     private void configureController(String environmentMode, ScheduledThreadPoolExecutor executor,

@@ -7,6 +7,7 @@ import com.openai.core.Timeout;
 import com.openai.errors.OpenAIException;
 import com.openai.errors.OpenAIInvalidDataException;
 import com.openai.models.ChatModel;
+import com.openai.models.ResponseFormatJsonObject;
 import com.openai.models.chat.completions.ChatCompletion;
 import com.openai.models.chat.completions.ChatCompletionCreateParams;
 import com.openai.models.chat.completions.ChatCompletionMessageParam;
@@ -173,6 +174,7 @@ class BookSeoMetadataClient {
                 ChatCompletionMessageParam.ofUser(ChatCompletionUserMessageParam.builder().content(prompt).build())
             ))
             .maxCompletionTokens(tier.maxCompletionTokens())
+            .responseFormat(ResponseFormatJsonObject.builder().build())
             .temperature(SAMPLING_TEMPERATURE)
             .build();
 

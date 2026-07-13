@@ -70,7 +70,8 @@ class BookAiContentSseOrchestrator {
      * Schedules periodic queue-position SSE events until the stream is closed or the task leaves the queue.
      */
     ScheduledFuture<?> scheduleQueuePositionTicker(SseEmitter emitter, UUID bookId,
-                                                    String taskId, AtomicBoolean streamClosed) {
+                                                    String taskId, AtomicBoolean streamClosed,
+                                                    Runnable claimTerminalOwnership) {
         return queueTickerExecutor.scheduleAtFixedRate(() -> {
             if (streamClosed.get()) {
                 return;
@@ -83,8 +84,7 @@ class BookAiContentSseOrchestrator {
                 sendEvent(emitter, "queue", toQueuePositionPayload(position));
             } catch (IllegalStateException queueDeliveryException) {
                 log.warn("Queue position delivery failed for bookId={} taskId={}", bookId, taskId, queueDeliveryException);
-                streamClosed.set(true);
-                requestQueue.cancelPending(taskId);
+                claimTerminalOwnership.run();
             }
         }, QUEUE_POSITION_TICK_MILLIS, QUEUE_POSITION_TICK_MILLIS, TimeUnit.MILLISECONDS);
     }
@@ -93,7 +93,8 @@ class BookAiContentSseOrchestrator {
      * Schedules periodic SSE comment keepalives to prevent proxy/client timeouts.
      */
     ScheduledFuture<?> scheduleKeepaliveTicker(SseEmitter emitter, UUID bookId,
-                                                String taskId, AtomicBoolean streamClosed) {
+                                                AtomicBoolean streamClosed,
+                                                Runnable claimTerminalOwnership) {
         return queueTickerExecutor.scheduleAtFixedRate(() -> {
             if (streamClosed.get()) {
                 return;
@@ -102,8 +103,7 @@ class BookAiContentSseOrchestrator {
                 sendSseComment(emitter, "keepalive");
             } catch (IllegalStateException keepaliveException) {
                 log.warn("Keepalive delivery failed for bookId={}", bookId, keepaliveException);
-                streamClosed.set(true);
-                requestQueue.cancelPending(taskId);
+                claimTerminalOwnership.run();
             }
         }, KEEPALIVE_INTERVAL_MILLIS, KEEPALIVE_INTERVAL_MILLIS, TimeUnit.MILLISECONDS);
     }
@@ -116,12 +116,12 @@ class BookAiContentSseOrchestrator {
     /**
      * Wires completion, timeout, and error callbacks onto the SSE emitter.
      */
-    void wireEmitterLifecycle(SseEmitter emitter, UUID bookId, Runnable cancelPendingIfOpen) {
-        emitter.onCompletion(cancelPendingIfOpen);
-        emitter.onTimeout(cancelPendingIfOpen);
+    void wireEmitterLifecycle(SseEmitter emitter, UUID bookId, Runnable claimTerminalOwnership) {
+        emitter.onCompletion(claimTerminalOwnership);
+        emitter.onTimeout(claimTerminalOwnership);
         emitter.onError(error -> {
             log.warn("AI stream failed for bookId={}", bookId, error);
-            cancelPendingIfOpen.run();
+            claimTerminalOwnership.run();
         });
     }
 
