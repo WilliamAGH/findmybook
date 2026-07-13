@@ -34,7 +34,6 @@ class BookSeoMetadataClient {
 
     private static final Logger log = LoggerFactory.getLogger(BookSeoMetadataClient.class);
     private static final String DEFAULT_PROVIDER = "openai";
-    private static final int MAX_GENERATION_ATTEMPTS = 3;
     private static final int SDK_MAX_RETRIES = 2;
     private static final double SAMPLING_TEMPERATURE = 0.2;
 
@@ -132,16 +131,17 @@ class BookSeoMetadataClient {
         }
 
         BookSeoGenerationException lastGenerationFailure = null;
-        for (int attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt++) {
+        int maxGenerationAttempts = tier.maxGenerationAttempts();
+        for (int attempt = 1; attempt <= maxGenerationAttempts; attempt++) {
             try {
                 return generateOnce(prompt, tier);
             } catch (BookSeoGenerationException generationFailure) {
                 lastGenerationFailure = generationFailure;
-                if (attempt < MAX_GENERATION_ATTEMPTS && isRetryableGenerationFailure(generationFailure)) {
+                if (attempt < maxGenerationAttempts && isRetryableGenerationFailure(generationFailure)) {
                     log.warn(
                         "Book SEO metadata generation attempt {}/{} failed for bookId={} model={} tier={} (will retry): {}",
                         attempt,
-                        MAX_GENERATION_ATTEMPTS,
+                        maxGenerationAttempts,
                         bookId,
                         configuredModel,
                         tier.headerValue(),

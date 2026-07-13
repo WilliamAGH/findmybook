@@ -155,6 +155,8 @@
     - `started`: `{ running, pending, maxParallel, queueWaitMs }`
     - `message_start`: `{ id, model, apiMode }`
     - `message_delta`: `{ delta }`
+      - The service buffers provider output and emits the complete validated payload only after
+        persistence succeeds, so failed or retried generations never expose partial content.
     - `message_done`: `{ message }`
     - `done`: `{ message, aiContent }` where `aiContent` matches the `book.aiContent` contract
     - `error`: `{ error, code, retryable }`
