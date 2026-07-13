@@ -32,8 +32,8 @@ Key variables in `.env`:
 | `APP_NYT_SCHEDULER_STANDALONE_ENABLED` | Enables standalone NYT `@Scheduled` execution when not using the weekly orchestrator |
 | `GOOGLE_BOOKS_API_KEY` | Book data source |
 | `S3_*` | S3 storage configuration (credentials, bucket, CDN URLs) |
-| `S3_ENABLED` | When `false`, S3 cover storage is disabled entirely; S3 keys are ignored for cover URL resolution and backfill candidate selection (default `true`) |
-| `S3_WRITE_ENABLED` | Enables/disables S3 cover uploads at runtime (`false` skips upload attempts but still resolves existing S3 keys) |
+| `S3_ENABLED` | When `false`, S3 cover storage and CDN URL resolution are disabled; bare S3 keys do not count as usable covers, and supplied external fallback URLs are used (default `true`) |
+| `S3_WRITE_ENABLED` | Enables/disables S3 cover uploads at runtime (`false` skips upload attempts without disabling S3 cover URL resolution) |
 | `APP_ADMIN_PASSWORD` | Admin user password |
 | `APP_USER_PASSWORD` | Basic user password |
 | `SPRING_MVC_PROBLEMDETAILS_ENABLED` | Enables RFC 9457 Problem Details responses for MVC exception flows (`true` by default in this repo) |
