@@ -289,9 +289,19 @@ export const BookAiContentQueueStatsSchema = z.object({
   environmentMode: z.string().default("production"),
 });
 
+export const BookAiContentQueuedUpdateSchema = z.object({
+  event: z.literal("queued"),
+  requestId: z.string().min(1),
+  position: z.int().nullable().optional(),
+  running: z.int().nonnegative(),
+  pending: z.int().nonnegative(),
+  maxParallel: z.int().positive(),
+});
+
 export const BookAiContentQueueUpdateSchema = z.union([
+  BookAiContentQueuedUpdateSchema,
   z.object({
-    event: z.enum(["queued", "queue"]),
+    event: z.literal("queue"),
     position: z.int().nullable().optional(),
     running: z.int().nonnegative(),
     pending: z.int().nonnegative(),
@@ -382,6 +392,7 @@ export type Book = z.infer<typeof BookSchema>;
 export type ViewMetrics = z.infer<typeof ViewMetricsSchema>;
 export type BookAiContentSnapshot = z.infer<typeof BookAiContentSnapshotSchema>;
 export type BookAiContentQueueStats = z.infer<typeof BookAiContentQueueStatsSchema>;
+export type BookAiContentQueuedUpdate = z.infer<typeof BookAiContentQueuedUpdateSchema>;
 export type BookAiContentQueueUpdate = z.infer<typeof BookAiContentQueueUpdateSchema>;
 export type BookAiContentModelStreamUpdate = z.infer<typeof BookAiContentModelStreamUpdateSchema>;
 export type BookAiErrorCode = z.infer<typeof BookAiErrorCodeSchema>;

@@ -4,7 +4,7 @@ import java.util.UUID;
 import net.findmybook.controller.dto.BookAiContentSnapshotDto;
 
 sealed interface BookAiContentSsePayload
-    permits QueuePositionPayload, QueueStartedPayload, MessageStartPayload,
+    permits QueuedPayload, QueuePositionPayload, QueueStartedPayload, MessageStartPayload,
             MessageDeltaPayload, MessageDonePayload, DonePayload, ErrorPayload {
 }
 
@@ -51,6 +51,10 @@ record OptionalResolution(UUID bookId, AiErrorCode errorCode, String error) {
 }
 
 record QueueStatsPayload(int running, int pending, int maxParallel, boolean available, String environmentMode) {
+}
+
+record QueuedPayload(String requestId, Integer position, int running, int pending, int maxParallel)
+    implements BookAiContentSsePayload {
 }
 
 record QueuePositionPayload(Integer position, int running, int pending, int maxParallel)

@@ -272,20 +272,6 @@ class AiContentQualityValidatorTest {
         AiContentQualityValidator.validate(content);
     }
 
-    // -- isValid: boolean wrapper ----------------------------------------------
-
-    @Test
-    void should_ReturnTrue_When_ContentIsValid() {
-        BookAiContent content = withSummary(VALID_SUMMARY);
-        assertThat(AiContentQualityValidator.isValid(content)).isTrue();
-    }
-
-    @Test
-    void should_ReturnFalse_When_ContentIsInvalid() {
-        BookAiContent content = withSummary("@".repeat(999));
-        assertThat(AiContentQualityValidator.isValid(content)).isFalse();
-    }
-
     // -- exceedsSingleCharRepetitionThreshold: edge cases ----------------------
 
     @Test

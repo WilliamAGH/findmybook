@@ -29,21 +29,6 @@ class AiContentQualityValidator {
     }
 
     /**
-     * Returns true when all quality checks pass without throwing.
-     *
-     * <p>Used by the plain-text fallback path where rejection is silent
-     * rather than exceptional.</p>
-     */
-    static boolean isValid(BookAiContent content) {
-        try {
-            validate(content);
-            return true;
-        } catch (IllegalStateException _) {
-            return false;
-        }
-    }
-
-    /**
      * Validates all fields of the given AI content for quality.
      *
      * @param content parsed AI content to validate

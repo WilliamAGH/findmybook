@@ -12,6 +12,7 @@
   - `POST /api/covers/{identifier}/ingest`
   - `GET /api/books/ai/content/queue`
   - `POST /api/books/{identifier}/ai/content/stream?refresh={true|false}`
+  - `POST /api/books/ai/content/requests/{requestId}/cancel`
   - `GET /api/books/authors/search?query={author}`
 - **Page API (Svelte SPA):**
   - `GET /api/pages/home?popularWindow={30d|90d|all}&popularLimit={n}`
@@ -149,8 +150,12 @@
     - `refresh` (`false` by default; when `false`, cached Postgres AI snapshot is returned when present)
   - Response content type:
     - `text/event-stream`
+  - Response headers:
+    - `X-Book-AI-Request-Id`: opaque queue task ID, set before the first SSE event so clients can
+      cancel after receiving headers even when `queued` has not yet been parsed.
   - SSE events:
-    - `queued`: `{ position, running, pending, maxParallel }`
+    - `queued`: `{ requestId, position, running, pending, maxParallel }`
+      - `requestId` is an opaque identifier for this generation attempt and equals the queue task ID.
     - `queue`: periodic queue position update while pending
     - `started`: `{ running, pending, maxParallel, queueWaitMs }`
     - `message_start`: `{ id, model, apiMode }`
@@ -160,6 +165,12 @@
     - `message_done`: `{ message }`
     - `done`: `{ message, aiContent }` where `aiContent` matches the `book.aiContent` contract
     - `error`: `{ error, code, retryable }`
+      - Queue wait is kept alive for at most ten minutes and then ends with `queue_busy`; the
+        `stream_timeout` generation deadline begins only after `started`, so queued work cannot
+        consume the model's inference budget.
+      - Cancellation and persistence share one atomic commitment boundary. Cancellation that claims
+        first prevents a new AI-content version; persistence that claims first completes its insert,
+        while the closed stream suppresses any later delivery.
       - `code` values include:
         - `identifier_required`
         - `book_not_found`
@@ -167,9 +178,16 @@
         - `stream_timeout`
         - `empty_generation`
         - `cache_serialization_failed`
+        - `queue_busy`
         - `description_too_short` (emitted only after canonical description enrichment attempts from Open Library and Google Books still fail to satisfy minimum content requirements)
         - `enrichment_failed` (emitted when book description enrichment providers are unavailable)
         - `generation_failed`
+- `POST /api/books/ai/content/requests/{requestId}/cancel`
+  - Sends no request body and returns `204 No Content`.
+  - Cancels pending or running generation through the same terminal owner used by SSE disconnects,
+    including model cancellation, queue interruption, and timer cleanup.
+  - Unknown, already-terminal, and active request IDs all return the same `204` response so the
+    endpoint does not disclose in-memory request state.
 
 ## Search Pagination
 - The `/api/books/search` endpoint defaults to 12 results per page.

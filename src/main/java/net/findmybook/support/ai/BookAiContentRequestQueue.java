@@ -7,13 +7,16 @@ import java.util.Deque;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -118,7 +121,27 @@ public class BookAiContentRequestQueue {
      * any pending background ingestion tasks.
      */
     public synchronized <T> EnqueuedTask<T> enqueueForeground(int priority, Supplier<T> supplier) {
-        return enqueueInternal(BookAiQueueLane.FOREGROUND_SVELTE, priority, supplier);
+        return enqueueInternal(BookAiQueueLane.FOREGROUND_SVELTE, priority, supplier, ignored -> { });
+    }
+
+    /**
+     * Enqueues an interactive task after its owner has atomically installed lifecycle handlers.
+     *
+     * <p>The setup callback runs after the task is visible as pending and before the queue can
+     * dequeue it. This guarantees that an immediately available execution slot cannot run the
+     * supplier before its started/result handlers are wired.</p>
+     *
+     * @param priority higher values run earlier
+     * @param supplier task execution callback
+     * @param lifecycleSetup callback that wires the returned handle before execution becomes eligible
+     * @return queued task metadata (id + lifecycle futures)
+     */
+    public synchronized <T> EnqueuedTask<T> enqueueForeground(
+        int priority,
+        Supplier<T> supplier,
+        Consumer<EnqueuedTask<T>> lifecycleSetup
+    ) {
+        return enqueueInternal(BookAiQueueLane.FOREGROUND_SVELTE, priority, supplier, lifecycleSetup);
     }
 
     /**
@@ -128,17 +151,26 @@ public class BookAiContentRequestQueue {
         if (pendingBackgroundCount >= maxBackgroundPending) {
             throw new BookAiQueueCapacityExceededException(maxBackgroundPending, pendingBackgroundCount);
         }
-        return enqueueInternal(BookAiQueueLane.BACKGROUND_INGESTION, priority, supplier);
+        return enqueueInternal(BookAiQueueLane.BACKGROUND_INGESTION, priority, supplier, ignored -> { });
     }
 
-    private <T> EnqueuedTask<T> enqueueInternal(BookAiQueueLane lane, int priority, Supplier<T> supplier) {
+    private <T> EnqueuedTask<T> enqueueInternal(
+        BookAiQueueLane lane,
+        int priority,
+        Supplier<T> supplier,
+        Consumer<EnqueuedTask<T>> lifecycleSetup
+    ) {
         if (supplier == null) {
             throw new IllegalArgumentException("supplier is required");
+        }
+        if (lifecycleSetup == null) {
+            throw new IllegalArgumentException("lifecycleSetup is required");
         }
         String taskId = UUID.randomUUID().toString();
         CompletableFuture<Void> started = new CompletableFuture<>();
         CompletableFuture<T> result = new CompletableFuture<>();
         QueuedTask<T> queuedTask = new QueuedTask<>(taskId, lane, priority, supplier, started, result);
+        EnqueuedTask<T> enqueuedTask = new EnqueuedTask<>(taskId, started, result);
 
         TreeMap<Integer, Deque<QueuedTask<?>>> targetQueue = lane == BookAiQueueLane.FOREGROUND_SVELTE
             ? pendingForegroundByPriority
@@ -151,27 +183,66 @@ public class BookAiContentRequestQueue {
             pendingBackgroundCount += 1;
         }
 
+        try {
+            lifecycleSetup.accept(enqueuedTask);
+        } catch (RuntimeException setupFailure) {
+            removePendingTask(queuedTask);
+            queuedTask.started.completeExceptionally(setupFailure);
+            queuedTask.result.completeExceptionally(setupFailure);
+            drain();
+            throw setupFailure;
+        }
         drain();
-        return new EnqueuedTask<>(taskId, started, result);
+        return enqueuedTask;
     }
 
     /**
-     * Cancels a pending task by ID.
+     * Cancels a pending or running task by ID.
      *
-     * @return true when the task was pending and removed
+     * <p>Running work receives a thread interrupt through its executor future. Its concurrency
+     * slot remains occupied until the supplier wrapper exits, preserving the configured parallelism
+     * ceiling even when a supplier needs time to respond to interruption.</p>
+     *
+     * @return true when cancellation was claimed for a pending or running task
      */
-    public synchronized boolean cancelPending(String taskId) {
-        QueuedTask<?> queuedTask = pendingById.remove(taskId);
-        if (queuedTask == null) {
-            return false;
+    public synchronized boolean cancel(String taskId) {
+        QueuedTask<?> queuedTask = pendingById.get(taskId);
+        if (queuedTask != null) {
+            removePendingTask(queuedTask);
+            CancellationException cancellation = cancellationBeforeStart();
+            queuedTask.started.completeExceptionally(cancellation);
+            queuedTask.result.completeExceptionally(cancellation);
+            drain();
+            return true;
         }
 
+        QueuedTask<?> runningTask = runningById.get(taskId);
+        if (runningTask == null || runningTask.cancellationRequested) {
+            return false;
+        }
+        runningTask.cancellationRequested = true;
+        CancellationException cancellation = cancellationDuringExecution();
+        runningTask.result.completeExceptionally(cancellation);
+        Future<?> executionFuture = runningTask.executionFuture.orElseThrow(
+            () -> new IllegalStateException("Running queue task has no execution future: " + taskId)
+        );
+        boolean interruptRequested = executionFuture.cancel(true);
+        if (!runningTask.executionStarted) {
+            releaseRunningSlot(runningTask);
+        }
+        return interruptRequested;
+    }
+
+    private boolean removePendingTask(QueuedTask<?> queuedTask) {
+        if (pendingById.remove(queuedTask.id) == null) {
+            return false;
+        }
         TreeMap<Integer, Deque<QueuedTask<?>>> pendingByPriority = queuedTask.lane == BookAiQueueLane.FOREGROUND_SVELTE
             ? pendingForegroundByPriority
             : pendingBackgroundByPriority;
         Deque<QueuedTask<?>> priorityQueue = pendingByPriority.get(queuedTask.priority);
         if (priorityQueue != null) {
-            priorityQueue.removeIf(task -> task.id.equals(taskId));
+            priorityQueue.removeIf(task -> task.id.equals(queuedTask.id));
             if (priorityQueue.isEmpty()) {
                 pendingByPriority.remove(queuedTask.priority);
             }
@@ -181,10 +252,6 @@ public class BookAiContentRequestQueue {
         } else {
             pendingBackgroundCount = Math.max(0, pendingBackgroundCount - 1);
         }
-
-        CancellationException cancellation = new CancellationException("Queue task cancelled before start");
-        queuedTask.started.completeExceptionally(cancellation);
-        queuedTask.result.completeExceptionally(cancellation);
         return true;
     }
 
@@ -202,8 +269,15 @@ public class BookAiContentRequestQueue {
 
             runningCount += 1;
             runningById.put(next.id, next);
+            FutureTask<Void> executionFuture = new FutureTask<>(() -> {
+                runTask(next);
+                return null;
+            });
+            next.executionFuture = Optional.of(executionFuture);
             next.started.complete(null);
-            executeTask(next);
+            if (runningById.containsKey(next.id) && !next.cancellationRequested) {
+                executorService.execute(executionFuture);
+            }
         }
     }
 
@@ -240,30 +314,77 @@ public class BookAiContentRequestQueue {
         return null;
     }
 
-    private <T> void executeTask(QueuedTask<T> task) {
-        CompletableFuture.supplyAsync(task.supplier, executorService)
-            .whenComplete((supplierResult, throwable) -> {
-                if (throwable == null) {
-                    task.result.complete(supplierResult);
-                } else {
-                    Throwable failure = unwrapCompletionFailure(throwable);
-                    log.warn("AI queue task failed [id={}, lane={}, priority={}]",
-                        task.id, task.lane, task.priority, failure);
-                    task.result.completeExceptionally(failure);
-                }
-                synchronized (this) {
-                    runningById.remove(task.id);
-                    runningCount = Math.max(0, runningCount - 1);
-                    drain();
-                }
-            });
+    private <T> void runTask(QueuedTask<T> task) {
+        if (!markExecutionStarted(task)) {
+            return;
+        }
+        try {
+            T supplierResult = task.supplier.get();
+            finishSuccessfully(task, supplierResult);
+        } catch (CancellationException cancellation) {
+            finishExceptionally(task, cancellation);
+        } catch (RuntimeException runtimeFailure) {
+            finishExceptionally(task, runtimeFailure);
+        } catch (Error fatalFailure) {
+            finishExceptionally(task, fatalFailure);
+            throw fatalFailure;
+        }
     }
 
-    private Throwable unwrapCompletionFailure(Throwable failure) {
-        if (failure instanceof CompletionException completionException && completionException.getCause() != null) {
-            return completionException.getCause();
+    private synchronized boolean markExecutionStarted(QueuedTask<?> task) {
+        if (task.cancellationRequested || runningById.get(task.id) != task) {
+            return false;
         }
-        return failure;
+        task.executionStarted = true;
+        return true;
+    }
+
+    private <T> void finishSuccessfully(QueuedTask<T> task, T supplierResult) {
+        boolean cancelled;
+        synchronized (this) {
+            cancelled = task.cancellationRequested;
+            releaseRunningSlot(task);
+        }
+        if (cancelled) {
+            task.result.completeExceptionally(cancellationDuringExecution());
+            return;
+        }
+        task.result.complete(supplierResult);
+    }
+
+    private void finishExceptionally(QueuedTask<?> task, Throwable failure) {
+        boolean cancelled;
+        synchronized (this) {
+            cancelled = task.cancellationRequested;
+            releaseRunningSlot(task);
+        }
+        Throwable terminalFailure = cancelled ? cancellationDuringExecution() : failure;
+        if (terminalFailure instanceof CancellationException) {
+            log.debug("AI queue task cancelled [id={}, lane={}, priority={}]",
+                task.id, task.lane, task.priority);
+        } else {
+            log.warn("AI queue task failed [id={}, lane={}, priority={}]",
+                task.id, task.lane, task.priority, terminalFailure);
+        }
+        task.result.completeExceptionally(terminalFailure);
+    }
+
+    private synchronized void releaseRunningSlot(QueuedTask<?> task) {
+        if (task.slotReleased) {
+            return;
+        }
+        task.slotReleased = true;
+        runningById.remove(task.id, task);
+        runningCount = Math.max(0, runningCount - 1);
+        drain();
+    }
+
+    private CancellationException cancellationBeforeStart() {
+        return new CancellationException("Queue task cancelled before start");
+    }
+
+    private CancellationException cancellationDuringExecution() {
+        return new CancellationException("Queue task cancelled during execution");
     }
 
     private static int coerceParallelism(int configuredParallelism) {
@@ -307,6 +428,10 @@ public class BookAiContentRequestQueue {
         private final Supplier<T> supplier;
         private final CompletableFuture<Void> started;
         private final CompletableFuture<T> result;
+        private Optional<Future<?>> executionFuture;
+        private boolean executionStarted;
+        private boolean cancellationRequested;
+        private boolean slotReleased;
 
         private QueuedTask(String id,
                            BookAiQueueLane lane,
@@ -320,6 +445,10 @@ public class BookAiContentRequestQueue {
             this.supplier = supplier;
             this.started = started;
             this.result = result;
+            this.executionFuture = Optional.empty();
+            this.executionStarted = false;
+            this.cancellationRequested = false;
+            this.slotReleased = false;
         }
     }
 

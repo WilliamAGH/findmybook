@@ -150,6 +150,25 @@ class GemmaInferenceReliabilityTest {
     }
 
     @Test
+    void should_RetryShapeDriftWithoutPersistence_When_SecondReaderResponseIsCanonical() {
+        server.enqueueSse(streamChunk(AI_JSON.replace("}", ",\"unexpected\":true}"), null) + streamChunk("", "stop"));
+        server.enqueueSse(streamChunk(AI_JSON, null) + streamChunk("", "stop"));
+        BookAiContentRepository repository = mock(BookAiContentRepository.class);
+        when(repository.insertNewCurrentVersion(any(), any(), anyString(), anyString(), anyString()))
+            .thenAnswer(invocation -> new BookAiContentSnapshot(
+                BOOK_ID, 1, Instant.EPOCH, invocation.getArgument(2), invocation.getArgument(3), invocation.getArgument(1)));
+        List<String> deltas = new ArrayList<>();
+
+        BookAiContentService.GeneratedContent generated = aiService(repository)
+            .generateAndPersist(BOOK_ID, deltas::add, LlmGatewayTier.LIVE_RENDER);
+
+        assertThat(generated.snapshot().aiContent().summary()).contains("grounded two-sentence summary");
+        assertThat(deltas).containsExactly(AI_JSON);
+        assertThat(server.requestBodies()).hasSize(2);
+        verify(repository).insertNewCurrentVersion(any(), any(), anyString(), anyString(), anyString());
+    }
+
+    @Test
     void should_RetryLiveTransportFailureWithoutReplayingContent_When_SecondAttemptSucceeds() {
         server.enqueueJson(503, "{\"error\":{\"message\":\"temporarily unavailable\"}}");
         server.enqueueSse(streamChunk(AI_JSON, null) + streamChunk("", "stop"));
@@ -241,12 +260,31 @@ class GemmaInferenceReliabilityTest {
     }
 
     @Test
-    void should_ThrowTypedFailure_When_SeoResponseMissesRequiredField() {
+    void should_ThrowTypedFailure_When_SeoResponseMissesCanonicalField() {
         SeoMetadataJsonParser parser = new SeoMetadataJsonParser(new ObjectMapper());
 
         assertThatThrownBy(() -> parser.parse("{\"seoTitle\":\"Title only\"}"))
             .isInstanceOf(BookSeoGenerationException.class)
-            .hasMessageContaining("missing required field: seoDescription");
+            .hasMessageContaining("fields must exactly match the canonical contract");
+    }
+
+    @Test
+    void should_RejectNonCanonicalSeoResponse_When_GemmaDriftsFromJsonContract() {
+        SeoMetadataJsonParser parser = new SeoMetadataJsonParser(new ObjectMapper());
+
+        assertThatThrownBy(() -> parser.parse("SEO title: Test Book; description: useful details"))
+            .isInstanceOf(BookSeoGenerationException.class)
+            .hasMessageContaining("valid JSON object");
+        assertThatThrownBy(() -> parser.parse("{\"title\":\"Test Book\",\"description\":\"Useful details\"}"))
+            .isInstanceOf(BookSeoGenerationException.class)
+            .hasMessageContaining("exactly match the canonical contract");
+        assertThatThrownBy(() -> parser.parse("{\"seoTitle\":42,\"seoDescription\":true}"))
+            .isInstanceOf(BookSeoGenerationException.class)
+            .hasMessageContaining("field must be a string: seoTitle");
+        assertThatThrownBy(() -> parser.parse(
+            "{\"seoTitle\":\"Test Book\",\"seoDescription\":\"Useful details\",\"extra\":true}"
+        )).isInstanceOf(BookSeoGenerationException.class)
+            .hasMessageContaining("exactly match the canonical contract");
     }
 
     @Test
