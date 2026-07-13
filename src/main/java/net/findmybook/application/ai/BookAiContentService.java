@@ -210,6 +210,16 @@ public class BookAiContentService {
             throw new BookAiGenerationException(BookAiGenerationException.ErrorCode.GENERATION_FAILED,
                 "AI content generation failed (%s)".formatted(configuredModel));
         }
+        if (tier == LlmGatewayTier.LIVE_RENDER) {
+            log.error(
+                "AI generation exhausted attempts for bookId={} model={} tier={} attempts={}: {}",
+                bookId,
+                configuredModel,
+                tier.headerValue(),
+                maxGenerationAttempts,
+                lastGenerationFailure.getMessage()
+            );
+        }
         throw lastGenerationFailure;
     }
 
@@ -229,8 +239,12 @@ public class BookAiContentService {
             .temperature(SAMPLING_TEMPERATURE)
             .build();
 
-        long effectiveRequestTimeoutSeconds = Math.max(requestTimeoutSeconds, tier.minimumCallTimeoutSeconds());
-        long effectiveReadTimeoutSeconds = Math.max(readTimeoutSeconds, tier.minimumCallTimeoutSeconds());
+        long effectiveRequestTimeoutSeconds = tier == LlmGatewayTier.LIVE_RENDER
+            ? Math.min(requestTimeoutSeconds, tier.callTimeoutSeconds())
+            : Math.max(requestTimeoutSeconds, tier.callTimeoutSeconds());
+        long effectiveReadTimeoutSeconds = tier == LlmGatewayTier.LIVE_RENDER
+            ? Math.min(readTimeoutSeconds, tier.callTimeoutSeconds())
+            : Math.max(readTimeoutSeconds, tier.callTimeoutSeconds());
         RequestOptions options = RequestOptions.builder()
             .timeout(Timeout.builder()
                 .request(Duration.ofSeconds(effectiveRequestTimeoutSeconds))
@@ -258,11 +272,7 @@ public class BookAiContentService {
             });
         } catch (OpenAIException ex) {
             String detail = BookAiGenerationException.describeApiError(ex);
-            if (tier == LlmGatewayTier.LIVE_RENDER) {
-                log.error("AI streaming failed for bookId={} model={} tier={}: {}", bookId, configuredModel, tier.headerValue(), detail);
-            } else {
-                log.warn("AI streaming failed for bookId={} model={} tier={}: {}", bookId, configuredModel, tier.headerValue(), detail);
-            }
+            log.warn("AI streaming failed for bookId={} model={} tier={}: {}", bookId, configuredModel, tier.headerValue(), detail);
             BookAiGenerationException.ErrorCode errorCode = ex instanceof OpenAIInvalidDataException
                 ? BookAiGenerationException.ErrorCode.INVALID_RESPONSE
                 : BookAiGenerationException.ErrorCode.GENERATION_FAILED;
@@ -271,17 +281,10 @@ public class BookAiContentService {
         }
 
         if (ChatCompletionChunk.Choice.FinishReason.LENGTH.equals(finishReason.get())) {
-            if (tier == LlmGatewayTier.LIVE_RENDER) {
-                log.error(
-                    "AI content response exhausted completion token budget for bookId={} model={} tier={} maxCompletionTokens={} finishReason=length",
-                    bookId, configuredModel, tier.headerValue(), MAX_COMPLETION_TOKENS
-                );
-            } else {
-                log.warn(
-                    "AI content response exhausted completion token budget for bookId={} model={} tier={} maxCompletionTokens={} finishReason=length",
-                    bookId, configuredModel, tier.headerValue(), MAX_COMPLETION_TOKENS
-                );
-            }
+            log.warn(
+                "AI content response exhausted completion token budget for bookId={} model={} tier={} maxCompletionTokens={} finishReason=length",
+                bookId, configuredModel, tier.headerValue(), MAX_COMPLETION_TOKENS
+            );
             throw new BookAiGenerationException(
                 BookAiGenerationException.ErrorCode.GENERATION_FAILED,
                 "AI content response exhausted completion token budget "
@@ -289,17 +292,10 @@ public class BookAiContentService {
             );
         }
         if (refusalPresent.get()) {
-            if (tier == LlmGatewayTier.LIVE_RENDER) {
-                log.error(
-                    "AI content request was refused for bookId={} model={} tier={} refusalPresent=true",
-                    bookId, configuredModel, tier.headerValue()
-                );
-            } else {
-                log.warn(
-                    "AI content request was refused for bookId={} model={} tier={} refusalPresent=true",
-                    bookId, configuredModel, tier.headerValue()
-                );
-            }
+            log.warn(
+                "AI content request was refused for bookId={} model={} tier={} refusalPresent=true",
+                bookId, configuredModel, tier.headerValue()
+            );
             throw new BookAiGenerationException(
                 BookAiGenerationException.ErrorCode.GENERATION_FAILED,
                 "AI content request was refused (refusalPresent=true)"
@@ -307,17 +303,10 @@ public class BookAiContentService {
         }
         if (!ChatCompletionChunk.Choice.FinishReason.STOP.equals(finishReason.get())) {
             String terminalReason = finishReason.get() == null ? "missing" : finishReason.get().asString();
-            if (tier == LlmGatewayTier.LIVE_RENDER) {
-                log.error(
-                    "AI content response ended without stop for bookId={} model={} tier={} finishReason={} responseCharacters={}",
-                    bookId, configuredModel, tier.headerValue(), terminalReason, fullResponseBuilder.length()
-                );
-            } else {
-                log.warn(
-                    "AI content response ended without stop for bookId={} model={} tier={} finishReason={} responseCharacters={}",
-                    bookId, configuredModel, tier.headerValue(), terminalReason, fullResponseBuilder.length()
-                );
-            }
+            log.warn(
+                "AI content response ended without stop for bookId={} model={} tier={} finishReason={} responseCharacters={}",
+                bookId, configuredModel, tier.headerValue(), terminalReason, fullResponseBuilder.length()
+            );
             BookAiGenerationException.ErrorCode errorCode = finishReason.get() == null
                 ? BookAiGenerationException.ErrorCode.INCOMPLETE_RESPONSE
                 : BookAiGenerationException.ErrorCode.GENERATION_FAILED;
@@ -332,13 +321,8 @@ public class BookAiContentService {
         try {
             aiContent = jsonParser.parse(rawMessage);
         } catch (IllegalStateException parseFailure) {
-            if (tier == LlmGatewayTier.LIVE_RENDER) {
-                log.error("AI content parsing failed for bookId={} model={} tier={}: {}",
-                    bookId, configuredModel, tier.headerValue(), parseFailure.getMessage());
-            } else {
-                log.warn("AI content parsing failed for bookId={} model={} tier={}: {}",
-                    bookId, configuredModel, tier.headerValue(), parseFailure.getMessage());
-            }
+            log.warn("AI content parsing failed for bookId={} model={} tier={}: {}",
+                bookId, configuredModel, tier.headerValue(), parseFailure.getMessage());
             String parseMessage = StringUtils.hasText(parseFailure.getMessage()) ? parseFailure.getMessage() : "invalid JSON response";
             boolean isQualityFailure = parseMessage.contains("quality check failed");
             BookAiGenerationException.ErrorCode errorCode = isQualityFailure
