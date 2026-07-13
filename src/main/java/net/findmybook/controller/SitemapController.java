@@ -52,7 +52,8 @@ public class SitemapController extends SpaShellController {
 
     /**
      * Redirects the sitemap landing page to its canonical route with a relative
-     * location so TLS-terminating proxies cannot rewrite or poison the origin.
+     * location. Spring resolves the redirect using trusted forwarded headers
+     * (X-Forwarded-Proto/Host) when the reverse proxy provides them.
      *
      * @param view requested sitemap view
      * @param letter requested author or book bucket
