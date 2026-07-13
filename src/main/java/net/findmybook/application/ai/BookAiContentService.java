@@ -11,7 +11,6 @@ import com.openai.errors.OpenAIIoException;
 import com.openai.errors.OpenAIRetryableException;
 import com.openai.errors.OpenAIServiceException;
 import com.openai.models.ChatModel;
-import com.openai.models.ResponseFormatJsonObject;
 import com.openai.models.chat.completions.ChatCompletionChunk;
 import com.openai.models.chat.completions.ChatCompletionCreateParams;
 import com.openai.models.chat.completions.ChatCompletionMessageParam;
@@ -298,7 +297,6 @@ public class BookAiContentService {
                 ChatCompletionMessageParam.ofUser(ChatCompletionUserMessageParam.builder().content(prompt).build())
             ))
             .maxCompletionTokens(tier.maxCompletionTokens())
-            .responseFormat(ResponseFormatJsonObject.builder().build())
             .temperature(SAMPLING_TEMPERATURE)
             .build();
 

@@ -103,10 +103,8 @@ class GemmaInferenceReliabilityTest {
 
         assertThat(second.snapshot()).get().extracting(BookSeoMetadataSnapshot::provider).isEqualTo("openai");
         assertThat(third.generated()).isFalse();
-        assertThat(server.requestBodies()).hasSize(4).allSatisfy(body -> {
-            assertThat(body).contains("\"max_completion_tokens\":" + LlmGatewayTier.BACKGROUND_BATCH.maxCompletionTokens());
-            assertThat(body).contains("\"response_format\":{\"type\":\"json_object\"}");
-        });
+        assertThat(server.requestBodies()).hasSize(4).allSatisfy(body ->
+            assertThat(body).contains("\"max_completion_tokens\":" + LlmGatewayTier.BACKGROUND_BATCH.maxCompletionTokens()));
     }
 
     @Test
@@ -199,10 +197,8 @@ class GemmaInferenceReliabilityTest {
             .isInstanceOf(BookAiGenerationException.class)
             .hasMessageContaining("completion token budget");
         verify(repository, never()).insertNewCurrentVersion(any(), any(), anyString(), anyString(), anyString());
-        assertThat(server.requestBodies()).hasSize(2).allSatisfy(body -> {
-            assertThat(body).contains("\"max_completion_tokens\":" + LlmGatewayTier.LIVE_RENDER.maxCompletionTokens());
-            assertThat(body).contains("\"response_format\":{\"type\":\"json_object\"}");
-        });
+        assertThat(server.requestBodies()).hasSize(2).allSatisfy(body ->
+            assertThat(body).contains("\"max_completion_tokens\":" + LlmGatewayTier.LIVE_RENDER.maxCompletionTokens()));
     }
 
     @Test
