@@ -17,7 +17,7 @@ public enum LlmGatewayTier {
      * Live, user-facing render path. Maps to gateway tier {@code production-z} (priority 4,
      * reserved concurrency 1, queue depth 20, queue timeout 30s).
      */
-    LIVE_RENDER("production-z", 120L),
+    LIVE_RENDER("production-z", 105L),
 
     /**
      * Non-urgent background work (scheduler, demand queue, upsert event, backfill, ingestion
@@ -30,11 +30,11 @@ public enum LlmGatewayTier {
     public static final String HEADER_NAME = "X-Tier";
 
     private final String headerValue;
-    private final long minimumCallTimeoutSeconds;
+    private final long callTimeoutSeconds;
 
-    LlmGatewayTier(String headerValue, long minimumCallTimeoutSeconds) {
+    LlmGatewayTier(String headerValue, long callTimeoutSeconds) {
         this.headerValue = headerValue;
-        this.minimumCallTimeoutSeconds = minimumCallTimeoutSeconds;
+        this.callTimeoutSeconds = callTimeoutSeconds;
     }
 
     /**
@@ -47,12 +47,13 @@ public enum LlmGatewayTier {
     }
 
     /**
-     * Returns the minimum request/read timeout that can cover this tier's queue admission plus
-     * one model completion.
+     * Returns the per-call timeout budget for this tier's queue admission plus one model
+     * completion. Live callers cap attempts to this budget; background callers extend shorter
+     * provider defaults to it.
      *
-     * @return minimum end-to-end timeout in seconds
+     * @return end-to-end timeout budget in seconds
      */
-    public long minimumCallTimeoutSeconds() {
-        return minimumCallTimeoutSeconds;
+    public long callTimeoutSeconds() {
+        return callTimeoutSeconds;
     }
 }

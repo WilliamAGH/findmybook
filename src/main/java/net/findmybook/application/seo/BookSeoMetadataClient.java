@@ -177,8 +177,12 @@ class BookSeoMetadataClient {
             .temperature(SAMPLING_TEMPERATURE)
             .build();
 
-        long effectiveRequestTimeoutSeconds = Math.max(requestTimeoutSeconds, tier.minimumCallTimeoutSeconds());
-        long effectiveReadTimeoutSeconds = Math.max(readTimeoutSeconds, tier.minimumCallTimeoutSeconds());
+        long effectiveRequestTimeoutSeconds = tier == LlmGatewayTier.LIVE_RENDER
+            ? Math.min(requestTimeoutSeconds, tier.callTimeoutSeconds())
+            : Math.max(requestTimeoutSeconds, tier.callTimeoutSeconds());
+        long effectiveReadTimeoutSeconds = tier == LlmGatewayTier.LIVE_RENDER
+            ? Math.min(readTimeoutSeconds, tier.callTimeoutSeconds())
+            : Math.max(readTimeoutSeconds, tier.callTimeoutSeconds());
         RequestOptions options = RequestOptions.builder()
             .timeout(Timeout.builder()
                 .request(Duration.ofSeconds(effectiveRequestTimeoutSeconds))
