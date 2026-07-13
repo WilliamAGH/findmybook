@@ -62,7 +62,7 @@
     if (Number.isNaN(date.getTime())) {
       return String(book.publication.publishedDate);
     }
-    return date.toLocaleDateString();
+    return date.toLocaleDateString(undefined, { timeZone: "UTC" });
   }
 
   function averageRatingText(): string | null {

@@ -21,7 +21,7 @@ import org.springframework.util.StringUtils;
 public class BookSeoMetadataGenerationService {
 
     private static final Logger log = LoggerFactory.getLogger(BookSeoMetadataGenerationService.class);
-    static final String FALLBACK_PROVIDER = "deterministic-fallback";
+    static final String LEGACY_FALLBACK_PROVIDER = "deterministic-fallback";
     private static final int MIN_DESCRIPTION_LENGTH = 50;
     private static final String FALLBACK_DESCRIPTION = "No description available.";
     private static final String FALLBACK_TITLE = "Unknown Title";
@@ -94,7 +94,7 @@ public class BookSeoMetadataGenerationService {
         String promptHash = sha256(prompt);
         Optional<BookSeoMetadataSnapshot> currentSnapshot = repository.fetchCurrent(bookId);
         if (currentSnapshot
-            .filter(snapshot -> !FALLBACK_PROVIDER.equals(snapshot.provider()))
+            .filter(snapshot -> !LEGACY_FALLBACK_PROVIDER.equals(snapshot.provider()))
             .filter(snapshot -> promptHash.equals(snapshot.promptHash()))
             .isPresent()) {
             return GenerationOutcome.skipped(bookId, promptHash);
@@ -123,26 +123,13 @@ public class BookSeoMetadataGenerationService {
                 promptHash
             );
         } catch (BookSeoGenerationException generationFailure) {
-            String fallbackTitle = normalizationPolicy.buildDeterministicTitle(promptContext.bookTitle());
-            String fallbackDescription = normalizationPolicy.buildDeterministicDescription(promptContext.description());
-            repository.insertNewCurrentVersion(
-                bookId,
-                fallbackTitle,
-                fallbackDescription,
-                seoMetadataClient.configuredModel(),
-                FALLBACK_PROVIDER,
-                promptHash
-            );
             log.warn(
-                "Book SEO metadata generation failed for bookId={} model={}: {}; deterministic fallback persisted for retry eligibility",
+                "Book SEO metadata generation failed for bookId={} model={}; no metadata was persisted",
                 bookId,
                 seoMetadataClient.configuredModel(),
-                generationFailure.getMessage()
-            );
-            throw new BookSeoGenerationException(
-                "SEO metadata generation failed; deterministic fallback persisted for bookId=" + bookId,
                 generationFailure
             );
+            throw generationFailure;
         }
     }
 

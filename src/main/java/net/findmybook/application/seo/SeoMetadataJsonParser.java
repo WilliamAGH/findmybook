@@ -4,8 +4,11 @@ import java.util.Arrays;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.springframework.util.StringUtils;
 import tools.jackson.core.JacksonException;
+import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -14,6 +17,13 @@ import tools.jackson.databind.ObjectMapper;
  */
 class SeoMetadataJsonParser {
 
+    private static final String CODE_FENCE_DELIMITER = "```";
+    private static final String JSON_FENCE_LANGUAGE = "json";
+    private static final Pattern WHOLE_RESPONSE_JSON_FENCE = Pattern.compile(
+        "\\A" + CODE_FENCE_DELIMITER + "(?:" + JSON_FENCE_LANGUAGE + ")?\\R(?<payload>.*)\\R"
+            + CODE_FENCE_DELIMITER + "\\z",
+        Pattern.DOTALL
+    );
     private static final Set<String> CANONICAL_FIELDS = Arrays.stream(SeoMetadataCandidate.class.getRecordComponents())
         .map(recordComponent -> recordComponent.getName())
         .collect(Collectors.toUnmodifiableSet());
@@ -27,7 +37,8 @@ class SeoMetadataJsonParser {
     /**
      * Parses a model response into SEO title/description fields.
      *
-     * @param responseText raw LLM response text
+     * @param responseText raw LLM JSON text, optionally enclosed in one whole-response
+     *                     {@code ```} or {@code ```json} fence
      * @return parsed SEO metadata values
      */
     SeoMetadataCandidate parse(String responseText) {
@@ -42,8 +53,11 @@ class SeoMetadataJsonParser {
     }
 
     private JsonNode parseJsonPayload(String responseText) {
+        String jsonPayload = extractCanonicalJsonPayload(responseText);
         try {
-            JsonNode payload = objectMapper.readTree(responseText.trim());
+            JsonNode payload = objectMapper
+                .reader(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                .readTree(jsonPayload);
             if (!payload.isObject()) {
                 throw invalidResponse("SEO metadata response must be a JSON object");
             }
@@ -51,6 +65,21 @@ class SeoMetadataJsonParser {
         } catch (JacksonException parseException) {
             throw invalidResponse("SEO metadata response did not include a valid JSON object", parseException);
         }
+    }
+
+    private String extractCanonicalJsonPayload(String responseText) {
+        String trimmedResponse = responseText.trim();
+        if (!trimmedResponse.startsWith(CODE_FENCE_DELIMITER)) {
+            return trimmedResponse;
+        }
+
+        Matcher fence = WHOLE_RESPONSE_JSON_FENCE.matcher(trimmedResponse);
+        if (!fence.matches()) {
+            throw invalidResponse(
+                "SEO metadata response must be a JSON object or one whole-response ``` or ```json fenced JSON block"
+            );
+        }
+        return fence.group("payload");
     }
 
     private String requiredText(JsonNode payload, String field) {
