@@ -699,6 +699,7 @@ public final class BookDtoMapper {
         if (value == null) {
             return Map.of();
         }
+        Book.requireSupportedQualifierValue(value);
         if (value instanceof Map<?, ?> mapValue) {
             Map<String, Serializable> attributes = new LinkedHashMap<>();
             mapValue.forEach((attributeKey, attributeValue) -> {

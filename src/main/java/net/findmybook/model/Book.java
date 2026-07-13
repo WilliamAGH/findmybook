@@ -167,21 +167,28 @@ public class Book {
 
 
     /**
-     * Drops unusable qualifier entries and retains only serializable metadata so persistence and API
-     * projections share one safe value contract.
+     * Drops absent qualifier entries and rejects values outside the supported JSON value contract.
      *
      * @param qualifiers provider-supplied qualifier metadata
      */
     public void setQualifiers(Map<String, ?> qualifiers) {
-        this.qualifiers = new HashMap<>();
+        Map<String, Serializable> sanitizedQualifiers = new HashMap<>();
         if (qualifiers == null || qualifiers.isEmpty()) {
+            this.qualifiers = sanitizedQualifiers;
             return;
         }
         qualifiers.forEach((qualifierKey, qualifierValue) -> {
-            if (qualifierKey != null && !qualifierKey.isBlank() && qualifierValue instanceof Serializable serializableValue) {
-                this.qualifiers.put(qualifierKey, serializableValue);
+            if (qualifierKey == null || qualifierKey.isBlank() || qualifierValue == null) {
+                return;
             }
+            if (!(qualifierValue instanceof Serializable serializableValue)) {
+                throw new IllegalArgumentException(
+                    "Unsupported qualifier metadata type: " + qualifierValue.getClass().getName());
+            }
+            requireSupportedQualifierValue(serializableValue);
+            sanitizedQualifiers.put(qualifierKey, serializableValue);
         });
+        this.qualifiers = sanitizedQualifiers;
     }
 
     /**
@@ -197,7 +204,59 @@ public class Book {
         if (this.qualifiers == null) {
             this.qualifiers = new HashMap<>();
         }
+        requireSupportedQualifierValue(value);
         this.qualifiers.put(key, value);
+    }
+
+    /**
+     * Validates the canonical JSON-shaped value contract shared by qualifier and tag projections.
+     * Unsupported values fail explicitly instead of disappearing or reaching API serialization.
+     *
+     * @param qualifierValue scalar, string-keyed map, or iterable qualifier value
+     * @throws IllegalArgumentException when any value or nested member is not JSON-shaped
+     */
+    public static void requireSupportedQualifierValue(Serializable qualifierValue) {
+        if (qualifierValue instanceof String || qualifierValue instanceof Boolean) {
+            return;
+        }
+        if (qualifierValue instanceof Number number) {
+            if ((number instanceof Double doubleValue && !Double.isFinite(doubleValue))
+                    || (number instanceof Float floatValue && !Float.isFinite(floatValue))) {
+                throw new IllegalArgumentException("Qualifier numeric metadata must be finite");
+            }
+            return;
+        }
+        if (qualifierValue instanceof Map<?, ?> mapValue) {
+            mapValue.forEach((nestedKey, nestedValue) -> {
+                if (!(nestedKey instanceof String)) {
+                    throw new IllegalArgumentException("Qualifier metadata map keys must be strings");
+                }
+                if (nestedValue == null) {
+                    return;
+                }
+                if (!(nestedValue instanceof Serializable serializableValue)) {
+                    throw new IllegalArgumentException(
+                        "Unsupported nested qualifier metadata type: " + nestedValue.getClass().getName());
+                }
+                requireSupportedQualifierValue(serializableValue);
+            });
+            return;
+        }
+        if (qualifierValue instanceof Iterable<?> iterableValue) {
+            iterableValue.forEach(nestedValue -> {
+                if (nestedValue == null) {
+                    return;
+                }
+                if (!(nestedValue instanceof Serializable serializableValue)) {
+                    throw new IllegalArgumentException(
+                        "Unsupported nested qualifier metadata type: " + nestedValue.getClass().getName());
+                }
+                requireSupportedQualifierValue(serializableValue);
+            });
+            return;
+        }
+        throw new IllegalArgumentException(
+            "Unsupported qualifier metadata type: " + qualifierValue.getClass().getName());
     }
 
     public boolean hasQualifier(String key) {

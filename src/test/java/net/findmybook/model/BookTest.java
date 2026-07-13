@@ -8,6 +8,7 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class BookTest {
 
@@ -98,9 +99,15 @@ class BookTest {
         book.setCategories(categories);
         book.setCollections(collections);
         book.setQualifiers(qualifiers);
-        book.setQualifiers(Map.of("unsupported", new Thread()));
-        assertThat(book.getQualifiers()).isEmpty();
-        book.setQualifiers(qualifiers);
+        assertThatThrownBy(() -> book.setQualifiers(Map.of("unsupported", new Thread())))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Unsupported qualifier metadata type");
+        List<Thread> unsupportedNestedValues = new ArrayList<>();
+        unsupportedNestedValues.add(new Thread());
+        assertThatThrownBy(() -> book.setQualifiers(
+            Map.of("unsupportedNested", (Serializable) unsupportedNestedValues)))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("Unsupported nested qualifier metadata type");
         book.addQualifier("also-missing", null);
         book.setCachedRecommendationIds(recommendationIds);
         book.addRecommendationIds(List.of(" third ", "second", "   "));
