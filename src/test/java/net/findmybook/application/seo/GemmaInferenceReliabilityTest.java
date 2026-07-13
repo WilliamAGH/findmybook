@@ -16,13 +16,14 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 import net.findmybook.adapters.persistence.BookAiContentRepository;
 import net.findmybook.adapters.persistence.BookSeoMetadataRepository;
@@ -106,6 +107,19 @@ class GemmaInferenceReliabilityTest {
 
         assertThat(candidate.seoTitle()).isEqualTo("Test Book - Book Details | findmybook.net");
         assertThat(server.requestBodies()).hasSize(2);
+        assertThat(server.requestTiers()).containsOnly(LlmGatewayTier.BACKGROUND_BATCH.headerValue());
+    }
+
+    @Test
+    void should_RetryMalformedSuccessfulSeoResponse_When_SecondGemmaResponseIsValid() {
+        server.enqueueJson("{\"id\":\"chat-1\",\"object\":\"chat.completion\",\"created\":0,\"model\":\"gemma-4-26b-a4b\","
+            + "\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":" + jsonString(seoJson()) + "}}]}");
+        server.enqueueJson(chatCompletion("stop", seoJson()));
+
+        SeoMetadataCandidate candidate = seoClient().generate(BOOK_ID, "Grounded prompt", LlmGatewayTier.BACKGROUND_BATCH);
+
+        assertThat(candidate.seoDescription()).hasSizeBetween(140, 160);
+        assertThat(server.requestBodies()).hasSize(2);
     }
 
     @Test
@@ -155,6 +169,20 @@ class GemmaInferenceReliabilityTest {
             .hasMessageContaining("completion token budget");
         verify(repository, never()).insertNewCurrentVersion(any(), any(), anyString(), anyString(), anyString());
         assertThat(server.requestBodies()).singleElement().asString().contains("\"max_completion_tokens\":1000");
+    }
+
+    @Test
+    void should_RejectReaderContentWithoutPersistence_When_GemmaRefusesRequest() {
+        server.enqueueSse(streamRefusalChunk("Policy refusal", "stop"));
+        BookAiContentRepository repository = mock(BookAiContentRepository.class);
+
+        assertThatThrownBy(() -> aiService(repository)
+            .generateAndPersist(BOOK_ID, ignored -> { }, LlmGatewayTier.LIVE_RENDER))
+            .isInstanceOf(BookAiGenerationException.class)
+            .hasMessageContaining("refused");
+        verify(repository, never()).insertNewCurrentVersion(any(), any(), anyString(), anyString(), anyString());
+        assertThat(server.requestBodies()).hasSize(1);
+        assertThat(server.requestTiers()).containsExactly(LlmGatewayTier.LIVE_RENDER.headerValue());
     }
 
     @Test
@@ -228,14 +256,21 @@ class GemmaInferenceReliabilityTest {
             + jsonString(content) + "},\"finish_reason\":" + reason + "}]}\n\n";
     }
 
+    private static String streamRefusalChunk(String refusal, String finishReason) {
+        return "data: {\"id\":\"chunk-1\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"gemma-4-26b-a4b\","
+            + "\"choices\":[{\"index\":0,\"delta\":{\"refusal\":" + jsonString(refusal)
+            + "},\"finish_reason\":\"" + finishReason + "\"}]}\n\n";
+    }
+
     private static String jsonString(String value) {
         return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n") + "\"";
     }
 
     private static final class OpenAiTestServer implements AutoCloseable {
         private final HttpServer httpServer;
-        private final Deque<Response> responses = new ArrayDeque<>();
-        private final List<String> requestBodies = new ArrayList<>();
+        private final Deque<Response> responses = new ConcurrentLinkedDeque<>();
+        private final List<String> requestBodies = new CopyOnWriteArrayList<>();
+        private final List<String> requestTiers = new CopyOnWriteArrayList<>();
 
         private OpenAiTestServer() throws IOException {
             httpServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -259,12 +294,17 @@ class GemmaInferenceReliabilityTest {
             return List.copyOf(requestBodies);
         }
 
+        private List<String> requestTiers() {
+            return List.copyOf(requestTiers);
+        }
+
         private String baseUrl() {
             return "http://127.0.0.1:" + httpServer.getAddress().getPort() + "/v1";
         }
 
         private void handle(HttpExchange exchange) throws IOException {
             requestBodies.add(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            requestTiers.add(exchange.getRequestHeaders().getFirst(LlmGatewayTier.HEADER_NAME));
             Response response = responses.removeFirst();
             byte[] body = response.body().getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", response.contentType());

@@ -5,6 +5,7 @@ import com.openai.client.okhttp.OpenAIOkHttpClient;
 import com.openai.core.RequestOptions;
 import com.openai.core.Timeout;
 import com.openai.errors.OpenAIException;
+import com.openai.errors.OpenAIInvalidDataException;
 import com.openai.models.ChatModel;
 import com.openai.models.chat.completions.ChatCompletion;
 import com.openai.models.chat.completions.ChatCompletionCreateParams;
@@ -219,6 +220,16 @@ class BookSeoMetadataClient {
                 );
             }
             return parser.parse(response);
+        } catch (OpenAIInvalidDataException invalidDataException) {
+            String detail = BookAiGenerationException.describeApiError(invalidDataException);
+            log.warn("SEO metadata API returned invalid data (model={}, tier={}): {}",
+                configuredModel, tier.headerValue(), detail);
+            throw new BookSeoGenerationException(
+                BookSeoGenerationException.ErrorCode.INVALID_RESPONSE,
+                "SEO metadata API returned invalid data (%s, tier=%s): %s"
+                    .formatted(configuredModel, tier.headerValue(), detail),
+                invalidDataException
+            );
         } catch (OpenAIException openAiException) {
             String detail = BookAiGenerationException.describeApiError(openAiException);
             log.warn("SEO metadata API call failed (model={}, tier={}): {}", configuredModel, tier.headerValue(), detail);
