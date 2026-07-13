@@ -6,12 +6,14 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import net.findmybook.application.ai.BookAiGenerationException;
 import net.findmybook.application.ai.BookAiContentService;
 import net.findmybook.controller.dto.BookAiContentSnapshotDto;
@@ -186,11 +188,17 @@ public class BookAiContentController {
     }
 
     /** Immutable context shared across all phases of a single queued SSE stream. */
+    private enum QueuedStreamPhase {
+        WAITING,
+        GENERATING,
+        CLOSED
+    }
+
     private record QueuedStreamState(
         SseEmitter emitter,
         UUID bookId,
         AtomicBoolean streamClosed,
-        AtomicBoolean queueWaitActive
+        AtomicReference<QueuedStreamPhase> phase
     ) {}
 
     private void beginQueuedStream(SseEmitter emitter, UUID bookId) {
@@ -199,7 +207,7 @@ public class BookAiContentController {
             emitter,
             bookId,
             new AtomicBoolean(false),
-            new AtomicBoolean(true)
+            new AtomicReference<>(QueuedStreamPhase.WAITING)
         );
         var queuedTask = enqueueGenerationTask(state);
         sseOrchestrator.sendEvent(emitter, "queued", sseOrchestrator.toQueuePositionPayload(requestQueue.getPosition(queuedTask.id())));
@@ -207,7 +215,7 @@ public class BookAiContentController {
         ScheduledFuture<?> keepaliveTicker = sseOrchestrator.scheduleKeepaliveTicker(emitter, bookId, queuedTask.id(), state.streamClosed());
         BookAiContentSseOrchestrator.Timers timers = new BookAiContentSseOrchestrator.Timers(queueTicker, keepaliveTicker);
         ScheduledFuture<?> queueWaitDeadline = sseOrchestrator.scheduleApplicationDeadline(() -> {
-            if (state.queueWaitActive().compareAndSet(true, false)
+            if (state.phase().compareAndSet(QueuedStreamPhase.WAITING, QueuedStreamPhase.CLOSED)
                     && claimTerminalOwnership(state, timers, queuedTask.id())) {
                 sseOrchestrator.emitTerminalError(
                     emitter,
@@ -227,6 +235,7 @@ public class BookAiContentController {
         if (!state.streamClosed().compareAndSet(false, true)) {
             return false;
         }
+        state.phase().set(QueuedStreamPhase.CLOSED);
         timers.cancelAll();
         requestQueue.cancelPending(taskId);
         return true;
@@ -236,6 +245,9 @@ public class BookAiContentController {
             QueuedStreamState state) {
         AtomicBoolean messageStarted = new AtomicBoolean(false);
         return requestQueue.enqueueForeground(DEFAULT_GENERATION_PRIORITY, () -> {
+            if (state.streamClosed().get() || state.phase().get() != QueuedStreamPhase.GENERATING) {
+                throw new CancellationException("AI stream closed before generation started");
+            }
             sendMessageStartEvent(state, messageStarted);
             BookAiContentService.GeneratedContent generated = aiContentService.generateAndPersist(
                 state.bookId(),
@@ -252,7 +264,8 @@ public class BookAiContentController {
                                      long enqueuedAtMs,
                                      BookAiContentSseOrchestrator.Timers timers) {
         queuedTask.started().thenRun(() -> {
-            if (!state.queueWaitActive().compareAndSet(true, false) || state.streamClosed().get()) {
+            if (!state.phase().compareAndSet(QueuedStreamPhase.WAITING, QueuedStreamPhase.GENERATING)
+                    || state.streamClosed().get()) {
                 return;
             }
             timers.cancelQueueTicker();

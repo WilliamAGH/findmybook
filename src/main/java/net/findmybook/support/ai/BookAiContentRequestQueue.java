@@ -247,8 +247,13 @@ public class BookAiContentRequestQueue {
                     task.result.complete(supplierResult);
                 } else {
                     Throwable failure = unwrapCompletionFailure(throwable);
-                    log.warn("AI queue task failed [id={}, lane={}, priority={}]",
-                        task.id, task.lane, task.priority, failure);
+                    if (failure instanceof CancellationException) {
+                        log.debug("AI queue task cancelled [id={}, lane={}, priority={}]",
+                            task.id, task.lane, task.priority);
+                    } else {
+                        log.warn("AI queue task failed [id={}, lane={}, priority={}]",
+                            task.id, task.lane, task.priority, failure);
+                    }
                     task.result.completeExceptionally(failure);
                 }
                 synchronized (this) {

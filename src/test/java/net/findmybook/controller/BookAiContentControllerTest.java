@@ -1,10 +1,12 @@
 package net.findmybook.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -17,6 +19,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.function.Supplier;
@@ -32,6 +35,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -303,12 +307,14 @@ class BookAiContentControllerTest {
         UUID bookId = UUID.randomUUID();
         CompletableFuture<Void> started = new CompletableFuture<>();
         CompletableFuture<BookAiContentService.GeneratedContent> result = new CompletableFuture<>();
+        ArgumentCaptor<Supplier<BookAiContentService.GeneratedContent>> supplierCaptor = ArgumentCaptor.captor();
         BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent> task =
             new BookAiContentRequestQueue.EnqueuedTask<>("task-queue-timeout-1", started, result);
         when(aiContentService.resolveBookId("slug")).thenReturn(Optional.of(bookId));
         when(aiContentService.findCurrent(bookId)).thenReturn(Optional.empty());
         when(aiContentService.isAvailable()).thenReturn(true);
-        when(requestQueue.<BookAiContentService.GeneratedContent>enqueueForeground(anyInt(), any())).thenReturn(task);
+        when(requestQueue.<BookAiContentService.GeneratedContent>enqueueForeground(anyInt(), supplierCaptor.capture()))
+            .thenReturn(task);
         when(requestQueue.getPosition("task-queue-timeout-1")).thenReturn(
             new BookAiContentRequestQueue.QueuePosition(true, 1, 0, 1, 1));
 
@@ -319,6 +325,10 @@ class BookAiContentControllerTest {
         assertThat(response.getAsyncResult(1_000L)).isNull();
         assertThat(response.getResponse().getContentAsString()).contains("\"code\":\"queue_busy\"");
         verify(requestQueue).cancelPending("task-queue-timeout-1");
+        assertThatThrownBy(() -> supplierCaptor.getValue().get())
+            .isInstanceOf(CancellationException.class)
+            .hasMessage("AI stream closed before generation started");
+        verify(aiContentService, never()).generateAndPersist(any(), any(), any());
     }
 
     /**
