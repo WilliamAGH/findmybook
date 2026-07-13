@@ -83,7 +83,7 @@ Startup now fails fast with a clear error when database-required profiles are ac
 - Book detail `og:image` metadata points to the dynamic PNG endpoint `GET /api/pages/og/book/{identifier}`.
 - Route matching/canonicalization rules are delivered by the backend route manifest, embedded as `window.__FMB_ROUTE_MANIFEST__` and available at `GET /api/pages/routes`.
 - Trailing-slash page requests are permanently redirected (`308`) to canonical non-slash routes before security filtering; query strings are preserved.
-- The sitemap landing route emits an origin-relative canonical redirect; Spring resolves relative locations using trusted forwarded headers when available.
+- The sitemap landing route emits an origin-relative canonical `Location` with no scheme or host, so forwarded origin metadata cannot influence its redirect target.
 - `/frontend/index.html` is intentionally not part of runtime static assets. If generated during frontend build, Gradle fails packaging to prevent fallback HTML reintroduction.
 
 ## SEO Image Cache
