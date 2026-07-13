@@ -5,6 +5,7 @@ import net.findmybook.dto.BookDetail;
 import net.findmybook.dto.EditionSummary;
 import net.findmybook.dto.RecommendationCard;
 import net.findmybook.repository.BookQueryRepository;
+import net.findmybook.util.ApplicationConstants;
 import net.findmybook.util.IsbnUtils;
 import net.findmybook.util.PagingUtils;
 import net.findmybook.util.SearchQueryUtils;
@@ -263,7 +264,7 @@ public class BookSearchService {
             return;
         }
         try {
-            jdbcTemplate.execute("SELECT refresh_book_search_view()");
+            jdbcTemplate.execute(ApplicationConstants.Database.Queries.REFRESH_SEARCH_VIEW);
         } catch (DataAccessException ex) {
             // Non-critical: search still works with stale materialized view data
             log.warn("Non-critical: Failed to refresh book_search_view: {}", ex.getMessage());

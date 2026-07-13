@@ -45,6 +45,7 @@ public class BookAiContentService {
     private static final String DEFAULT_API_MODE = "chat";
     private static final long MAX_COMPLETION_TOKENS = 1000L;
     private static final int MAX_GENERATION_ATTEMPTS = 3;
+    private static final int SDK_MAX_RETRIES = 2;
     private static final int MIN_DESCRIPTION_LENGTH = 50;
     private static final double SAMPLING_TEMPERATURE = 0.2;
 
@@ -101,7 +102,7 @@ public class BookAiContentService {
                 clients.put(tier, OpenAIOkHttpClient.builder()
                     .apiKey(openAiProperties.apiKey())
                     .baseUrl(openAiProperties.baseUrl())
-                    .maxRetries(0)
+                    .maxRetries(SDK_MAX_RETRIES)
                     .putHeader(LlmGatewayTier.HEADER_NAME, tier.headerValue())
                     .build());
             }
@@ -262,7 +263,7 @@ public class BookAiContentService {
         }
         Throwable cause = generationFailure.getCause();
         if (cause instanceof OpenAIException) {
-            return true;
+            return false;
         }
         if (cause instanceof IllegalStateException parseFailure) {
             String message = parseFailure.getMessage();

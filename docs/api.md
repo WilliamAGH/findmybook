@@ -142,7 +142,7 @@
     - `environmentMode: string` (`development`, `production`, or `test`)
   - Queue semantics:
     - Foreground (interactive Svelte) tasks are always dequeued ahead of background ingestion tasks.
-    - Background enqueue is capped by `APP_AI_QUEUE_BACKGROUND_MAX_PENDING` (default `100000`).
+    - Background enqueue is capped by `APP_AI_QUEUE_BACKGROUND_MAX_PENDING` (default `100`).
 - `POST /api/books/{identifier}/ai/content/stream`
   - Query params:
     - `refresh` (`false` by default; when `false`, cached Postgres AI snapshot is returned when present)

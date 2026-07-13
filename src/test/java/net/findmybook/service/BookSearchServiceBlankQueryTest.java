@@ -1,5 +1,6 @@
 package net.findmybook.service;
 
+import net.findmybook.util.ApplicationConstants;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -8,6 +9,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.TransientDataAccessResourceException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.PreparedStatementSetter;
 import org.springframework.jdbc.core.RowMapper;
@@ -16,7 +18,9 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -87,5 +91,23 @@ class BookSearchServiceBlankQueryTest {
             .contains("GROUP BY bc.normalized_name")
             .contains("HAVING COUNT(DISTINCT bcj.book_id) >= ?")
             .doesNotContain(" OVER ");
+    }
+
+    @Test
+    void should_RefreshMaterializedViewConcurrently_When_RefreshRequested() {
+        bookSearchService.refreshMaterializedView();
+
+        verify(jdbcTemplate).execute(ApplicationConstants.Database.Queries.REFRESH_SEARCH_VIEW);
+        assertThat(ApplicationConstants.Database.Queries.REFRESH_SEARCH_VIEW)
+            .isEqualTo("REFRESH MATERIALIZED VIEW CONCURRENTLY book_search_view");
+    }
+
+    @Test
+    void should_ContainNoncriticalDataAccessFailure_When_ConcurrentRefreshFails() {
+        doThrow(new TransientDataAccessResourceException("refresh unavailable"))
+            .when(jdbcTemplate)
+            .execute(ApplicationConstants.Database.Queries.REFRESH_SEARCH_VIEW);
+
+        assertThatCode(bookSearchService::refreshMaterializedView).doesNotThrowAnyException();
     }
 }

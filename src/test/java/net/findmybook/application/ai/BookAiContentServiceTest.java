@@ -91,7 +91,7 @@ class BookAiContentServiceTest {
     }
 
     @Test
-    void should_ReturnTrueForRetryableFailure_When_GenerationFailureIsCausedByOpenAiException() {
+    void should_ReturnFalseForRetryableFailure_When_SdkOwnsOpenAiTransportRetries() {
         BookAiContentService service = newService();
         OpenAIException openAiException = mock(OpenAIException.class);
         BookAiGenerationException generationFailure = new BookAiGenerationException(
@@ -102,7 +102,7 @@ class BookAiContentServiceTest {
 
         Boolean retryable = ReflectionTestUtils.invokeMethod(service, "isRetryableGenerationFailure", generationFailure);
 
-        assertThat(retryable).isTrue();
+        assertThat(retryable).isFalse();
     }
 
     @Test
