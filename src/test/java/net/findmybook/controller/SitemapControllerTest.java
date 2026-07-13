@@ -169,13 +169,14 @@ class SitemapControllerTest {
     }
 
     @Test
-    @DisplayName("GET /sitemap with parameters redirects to canonical dynamic route")
-    void sitemapLandingRedirectsToDynamicRoute() throws Exception {
+    @DisplayName("GET /sitemap emits a relative canonical redirect even with untrusted forwarded headers")
+    void should_EmitRelativeCanonicalRedirect_When_ForwardedHeaderIsUntrusted() throws Exception {
         mockMvc.perform(get("/sitemap")
+                .header("Forwarded", "proto=http;host=attacker.example")
                 .param("view", "books")
                 .param("letter", "b")
                 .param("page", "3"))
-            .andExpect(status().is3xxRedirection())
+            .andExpect(status().isFound())
             .andExpect(redirectedUrl("/sitemap/books/B/3"));
     }
 

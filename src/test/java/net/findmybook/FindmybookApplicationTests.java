@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.http.client.autoconfigure.HttpClientsProperties;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -16,7 +15,6 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.web.servlet.MockMvc;
 import software.amazon.awssdk.services.s3.S3Client;
 
 import java.time.Duration;
@@ -29,9 +27,6 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * Basic application context load test for findmybook
@@ -55,7 +50,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
     "app.security.admin.password=test-password",
     "app.security.user.password=test-password"
 })
-@AutoConfigureMockMvc
 @ActiveProfiles("test") // Ensure the "test" profile and its Redis configuration are active
 class FindmybookApplicationTests {
 
@@ -83,9 +77,6 @@ class FindmybookApplicationTests {
 
     @Autowired
     private HttpClientsProperties httpClientsProperties;
-
-    @Autowired
-    private MockMvc mockMvc;
 
     // No-op: cached repository removed
 
@@ -241,15 +232,6 @@ class FindmybookApplicationTests {
     @Test
     void should_DefaultServerPortTo8095_WhenNotOverridden() {
         assertEquals("8095", environment.getProperty("server.port"));
-    }
-
-    @Test
-    void should_PreserveHttpsSitemapRedirect_When_ForwardedSchemeIsHttps() throws Exception {
-        mockMvc.perform(get("/sitemap")
-                .header("X-Forwarded-Proto", "https")
-                .header("X-Forwarded-Host", "dev.findmybook.net"))
-            .andExpect(status().isFound())
-            .andExpect(header().string("Location", "https://dev.findmybook.net/sitemap/authors/A/1"));
     }
 
     /**

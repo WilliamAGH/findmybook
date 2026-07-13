@@ -45,8 +45,6 @@ Deployment readiness intentionally uses Spring's `readinessState` group rather t
 
 Keep Coolify's UI-generated health check disabled for this Dockerfile deployment. Coolify detects the image-owned `HEALTHCHECK`, waits for Docker to report the replacement healthy, and only then removes the previous container. The probe reads `SERVER_PORT` at runtime so the same image works with the repository default (`8095`) and Coolify's configured container port (`8080`).
 
-Public deployments run behind a trusted reverse proxy. `server.forward-headers-strategy=framework` makes redirects and generated request URLs honor the proxy-provided public scheme and host, preventing HTTPS requests from being redirected through an internal HTTP origin.
-
 ## User Accounts
 
 | Username | Role(s) | Access | Password Env Variable |
@@ -85,6 +83,7 @@ Startup now fails fast with a clear error when database-required profiles are ac
 - Book detail `og:image` metadata points to the dynamic PNG endpoint `GET /api/pages/og/book/{identifier}`.
 - Route matching/canonicalization rules are delivered by the backend route manifest, embedded as `window.__FMB_ROUTE_MANIFEST__` and available at `GET /api/pages/routes`.
 - Trailing-slash page requests are permanently redirected (`308`) to canonical non-slash routes before security filtering; query strings are preserved.
+- Public origin metadata is not trusted from client-supplied forwarding headers; the sitemap landing route emits an origin-relative canonical redirect so TLS-terminating proxies cannot introduce scheme or host drift.
 - `/frontend/index.html` is intentionally not part of runtime static assets. If generated during frontend build, Gradle fails packaging to prevent fallback HTML reintroduction.
 
 ## SEO Image Cache

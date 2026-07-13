@@ -1,6 +1,6 @@
 /**
  * Configuration for static resource handling and web MVC settings
- * 
+ *
  * @author William Callahan
  *
  * Features:
@@ -114,7 +114,7 @@ public class WebConfig implements WebMvcConfigurer {
     }
 
     /**
-     * Registers trailing-slash canonicalization after forwarded headers and before security.
+     * Registers trailing-slash canonicalization before security processing.
      *
      * @param pageRouteTrailingSlashCanonicalizationFilter canonicalization filter bean
      * @return ordered filter registration
