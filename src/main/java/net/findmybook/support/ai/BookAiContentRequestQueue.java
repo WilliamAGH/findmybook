@@ -34,6 +34,7 @@ import org.springframework.stereotype.Service;
 public class BookAiContentRequestQueue {
 
     private static final Logger log = LoggerFactory.getLogger(BookAiContentRequestQueue.class);
+    private static final int MIN_TOTAL_PARALLEL = 2;
     private static final int MAX_ALLOWED_PARALLEL = 20;
     private static final int DEFAULT_MAX_BACKGROUND_PENDING = 100_000;
 
@@ -42,10 +43,12 @@ public class BookAiContentRequestQueue {
     private final TreeMap<Integer, Deque<QueuedTask<?>>> pendingBackgroundByPriority;
     private final Map<String, QueuedTask<?>> pendingById;
     private final Map<String, QueuedTask<?>> runningById;
+    private final int maxBackgroundParallel;
     private final int maxParallel;
     private final int maxBackgroundPending;
 
-    private int runningCount;
+    private int runningForegroundCount;
+    private int runningBackgroundCount;
     private int pendingForegroundCount;
     private int pendingBackgroundCount;
 
@@ -53,6 +56,7 @@ public class BookAiContentRequestQueue {
     public BookAiContentRequestQueue(@Value("${AI_DEFAULT_MAX_PARALLEL:1}") int configuredParallelism,
                                      @Value("${app.ai.queue.background-max-pending:100000}") int configuredBackgroundPending) {
         this.maxParallel = coerceParallelism(configuredParallelism);
+        this.maxBackgroundParallel = maxParallel - 1;
         this.maxBackgroundPending = coerceBackgroundPending(configuredBackgroundPending);
         this.pendingForegroundByPriority = new TreeMap<>(Comparator.reverseOrder());
         this.pendingBackgroundByPriority = new TreeMap<>(Comparator.reverseOrder());
@@ -64,7 +68,8 @@ public class BookAiContentRequestQueue {
             thread.setDaemon(true);
             return thread;
         });
-        this.runningCount = 0;
+        this.runningForegroundCount = 0;
+        this.runningBackgroundCount = 0;
         this.pendingForegroundCount = 0;
         this.pendingBackgroundCount = 0;
     }
@@ -77,7 +82,11 @@ public class BookAiContentRequestQueue {
      * Returns queue depth and concurrency metrics.
      */
     public synchronized QueueSnapshot snapshot() {
-        return new QueueSnapshot(runningCount, pendingForegroundCount + pendingBackgroundCount, maxParallel);
+        return new QueueSnapshot(
+            runningForegroundCount + runningBackgroundCount,
+            pendingForegroundCount + pendingBackgroundCount,
+            maxParallel
+        );
     }
 
     /**
@@ -117,8 +126,7 @@ public class BookAiContentRequestQueue {
     }
 
     /**
-     * Enqueues an interactive foreground task. Foreground tasks always execute before
-     * any pending background ingestion tasks.
+     * Enqueues an interactive task into the preferred lane guaranteed access to reserved capacity.
      */
     public synchronized <T> EnqueuedTask<T> enqueueForeground(int priority, Supplier<T> supplier) {
         return enqueueInternal(BookAiQueueLane.FOREGROUND_SVELTE, priority, supplier, ignored -> { });
@@ -169,8 +177,9 @@ public class BookAiContentRequestQueue {
         String taskId = UUID.randomUUID().toString();
         CompletableFuture<Void> started = new CompletableFuture<>();
         CompletableFuture<T> result = new CompletableFuture<>();
-        QueuedTask<T> queuedTask = new QueuedTask<>(taskId, lane, priority, supplier, started, result);
-        EnqueuedTask<T> enqueuedTask = new EnqueuedTask<>(taskId, started, result);
+        CompletableFuture<Void> finished = new CompletableFuture<>();
+        QueuedTask<T> queuedTask = new QueuedTask<>(taskId, lane, priority, supplier, started, result, finished);
+        EnqueuedTask<T> enqueuedTask = new EnqueuedTask<>(taskId, started, result, finished);
 
         TreeMap<Integer, Deque<QueuedTask<?>>> targetQueue = lane == BookAiQueueLane.FOREGROUND_SVELTE
             ? pendingForegroundByPriority
@@ -189,6 +198,7 @@ public class BookAiContentRequestQueue {
             removePendingTask(queuedTask);
             queuedTask.started.completeExceptionally(setupFailure);
             queuedTask.result.completeExceptionally(setupFailure);
+            queuedTask.finished.complete(null);
             drain();
             throw setupFailure;
         }
@@ -212,6 +222,7 @@ public class BookAiContentRequestQueue {
             CancellationException cancellation = cancellationBeforeStart();
             queuedTask.started.completeExceptionally(cancellation);
             queuedTask.result.completeExceptionally(cancellation);
+            queuedTask.finished.complete(null);
             drain();
             return true;
         }
@@ -229,6 +240,7 @@ public class BookAiContentRequestQueue {
         boolean interruptRequested = executionFuture.cancel(true);
         if (!runningTask.executionStarted) {
             releaseRunningSlot(runningTask);
+            runningTask.finished.complete(null);
         }
         return interruptRequested;
     }
@@ -261,39 +273,42 @@ public class BookAiContentRequestQueue {
     }
 
     private synchronized void drain() {
-        while (runningCount < maxParallel) {
-            QueuedTask<?> next = shiftNext();
-            if (next == null) {
-                return;
+        while (runningForegroundCount + runningBackgroundCount < maxParallel) {
+            QueuedTask<?> foregroundTask = shiftNextFromLane(pendingForegroundByPriority);
+            if (foregroundTask != null) {
+                pendingForegroundCount -= 1;
+                startTask(foregroundTask);
+                continue;
             }
 
-            runningCount += 1;
-            runningById.put(next.id, next);
-            FutureTask<Void> executionFuture = new FutureTask<>(() -> {
-                runTask(next);
-                return null;
-            });
-            next.executionFuture = Optional.of(executionFuture);
-            next.started.complete(null);
-            if (runningById.containsKey(next.id) && !next.cancellationRequested) {
-                executorService.execute(executionFuture);
+            if (runningBackgroundCount >= maxBackgroundParallel) {
+                return;
             }
+            QueuedTask<?> backgroundTask = shiftNextFromLane(pendingBackgroundByPriority);
+            if (backgroundTask == null) {
+                return;
+            }
+            pendingBackgroundCount -= 1;
+            startTask(backgroundTask);
         }
     }
 
-    private synchronized QueuedTask<?> shiftNext() {
-        QueuedTask<?> foregroundTask = shiftNextFromLane(pendingForegroundByPriority);
-        if (foregroundTask != null) {
-            pendingForegroundCount = Math.max(0, pendingForegroundCount - 1);
-            return foregroundTask;
+    private void startTask(QueuedTask<?> task) {
+        if (task.lane == BookAiQueueLane.FOREGROUND_SVELTE) {
+            runningForegroundCount += 1;
+        } else {
+            runningBackgroundCount += 1;
         }
-
-        QueuedTask<?> backgroundTask = shiftNextFromLane(pendingBackgroundByPriority);
-        if (backgroundTask != null) {
-            pendingBackgroundCount = Math.max(0, pendingBackgroundCount - 1);
-            return backgroundTask;
+        runningById.put(task.id, task);
+        FutureTask<Void> executionFuture = new FutureTask<>(() -> {
+            runTask(task);
+            return null;
+        });
+        task.executionFuture = Optional.of(executionFuture);
+        task.started.complete(null);
+        if (runningById.containsKey(task.id) && !task.cancellationRequested) {
+            executorService.execute(executionFuture);
         }
-        return null;
     }
 
     private QueuedTask<?> shiftNextFromLane(TreeMap<Integer, Deque<QueuedTask<?>>> laneQueue) {
@@ -328,6 +343,8 @@ public class BookAiContentRequestQueue {
         } catch (Error fatalFailure) {
             finishExceptionally(task, fatalFailure);
             throw fatalFailure;
+        } finally {
+            task.finished.complete(null);
         }
     }
 
@@ -375,7 +392,11 @@ public class BookAiContentRequestQueue {
         }
         task.slotReleased = true;
         runningById.remove(task.id, task);
-        runningCount = Math.max(0, runningCount - 1);
+        if (task.lane == BookAiQueueLane.FOREGROUND_SVELTE) {
+            runningForegroundCount -= 1;
+        } else {
+            runningBackgroundCount -= 1;
+        }
         drain();
     }
 
@@ -388,10 +409,7 @@ public class BookAiContentRequestQueue {
     }
 
     private static int coerceParallelism(int configuredParallelism) {
-        if (configuredParallelism <= 0) {
-            return 1;
-        }
-        return Math.min(configuredParallelism, MAX_ALLOWED_PARALLEL);
+        return Math.max(MIN_TOTAL_PARALLEL, Math.min(configuredParallelism, MAX_ALLOWED_PARALLEL));
     }
 
     private static int coerceBackgroundPending(int configuredBackgroundPending) {
@@ -428,6 +446,7 @@ public class BookAiContentRequestQueue {
         private final Supplier<T> supplier;
         private final CompletableFuture<Void> started;
         private final CompletableFuture<T> result;
+        private final CompletableFuture<Void> finished;
         private Optional<Future<?>> executionFuture;
         private boolean executionStarted;
         private boolean cancellationRequested;
@@ -438,13 +457,15 @@ public class BookAiContentRequestQueue {
                            int priority,
                            Supplier<T> supplier,
                            CompletableFuture<Void> started,
-                           CompletableFuture<T> result) {
+                           CompletableFuture<T> result,
+                           CompletableFuture<Void> finished) {
             this.id = id;
             this.lane = lane;
             this.priority = priority;
             this.supplier = supplier;
             this.started = started;
             this.result = result;
+            this.finished = finished;
             this.executionFuture = Optional.empty();
             this.executionStarted = false;
             this.cancellationRequested = false;
@@ -457,7 +478,7 @@ public class BookAiContentRequestQueue {
      *
      * @param running  number of tasks currently executing
      * @param pending  number of tasks waiting to start
-     * @param maxParallel configured concurrency ceiling
+     * @param maxParallel total concurrency ceiling across both execution lanes
      */
     public record QueueSnapshot(int running, int pending, int maxParallel) {
     }
@@ -469,7 +490,7 @@ public class BookAiContentRequestQueue {
      * @param position    one-based queue position, null when not pending
      * @param running     current running count
      * @param pending     current pending count
-     * @param maxParallel configured concurrency ceiling
+     * @param maxParallel total concurrency ceiling across both execution lanes
      */
     public record QueuePosition(boolean inQueue,
                                 Integer position,
@@ -484,9 +505,18 @@ public class BookAiContentRequestQueue {
      * @param id      unique task identifier
      * @param started completes when the task begins execution
      * @param result  completes with the task result or exception
+     * @param finished completes after the execution slot is released, or terminal cancellation before start
      */
     public record EnqueuedTask<T>(String id,
                                   CompletableFuture<Void> started,
-                                  CompletableFuture<T> result) {
+                                  CompletableFuture<T> result,
+                                  CompletableFuture<Void> finished) {
+
+        /**
+         * Preserves construction compatibility for callers that do not model execution-slot completion.
+         */
+        public EnqueuedTask(String id, CompletableFuture<Void> started, CompletableFuture<T> result) {
+            this(id, started, result, result.handle((ignoredResult, ignoredFailure) -> (Void) null));
+        }
     }
 }

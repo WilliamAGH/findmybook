@@ -143,7 +143,13 @@
     - `available: boolean`
     - `environmentMode: string` (`development`, `production`, or `test`)
   - Queue semantics:
-    - Foreground (interactive Svelte) tasks are always dequeued ahead of background ingestion tasks.
+    - `AI_DEFAULT_MAX_PARALLEL` is the global concurrency cap and is coerced to the supported range
+      `2..20`, ensuring capacity for at least one reserved foreground execution slot.
+    - Background ingestion may occupy at most `maxParallel - 1` slots, so it can never consume the
+      reserved foreground capacity. Foreground work may borrow every idle slot up to `maxParallel`.
+    - Foreground tasks are selected before new background tasks; priority ordering is preserved
+      within each lane.
+    - `running` and `pending` aggregate both lanes.
     - Background enqueue is capped by `APP_AI_QUEUE_BACKGROUND_MAX_PENDING` (default `100`).
 - `POST /api/books/{identifier}/ai/content/stream`
   - Query params:
