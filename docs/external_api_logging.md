@@ -50,21 +50,19 @@ All console logs follow this pattern:
 **Primary Search (Authenticated):**
 
 ```text
-[EXTERNAL-API] [GoogleBooks] AUTHENTICATED PRIMARY_SEARCH ATTEMPT: for query='inauthor:elin hilderbrand'
-[EXTERNAL-API] [PAGED-SEARCH] Authenticated paged search: query='inauthor:elin hilderbrand', maxResults=20, orderBy=relevance
+[EXTERNAL-API] [GoogleBooks] AUTHENTICATED SEARCH_PAGE ATTEMPT: for query='inauthor:elin hilderbrand'
 ```
 
 **Fallback Search (Unauthenticated):**
 
 ```text
-[EXTERNAL-API] [GoogleBooks] UNAUTHENTICATED FALLBACK_SEARCH ATTEMPT: for query='inauthor:elin hilderbrand'
-[EXTERNAL-API] [PAGED-SEARCH] Unauthenticated paged search: query='inauthor:elin hilderbrand', maxResults=20, orderBy=relevance
+[EXTERNAL-API] [GoogleBooks] UNAUTHENTICATED SEARCH_PAGE ATTEMPT: for query='inauthor:elin hilderbrand'
 ```
 
 **OpenLibrary Fallback:**
 
 ```text
-[EXTERNAL-API] [OpenLibrary] UNAUTHENTICATED FALLBACK_SEARCH ATTEMPT: for query='elin hilderbrand'
+[EXTERNAL-API] [OpenLibrary] UNAUTHENTICATED SEARCH_EVERYTHING ATTEMPT: for query='elin hilderbrand'
 ```
 
 ### 4. Circuit Breaker Events
@@ -80,22 +78,19 @@ All console logs follow this pattern:
 **Successful Response:**
 
 ```text
-[EXTERNAL-API] [GoogleBooks] SUCCESS: PRIMARY_SEARCH returned 15 result(s) for query='inauthor:elin hilderbrand'
-[EXTERNAL-API] [PAGED-SEARCH] Authenticated paged search complete: query='inauthor:elin hilderbrand', results=15
-[EXTERNAL-API] [GoogleBooks] Authenticated search response: query='inauthor:elin hilderbrand', startIndex=0, itemsInPage=15
+[EXTERNAL-API] [GoogleBooks] SUCCESS: SEARCH_PAGE returned 15 result(s) for query='inauthor:elin hilderbrand'
 ```
 
 **No Results:**
 
 ```text
-[EXTERNAL-API] [GoogleBooks] SUCCESS: PRIMARY_SEARCH returned 0 result(s) for query='some unknown book'
+[EXTERNAL-API] [GoogleBooks] SUCCESS: SEARCH_PAGE returned 0 result(s) for query='some unknown book'
 ```
 
 **Failure:**
 
 ```text
-[EXTERNAL-API] [GoogleBooks] FAILURE: PRIMARY_SEARCH failed for query='problematic query' - HTTP 429: Rate limit exceeded
-[EXTERNAL-API] [PAGED-SEARCH] Authenticated paged search ERROR: query='problematic query', error=Rate limit exceeded
+[EXTERNAL-API] [GoogleBooks] FAILURE: SEARCH_PAGE failed for query='problematic query' - HTTP 429: Rate limit exceeded
 ```
 
 ### 6. HTTP Request/Response Details
@@ -125,13 +120,10 @@ Here's what a complete successful search with supplementation looks like in the 
 ```text
 [EXTERNAL-API] [TIERED-SEARCH] START: query='elin hilderbrand', postgresResults=0, desiredTotal=20, needFromExternal=20
 [EXTERNAL-API] [SEARCH-STRATEGY] Using 'inauthor:elin hilderbrand' for query='elin hilderbrand'
-[EXTERNAL-API] [GoogleBooks] AUTHENTICATED PRIMARY_SEARCH ATTEMPT: for query='inauthor:elin hilderbrand'
-[EXTERNAL-API] [PAGED-SEARCH] Authenticated paged search: query='inauthor:elin hilderbrand', maxResults=20, orderBy=relevance
+[EXTERNAL-API] [GoogleBooks] AUTHENTICATED SEARCH_PAGE ATTEMPT: for query='inauthor:elin hilderbrand'
 [EXTERNAL-API] [HTTP] AUTHENTICATED GET request to: https://www.googleapis.com/books/v1/volumes?q=inauthor:elin+hilderbrand...
 [EXTERNAL-API] [HTTP] Response: status=200, url=https://www.googleapis.com/books/v1/volumes..., bodySize=23456 bytes
-[EXTERNAL-API] [GoogleBooks] Authenticated search response: query='inauthor:elin hilderbrand', startIndex=0, itemsInPage=20
-[EXTERNAL-API] [PAGED-SEARCH] Authenticated paged search complete: query='inauthor:elin hilderbrand', results=20
-[EXTERNAL-API] [GoogleBooks] SUCCESS: PRIMARY_SEARCH returned 20 result(s) for query='inauthor:elin hilderbrand'
+[EXTERNAL-API] [GoogleBooks] SUCCESS: SEARCH_PAGE returned 20 result(s) for query='inauthor:elin hilderbrand'
 [EXTERNAL-API] [TIERED-SEARCH] COMPLETE: query='elin hilderbrand', postgresResults=0, externalResults=20, totalResults=20
 ```
 
@@ -141,16 +133,13 @@ When authenticated calls are blocked by circuit breaker:
 
 ```text
 [EXTERNAL-API] [TIERED-SEARCH] START: query='book search', postgresResults=5, desiredTotal=20, needFromExternal=15
-[EXTERNAL-API] [GoogleBooks] AUTHENTICATED PRIMARY_SEARCH ATTEMPT: for query='book search'
+[EXTERNAL-API] [GoogleBooks] AUTHENTICATED SEARCH_PAGE ATTEMPT: for query='book search'
 [EXTERNAL-API] [GoogleBooks] CIRCUIT-BREAKER-OPEN: Blocking authenticated call for query='book search' (unauthenticated fallback will be attempted)
-[EXTERNAL-API] [GoogleBooks] SUCCESS: PRIMARY_SEARCH returned 0 result(s) for query='book search'
-[EXTERNAL-API] [GoogleBooks] UNAUTHENTICATED FALLBACK_SEARCH ATTEMPT: for query='book search'
-[EXTERNAL-API] [PAGED-SEARCH] Unauthenticated paged search: query='book search', maxResults=15, orderBy=relevance
+[EXTERNAL-API] [GoogleBooks] SUCCESS: SEARCH_PAGE returned 0 result(s) for query='book search'
+[EXTERNAL-API] [GoogleBooks] UNAUTHENTICATED SEARCH_PAGE ATTEMPT: for query='book search'
 [EXTERNAL-API] [HTTP] UNAUTHENTICATED GET request to: https://www.googleapis.com/books/v1/volumes?q=book+search...
 [EXTERNAL-API] [HTTP] Response: status=200, url=https://www.googleapis.com/books/v1/volumes..., bodySize=12345 bytes
-[EXTERNAL-API] [GoogleBooks] Unauthenticated search response: query='book search', startIndex=0, itemsInPage=10
-[EXTERNAL-API] [PAGED-SEARCH] Unauthenticated paged search complete: query='book search', results=10
-[EXTERNAL-API] [GoogleBooks] SUCCESS: FALLBACK_SEARCH returned 10 result(s) for query='book search'
+[EXTERNAL-API] [GoogleBooks] SUCCESS: SEARCH_PAGE returned 10 result(s) for query='book search'
 [EXTERNAL-API] [TIERED-SEARCH] COMPLETE: query='book search', postgresResults=5, externalResults=10, totalResults=15
 ```
 
@@ -194,7 +183,7 @@ grep "\[EXTERNAL-API\].*TIERED-SEARCH" application.log
 
 ### ✅ Healthy Operation
 
-- See PRIMARY_SEARCH SUCCESS with results > 0
+- See SEARCH_PAGE SUCCESS with results > 0
 - See TIERED-SEARCH COMPLETE with merged results
 - HTTP responses with status=200
 - No CIRCUIT-BREAKER-OPEN messages
@@ -202,9 +191,9 @@ grep "\[EXTERNAL-API\].*TIERED-SEARCH" application.log
 ### ⚠️ Degraded Operation (But Working)
 
 - CIRCUIT-BREAKER-OPEN messages
-- PRIMARY_SEARCH returning 0 results
-- FALLBACK_SEARCH attempts being made
-- FALLBACK_SEARCH SUCCESS with results > 0
+- SEARCH_PAGE returning 0 results for authenticated calls
+- Unauthenticated fallback attempts being made
+- Unauthenticated SEARCH_PAGE SUCCESS with results > 0
 
 ### ❌ Complete Failure
 
@@ -250,8 +239,7 @@ grep "\[EXTERNAL-API\].*TIERED-SEARCH" application.log
 All logging is implemented in:
 
 1. **ExternalApiLogger.java** - Centralized logging utility
-3. **GoogleApiFetcher.java** - Low-level API calls
-4. **BookDataOrchestrator.java** - Overall data orchestration
+2. **GoogleApiFetcher.java** - Low-level API calls
 
 ## Next Steps
 
