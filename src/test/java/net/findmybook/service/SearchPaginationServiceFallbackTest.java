@@ -6,6 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Flux;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -18,6 +19,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -308,8 +310,8 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
     }
 
     @Test
-    @DisplayName("search() should merge Open Library candidates while keeping non-color covers last")
-    void should_MergeOpenLibraryCandidates_When_PostgresHasCoverGaps() {
+    @DisplayName("search() supplements an underfilled Postgres page and keeps non-color covers last")
+    void should_MergeOpenLibraryCandidates_When_PostgresPageIsUnderfilled() {
         UUID postgresCoveredId = UUID.randomUUID();
         UUID postgresSuppressedId = UUID.randomUUID();
 
@@ -340,11 +342,11 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
     }
 
     @Test
-    @DisplayName("search() triggers Open Library metadata refresh when Postgres page metadata is incomplete")
-    void should_TriggerMetadataRefresh_When_PostgresMissingDescriptionOrPageCount() {
+    @DisplayName("search() returns Postgres page without waiting for metadata refresh")
+    void should_ReturnPostgresPageWithoutWaiting_When_MetadataRefreshDoesNotComplete() {
         UUID postgresId = UUID.randomUUID();
 
-        when(bookSearchService.searchBooks("john grisham", 4)).thenReturn(List.of(
+        when(bookSearchService.searchBooks("john grisham", 2)).thenReturn(List.of(
             new BookSearchService.SearchResult(postgresId, 0.98, "FULLTEXT")
         ));
         when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(List.of(
@@ -359,28 +361,20 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
             )
         ));
 
-        Book openLibraryCandidate = buildOpenLibraryCandidate("OL77004W", "The Partner");
-        openLibraryCandidate.setAuthors(List.of("John Grisham"));
-        openLibraryCandidate.setDescription("A fuller Open Library description for The Partner.");
-        openLibraryCandidate.setPageCount(416);
-        openLibraryCandidate.setPublisher("Doubleday");
-        openLibraryCandidate.setLanguage("eng");
-        openLibraryCandidate.setExternalImageUrl("https://covers.openlibrary.org/b/id/9323420-L.jpg");
-        when(openLibraryBookDataService.queryBooksByEverything(eq("john grisham"), anyString(), eq(0), eq(4)))
-            .thenReturn(Flux.concat(Flux.just(openLibraryCandidate), Flux.never()));
+        when(openLibraryBookDataService.queryBooksByEverything(eq("john grisham"), anyString()))
+            .thenReturn(Flux.never());
 
         SearchPaginationService metadataRefreshingService = fallbackEnabledService();
-        SearchPaginationService.SearchPage page = metadataRefreshingService.search(searchRequest("john grisham", 0, 2, "relevance")).block();
+        SearchPaginationService.SearchPage page = metadataRefreshingService
+            .search(searchRequest("john grisham", 0, 1, "relevance"))
+            .block(Duration.ofSeconds(1));
 
         assertThat(page).isNotNull();
-        verify(openLibraryBookDataService).queryBooksByEverything("john grisham", "relevance", 0, 4);
-        verify(bookDataOrchestrator).persistBooksAsync(
-            argThat(books -> books != null
-                && books.size() == 1
-                && "OL77004W".equals(books.getFirst().getId())
-                && Integer.valueOf(416).equals(books.getFirst().getPageCount())),
-            eq("SEARCH_METADATA_REFRESH")
-        );
+        assertThat(page.pageItems()).extracting(Book::getId).containsExactly(postgresId.toString());
+        verify(openLibraryBookDataService).queryBooksByEverything("john grisham", "relevance");
+        verify(openLibraryBookDataService, never())
+            .queryBooksByEverything("john grisham", "relevance", 0, 2);
+        verify(bookDataOrchestrator, never()).persistBooksAsync(anyList(), anyString());
         verify(googleApiFetcher, times(0)).streamSearchItems(anyString(), anyInt(), anyString(), any(), anyBoolean());
     }
 
