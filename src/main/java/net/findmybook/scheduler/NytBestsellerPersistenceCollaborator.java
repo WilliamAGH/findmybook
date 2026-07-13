@@ -8,8 +8,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+import java.io.Serializable;
 import java.sql.Date;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -157,7 +159,7 @@ public class NytBestsellerPersistenceCollaborator {
             listContext.listName(),
             listContext.listCode()
         );
-        Map<String, Object> metadata = buildNytTagMetadata(
+        Map<String, Serializable> metadata = buildNytTagMetadata(
             listContext,
             bookNode,
             stats,
@@ -171,11 +173,11 @@ public class NytBestsellerPersistenceCollaborator {
         supplementalPersistenceService.assignTag(bookId, listTagKey, listTagDisplayName, "NYT", 1.0, metadata);
     }
 
-    private Map<String, Object> buildNytTagMetadata(NytListContext listContext,
-                                                     JsonNode bookNode,
-                                                     RankingStats stats,
-                                                     String naturalListLabel) {
-        Map<String, Object> metadata = new LinkedHashMap<>();
+    private Map<String, Serializable> buildNytTagMetadata(NytListContext listContext,
+                                                           JsonNode bookNode,
+                                                           RankingStats stats,
+                                                           String naturalListLabel) {
+        Map<String, Serializable> metadata = new LinkedHashMap<>();
         metadata.put("list_code", listContext.listCode());
         putIfHasText(metadata, "list_display_name", naturalListLabel);
         putIfHasText(metadata, "list_name", listContext.listName());
@@ -183,7 +185,7 @@ public class NytBestsellerPersistenceCollaborator {
         putIfHasText(metadata, "updated_frequency", listContext.updatedFrequency());
         putIfHasText(metadata, "published_date", formatDate(listContext.publishedDate()));
         putIfHasText(metadata, "bestsellers_date", formatDate(listContext.bestsellersDate()));
-        
+
         if (stats.rank() != null) metadata.put("rank", stats.rank());
         if (stats.weeksOnList() != null) metadata.put("weeks_on_list", stats.weeksOnList());
         if (stats.rankLastWeek() != null) metadata.put("rank_last_week", stats.rankLastWeek());
@@ -220,11 +222,11 @@ public class NytBestsellerPersistenceCollaborator {
         }
         Map<String, String> buyLinks = payloadMapper.extractBuyLinks(bookNode);
         if (!buyLinks.isEmpty()) {
-            metadata.put("buy_links", buyLinks);
+            metadata.put("buy_links", new LinkedHashMap<>(buyLinks));
         }
         List<Map<String, String>> isbnEntries = payloadMapper.extractIsbnEntries(bookNode);
         if (!isbnEntries.isEmpty()) {
-            metadata.put("isbns", isbnEntries);
+            metadata.put("isbns", new ArrayList<>(isbnEntries));
         }
         return metadata;
     }
@@ -236,7 +238,7 @@ public class NytBestsellerPersistenceCollaborator {
         return date != null ? date.toString() : null;
     }
 
-    private static void putIfHasText(Map<String, Object> metadata, String key, @Nullable String value) {
+    private static void putIfHasText(Map<String, Serializable> metadata, String key, @Nullable String value) {
         if (StringUtils.hasText(value)) {
             metadata.put(key, value.trim());
         }

@@ -1,5 +1,6 @@
 package net.findmybook.util.cover;
 
+import java.io.Serializable;
 import net.findmybook.dto.BookCard;
 import net.findmybook.model.Book;
 import net.findmybook.util.ApplicationConstants;
@@ -85,7 +86,7 @@ class CoverPrioritizerTest {
             "https://cdn.test/covers/high.jpg",
             4.5,
             100,
-            Map.<String, Object>of()
+            Map.<String, Serializable>of()
         );
         BookCard medium = new BookCard(
             "2",
@@ -97,7 +98,7 @@ class CoverPrioritizerTest {
             "https://images.test/medium.jpg?w=320&h=480",
             4.2,
             50,
-            Map.<String, Object>of()
+            Map.<String, Serializable>of()
         );
         BookCard low = new BookCard(
             "3",
@@ -109,7 +110,7 @@ class CoverPrioritizerTest {
             "https://example.test/low.jpg?w=120&h=180",
             4.0,
             10,
-            Map.<String, Object>of()
+            Map.<String, Serializable>of()
         );
         BookCard placeholder = new BookCard(
             "4",
@@ -121,7 +122,7 @@ class CoverPrioritizerTest {
             ApplicationConstants.Cover.PLACEHOLDER_IMAGE_PATH,
             3.8,
             5,
-            Map.<String, Object>of()
+            Map.<String, Serializable>of()
         );
 
         List<BookCard> cards = new ArrayList<>(List.of(low, placeholder, medium, high));
@@ -206,7 +207,7 @@ class CoverPrioritizerTest {
 
         List<Book> books = new ArrayList<>(List.of(noCoverHighRelevance, colorLowerRelevance));
         Comparator<Book> relevanceSort = Comparator.<Book>comparingDouble(b -> {
-            Object raw = b.getQualifiers().get("search.relevanceScore");
+            Serializable raw = b.getQualifiers().get("search.relevanceScore");
             return raw instanceof Number number ? number.doubleValue() : 0.0d;
         }).reversed();
 
@@ -316,13 +317,13 @@ class CoverPrioritizerTest {
         BookCard olderCard = new BookCard(
             "1", "older", "Older Book", List.of("Author"),
             "https://cdn.test/covers/old.jpg", "covers/old.jpg", "https://cdn.test/covers/old.jpg",
-            4.0, 10, Map.<String, Object>of(), null,
+            4.0, 10, Map.<String, Serializable>of(), null,
             LocalDate.of(2010, 1, 1)
         );
         BookCard newerCard = new BookCard(
             "2", "newer", "Newer Book", List.of("Author"),
             "https://cdn.test/covers/new.jpg", "covers/new.jpg", "https://cdn.test/covers/new.jpg",
-            4.0, 10, Map.<String, Object>of(), null,
+            4.0, 10, Map.<String, Serializable>of(), null,
             LocalDate.of(2024, 6, 15)
         );
 

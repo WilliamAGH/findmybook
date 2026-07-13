@@ -1,5 +1,6 @@
 package net.findmybook.model;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -78,7 +79,7 @@ class BookTest {
         Book.CollectionAssignment collection = new Book.CollectionAssignment();
         collections.add(collection);
         collections.add(null);
-        Map<String, Object> qualifiers = new HashMap<>();
+        Map<String, Serializable> qualifiers = new HashMap<>();
         qualifiers.put("valid", true);
         qualifiers.put(null, "missing-key");
         qualifiers.put("missing-value", null);
@@ -96,6 +97,9 @@ class BookTest {
 
         book.setCategories(categories);
         book.setCollections(collections);
+        book.setQualifiers(qualifiers);
+        book.setQualifiers(Map.of("unsupported", new Thread()));
+        assertThat(book.getQualifiers()).isEmpty();
         book.setQualifiers(qualifiers);
         book.addQualifier("also-missing", null);
         book.setCachedRecommendationIds(recommendationIds);

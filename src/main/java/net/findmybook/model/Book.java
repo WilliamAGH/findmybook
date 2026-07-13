@@ -11,6 +11,7 @@ package net.findmybook.model;
 
 import net.findmybook.model.image.CoverImages;
 import net.findmybook.util.ValidationUtils;
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
@@ -69,7 +70,7 @@ public class Book {
     private Integer editionNumber;
     private List<Edition> otherEditions;
     private String asin;
-    private Map<String, Object> qualifiers;
+    private Map<String, Serializable> qualifiers;
     private List<String> cachedRecommendationIds;
     private transient String rawJsonResponse;
 
@@ -166,29 +167,30 @@ public class Book {
 
 
     /**
-     * Drops unusable qualifier entries so strict DTO map copies cannot fail.
+     * Drops unusable qualifier entries and retains only serializable metadata so persistence and API
+     * projections share one safe value contract.
      *
      * @param qualifiers provider-supplied qualifier metadata
      */
-    public void setQualifiers(Map<String, Object> qualifiers) {
+    public void setQualifiers(Map<String, ?> qualifiers) {
         this.qualifiers = new HashMap<>();
         if (qualifiers == null || qualifiers.isEmpty()) {
             return;
         }
         qualifiers.forEach((qualifierKey, qualifierValue) -> {
-            if (qualifierKey != null && !qualifierKey.isBlank() && qualifierValue != null) {
-                this.qualifiers.put(qualifierKey, qualifierValue);
+            if (qualifierKey != null && !qualifierKey.isBlank() && qualifierValue instanceof Serializable serializableValue) {
+                this.qualifiers.put(qualifierKey, serializableValue);
             }
         });
     }
 
     /**
-     * Adds a qualifier only when both its key and value can be represented by downstream contracts.
+     * Adds a qualifier only when both its key and serializable value can be represented downstream.
      *
      * @param key qualifier key
      * @param value qualifier value
      */
-    public void addQualifier(String key, Object value) {
+    public void addQualifier(String key, Serializable value) {
         if (key == null || key.isBlank() || value == null) {
             return;
         }

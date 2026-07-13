@@ -1,5 +1,6 @@
 package net.findmybook.service;
 
+import java.io.Serializable;
 import net.findmybook.dto.BookAggregate;
 import net.findmybook.dto.BookListItem;
 import net.findmybook.mapper.GoogleBooksMapper;
@@ -18,6 +19,7 @@ import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
 
 import java.time.LocalDate;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -110,7 +112,9 @@ abstract class AbstractSearchPaginationServiceTest {
     }
 
     protected BookListItem buildListItem(UUID id, String title) {
-        Map<String, Object> tags = Map.of("nytBestseller", Map.of("rank", 1));
+        LinkedHashMap<String, Serializable> bestsellerAttributes = new LinkedHashMap<>();
+        bestsellerAttributes.put("rank", 1);
+        Map<String, Serializable> tags = Map.of("nytBestseller", bestsellerAttributes);
         return new BookListItem(
             id.toString(),
             "slug-" + id,
