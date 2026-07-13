@@ -1,6 +1,6 @@
 package net.findmybook.application.ai;
 
-import com.openai.errors.OpenAIException;
+import com.openai.errors.OpenAIServiceException;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
@@ -20,6 +20,8 @@ import net.findmybook.service.BookIdentifierResolver;
 import net.findmybook.service.BookSearchService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.test.util.ReflectionTestUtils;
 import tools.jackson.databind.ObjectMapper;
 
@@ -93,7 +95,8 @@ class BookAiContentServiceTest {
     @Test
     void should_ReturnTrueForRetryableFailure_When_LiveTransportFailsBeforeContent() {
         BookAiContentService service = newService();
-        OpenAIException openAiException = mock(OpenAIException.class);
+        OpenAIServiceException openAiException = mock(OpenAIServiceException.class);
+        when(openAiException.statusCode()).thenReturn(503);
         BookAiGenerationException generationFailure = new BookAiGenerationException(
             BookAiGenerationException.ErrorCode.GENERATION_FAILED,
             "AI content generation failed (gpt-5-mini): HTTP 503 server error",
@@ -113,7 +116,8 @@ class BookAiContentServiceTest {
     @Test
     void should_ReturnFalseForRetryableFailure_When_BackgroundSdkOwnsTransportRetries() {
         BookAiContentService service = newService();
-        OpenAIException openAiException = mock(OpenAIException.class);
+        OpenAIServiceException openAiException = mock(OpenAIServiceException.class);
+        when(openAiException.statusCode()).thenReturn(503);
         BookAiGenerationException generationFailure = new BookAiGenerationException(
             BookAiGenerationException.ErrorCode.GENERATION_FAILED,
             "AI content generation failed (gpt-5-mini): HTTP 503 server error",
@@ -125,6 +129,28 @@ class BookAiContentServiceTest {
             "isRetryableGenerationFailure",
             generationFailure,
             net.findmybook.support.llm.LlmGatewayTier.BACKGROUND_BATCH
+        );
+
+        assertThat(retryable).isFalse();
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {400, 401, 403, 404, 422})
+    void should_ReturnFalseForRetryableFailure_When_LiveRequestHasNonRetryableStatus(int statusCode) {
+        BookAiContentService service = newService();
+        OpenAIServiceException openAiException = mock(OpenAIServiceException.class);
+        when(openAiException.statusCode()).thenReturn(statusCode);
+        BookAiGenerationException generationFailure = new BookAiGenerationException(
+            BookAiGenerationException.ErrorCode.GENERATION_FAILED,
+            "AI content generation failed (gpt-5-mini): HTTP %d".formatted(statusCode),
+            openAiException
+        );
+
+        Boolean retryable = ReflectionTestUtils.invokeMethod(
+            service,
+            "isRetryableGenerationFailure",
+            generationFailure,
+            net.findmybook.support.llm.LlmGatewayTier.LIVE_RENDER
         );
 
         assertThat(retryable).isFalse();

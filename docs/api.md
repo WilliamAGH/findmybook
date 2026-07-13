@@ -160,6 +160,9 @@
     - `message_done`: `{ message }`
     - `done`: `{ message, aiContent }` where `aiContent` matches the `book.aiContent` contract
     - `error`: `{ error, code, retryable }`
+      - Queue wait is kept alive for at most ten minutes and then ends with `queue_busy`; the
+        `stream_timeout` generation deadline begins only after `started`, so queued work cannot
+        consume the model's inference budget.
       - `code` values include:
         - `identifier_required`
         - `book_not_found`

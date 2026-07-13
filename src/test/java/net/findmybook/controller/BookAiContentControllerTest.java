@@ -250,25 +250,26 @@ class BookAiContentControllerTest {
     }
 
     @Test
-    @DisplayName("default stream deadline reserves queue and delivery time after all live render attempts")
-    void should_ReserveQueueAndDeliveryHeadroom_When_DefaultStreamDeadlineIsCalculated() {
-        long applicationDeadlineMillis = (Long) ReflectionTestUtils.getField(controller, "applicationStreamTimeoutMillis");
+    @DisplayName("default generation deadline reserves delivery time after all live render attempts")
+    void should_ReserveDeliveryHeadroom_When_DefaultGenerationDeadlineIsCalculated() {
+        long queueWaitDeadlineMillis = (Long) ReflectionTestUtils.getField(controller, "queueWaitDeadlineMillis");
+        long generationDeadlineMillis = (Long) ReflectionTestUtils.getField(controller, "generationDeadlineMillis");
         long emitterTimeoutMillis = (Long) ReflectionTestUtils.getField(controller, "emitterTimeoutMillis");
         long maximumLiveRenderAttemptsMillis = Duration.ofSeconds(LlmGatewayTier.LIVE_RENDER.callTimeoutSeconds())
             .multipliedBy(LlmGatewayTier.LIVE_RENDER.maxGenerationAttempts())
             .toMillis();
 
-        assertThat(applicationDeadlineMillis - maximumLiveRenderAttemptsMillis)
+        assertThat(generationDeadlineMillis - maximumLiveRenderAttemptsMillis)
             .isGreaterThanOrEqualTo(Duration.ofMinutes(1).toMillis());
-        assertThat(emitterTimeoutMillis).isGreaterThan(applicationDeadlineMillis);
+        assertThat(emitterTimeoutMillis).isGreaterThan(queueWaitDeadlineMillis + generationDeadlineMillis);
     }
 
     @Test
-    @DisplayName("POST stream emits stream_timeout before the emitter timeout")
-    void should_EmitStreamTimeout_When_ApplicationDeadlineExpires() throws Exception {
+    @DisplayName("POST stream starts the generation deadline only after leaving the queue")
+    void should_StartGenerationDeadline_When_QueuedTaskStarts() throws Exception {
         controller.shutdownTickerExecutor();
         ScheduledThreadPoolExecutor deadlineExecutor = new ScheduledThreadPoolExecutor(1);
-        configureController("development", deadlineExecutor, 20L, 200L);
+        configureController("development", deadlineExecutor, 200L, 20L, 500L);
         UUID bookId = UUID.randomUUID();
         CompletableFuture<Void> started = new CompletableFuture<>();
         CompletableFuture<BookAiContentService.GeneratedContent> result = new CompletableFuture<>();
@@ -280,14 +281,44 @@ class BookAiContentControllerTest {
         when(requestQueue.<BookAiContentService.GeneratedContent>enqueueForeground(anyInt(), any())).thenReturn(task);
         when(requestQueue.getPosition("task-timeout-1")).thenReturn(
             new BookAiContentRequestQueue.QueuePosition(true, 1, 0, 1, 1));
+        when(requestQueue.snapshot()).thenReturn(new BookAiContentRequestQueue.QueueSnapshot(1, 0, 1));
+
+        var response = mockMvc.perform(post("/api/books/slug/ai/content/stream"))
+            .andExpect(status().isOk())
+            .andReturn();
+
+        Thread.sleep(60L);
+        assertThat(response.getResponse().getContentAsString()).doesNotContain("stream_timeout");
+        started.complete(null);
+        assertThat(response.getAsyncResult(1_000L)).isNull();
+        assertThat(response.getResponse().getContentAsString()).contains("\"code\":\"stream_timeout\"");
+    }
+
+    @Test
+    @DisplayName("POST stream cancels pending work when the bounded queue wait expires")
+    void should_CancelPendingWork_When_QueueWaitDeadlineExpires() throws Exception {
+        controller.shutdownTickerExecutor();
+        ScheduledThreadPoolExecutor deadlineExecutor = new ScheduledThreadPoolExecutor(1);
+        configureController("development", deadlineExecutor, 20L, 200L, 500L);
+        UUID bookId = UUID.randomUUID();
+        CompletableFuture<Void> started = new CompletableFuture<>();
+        CompletableFuture<BookAiContentService.GeneratedContent> result = new CompletableFuture<>();
+        BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent> task =
+            new BookAiContentRequestQueue.EnqueuedTask<>("task-queue-timeout-1", started, result);
+        when(aiContentService.resolveBookId("slug")).thenReturn(Optional.of(bookId));
+        when(aiContentService.findCurrent(bookId)).thenReturn(Optional.empty());
+        when(aiContentService.isAvailable()).thenReturn(true);
+        when(requestQueue.<BookAiContentService.GeneratedContent>enqueueForeground(anyInt(), any())).thenReturn(task);
+        when(requestQueue.getPosition("task-queue-timeout-1")).thenReturn(
+            new BookAiContentRequestQueue.QueuePosition(true, 1, 0, 1, 1));
 
         var response = mockMvc.perform(post("/api/books/slug/ai/content/stream"))
             .andExpect(status().isOk())
             .andReturn();
 
         assertThat(response.getAsyncResult(1_000L)).isNull();
-        assertThat(response.getResponse().getContentAsString()).contains("\"code\":\"stream_timeout\"");
-        verify(requestQueue).cancelPending("task-timeout-1");
+        assertThat(response.getResponse().getContentAsString()).contains("\"code\":\"queue_busy\"");
+        verify(requestQueue).cancelPending("task-queue-timeout-1");
     }
 
     /**
@@ -332,9 +363,11 @@ class BookAiContentControllerTest {
     }
 
     private void configureController(String environmentMode, ScheduledThreadPoolExecutor executor,
-                                     long applicationDeadlineMillis, long emitterTimeoutMillis) {
+                                     long queueWaitDeadlineMillis,
+                                     long generationDeadlineMillis,
+                                     long emitterTimeoutMillis) {
         controller = new BookAiContentController(aiContentService, requestQueue, new ObjectMapper(), environmentMode,
-            executor, applicationDeadlineMillis, emitterTimeoutMillis);
+            executor, queueWaitDeadlineMillis, generationDeadlineMillis, emitterTimeoutMillis);
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
     }
 }

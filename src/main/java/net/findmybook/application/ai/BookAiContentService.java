@@ -7,6 +7,9 @@ import com.openai.core.Timeout;
 import com.openai.core.http.StreamResponse;
 import com.openai.errors.OpenAIException;
 import com.openai.errors.OpenAIInvalidDataException;
+import com.openai.errors.OpenAIIoException;
+import com.openai.errors.OpenAIRetryableException;
+import com.openai.errors.OpenAIServiceException;
 import com.openai.models.ChatModel;
 import com.openai.models.chat.completions.ChatCompletionChunk;
 import com.openai.models.chat.completions.ChatCompletionCreateParams;
@@ -373,9 +376,23 @@ public class BookAiContentService {
         return switch (generationFailure.errorCode()) {
             case DEGENERATE_CONTENT, INCOMPLETE_RESPONSE, INVALID_RESPONSE -> true;
             case GENERATION_FAILED -> tier == LlmGatewayTier.LIVE_RENDER
-                && generationFailure.getCause() instanceof OpenAIException;
+                && isRetryableOpenAiFailure(generationFailure.getCause());
             case DESCRIPTION_TOO_SHORT, ENRICHMENT_FAILED -> false;
         };
+    }
+
+    private boolean isRetryableOpenAiFailure(Throwable failure) {
+        if (failure instanceof OpenAIIoException || failure instanceof OpenAIRetryableException) {
+            return true;
+        }
+        if (failure instanceof OpenAIServiceException serviceFailure) {
+            int statusCode = serviceFailure.statusCode();
+            return statusCode == 408
+                || statusCode == 409
+                || statusCode == 429
+                || (statusCode >= 500 && statusCode <= 599);
+        }
+        return false;
     }
 
     /** Indicates whether AI generation is currently configured and available. */

@@ -41,13 +41,18 @@ public class BookAiContentController {
     private static final Logger log = LoggerFactory.getLogger(BookAiContentController.class);
     private static final Duration LIVE_RENDER_ATTEMPT_TIMEOUT =
         Duration.ofSeconds(LlmGatewayTier.LIVE_RENDER.callTimeoutSeconds());
-    private static final Duration QUEUE_AND_DELIVERY_HEADROOM = Duration.ofMinutes(1);
-    private static final Duration APPLICATION_STREAM_TIMEOUT = LIVE_RENDER_ATTEMPT_TIMEOUT
+    private static final Duration GENERATION_DELIVERY_HEADROOM = Duration.ofMinutes(1);
+    private static final Duration GENERATION_DEADLINE = LIVE_RENDER_ATTEMPT_TIMEOUT
         .multipliedBy(LlmGatewayTier.LIVE_RENDER.maxGenerationAttempts())
-        .plus(QUEUE_AND_DELIVERY_HEADROOM);
+        .plus(GENERATION_DELIVERY_HEADROOM);
+    private static final Duration QUEUE_WAIT_DEADLINE = Duration.ofMinutes(10);
     private static final Duration EMITTER_TERMINAL_EVENT_HEADROOM = Duration.ofSeconds(5);
-    private static final long APPLICATION_STREAM_TIMEOUT_MILLIS = APPLICATION_STREAM_TIMEOUT.toMillis();
-    private static final long EMITTER_TIMEOUT_MILLIS = APPLICATION_STREAM_TIMEOUT.plus(EMITTER_TERMINAL_EVENT_HEADROOM).toMillis();
+    private static final long GENERATION_DEADLINE_MILLIS = GENERATION_DEADLINE.toMillis();
+    private static final long QUEUE_WAIT_DEADLINE_MILLIS = QUEUE_WAIT_DEADLINE.toMillis();
+    private static final long EMITTER_TIMEOUT_MILLIS = QUEUE_WAIT_DEADLINE
+        .plus(GENERATION_DEADLINE)
+        .plus(EMITTER_TERMINAL_EVENT_HEADROOM)
+        .toMillis();
     private static final long MIN_STREAM_TIMEOUT_MILLIS = 1L;
     private static final int DEFAULT_GENERATION_PRIORITY = 0;
     private static final int MIN_QUEUE_TICKER_THREADS = 4;
@@ -59,7 +64,8 @@ public class BookAiContentController {
     private final ObjectMapper objectMapper;
     private final BookAiContentSseOrchestrator sseOrchestrator;
     private final ScheduledExecutorService queueTickerExecutor;
-    private final long applicationStreamTimeoutMillis;
+    private final long queueWaitDeadlineMillis;
+    private final long generationDeadlineMillis;
     private final long emitterTimeoutMillis;
     private final String environmentMode;
     private final boolean exposeDetailedErrors;
@@ -76,7 +82,8 @@ public class BookAiContentController {
             objectMapper,
             environmentMode,
             createQueueTickerExecutor(),
-            APPLICATION_STREAM_TIMEOUT_MILLIS,
+            QUEUE_WAIT_DEADLINE_MILLIS,
+            GENERATION_DEADLINE_MILLIS,
             EMITTER_TIMEOUT_MILLIS
         );
     }
@@ -86,11 +93,13 @@ public class BookAiContentController {
                             ObjectMapper objectMapper,
                             String environmentMode,
                             ScheduledExecutorService queueTickerExecutor,
-                            long applicationStreamTimeoutMillis,
+                            long queueWaitDeadlineMillis,
+                            long generationDeadlineMillis,
                             long emitterTimeoutMillis) {
-        if (applicationStreamTimeoutMillis < MIN_STREAM_TIMEOUT_MILLIS
-                || emitterTimeoutMillis <= applicationStreamTimeoutMillis) {
-            throw new IllegalArgumentException("Emitter timeout must exceed the application stream deadline");
+        if (queueWaitDeadlineMillis < MIN_STREAM_TIMEOUT_MILLIS
+                || generationDeadlineMillis < MIN_STREAM_TIMEOUT_MILLIS
+                || emitterTimeoutMillis <= queueWaitDeadlineMillis + generationDeadlineMillis) {
+            throw new IllegalArgumentException("Emitter timeout must exceed queue and generation deadlines");
         }
         this.aiContentService = aiContentService;
         this.requestQueue = requestQueue;
@@ -98,7 +107,8 @@ public class BookAiContentController {
         this.environmentMode = normalizeEnvironmentMode(environmentMode);
         this.exposeDetailedErrors = !PRODUCTION_ENVIRONMENT_MODE.equals(this.environmentMode);
         this.queueTickerExecutor = queueTickerExecutor;
-        this.applicationStreamTimeoutMillis = applicationStreamTimeoutMillis;
+        this.queueWaitDeadlineMillis = queueWaitDeadlineMillis;
+        this.generationDeadlineMillis = generationDeadlineMillis;
         this.emitterTimeoutMillis = emitterTimeoutMillis;
         this.sseOrchestrator = new BookAiContentSseOrchestrator(requestQueue, queueTickerExecutor);
     }
@@ -176,22 +186,37 @@ public class BookAiContentController {
     }
 
     /** Immutable context shared across all phases of a single queued SSE stream. */
-    private record QueuedStreamState(SseEmitter emitter, UUID bookId, AtomicBoolean streamClosed) {}
+    private record QueuedStreamState(
+        SseEmitter emitter,
+        UUID bookId,
+        AtomicBoolean streamClosed,
+        AtomicBoolean queueWaitActive
+    ) {}
 
     private void beginQueuedStream(SseEmitter emitter, UUID bookId) {
         long enqueuedAtMs = System.currentTimeMillis();
-        QueuedStreamState state = new QueuedStreamState(emitter, bookId, new AtomicBoolean(false));
+        QueuedStreamState state = new QueuedStreamState(
+            emitter,
+            bookId,
+            new AtomicBoolean(false),
+            new AtomicBoolean(true)
+        );
         var queuedTask = enqueueGenerationTask(state);
         sseOrchestrator.sendEvent(emitter, "queued", sseOrchestrator.toQueuePositionPayload(requestQueue.getPosition(queuedTask.id())));
         ScheduledFuture<?> queueTicker = sseOrchestrator.scheduleQueuePositionTicker(emitter, bookId, queuedTask.id(), state.streamClosed());
         ScheduledFuture<?> keepaliveTicker = sseOrchestrator.scheduleKeepaliveTicker(emitter, bookId, queuedTask.id(), state.streamClosed());
         BookAiContentSseOrchestrator.Timers timers = new BookAiContentSseOrchestrator.Timers(queueTicker, keepaliveTicker);
-        ScheduledFuture<?> applicationDeadline = sseOrchestrator.scheduleApplicationDeadline(() -> {
-            if (claimTerminalOwnership(state, timers, queuedTask.id())) {
-                sseOrchestrator.emitTerminalError(emitter, AiErrorCode.STREAM_TIMEOUT, AiErrorCode.STREAM_TIMEOUT.defaultMessage());
+        ScheduledFuture<?> queueWaitDeadline = sseOrchestrator.scheduleApplicationDeadline(() -> {
+            if (state.queueWaitActive().compareAndSet(true, false)
+                    && claimTerminalOwnership(state, timers, queuedTask.id())) {
+                sseOrchestrator.emitTerminalError(
+                    emitter,
+                    AiErrorCode.QUEUE_BUSY,
+                    AiErrorCode.QUEUE_BUSY.defaultMessage()
+                );
             }
-        }, applicationStreamTimeoutMillis);
-        timers.attachDeadline(applicationDeadline);
+        }, queueWaitDeadlineMillis);
+        timers.replaceDeadline(queueWaitDeadline);
         Runnable cancelPendingIfOpen = () -> claimTerminalOwnership(state, timers, queuedTask.id());
         sseOrchestrator.wireEmitterLifecycle(emitter, bookId, cancelPendingIfOpen);
         wireStartedHandler(state, queuedTask, enqueuedAtMs, timers);
@@ -227,10 +252,24 @@ public class BookAiContentController {
                                      long enqueuedAtMs,
                                      BookAiContentSseOrchestrator.Timers timers) {
         queuedTask.started().thenRun(() -> {
-            if (state.streamClosed().get()) {
+            if (!state.queueWaitActive().compareAndSet(true, false) || state.streamClosed().get()) {
                 return;
             }
             timers.cancelQueueTicker();
+            ScheduledFuture<?> generationDeadline = sseOrchestrator.scheduleApplicationDeadline(() -> {
+                if (claimTerminalOwnership(state, timers, queuedTask.id())) {
+                    sseOrchestrator.emitTerminalError(
+                        state.emitter(),
+                        AiErrorCode.STREAM_TIMEOUT,
+                        AiErrorCode.STREAM_TIMEOUT.defaultMessage()
+                    );
+                }
+            }, generationDeadlineMillis);
+            timers.replaceDeadline(generationDeadline);
+            if (state.streamClosed().get()) {
+                timers.cancelAll();
+                return;
+            }
             long queueWaitMs = Math.max(0L, System.currentTimeMillis() - enqueuedAtMs);
             BookAiContentRequestQueue.QueueSnapshot snapshot = requestQueue.snapshot();
             sendEventIfOpen(state, "started", new QueueStartedPayload(

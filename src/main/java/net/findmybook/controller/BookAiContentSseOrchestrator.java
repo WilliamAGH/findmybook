@@ -36,10 +36,10 @@ class BookAiContentSseOrchestrator {
             this.keepaliveTicker = keepaliveTicker;
         }
 
-        void attachDeadline(ScheduledFuture<?> scheduledDeadline) {
-            if (!applicationDeadline.compareAndSet(null, scheduledDeadline)) {
-                scheduledDeadline.cancel(false);
-                throw new IllegalStateException("Application deadline is already attached");
+        void replaceDeadline(ScheduledFuture<?> scheduledDeadline) {
+            ScheduledFuture<?> previousDeadline = applicationDeadline.getAndSet(scheduledDeadline);
+            if (previousDeadline != null) {
+                previousDeadline.cancel(false);
             }
         }
 
