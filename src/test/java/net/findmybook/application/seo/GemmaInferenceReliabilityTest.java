@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.sun.net.httpserver.HttpExchange;
@@ -34,6 +35,8 @@ import net.findmybook.domain.ai.BookAiContent;
 import net.findmybook.domain.ai.BookAiContentSnapshot;
 import net.findmybook.domain.seo.BookSeoMetadataSnapshot;
 import net.findmybook.dto.BookDetail;
+import net.findmybook.repository.BookQueryRepository;
+import net.findmybook.service.BookLookupService;
 import net.findmybook.service.BookDataOrchestrator;
 import net.findmybook.service.BookIdentifierResolver;
 import net.findmybook.service.BookSearchService;
@@ -41,6 +44,7 @@ import net.findmybook.support.llm.LlmGatewayTier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.core.JdbcTemplate;
 import tools.jackson.databind.ObjectMapper;
 
 class GemmaInferenceReliabilityTest {
@@ -71,6 +75,8 @@ class GemmaInferenceReliabilityTest {
     @Test
     void should_ReplaceFallback_When_GemmaRecoversForUnchangedPrompt() {
         server.enqueueJson(chatCompletion("length", seoJson()));
+        server.enqueueJson(chatCompletion("length", seoJson()));
+        server.enqueueJson(chatCompletion("length", seoJson()));
         server.enqueueJson(chatCompletion("stop", seoJson()));
         BookSeoMetadataRepository repository = mock(BookSeoMetadataRepository.class);
         AtomicReference<BookSeoMetadataSnapshot> current = new AtomicReference<>();
@@ -89,13 +95,15 @@ class GemmaInferenceReliabilityTest {
         assertThatThrownBy(() -> service.generateAndPersistIfPromptChanged(BOOK_ID))
             .isInstanceOf(BookSeoGenerationException.class)
             .hasMessageContaining("deterministic fallback persisted");
+        assertThat(server.requestBodies()).hasSize(3);
         assertThat(current.get().provider()).isEqualTo(BookSeoMetadataGenerationService.FALLBACK_PROVIDER);
         BookSeoMetadataGenerationService.GenerationOutcome second = service.generateAndPersistIfPromptChanged(BOOK_ID);
         BookSeoMetadataGenerationService.GenerationOutcome third = service.generateAndPersistIfPromptChanged(BOOK_ID);
 
         assertThat(second.snapshot()).get().extracting(BookSeoMetadataSnapshot::provider).isEqualTo("openai");
         assertThat(third.generated()).isFalse();
-        assertThat(server.requestBodies()).hasSize(2).allSatisfy(body -> assertThat(body).contains("\"max_completion_tokens\":1000"));
+        assertThat(server.requestBodies()).hasSize(4).allSatisfy(body ->
+            assertThat(body).contains("\"max_completion_tokens\":" + LlmGatewayTier.BACKGROUND_BATCH.maxCompletionTokens()));
     }
 
     @Test
@@ -161,6 +169,7 @@ class GemmaInferenceReliabilityTest {
     @Test
     void should_RejectReaderContent_When_GemmaEndsAtTokenLimit() {
         server.enqueueSse(streamChunk(AI_JSON, null) + streamChunk("", "length"));
+        server.enqueueSse(streamChunk(AI_JSON, null) + streamChunk("", "length"));
         BookAiContentRepository repository = mock(BookAiContentRepository.class);
 
         assertThatThrownBy(() -> aiService(repository)
@@ -168,7 +177,8 @@ class GemmaInferenceReliabilityTest {
             .isInstanceOf(BookAiGenerationException.class)
             .hasMessageContaining("completion token budget");
         verify(repository, never()).insertNewCurrentVersion(any(), any(), anyString(), anyString(), anyString());
-        assertThat(server.requestBodies()).singleElement().asString().contains("\"max_completion_tokens\":1000");
+        assertThat(server.requestBodies()).hasSize(2).allSatisfy(body ->
+            assertThat(body).contains("\"max_completion_tokens\":" + LlmGatewayTier.LIVE_RENDER.maxCompletionTokens()));
     }
 
     @Test
@@ -186,12 +196,100 @@ class GemmaInferenceReliabilityTest {
     }
 
     @Test
+    void should_RetryNonStopReaderResponseWithoutReplayingContent_When_SecondAttemptSucceeds() {
+        server.enqueueSse(streamChunk(AI_JSON, null) + streamChunk("", "content_filter"));
+        server.enqueueSse(streamChunk(AI_JSON, null) + streamChunk("", "stop"));
+        BookAiContentRepository repository = mock(BookAiContentRepository.class);
+        when(repository.insertNewCurrentVersion(any(), any(), anyString(), anyString(), anyString()))
+            .thenAnswer(invocation -> new BookAiContentSnapshot(
+                BOOK_ID, 1, Instant.EPOCH, invocation.getArgument(2), invocation.getArgument(3), invocation.getArgument(1)));
+        List<String> deltas = new ArrayList<>();
+
+        BookAiContentService.GeneratedContent generated = aiService(repository)
+            .generateAndPersist(BOOK_ID, deltas::add, LlmGatewayTier.LIVE_RENDER);
+
+        assertThat(generated.snapshot().aiContent().summary()).contains("grounded two-sentence summary");
+        assertThat(deltas).containsExactly(AI_JSON);
+        assertThat(server.requestBodies()).hasSize(2);
+        verify(repository).insertNewCurrentVersion(any(), any(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void should_PersistValidatedReaderContentBeforeDeliveringBufferedPayload() {
+        server.enqueueSse(streamChunk(AI_JSON, null) + streamChunk("", "stop"));
+        BookAiContentRepository repository = mock(BookAiContentRepository.class);
+        when(repository.insertNewCurrentVersion(any(), any(), anyString(), anyString(), anyString()))
+            .thenAnswer(invocation -> new BookAiContentSnapshot(
+                BOOK_ID, 1, Instant.EPOCH, invocation.getArgument(2), invocation.getArgument(3), invocation.getArgument(1)));
+
+        assertThatThrownBy(() -> aiService(repository).generateAndPersist(
+            BOOK_ID,
+            ignored -> { throw new IllegalStateException("delivery closed"); },
+            LlmGatewayTier.LIVE_RENDER
+        )).isInstanceOf(IllegalStateException.class).hasMessage("delivery closed");
+
+        verify(repository).insertNewCurrentVersion(any(), any(), anyString(), anyString(), anyString());
+    }
+
+    @Test
     void should_ThrowTypedFailure_When_SeoResponseMissesRequiredField() {
         SeoMetadataJsonParser parser = new SeoMetadataJsonParser(new ObjectMapper());
 
         assertThatThrownBy(() -> parser.parse("{\"seoTitle\":\"Title only\"}"))
             .isInstanceOf(BookSeoGenerationException.class)
             .hasMessageContaining("missing required field: seoDescription");
+    }
+
+    @Test
+    void should_PreserveDisplayedBookIdentity_When_ResolvingReaderGuideTarget() {
+        BookIdentifierResolver identifierResolver = mock(BookIdentifierResolver.class);
+        when(identifierResolver.resolveExactBookUuid("test-book")).thenReturn(Optional.of(BOOK_ID));
+        BookSearchService searchService = mock(BookSearchService.class);
+        BookDataOrchestrator orchestrator = mock(BookDataOrchestrator.class);
+
+        BookAiContentService service = new BookAiContentService(
+            mock(BookAiContentRepository.class),
+            identifierResolver,
+            searchService,
+            orchestrator,
+            new ObjectMapper(),
+            openAiProperties()
+        );
+
+        assertThat(service.resolveBookId("test-book")).contains(BOOK_ID);
+        verify(identifierResolver).resolveExactBookUuid("test-book");
+        verify(identifierResolver, never()).resolveToUuid("test-book");
+    }
+
+    @Test
+    void should_NotCanonicalizeExactUuidThroughWorkCluster_When_ResolvingDisplayedBook() {
+        BookLookupService lookupService = mock(BookLookupService.class);
+        BookQueryRepository queryRepository = mock(BookQueryRepository.class);
+        JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+        BookIdentifierResolver identifierResolver = new BookIdentifierResolver(
+            lookupService,
+            queryRepository,
+            jdbcTemplate
+        );
+
+        assertThat(identifierResolver.resolveExactBookUuid(BOOK_ID.toString())).contains(BOOK_ID);
+        verifyNoInteractions(lookupService, queryRepository, jdbcTemplate);
+    }
+
+    @Test
+    void should_NotCanonicalizeExactSlugThroughWorkCluster_When_ResolvingDisplayedBook() {
+        BookLookupService lookupService = mock(BookLookupService.class);
+        BookQueryRepository queryRepository = mock(BookQueryRepository.class);
+        JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+        when(queryRepository.fetchBookDetailBySlug("test-book")).thenReturn(Optional.of(bookDetail()));
+        BookIdentifierResolver identifierResolver = new BookIdentifierResolver(
+            lookupService,
+            queryRepository,
+            jdbcTemplate
+        );
+
+        assertThat(identifierResolver.resolveExactBookUuid("test-book")).contains(BOOK_ID);
+        verifyNoInteractions(lookupService, jdbcTemplate);
     }
 
     private BookSeoMetadataGenerationService seoService(BookSeoMetadataRepository repository) {

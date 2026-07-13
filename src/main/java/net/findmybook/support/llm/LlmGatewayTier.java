@@ -17,24 +17,26 @@ public enum LlmGatewayTier {
      * Live, user-facing render path. Maps to gateway tier {@code production-z} (priority 4,
      * reserved concurrency 1, queue depth 20, queue timeout 30s).
      */
-    LIVE_RENDER("production-z", 105L),
+    LIVE_RENDER("production-z", 105L, 8192L),
 
     /**
      * Non-urgent background work (scheduler, demand queue, upsert event, backfill, ingestion
      * coordinator). Maps to gateway tier {@code batch} (priority 9, reserved concurrency 0,
      * queue depth 50, queue timeout 600s).
      */
-    BACKGROUND_BATCH("batch", 720L);
+    BACKGROUND_BATCH("batch", 720L, 8192L);
 
     /** HTTP header name the gateway expects on outbound calls. */
     public static final String HEADER_NAME = "X-Tier";
 
     private final String headerValue;
     private final long callTimeoutSeconds;
+    private final long maxCompletionTokens;
 
-    LlmGatewayTier(String headerValue, long callTimeoutSeconds) {
+    LlmGatewayTier(String headerValue, long callTimeoutSeconds, long maxCompletionTokens) {
         this.headerValue = headerValue;
         this.callTimeoutSeconds = callTimeoutSeconds;
+        this.maxCompletionTokens = maxCompletionTokens;
     }
 
     /**
@@ -55,5 +57,16 @@ public enum LlmGatewayTier {
      */
     public long callTimeoutSeconds() {
         return callTimeoutSeconds;
+    }
+
+    /**
+     * Returns the completion budget for Gemma inference through this gateway tier. The budget
+     * includes provider-side reasoning tokens, so it intentionally exceeds the small JSON payload
+     * rendered to callers. Consumers must still require an explicit {@code stop} finish reason.
+     *
+     * @return maximum completion tokens accepted from the model
+     */
+    public long maxCompletionTokens() {
+        return maxCompletionTokens;
     }
 }

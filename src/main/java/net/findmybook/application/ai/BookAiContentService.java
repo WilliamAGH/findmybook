@@ -46,7 +46,6 @@ public class BookAiContentService {
     private static final Logger log = LoggerFactory.getLogger(BookAiContentService.class);
     private static final String DEFAULT_PROVIDER = "openai";
     private static final String DEFAULT_API_MODE = "chat";
-    private static final long MAX_COMPLETION_TOKENS = 1000L;
     private static final int LIVE_GENERATION_ATTEMPTS = 2;
     private static final int BACKGROUND_GENERATION_ATTEMPTS = 3;
     private static final int LIVE_SDK_MAX_RETRIES = 0;
@@ -127,9 +126,9 @@ public class BookAiContentService {
         log.warn("Book AI content service is disabled: missing OPENAI_API_KEY, OPENAI_BASE_URL, or OPENAI_MODEL");
     }
 
-    /** Resolves any user-facing book identifier to canonical UUID. */
+    /** Resolves any user-facing book identifier to the exact displayed-book UUID. */
     public Optional<UUID> resolveBookId(String identifier) {
-        return identifierResolver.resolveToUuid(identifier);
+        return identifierResolver.resolveExactBookUuid(identifier);
     }
 
     /** Loads the current persisted AI snapshot for a canonical book UUID. */
@@ -235,7 +234,7 @@ public class BookAiContentService {
                 ChatCompletionMessageParam.ofSystem(ChatCompletionSystemMessageParam.builder().content(SYSTEM_PROMPT).build()),
                 ChatCompletionMessageParam.ofUser(ChatCompletionUserMessageParam.builder().content(prompt).build())
             ))
-            .maxCompletionTokens(MAX_COMPLETION_TOKENS)
+            .maxCompletionTokens(tier.maxCompletionTokens())
             .temperature(SAMPLING_TEMPERATURE)
             .build();
 
@@ -267,7 +266,6 @@ public class BookAiContentService {
                 String delta = choice.delta().content().orElse("");
                 if (!delta.isEmpty()) {
                     fullResponseBuilder.append(delta);
-                    onDelta.accept(delta);
                 }
             });
         } catch (OpenAIException ex) {
@@ -283,12 +281,12 @@ public class BookAiContentService {
         if (ChatCompletionChunk.Choice.FinishReason.LENGTH.equals(finishReason.get())) {
             log.warn(
                 "AI content response exhausted completion token budget for bookId={} model={} tier={} maxCompletionTokens={} finishReason=length",
-                bookId, configuredModel, tier.headerValue(), MAX_COMPLETION_TOKENS
+                bookId, configuredModel, tier.headerValue(), tier.maxCompletionTokens()
             );
             throw new BookAiGenerationException(
-                BookAiGenerationException.ErrorCode.GENERATION_FAILED,
+                BookAiGenerationException.ErrorCode.INCOMPLETE_RESPONSE,
                 "AI content response exhausted completion token budget "
-                    + "(maxCompletionTokens=%d, finishReason=length)".formatted(MAX_COMPLETION_TOKENS)
+                    + "(maxCompletionTokens=%d, finishReason=length)".formatted(tier.maxCompletionTokens())
             );
         }
         if (refusalPresent.get()) {
@@ -307,11 +305,8 @@ public class BookAiContentService {
                 "AI content response ended without stop for bookId={} model={} tier={} finishReason={} responseCharacters={}",
                 bookId, configuredModel, tier.headerValue(), terminalReason, fullResponseBuilder.length()
             );
-            BookAiGenerationException.ErrorCode errorCode = finishReason.get() == null
-                ? BookAiGenerationException.ErrorCode.INCOMPLETE_RESPONSE
-                : BookAiGenerationException.ErrorCode.GENERATION_FAILED;
             throw new BookAiGenerationException(
-                errorCode,
+                BookAiGenerationException.ErrorCode.INCOMPLETE_RESPONSE,
                 "AI content response ended without stop (finishReason=%s)".formatted(terminalReason)
             );
         }
@@ -332,6 +327,7 @@ public class BookAiContentService {
                 "AI content generation failed (%s): %s".formatted(configuredModel, parseMessage), parseFailure);
         }
         BookAiContentSnapshot snapshot = repository.insertNewCurrentVersion(bookId, aiContent, configuredModel, DEFAULT_PROVIDER, promptHash);
+        onDelta.accept(rawMessage);
         return new GeneratedContent(rawMessage, snapshot);
     }
 

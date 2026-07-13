@@ -34,7 +34,6 @@ class BookSeoMetadataClient {
 
     private static final Logger log = LoggerFactory.getLogger(BookSeoMetadataClient.class);
     private static final String DEFAULT_PROVIDER = "openai";
-    private static final long MAX_COMPLETION_TOKENS = 1000L;
     private static final int MAX_GENERATION_ATTEMPTS = 3;
     private static final int SDK_MAX_RETRIES = 2;
     private static final double SAMPLING_TEMPERATURE = 0.2;
@@ -173,7 +172,7 @@ class BookSeoMetadataClient {
                 ChatCompletionMessageParam.ofSystem(ChatCompletionSystemMessageParam.builder().content(SYSTEM_PROMPT).build()),
                 ChatCompletionMessageParam.ofUser(ChatCompletionUserMessageParam.builder().content(prompt).build())
             ))
-            .maxCompletionTokens(MAX_COMPLETION_TOKENS)
+            .maxCompletionTokens(tier.maxCompletionTokens())
             .temperature(SAMPLING_TEMPERATURE)
             .build();
 
@@ -202,8 +201,10 @@ class BookSeoMetadataClient {
             String finishReason = choice.finishReason().asString();
             if (ChatCompletion.Choice.FinishReason.LENGTH.equals(choice.finishReason())) {
                 throw new BookSeoGenerationException(
+                    BookSeoGenerationException.ErrorCode.INVALID_RESPONSE,
                     "SEO metadata response exhausted completion token budget "
-                        + "(maxCompletionTokens=%d, finishReason=%s)".formatted(MAX_COMPLETION_TOKENS, finishReason)
+                        + "(maxCompletionTokens=%d, finishReason=%s)"
+                            .formatted(tier.maxCompletionTokens(), finishReason)
                 );
             }
             if (choice.message().refusal().filter(StringUtils::hasText).isPresent()) {
@@ -213,6 +214,7 @@ class BookSeoMetadataClient {
             }
             if (!ChatCompletion.Choice.FinishReason.STOP.equals(choice.finishReason())) {
                 throw new BookSeoGenerationException(
+                    BookSeoGenerationException.ErrorCode.INVALID_RESPONSE,
                     "SEO metadata response ended without stop (finishReason=%s)".formatted(finishReason)
                 );
             }

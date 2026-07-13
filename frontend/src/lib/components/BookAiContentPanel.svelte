@@ -111,7 +111,9 @@
     }
 
     console.error("[BookAiContentPanel] AI failure in production:", failure.code, failure.message);
-    aiErrorMessage = null;
+    aiErrorMessage = refresh && hasRenderableAiContent(book)
+      ? "Refresh failed. Showing the previous Reader's Guide."
+      : null;
     if (failure.code === "queue_busy") {
       aiQueueMessage = "Queue is busy right now. Try again shortly.";
       aiAutoTriggerDeferred = !refresh;

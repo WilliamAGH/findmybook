@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/svelte";
+import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import BookAiContentPanel from "$lib/components/BookAiContentPanel.svelte";
 import type { Book, BookAiErrorCode } from "$lib/validation/schemas";
 
@@ -141,6 +141,38 @@ describe("BookAiContentPanel production behavior", () => {
       expect(screen.getByText(/missing or too short/i)).toBeInTheDocument();
     });
     expect(streamBookAiContentMock).toHaveBeenCalledTimes(1);
+    expect(onAiContentUpdate).not.toHaveBeenCalled();
+  });
+
+  it("shouldKeepPreviousContentAndShowGenericErrorWhenRefreshFailsInProduction", async () => {
+    streamBookAiContentMock.mockRejectedValue(
+      createStreamError("provider detail must remain private", "generation_failed", true),
+    );
+    const onAiContentUpdate = vi.fn();
+
+    render(BookAiContentPanel, {
+      props: {
+        identifier: "existing-guide-book",
+        book: createBookFixture({
+          aiContent: {
+            summary: "The previously generated Reader's Guide remains available after a failed refresh.",
+            keyThemes: ["Reliability"],
+            takeaways: ["Preserve the last successful result."],
+            readerFit: null,
+            context: null,
+          },
+        }),
+        onAiContentUpdate,
+      },
+    });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Refresh failed. Showing the previous Reader's Guide.")).toBeInTheDocument();
+    });
+    expect(screen.getByText(/previously generated Reader's Guide remains available/)).toBeInTheDocument();
+    expect(screen.queryByText(/provider detail/)).not.toBeInTheDocument();
     expect(onAiContentUpdate).not.toHaveBeenCalled();
   });
 
