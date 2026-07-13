@@ -37,12 +37,13 @@ but cover uploads are intentionally skipped.
 
 ## S3 Storage Disabled
 
-When `S3_ENABLED=false`, S3 cover storage is completely disabled:
+When `S3_ENABLED=false`, S3 cover storage and CDN URL resolution are disabled:
 
-- Existing S3 keys in `book_image_links.s3_image_path` are ignored for cover URL resolution; external URLs are preferred.
+- Existing S3 keys in `book_image_links.s3_image_path` are not converted into CDN URLs; supplied external URLs are used as fallback.
 - Cover ranking treats unresolved S3 keys as tier 0 (no cover) rather than tier 5 (S3/CDN).
-- Backfill candidate selection (MISSING mode) requires successful S3 image rows as evidence of a usable color cover; external-only rows do not qualify.
-- CDN base URL is cleared at startup, so `CoverUrlResolver.resolve()` returns fallback external URLs instead of constructing CDN URLs from S3 keys.
+- The shared CDN base is cleared at startup, so `CoverUrlResolver.resolve()` does not construct CDN URLs from S3 keys.
+
+`MISSING`-mode backfill candidate selection is independent of `S3_ENABLED`: it excludes books only when a `book_image_links` row has no download error, is not marked grayscale, and has a non-empty `s3_image_path`; external-only rows remain candidates.
 
 Use `S3_ENABLED=false` only when S3 infrastructure is unavailable or intentionally decommissioned.
 
