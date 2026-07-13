@@ -97,16 +97,14 @@ class BookSearchServiceBlankQueryTest {
     void should_RefreshMaterializedViewConcurrently_When_RefreshRequested() {
         bookSearchService.refreshMaterializedView();
 
-        verify(jdbcTemplate).execute(ApplicationConstants.Database.Queries.REFRESH_SEARCH_VIEW);
-        assertThat(ApplicationConstants.Database.Queries.REFRESH_SEARCH_VIEW)
-            .isEqualTo("REFRESH MATERIALIZED VIEW CONCURRENTLY book_search_view");
+        verify(jdbcTemplate).execute(ApplicationConstants.Database.Queries.REFRESH_SEARCH_VIEW_CONCURRENTLY);
     }
 
     @Test
     void should_ContainNoncriticalDataAccessFailure_When_ConcurrentRefreshFails() {
         doThrow(new TransientDataAccessResourceException("refresh unavailable"))
             .when(jdbcTemplate)
-            .execute(ApplicationConstants.Database.Queries.REFRESH_SEARCH_VIEW);
+            .execute(ApplicationConstants.Database.Queries.REFRESH_SEARCH_VIEW_CONCURRENTLY);
 
         assertThatCode(bookSearchService::refreshMaterializedView).doesNotThrowAnyException();
     }

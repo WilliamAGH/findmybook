@@ -264,7 +264,7 @@ public class BookSearchService {
             return;
         }
         try {
-            jdbcTemplate.execute(ApplicationConstants.Database.Queries.REFRESH_SEARCH_VIEW);
+            jdbcTemplate.execute(ApplicationConstants.Database.Queries.REFRESH_SEARCH_VIEW_CONCURRENTLY);
         } catch (DataAccessException ex) {
             // Non-critical: search still works with stale materialized view data
             log.warn("Non-critical: Failed to refresh book_search_view: {}", ex.getMessage());
