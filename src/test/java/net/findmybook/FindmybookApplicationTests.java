@@ -4,6 +4,7 @@ package net.findmybook;
 import net.findmybook.config.DatabaseUrlEnvironmentPostProcessor;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.SpringApplication;
+import org.springframework.boot.http.client.autoconfigure.HttpClientsProperties;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,6 +17,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import software.amazon.awssdk.services.s3.S3Client;
 
+import java.time.Duration;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -72,6 +74,9 @@ class FindmybookApplicationTests {
 
     @Autowired
     private Environment environment;
+
+    @Autowired
+    private HttpClientsProperties httpClientsProperties;
 
     // No-op: cached repository removed
 
@@ -227,6 +232,14 @@ class FindmybookApplicationTests {
     @Test
     void should_DefaultServerPortTo8095_WhenNotOverridden() {
         assertEquals("8095", environment.getProperty("server.port"));
+    }
+
+    /**
+     * Keeps stalled outbound responses bounded after delegating WebClient construction to Spring Boot.
+     */
+    @Test
+    void should_DefaultOutboundHttpReadTimeoutToFiveSeconds_WhenNotOverridden() {
+        assertEquals(Duration.ofSeconds(5), httpClientsProperties.getReadTimeout());
     }
 
     /**

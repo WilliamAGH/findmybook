@@ -72,8 +72,8 @@ Startup now fails fast with a clear error when database-required profiles are ac
 ## Outbound HTTP Clients
 
 - Spring Boot owns prototype `WebClient.Builder` instances so per-service base URLs and request settings cannot leak across clients.
-- Shared connector policy follows redirects and limits connection establishment to 5 seconds through `spring.http.clients`.
-- Response deadlines remain service-owned because cover downloads, metadata providers, and health checks have different limits.
+- Shared connector policy follows redirects and limits both connection establishment and stalled response reads to 5 seconds through `spring.http.clients`.
+- Services may apply shorter request deadlines when their user-facing latency budget requires faster failure.
 - WebClient buffering follows `spring.codec.max-in-memory-size` (10 MB); narrower consumers such as the OpenGraph cover loader enforce their own smaller streaming limit.
 
 ## SPA Shell Delivery
