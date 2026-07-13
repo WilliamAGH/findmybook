@@ -7,10 +7,12 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -22,6 +24,7 @@ import java.util.UUID;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import net.findmybook.application.ai.BookAiGenerationException;
@@ -138,11 +141,106 @@ class BookAiContentControllerTest {
             new BookAiContentRequestQueue.QueuePosition(true, 1, 0, 1, 5)
         );
 
-        mockMvc.perform(post("/api/books/slug/ai/content/stream"))
+        String responseBody = mockMvc.perform(post("/api/books/slug/ai/content/stream"))
             .andExpect(status().isOk())
-            .andExpect(content().contentType("text/event-stream"));
+            .andExpect(content().contentType("text/event-stream"))
+            .andExpect(header().string("X-Book-AI-Request-Id", "task-1"))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
 
+        assertThat(responseBody)
+            .contains("event:queued")
+            .contains("\"requestId\":\"task-1\"");
         verify(requestQueue).enqueueForeground(eq(0), any(), any());
+    }
+
+    @Test
+    @DisplayName("POST cancel is idempotent for pending and unknown request IDs")
+    void should_CancelPendingTaskOnce_When_CancelRequestIsRepeated() throws Exception {
+        UUID bookId = UUID.randomUUID();
+        CompletableFuture<Void> started = new CompletableFuture<>();
+        CompletableFuture<BookAiContentService.GeneratedContent> result = new CompletableFuture<>();
+        ArgumentCaptor<Supplier<BookAiContentService.GeneratedContent>> supplierCaptor = ArgumentCaptor.captor();
+        BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent> task =
+            new BookAiContentRequestQueue.EnqueuedTask<>("pending-request", started, result);
+        when(aiContentService.resolveBookId("pending-book")).thenReturn(Optional.of(bookId));
+        when(aiContentService.isAvailable()).thenReturn(true);
+        when(requestQueue.<BookAiContentService.GeneratedContent>enqueueForeground(
+            anyInt(), supplierCaptor.capture(), any()
+        )).thenAnswer(invocation -> {
+            Consumer<BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent>> lifecycleSetup =
+                invocation.getArgument(2);
+            lifecycleSetup.accept(task);
+            return task;
+        });
+        when(requestQueue.getPosition("pending-request")).thenReturn(
+            new BookAiContentRequestQueue.QueuePosition(true, 1, 0, 1, 1));
+
+        mockMvc.perform(post("/api/books/pending-book/ai/content/stream?refresh=true"))
+            .andExpect(status().isOk());
+        assertThat(activeRequestCount()).isEqualTo(1);
+
+        mockMvc.perform(post("/api/books/ai/content/requests/unknown-request/cancel"))
+            .andExpect(status().isNoContent())
+            .andExpect(content().string(""));
+        mockMvc.perform(post("/api/books/ai/content/requests/pending-request/cancel"))
+            .andExpect(status().isNoContent())
+            .andExpect(content().string(""));
+        mockMvc.perform(post("/api/books/ai/content/requests/pending-request/cancel"))
+            .andExpect(status().isNoContent())
+            .andExpect(content().string(""));
+
+        verify(requestQueue, times(1)).cancel("pending-request");
+        assertThat(activeRequestCount()).isZero();
+        assertThatThrownBy(() -> supplierCaptor.getValue().get())
+            .isInstanceOf(CancellationException.class);
+    }
+
+    @Test
+    @DisplayName("POST cancel claims GenerationControl for a running request")
+    void should_CancelGenerationControl_When_RunningRequestIsCanceled() throws Exception {
+        UUID bookId = UUID.randomUUID();
+        BookAiContentSnapshot snapshot = new BookAiContentSnapshot(
+            bookId, 1, Instant.EPOCH, "test-model", "openai",
+            new BookAiContent("Summary", "Audience", List.of("Theme"), List.of("Insight"), "Context")
+        );
+        BookAiContentService.GeneratedContent generated =
+            new BookAiContentService.GeneratedContent("{\"summary\":\"Summary\"}", snapshot);
+        CompletableFuture<Void> started = new CompletableFuture<>();
+        CompletableFuture<BookAiContentService.GeneratedContent> result = new CompletableFuture<>();
+        ArgumentCaptor<Supplier<BookAiContentService.GeneratedContent>> supplierCaptor = ArgumentCaptor.captor();
+        ArgumentCaptor<BookAiContentService.GenerationControl> controlCaptor = ArgumentCaptor.captor();
+        BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent> task =
+            new BookAiContentRequestQueue.EnqueuedTask<>("running-request", started, result);
+        when(aiContentService.resolveBookId("running-book")).thenReturn(Optional.of(bookId));
+        when(aiContentService.isAvailable()).thenReturn(true);
+        when(aiContentService.configuredModel()).thenReturn("test-model");
+        when(aiContentService.apiMode()).thenReturn("openai");
+        when(aiContentService.generateAndPersist(eq(bookId), any(), eq(LlmGatewayTier.LIVE_RENDER), controlCaptor.capture()))
+            .thenReturn(generated);
+        when(requestQueue.<BookAiContentService.GeneratedContent>enqueueForeground(
+            anyInt(), supplierCaptor.capture(), any()
+        )).thenAnswer(invocation -> {
+            Consumer<BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent>> lifecycleSetup =
+                invocation.getArgument(2);
+            lifecycleSetup.accept(task);
+            return task;
+        });
+        when(requestQueue.getPosition("running-request")).thenReturn(
+            new BookAiContentRequestQueue.QueuePosition(true, 1, 0, 1, 1));
+        when(requestQueue.snapshot()).thenReturn(new BookAiContentRequestQueue.QueueSnapshot(1, 0, 1));
+
+        mockMvc.perform(post("/api/books/running-book/ai/content/stream?refresh=true"))
+            .andExpect(status().isOk());
+        started.complete(null);
+        supplierCaptor.getValue().get();
+        mockMvc.perform(post("/api/books/ai/content/requests/running-request/cancel"))
+            .andExpect(status().isNoContent());
+
+        verify(requestQueue).cancel("running-request");
+        assertThat(controlCaptor.getValue().cancel()).isFalse();
+        assertThat(activeRequestCount()).isZero();
     }
 
     @Test
@@ -193,7 +291,56 @@ class BookAiContentControllerTest {
             .contains("event:message_start")
             .contains("event:done")
             .doesNotContain("event:error");
+        assertThat(activeRequestCount()).isZero();
         verify(aiContentService).generateAndPersist(eq(bookId), any(), eq(LlmGatewayTier.LIVE_RENDER), any());
+    }
+
+    @Test
+    @DisplayName("POST stream removes cancellation registration when lifecycle setup fails")
+    void should_RemoveCancellationRegistration_When_LifecycleSetupFails() {
+        controller.shutdownTickerExecutor();
+        ScheduledThreadPoolExecutor rejectedExecutor = new ScheduledThreadPoolExecutor(1);
+        rejectedExecutor.shutdownNow();
+        configureController("development", rejectedExecutor, 200L, 200L, 500L);
+        UUID bookId = UUID.randomUUID();
+        CompletableFuture<Void> started = new CompletableFuture<>();
+        CompletableFuture<BookAiContentService.GeneratedContent> result = new CompletableFuture<>();
+        BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent> task =
+            new BookAiContentRequestQueue.EnqueuedTask<>("setup-failure-request", started, result);
+        when(aiContentService.resolveBookId("setup-failure-book")).thenReturn(Optional.of(bookId));
+        when(aiContentService.isAvailable()).thenReturn(true);
+        when(requestQueue.getPosition("setup-failure-request")).thenReturn(
+            new BookAiContentRequestQueue.QueuePosition(true, 1, 0, 1, 1));
+        when(requestQueue.<BookAiContentService.GeneratedContent>enqueueForeground(anyInt(), any(), any()))
+            .thenAnswer(invocation -> {
+                Consumer<BookAiContentRequestQueue.EnqueuedTask<BookAiContentService.GeneratedContent>> lifecycleSetup =
+                    invocation.getArgument(2);
+                lifecycleSetup.accept(task);
+                return task;
+            });
+
+        assertThatThrownBy(() -> mockMvc.perform(
+            post("/api/books/setup-failure-book/ai/content/stream?refresh=true")
+        )).hasCauseInstanceOf(java.util.concurrent.RejectedExecutionException.class);
+
+        verify(requestQueue).cancel("setup-failure-request");
+        assertThat(activeRequestCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("shutdown rejects and cancels request registrations that arrive after registry closure")
+    void should_CancelLateRegistration_When_ShutdownHasStarted() {
+        BookAiContentSseOrchestrator orchestrator = sseOrchestrator();
+        AtomicBoolean cancellationInvoked = new AtomicBoolean(false);
+        orchestrator.cancelAllRequests();
+
+        assertThatThrownBy(() -> orchestrator.registerCancellation(
+            "late-request", () -> cancellationInvoked.set(true)
+        )).isInstanceOf(IllegalStateException.class)
+            .hasMessage("AI cancellation registry is shutting down");
+
+        assertThat(cancellationInvoked).isTrue();
+        assertThat(orchestrator.activeRequestCount()).isZero();
     }
 
     @Test
@@ -270,6 +417,7 @@ class BookAiContentControllerTest {
             .contains("\"code\":\"description_too_short\"")
             .contains("AI content is unavailable for this book")
             .doesNotContain("length=0");
+        assertThat(activeRequestCount()).isZero();
     }
 
     @Test
@@ -420,6 +568,14 @@ class BookAiContentControllerTest {
     private void configureController(String environmentMode) {
         controller = new BookAiContentController(aiContentService, requestQueue, new ObjectMapper(), environmentMode);
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+    }
+
+    private int activeRequestCount() {
+        return sseOrchestrator().activeRequestCount();
+    }
+
+    private BookAiContentSseOrchestrator sseOrchestrator() {
+        return (BookAiContentSseOrchestrator) ReflectionTestUtils.getField(controller, "sseOrchestrator");
     }
 
     private void stubForegroundEnqueue(

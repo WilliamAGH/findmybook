@@ -1,5 +1,12 @@
-import { describe, expect, it } from "vitest";
-import { resolveCoverDisplayUrl, CoverSchema, buildCover } from "$lib/validation/schemas";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cancelBookAiContentRequest, streamBookAiContent } from "$lib/services/bookAiContentStream";
+import {
+  BookAiContentQueuedUpdateSchema,
+  BookAiContentQueueUpdateSchema,
+  CoverSchema,
+  buildCover,
+  resolveCoverDisplayUrl,
+} from "$lib/validation/schemas";
 
 describe("resolveCoverDisplayUrl", () => {
   it("should_ReturnPreferredUrl_When_AllUrlsPresent", () => {
@@ -85,5 +92,107 @@ describe("buildCover", () => {
     const cover = buildCover({ externalImageUrl: "ext" });
 
     expect(cover.displayUrl).toBe("ext");
+  });
+});
+
+describe("BookAiContentQueueUpdateSchema", () => {
+  it("shouldRequireRequestIdForInitialQueuedEvent", () => {
+    const result = BookAiContentQueuedUpdateSchema.safeParse({
+      event: "queued", position: 1, running: 0, pending: 1, maxParallel: 1,
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("shouldNotRequireRequestIdForPeriodicQueueEvent", () => {
+    const result = BookAiContentQueueUpdateSchema.safeParse({
+      event: "queue", position: 1, running: 0, pending: 1, maxParallel: 1,
+    });
+
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("cancelBookAiContentRequest", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("shouldUseBodylessBeaconWhenAvailable", () => {
+    const sendBeacon = vi.fn(() => true);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("navigator", { sendBeacon });
+    vi.stubGlobal("fetch", fetchMock);
+
+    cancelBookAiContentRequest("request/id");
+
+    expect(sendBeacon).toHaveBeenCalledWith("/api/books/ai/content/requests/request%2Fid/cancel");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("shouldFallbackToBodylessKeepaliveFetchWhenBeaconDeclines", () => {
+    const fetchMock = vi.fn<typeof fetch>(() => Promise.resolve(new Response(null, { status: 204 })));
+    vi.stubGlobal("navigator", { sendBeacon: vi.fn(() => false) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    cancelBookAiContentRequest("request-2");
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/books/ai/content/requests/request-2/cancel", {
+      method: "POST",
+      keepalive: true,
+    });
+    expect(fetchMock.mock.calls[0]?.[1]).not.toHaveProperty("body");
+  });
+
+  it("shouldWarnWithoutResponseDetailWhenKeepaliveCancellationIsRejected", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal("navigator", { sendBeacon: vi.fn(() => false) });
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(() => Promise.resolve(new Response(null, { status: 503 }))));
+
+    cancelBookAiContentRequest("request-3");
+    await vi.waitFor(() => expect(warning).toHaveBeenCalledOnce());
+
+    expect(warning).toHaveBeenCalledWith("[BookAiContentStream] Explicit cancellation delivery failed");
+    expect(warning).not.toHaveBeenCalledWith(expect.stringContaining("503"));
+  });
+});
+
+describe("streamBookAiContent request identity", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  function streamBody(requestId: string): string {
+    return [
+      `event: queued\ndata: ${JSON.stringify({
+        requestId, position: 1, running: 0, pending: 1, maxParallel: 1,
+      })}`,
+      `event: done\ndata: ${JSON.stringify({
+        message: "complete", aiContent: { summary: "Summary", keyThemes: [] },
+      })}`,
+      "",
+    ].join("\n\n");
+  }
+
+  it("shouldExposeHeaderRequestIdBeforeQueuedEvent", async () => {
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(() => Promise.resolve(new Response(streamBody("request-1"), {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream", "X-Book-AI-Request-Id": "request-1" },
+    }))));
+    const callbackOrder: string[] = [];
+
+    await streamBookAiContent("book", {
+      onRequestId: (requestId) => callbackOrder.push(`header:${requestId}`),
+      onQueued: (update) => callbackOrder.push(`queued:${update.requestId}`),
+    });
+
+    expect(callbackOrder).toEqual(["header:request-1", "queued:request-1"]);
+  });
+
+  it("shouldRejectWhenHeaderAndQueuedRequestIdsDiffer", async () => {
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(() => Promise.resolve(new Response(streamBody("queued-request"), {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream", "X-Book-AI-Request-Id": "header-request" },
+    }))));
+
+    await expect(streamBookAiContent("book")).rejects.toThrow(
+      "Book AI request ID did not match queued stream payload",
+    );
   });
 });

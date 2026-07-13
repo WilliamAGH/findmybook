@@ -2,6 +2,7 @@ package net.findmybook.controller;
 
 import java.io.IOException;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -27,43 +28,106 @@ class BookAiContentSseOrchestrator {
 
     /** Owns cancellation of every scheduled task associated with one SSE stream. */
     static final class Timers {
-        private final ScheduledFuture<?> queueTicker;
-        private final ScheduledFuture<?> keepaliveTicker;
+        private final AtomicBoolean cancelled = new AtomicBoolean(false);
+        private final AtomicReference<ScheduledFuture<?>> queueTicker = new AtomicReference<>();
+        private final AtomicReference<ScheduledFuture<?>> keepaliveTicker = new AtomicReference<>();
         private final AtomicReference<ScheduledFuture<?>> applicationDeadline = new AtomicReference<>();
 
-        Timers(ScheduledFuture<?> queueTicker, ScheduledFuture<?> keepaliveTicker) {
-            this.queueTicker = queueTicker;
-            this.keepaliveTicker = keepaliveTicker;
+        void installQueueTicker(ScheduledFuture<?> scheduledQueueTicker) {
+            installTimer(queueTicker, scheduledQueueTicker);
+        }
+
+        void installKeepaliveTicker(ScheduledFuture<?> scheduledKeepaliveTicker) {
+            installTimer(keepaliveTicker, scheduledKeepaliveTicker);
         }
 
         void replaceDeadline(ScheduledFuture<?> scheduledDeadline) {
-            ScheduledFuture<?> previousDeadline = applicationDeadline.getAndSet(scheduledDeadline);
-            if (previousDeadline != null) {
-                previousDeadline.cancel(false);
-            }
+            installTimer(applicationDeadline, scheduledDeadline);
         }
 
         void cancelQueueTicker() {
-            queueTicker.cancel(false);
+            cancelTimer(queueTicker.get());
         }
 
         void cancelAll() {
-            queueTicker.cancel(false);
-            keepaliveTicker.cancel(false);
-            ScheduledFuture<?> deadline = applicationDeadline.get();
-            if (deadline != null) {
-                deadline.cancel(false);
+            if (!cancelled.compareAndSet(false, true)) {
+                return;
+            }
+            cancelTimer(queueTicker.get());
+            cancelTimer(keepaliveTicker.get());
+            cancelTimer(applicationDeadline.get());
+        }
+
+        private void installTimer(
+            AtomicReference<ScheduledFuture<?>> timerReference,
+            ScheduledFuture<?> scheduledTimer
+        ) {
+            ScheduledFuture<?> previousTimer = timerReference.getAndSet(scheduledTimer);
+            cancelTimer(previousTimer);
+            if (cancelled.get()) {
+                cancelTimer(scheduledTimer);
+            }
+        }
+
+        private void cancelTimer(ScheduledFuture<?> scheduledTimer) {
+            if (scheduledTimer != null) {
+                scheduledTimer.cancel(false);
             }
         }
     }
 
     private final BookAiContentRequestQueue requestQueue;
     private final ScheduledExecutorService queueTickerExecutor;
+    private final ConcurrentHashMap<String, Runnable> activeRequestCancellations = new ConcurrentHashMap<>();
+    private final AtomicBoolean acceptingRequestCancellations = new AtomicBoolean(true);
 
     BookAiContentSseOrchestrator(BookAiContentRequestQueue requestQueue,
                                   ScheduledExecutorService queueTickerExecutor) {
         this.requestQueue = requestQueue;
         this.queueTickerExecutor = queueTickerExecutor;
+    }
+
+    /** Registers the one terminal cancellation callback before its request ID is exposed to the client. */
+    synchronized void registerCancellation(String requestId, Runnable cancellation) {
+        if (!acceptingRequestCancellations.get()) {
+            cancellation.run();
+            throw new IllegalStateException("AI cancellation registry is shutting down");
+        }
+        Runnable previousCancellation = activeRequestCancellations.putIfAbsent(requestId, cancellation);
+        if (previousCancellation != null) {
+            throw new IllegalStateException("Duplicate AI content request ID: " + requestId);
+        }
+    }
+
+    /** Claims cancellation when the request is active; unknown and terminal IDs are intentionally indistinguishable. */
+    void cancelRequest(String requestId) {
+        Runnable cancellation = activeRequestCancellations.get(requestId);
+        if (cancellation != null) {
+            cancellation.run();
+        }
+    }
+
+    /** Removes a terminal request without exposing whether it was previously registered. */
+    void unregisterCancellation(String requestId) {
+        activeRequestCancellations.remove(requestId);
+    }
+
+    int activeRequestCount() {
+        return activeRequestCancellations.size();
+    }
+
+    void cancelAllRequests() {
+        Runnable[] cancellations;
+        synchronized (this) {
+            if (!acceptingRequestCancellations.compareAndSet(true, false)) {
+                return;
+            }
+            cancellations = activeRequestCancellations.values().toArray(Runnable[]::new);
+            activeRequestCancellations.clear();
+        }
+        for (Runnable cancellation : cancellations) {
+            cancellation.run();
+        }
     }
 
     /**
@@ -160,6 +224,16 @@ class BookAiContentSseOrchestrator {
 
     QueuePositionPayload toQueuePositionPayload(BookAiContentRequestQueue.QueuePosition position) {
         return new QueuePositionPayload(
+            position.position(),
+            position.running(),
+            position.pending(),
+            position.maxParallel()
+        );
+    }
+
+    QueuedPayload toQueuedPayload(String requestId, BookAiContentRequestQueue.QueuePosition position) {
+        return new QueuedPayload(
+            requestId,
             position.position(),
             position.running(),
             position.pending(),
