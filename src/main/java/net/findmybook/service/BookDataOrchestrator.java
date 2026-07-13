@@ -147,8 +147,6 @@ public class BookDataOrchestrator {
                 } else {
                     firstProviderFailure = googleFailure;
                 }
-                logger.warn("Google Books description enrichment failed for bookId={} (continuing with available candidates): {}",
-                    bookId, googleFailure.getMessage());
             }
         }
         if (!providerSucceeded && firstProviderFailure != null) {

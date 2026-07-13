@@ -8,11 +8,22 @@
  */
 package net.findmybook.service;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.reactive.function.client.ClientResponse;
+import org.springframework.web.reactive.function.client.WebClient;
+import reactor.test.StepVerifier;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -74,6 +85,43 @@ public class ApiRequestMonitorTest {
         assertEquals(1L, (Long) apiRequestMonitor.getMetricsMap().get("total_requests"));
         assertEquals(0L, (Long) apiRequestMonitor.getMetricsMap().get("total_successful"));
         assertEquals(1L, (Long) apiRequestMonitor.getMetricsMap().get("total_failed"));
+    }
+
+    @Test
+    void should_LogOneBoundedWarning_When_GoogleSearchPageFails() {
+        GoogleApiFetcher fetcher = new GoogleApiFetcher(
+                WebClient.builder().exchangeFunction(request ->
+                        reactor.core.publisher.Mono.just(ClientResponse.create(HttpStatus.SERVICE_UNAVAILABLE)
+                                .body("provider unavailable")
+                                .build())),
+                apiRequestMonitor,
+                new ApiCircuitBreakerService());
+        ReflectionTestUtils.setField(fetcher, "googleBooksApiUrl", "https://books.googleapis.test");
+        ReflectionTestUtils.setField(fetcher, "googleBooksApiKey", "test-key");
+
+        Logger fetcherLogger = (Logger) LoggerFactory.getLogger(GoogleApiFetcher.class);
+        ListAppender<ILoggingEvent> logEvents = new ListAppender<>();
+        logEvents.start();
+        fetcherLogger.addAppender(logEvents);
+        try {
+            StepVerifier.create(fetcher.streamSearchItems("failure query", 1, "relevance", null, true))
+                    .expectError(IllegalStateException.class)
+                    .verify();
+
+            List<ILoggingEvent> warnings = logEvents.list.stream()
+                    .filter(event -> event.getLevel() == Level.WARN)
+                    .toList();
+            assertEquals(1, warnings.size());
+            ILoggingEvent warning = warnings.getFirst();
+            assertTrue(warning.getFormattedMessage().contains("[EXTERNAL-API] [GoogleBooks] FAILURE"));
+            assertNull(warning.getThrowableProxy());
+            assertEquals(0, logEvents.list.stream()
+                    .filter(event -> event.getLevel() == Level.ERROR)
+                    .count());
+        } finally {
+            fetcherLogger.detachAppender(logEvents);
+            logEvents.stop();
+        }
     }
 
     @Test
