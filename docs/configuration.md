@@ -37,6 +37,14 @@ Key variables in `.env`:
 | `APP_USER_PASSWORD` | Basic user password |
 | `SPRING_MVC_PROBLEMDETAILS_ENABLED` | Enables RFC 9457 Problem Details responses for MVC exception flows (`true` by default in this repo) |
 
+## Container Health and Rolling Deployments
+
+The production image exposes Spring Boot's readiness and liveness probe groups on the main server port. Its Docker health check calls `GET /readyz`, allowing Coolify to keep the previous container routed until the replacement reports `ACCEPTING_TRAFFIC`.
+
+Deployment readiness intentionally uses Spring's `readinessState` group rather than `/actuator/health`. The aggregate endpoint includes page, search, database, and S3 diagnostics whose external failures are operational signals but must not make an otherwise ready replacement fail its rollout.
+
+Keep Coolify's UI-generated health check disabled for this Dockerfile deployment. Coolify detects the image-owned `HEALTHCHECK`, waits for Docker to report the replacement healthy, and only then removes the previous container. The probe reads `SERVER_PORT` at runtime so the same image works with the repository default (`8095`) and Coolify's configured container port (`8080`).
+
 ## User Accounts
 
 | Username | Role(s) | Access | Password Env Variable |

@@ -2,7 +2,8 @@
 
 ## Key Endpoints
 - **Web Interface:** `http://localhost:{SERVER_PORT}` or `https://findmybook.net`
-- **Health Check:** `/actuator/health`
+- **Health diagnostics:** `/actuator/health`
+- **Container readiness:** `/readyz` when the image-provided probe configuration is active
 - **Book API:**
   - `GET /api/books/search?query={keyword}`
   - `GET /api/books/{identifier}`
