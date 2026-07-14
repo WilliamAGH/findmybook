@@ -183,6 +183,7 @@
         - `service_unavailable`
         - `stream_timeout`
         - `empty_generation`
+        - `degenerate_content`
         - `cache_serialization_failed`
         - `queue_busy`
         - `description_too_short` (emitted only after canonical description enrichment attempts from Open Library and Google Books still fail to satisfy minimum content requirements)
