@@ -2,7 +2,7 @@
 
 ## Overview
 
-The book database uses a **work_clusters** system to group different editions of the same book (hardcover, paperback, audio, etc.) for display in the frontend "Other Editions" dropdown.
+The book database uses a **work_clusters** system to group different editions of the same book (hardcover, paperback, audio, etc.) for display in the frontend Editions card grid.
 
 ## Architecture
 
