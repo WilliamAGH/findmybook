@@ -1,6 +1,7 @@
 package net.findmybook.application.ai;
 
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import net.findmybook.application.seo.BookSeoGenerationException;
 import net.findmybook.application.seo.BookSeoMetadataGenerationService;
@@ -68,7 +69,7 @@ public class BookAiIngestionMetadataCoordinator {
                 return null;
             }).result().whenComplete((ignored, throwable) -> {
                 if (throwable != null) {
-                    log.error("Background ingestion metadata generation failed for book {}", bookId, throwable);
+                    logBackgroundFailure(bookId, throwable);
                 }
             });
         } catch (BookAiQueueCapacityExceededException queueOverflowException) {
@@ -79,6 +80,35 @@ public class BookAiIngestionMetadataCoordinator {
                 queueOverflowException.maxPending()
             );
         }
+    }
+
+    private void logBackgroundFailure(UUID bookId, Throwable failure) {
+        if (failure instanceof CancellationException) {
+            log.debug("Background ingestion metadata generation cancelled for book {}", bookId);
+            return;
+        }
+        if (isExpectedGenerationFailure(failure)) {
+            log.warn("Background ingestion metadata generation did not complete for book {}: {}",
+                bookId, failure.getMessage(), failure);
+            return;
+        }
+        log.error("Background ingestion metadata generation failed for book {}", bookId, failure);
+    }
+
+    private boolean isExpectedGenerationFailure(Throwable failure) {
+        if (failure instanceof BookAiGenerationException aiFailure) {
+            return switch (aiFailure.errorCode()) {
+                case INVALID_RESPONSE, INCOMPLETE_RESPONSE, DEGENERATE_CONTENT, DESCRIPTION_TOO_SHORT -> true;
+                case GENERATION_FAILED, ENRICHMENT_FAILED -> false;
+            };
+        }
+        if (failure instanceof BookSeoGenerationException seoFailure) {
+            return switch (seoFailure.errorCode()) {
+                case INVALID_RESPONSE, DESCRIPTION_TOO_SHORT -> true;
+                case GENERATION_FAILED, API_CALL_FAILED -> false;
+            };
+        }
+        return false;
     }
 
     private void processIngestionMetadata(UUID bookId) {
@@ -123,9 +153,7 @@ public class BookAiIngestionMetadataCoordinator {
                         log.debug("Skipping ingestion SEO metadata generation because relation book_seo_metadata is unavailable.");
                     }
                 } else {
-                    if (firstFailure == null) {
-                        firstFailure = seoFailure;
-                    }
+                    firstFailure = retainHighestSeverityFailure(firstFailure, seoFailure);
                 }
             }
         }
@@ -133,6 +161,21 @@ public class BookAiIngestionMetadataCoordinator {
         if (firstFailure != null) {
             throw firstFailure;
         }
+    }
+
+    private RuntimeException retainHighestSeverityFailure(
+        RuntimeException currentFailure,
+        RuntimeException nextFailure
+    ) {
+        if (currentFailure == null || currentFailure == nextFailure) {
+            return nextFailure;
+        }
+        if (isExpectedGenerationFailure(currentFailure) && !isExpectedGenerationFailure(nextFailure)) {
+            nextFailure.addSuppressed(currentFailure);
+            return nextFailure;
+        }
+        currentFailure.addSuppressed(nextFailure);
+        return currentFailure;
     }
 
     private UUID parseBookId(String rawBookId) {
