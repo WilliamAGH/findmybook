@@ -51,8 +51,8 @@ public class SitemapController extends SpaShellController {
     }
 
     /**
-     * Redirects the sitemap landing page to its canonical route with a relative
-     * location so TLS-terminating proxies cannot rewrite or poison the origin.
+     * Redirects the sitemap landing page to its canonical route with an origin-relative
+     * {@code Location}, so forwarded origin metadata cannot influence the redirect target.
      *
      * @param view requested sitemap view
      * @param letter requested author or book bucket

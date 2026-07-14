@@ -1,6 +1,11 @@
 package net.findmybook.application.ai;
 
+import com.openai.core.http.Headers;
+import com.openai.errors.OpenAIIoException;
+import com.openai.errors.OpenAIRetryableException;
+import com.openai.errors.OpenAIException;
 import com.openai.errors.OpenAIServiceException;
+import com.openai.errors.SseException;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -10,6 +15,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.io.IOException;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -19,6 +25,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 import net.findmybook.adapters.persistence.BookAiContentRepository;
 import net.findmybook.boot.OpenAiProperties;
 import net.findmybook.domain.ai.BookAiContent;
@@ -221,7 +228,7 @@ class BookAiContentServiceTest {
     }
 
     @Test
-    void should_ReturnFalseForRetryableFailure_When_BackgroundSdkOwnsTransportRetries() {
+    void should_ReturnFalseForRetryableFailure_When_BackgroundServiceFailureCanBeRetriedBySdk() {
         BookAiContentService service = newService();
         OpenAIServiceException openAiException = mock(OpenAIServiceException.class);
         when(openAiException.statusCode()).thenReturn(503);
@@ -229,6 +236,71 @@ class BookAiContentServiceTest {
             BookAiGenerationException.ErrorCode.GENERATION_FAILED,
             "AI content generation failed (gpt-5-mini): HTTP 503 server error",
             openAiException
+        );
+
+        Boolean retryable = ReflectionTestUtils.invokeMethod(
+            service,
+            "isRetryableGenerationFailure",
+            generationFailure,
+            net.findmybook.support.llm.LlmGatewayTier.BACKGROUND_BATCH
+        );
+
+        assertThat(retryable).isFalse();
+    }
+
+    @Test
+    void should_ReturnTrueForRetryableFailure_When_BackgroundStreamClosesAfterHttp200() {
+        BookAiContentService service = newService();
+        SseException incompleteStream = SseException.builder()
+            .statusCode(200)
+            .headers(Headers.builder().build())
+            .cause(new IOException("peer closed incomplete stream"))
+            .build();
+        BookAiGenerationException generationFailure = new BookAiGenerationException(
+            BookAiGenerationException.ErrorCode.GENERATION_FAILED,
+            "AI content generation failed (gpt-5-mini): peer closed incomplete stream",
+            incompleteStream
+        );
+
+        Boolean retryable = ReflectionTestUtils.invokeMethod(
+            service,
+            "isRetryableGenerationFailure",
+            generationFailure,
+            net.findmybook.support.llm.LlmGatewayTier.BACKGROUND_BATCH
+        );
+
+        assertThat(retryable).isTrue();
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.MethodSource("backgroundSdkRetryableTransportFailures")
+    void should_ReturnFalseForRetryableFailure_When_BackgroundTransportFailureCanBeRetriedBySdk(OpenAIException transportFailure) {
+        BookAiContentService service = newService();
+        BookAiGenerationException generationFailure = new BookAiGenerationException(
+            BookAiGenerationException.ErrorCode.GENERATION_FAILED,
+            "AI content generation failed (gpt-5-mini): stream transport failure",
+            transportFailure
+        );
+
+        Boolean retryable = ReflectionTestUtils.invokeMethod(
+            service,
+            "isRetryableGenerationFailure",
+            generationFailure,
+            net.findmybook.support.llm.LlmGatewayTier.BACKGROUND_BATCH
+        );
+
+        assertThat(retryable).isFalse();
+    }
+
+    @Test
+    void should_ReturnFalseForRetryableFailure_When_BackgroundRequestIsUnauthorized() {
+        BookAiContentService service = newService();
+        OpenAIServiceException unauthorized = mock(OpenAIServiceException.class);
+        when(unauthorized.statusCode()).thenReturn(401);
+        BookAiGenerationException generationFailure = new BookAiGenerationException(
+            BookAiGenerationException.ErrorCode.GENERATION_FAILED,
+            "AI content generation failed (gpt-5-mini): HTTP 401 unauthorized",
+            unauthorized
         );
 
         Boolean retryable = ReflectionTestUtils.invokeMethod(
@@ -319,6 +391,41 @@ class BookAiContentServiceTest {
         assertThatThrownBy(() -> parser.parse(plainTextResponse))
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("valid JSON object");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"```", "```json"})
+    void should_AcceptCanonicalJson_When_ResponseUsesAllowedWholeResponseFence(String fenceOpener) {
+        AiContentJsonParser parser = new AiContentJsonParser(new ObjectMapper());
+
+        BookAiContent content = parser.parse(fencedAiContentJson(fenceOpener));
+
+        assertThat(content).isEqualTo(parser.parse(validAiContentJson()));
+    }
+
+    @Test
+    void should_RejectProseOutsideFence_When_ModelReturnsFencedJson() {
+        AiContentJsonParser parser = new AiContentJsonParser(new ObjectMapper());
+        String fencedResponse = fencedAiContentJson("```json");
+
+        assertThatThrownBy(() -> parser.parse("Here is the requested JSON:\n" + fencedResponse))
+            .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> parser.parse(fencedResponse + "\nThis is the requested JSON."))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("whole-response");
+    }
+
+    @Test
+    void should_RejectUnknownOrMultipleFences_When_ResponseIsNotOneAllowedFence() {
+        AiContentJsonParser parser = new AiContentJsonParser(new ObjectMapper());
+        String canonicalJson = validAiContentJson();
+        String fencedResponse = fencedAiContentJson("```json");
+
+        assertThatThrownBy(() -> parser.parse("```yaml\n" + canonicalJson + "\n```"))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("whole-response");
+        assertThatThrownBy(() -> parser.parse(fencedResponse + "\n```json\n" + canonicalJson + "\n```"))
+            .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
@@ -440,6 +547,17 @@ class BookAiContentServiceTest {
             List.of("Keep contracts explicit."),
             "A concise context for the reader guide."
         )).toString();
+    }
+
+    private static Stream<OpenAIException> backgroundSdkRetryableTransportFailures() {
+        return Stream.of(
+            new OpenAIIoException("peer closed incomplete stream", new IOException("connection closed")),
+            new OpenAIRetryableException("stream transport retryable failure", new IOException("connection reset"))
+        );
+    }
+
+    private String fencedAiContentJson(String fenceOpener) {
+        return "%s%n%s%n```".formatted(fenceOpener, validAiContentJson());
     }
 
     private BookAiContentService newService() {

@@ -133,6 +133,40 @@ function pendingRequest<T>() {
 }
 
 describe("BookPage fallback lookup", () => {
+  it("should_RenderUtcCalendarDates_When_PublicationAndEditionTimestampsAreMidnightUtc", async () => {
+    const dateDisplaySpy = vi.spyOn(Date.prototype, "toLocaleDateString")
+      .mockImplementation((_locales, options) =>
+        options?.timeZone === "UTC" ? "1/1/2020" : "12/31/2019"
+      );
+    getBookMock.mockResolvedValueOnce(createBookPayload({
+      publication: {
+        publishedDate: "2020-01-01T00:00:00.000Z",
+        language: "eng",
+        pageCount: 432,
+        publisher: "Harvard University Press",
+      },
+      editions: [{
+        identifier: "edition-1",
+        publishedDate: "2020-01-01T00:00:00.000Z",
+      }],
+    }));
+
+    try {
+      render(BookPage, {
+        props: {
+          currentUrl: new URL("https://findmybook.net/book/book-1"),
+          identifier: "book-1",
+        },
+      });
+
+      expect(await screen.findAllByText(/1\/1\/2020/)).toHaveLength(2);
+      expect(dateDisplaySpy).toHaveBeenCalledWith(undefined, { timeZone: "UTC" });
+      expect(dateDisplaySpy).toHaveBeenCalledTimes(2);
+    } finally {
+      dateDisplaySpy.mockRestore();
+    }
+  });
+
   it("shouldRenderBookDetailsBeforeRelatedRequestsSettle", async () => {
     const similarRequest = pendingRequest<unknown[]>();
     const affiliateRequest = pendingRequest<Record<string, string>>();

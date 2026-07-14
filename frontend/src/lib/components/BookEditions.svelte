@@ -27,7 +27,7 @@
             {/if}
             {#if edition.publishedDate}
               <p class="text-xs text-anthracite-500 dark:text-slate-400">
-                Published: {new Date(edition.publishedDate).toLocaleDateString()}
+                Published: {new Date(edition.publishedDate).toLocaleDateString(undefined, { timeZone: "UTC" })}
               </p>
             {/if}
           </div>

@@ -10,6 +10,7 @@ import com.openai.errors.OpenAIInvalidDataException;
 import com.openai.errors.OpenAIIoException;
 import com.openai.errors.OpenAIRetryableException;
 import com.openai.errors.OpenAIServiceException;
+import com.openai.errors.SseException;
 import com.openai.models.ChatModel;
 import com.openai.models.chat.completions.ChatCompletionChunk;
 import com.openai.models.chat.completions.ChatCompletionCreateParams;
@@ -470,22 +471,26 @@ public class BookAiContentService {
     ) {
         return switch (generationFailure.errorCode()) {
             case DEGENERATE_CONTENT, INCOMPLETE_RESPONSE, INVALID_RESPONSE -> true;
-            case GENERATION_FAILED -> tier == LlmGatewayTier.LIVE_RENDER
-                && isRetryableOpenAiFailure(generationFailure.getCause());
+            case GENERATION_FAILED -> isRetryableOpenAiFailure(generationFailure.getCause(), tier);
             case DESCRIPTION_TOO_SHORT, ENRICHMENT_FAILED -> false;
         };
     }
 
-    private boolean isRetryableOpenAiFailure(Throwable failure) {
+    private boolean isRetryableOpenAiFailure(Throwable failure, LlmGatewayTier tier) {
+        if (failure instanceof SseException sseFailure) {
+            // A 200 status means the stream had already begun, beyond the SDK's request retry boundary.
+            return sseFailure.statusCode() == 200;
+        }
         if (failure instanceof OpenAIIoException || failure instanceof OpenAIRetryableException) {
-            return true;
+            return tier == LlmGatewayTier.LIVE_RENDER;
         }
         if (failure instanceof OpenAIServiceException serviceFailure) {
             int statusCode = serviceFailure.statusCode();
-            return statusCode == 408
+            return tier == LlmGatewayTier.LIVE_RENDER
+                && (statusCode == 408
                 || statusCode == 409
                 || statusCode == 429
-                || (statusCode >= 500 && statusCode <= 599);
+                || (statusCode >= 500 && statusCode <= 599));
         }
         return false;
     }

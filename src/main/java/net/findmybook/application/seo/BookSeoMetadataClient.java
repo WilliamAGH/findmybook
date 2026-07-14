@@ -36,6 +36,8 @@ class BookSeoMetadataClient {
     private static final String DEFAULT_PROVIDER = "openai";
     private static final int SDK_MAX_RETRIES = 2;
     private static final double SAMPLING_TEMPERATURE = 0.2;
+    private static final String RETRY_RECOVERY_INSTRUCTION = "\n\nRecovery attempt %d: the prior response was empty or invalid. "
+        + "Return only the exact canonical JSON object with seoTitle and seoDescription string fields.";
 
     private static final String SYSTEM_PROMPT = """
         You are an SEO metadata specialist for findmybook.net.
@@ -119,6 +121,9 @@ class BookSeoMetadataClient {
     /**
      * Generates SEO metadata for a prompt with retry behavior at the supplied gateway tier.
      *
+     * <p>Retry attempts preserve the same model and generation settings while adding a concise
+     * recovery instruction so an invalid provider response does not trigger an identical request.
+     *
      * @param bookId canonical book UUID
      * @param prompt rendered prompt text
      * @param tier gateway priority tier controlling the {@code X-Tier} header on outbound calls
@@ -134,7 +139,7 @@ class BookSeoMetadataClient {
         int maxGenerationAttempts = tier.maxGenerationAttempts();
         for (int attempt = 1; attempt <= maxGenerationAttempts; attempt++) {
             try {
-                return generateOnce(prompt, tier);
+                return generateOnce(promptForAttempt(prompt, attempt), tier);
             } catch (BookSeoGenerationException generationFailure) {
                 lastGenerationFailure = generationFailure;
                 if (attempt < maxGenerationAttempts && isRetryableGenerationFailure(generationFailure)) {
@@ -159,6 +164,13 @@ class BookSeoMetadataClient {
             );
         }
         throw lastGenerationFailure;
+    }
+
+    private String promptForAttempt(String canonicalPrompt, int attempt) {
+        if (attempt == 1) {
+            return canonicalPrompt;
+        }
+        return canonicalPrompt + RETRY_RECOVERY_INSTRUCTION.formatted(attempt);
     }
 
     private SeoMetadataCandidate generateOnce(String prompt, LlmGatewayTier tier) {

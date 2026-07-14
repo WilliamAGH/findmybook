@@ -1,5 +1,9 @@
 package net.findmybook.application.ai;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
@@ -9,10 +13,17 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
+import net.findmybook.application.seo.BookSeoGenerationException;
 import net.findmybook.application.seo.BookSeoMetadataGenerationService;
 import net.findmybook.service.event.BookUpsertEvent;
 import net.findmybook.support.ai.BookAiContentRequestQueue;
@@ -22,6 +33,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
+import org.springframework.transaction.event.TransactionalEventListenerFactory;
 
 @ExtendWith(MockitoExtension.class)
 class BookAiIngestionMetadataCoordinatorTest {
@@ -34,19 +52,53 @@ class BookAiIngestionMetadataCoordinatorTest {
     private BookSeoMetadataGenerationService bookSeoMetadataGenerationService;
 
     @Test
+    void should_ListenAfterCommitWithoutFallback_When_BookUpsertEventIsPublished() throws NoSuchMethodException {
+        TransactionalEventListener listener = BookAiIngestionMetadataCoordinator.class
+            .getDeclaredMethod("handleBookUpsert", BookUpsertEvent.class)
+            .getAnnotation(TransactionalEventListener.class);
+
+        assertNotNull(listener);
+        assertEquals(TransactionPhase.AFTER_COMMIT, listener.phase());
+        assertFalse(listener.fallbackExecution());
+    }
+
+    @Test
+    void should_EnqueueOnlyAfterCommit_When_TransactionPublishesBookUpsertEvent() {
+        UUID bookId = UUID.randomUUID();
+        BookUpsertEvent event = bookUpsertEvent(bookId);
+        when(bookAiContentService.isAvailable()).thenReturn(true);
+        when(requestQueue.<Void>enqueueBackground(anyInt(), any()))
+            .thenReturn(new BookAiContentRequestQueue.EnqueuedTask<>(
+                "after-commit-task",
+                CompletableFuture.completedFuture(null),
+                CompletableFuture.completedFuture(null)
+            ));
+
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            context.registerBean(TransactionalEventListenerFactory.class);
+            context.registerBean(BookAiIngestionMetadataCoordinator.class, this::newCoordinator);
+            context.refresh();
+
+            beginTransactionSynchronization();
+            context.publishEvent(event);
+            verify(requestQueue, never()).enqueueBackground(anyInt(), any());
+            completeTransactionSynchronization(TransactionSynchronization.STATUS_COMMITTED);
+            verify(requestQueue).enqueueBackground(eq(0), any());
+
+            beginTransactionSynchronization();
+            context.publishEvent(event);
+            completeTransactionSynchronization(TransactionSynchronization.STATUS_ROLLED_BACK);
+            verify(requestQueue, times(1)).enqueueBackground(anyInt(), any());
+        } finally {
+            clearTransactionSynchronization();
+        }
+    }
+
+    @Test
     void should_EnqueueBackgroundGeneration_When_BookUpsertEventHasValidUuid() {
         UUID bookId = UUID.randomUUID();
         BookAiIngestionMetadataCoordinator coordinator = newCoordinator();
-        BookUpsertEvent event = new BookUpsertEvent(
-            bookId.toString(),
-            "book-slug",
-            "Book title",
-            true,
-            "GOOGLE_BOOKS",
-            null,
-            null,
-            "GOOGLE_BOOKS"
-        );
+        BookUpsertEvent event = bookUpsertEvent(bookId);
 
         when(bookAiContentService.isAvailable()).thenReturn(true);
         when(bookSeoMetadataGenerationService.isAvailable()).thenReturn(true);
@@ -76,16 +128,7 @@ class BookAiIngestionMetadataCoordinatorTest {
     void should_SkipEnqueue_When_BackgroundQueueIsAtCapacity() {
         UUID bookId = UUID.randomUUID();
         BookAiIngestionMetadataCoordinator coordinator = newCoordinator();
-        BookUpsertEvent event = new BookUpsertEvent(
-            bookId.toString(),
-            "book-slug",
-            "Book title",
-            true,
-            "GOOGLE_BOOKS",
-            null,
-            null,
-            "GOOGLE_BOOKS"
-        );
+        BookUpsertEvent event = bookUpsertEvent(bookId);
 
         when(bookAiContentService.isAvailable()).thenReturn(true);
         doThrow(new BookAiQueueCapacityExceededException(100_000, 100_000))
@@ -97,19 +140,67 @@ class BookAiIngestionMetadataCoordinatorTest {
     }
 
     @Test
+    void should_ClassifyBackgroundCompletionFailures_When_TaskFinishesExceptionally() {
+        UUID bookId = UUID.randomUUID();
+        Logger coordinatorLogger = (Logger) LoggerFactory.getLogger(BookAiIngestionMetadataCoordinator.class);
+        ListAppender<ILoggingEvent> logEvents = new ListAppender<>();
+        boolean originalAdditivity = coordinatorLogger.isAdditive();
+        Level originalLevel = coordinatorLogger.getLevel();
+        coordinatorLogger.setAdditive(false);
+        coordinatorLogger.setLevel(Level.DEBUG);
+        logEvents.start();
+        coordinatorLogger.addAppender(logEvents);
+
+        try {
+            BookAiIngestionMetadataCoordinator coordinator = newCoordinator();
+            when(bookAiContentService.isAvailable()).thenReturn(true);
+            when(bookSeoMetadataGenerationService.isAvailable()).thenReturn(true);
+            when(requestQueue.<Void>enqueueBackground(anyInt(), any()))
+                .thenReturn(failedTask("expected-failure", new BookAiGenerationException(
+                    BookAiGenerationException.ErrorCode.INVALID_RESPONSE,
+                    "AI response did not include a valid JSON object"
+                )))
+                .thenAnswer(invocation -> executeTask("dual-failure", invocation.getArgument(1)))
+                .thenReturn(failedTask("cancelled", new CancellationException("deployment shutdown")))
+                .thenReturn(failedTask("seo-invalid", new BookSeoGenerationException(
+                    BookSeoGenerationException.ErrorCode.INVALID_RESPONSE, "invalid SEO JSON")))
+                .thenReturn(failedTask("seo-api", new BookSeoGenerationException(
+                    BookSeoGenerationException.ErrorCode.API_CALL_FAILED, "SEO upstream unavailable")));
+            when(bookAiContentService.generateAndPersistIfPromptChanged(eq(bookId), any(), any()))
+                .thenThrow(new BookAiGenerationException(
+                    BookAiGenerationException.ErrorCode.INVALID_RESPONSE,
+                    "AI response did not include a valid JSON object"
+                ));
+            when(bookSeoMetadataGenerationService.generateAndPersistIfPromptChanged(bookId))
+                .thenThrow(new DataAccessResourceFailureException("database enrichment failed"));
+
+            coordinator.handleBookUpsert(bookUpsertEvent(bookId));
+            coordinator.handleBookUpsert(bookUpsertEvent(bookId));
+            coordinator.handleBookUpsert(bookUpsertEvent(bookId));
+            coordinator.handleBookUpsert(bookUpsertEvent(bookId));
+            coordinator.handleBookUpsert(bookUpsertEvent(bookId));
+
+            assertThat(logEvents.list).extracting(ILoggingEvent::getLevel)
+                .containsExactly(Level.WARN, Level.ERROR, Level.DEBUG, Level.WARN, Level.ERROR);
+            assertThat(logEvents.list.get(0).getFormattedMessage()).contains(bookId.toString(), "did not complete");
+            assertThat(logEvents.list.get(1).getThrowableProxy().getClassName())
+                .contains("DataAccessResourceFailureException");
+            assertThat(logEvents.list.get(1).getThrowableProxy().getSuppressed()).hasSize(1);
+            assertThat(logEvents.list.get(3).getFormattedMessage()).contains("invalid SEO JSON");
+            assertThat(logEvents.list.get(4).getThrowableProxy().getClassName()).contains("BookSeoGenerationException");
+        } finally {
+            coordinatorLogger.detachAppender(logEvents);
+            logEvents.stop();
+            coordinatorLogger.setAdditive(originalAdditivity);
+            coordinatorLogger.setLevel(originalLevel);
+        }
+    }
+
+    @Test
     void should_ContinueSeoGeneration_When_AiDescriptionIsTooShort() {
         UUID bookId = UUID.randomUUID();
         BookAiIngestionMetadataCoordinator coordinator = newCoordinator();
-        BookUpsertEvent event = new BookUpsertEvent(
-            bookId.toString(),
-            "book-slug",
-            "Book title",
-            true,
-            "GOOGLE_BOOKS",
-            null,
-            null,
-            "GOOGLE_BOOKS"
-        );
+        BookUpsertEvent event = bookUpsertEvent(bookId);
 
         when(bookAiContentService.isAvailable()).thenReturn(true);
         when(bookSeoMetadataGenerationService.isAvailable()).thenReturn(true);
@@ -144,26 +235,8 @@ class BookAiIngestionMetadataCoordinatorTest {
         UUID secondBookId = UUID.randomUUID();
         BookAiIngestionMetadataCoordinator coordinator = newCoordinator();
 
-        BookUpsertEvent firstEvent = new BookUpsertEvent(
-            firstBookId.toString(),
-            "first-book",
-            "First book",
-            true,
-            "GOOGLE_BOOKS",
-            null,
-            null,
-            "GOOGLE_BOOKS"
-        );
-        BookUpsertEvent secondEvent = new BookUpsertEvent(
-            secondBookId.toString(),
-            "second-book",
-            "Second book",
-            true,
-            "GOOGLE_BOOKS",
-            null,
-            null,
-            "GOOGLE_BOOKS"
-        );
+        BookUpsertEvent firstEvent = bookUpsertEvent(firstBookId);
+        BookUpsertEvent secondEvent = bookUpsertEvent(secondBookId);
 
         when(bookAiContentService.isAvailable()).thenReturn(true);
         when(bookSeoMetadataGenerationService.isAvailable()).thenReturn(true);
@@ -204,5 +277,49 @@ class BookAiIngestionMetadataCoordinatorTest {
             bookAiContentService,
             bookSeoMetadataGenerationService
         );
+    }
+
+    private BookUpsertEvent bookUpsertEvent(UUID bookId) {
+        return new BookUpsertEvent(
+            bookId.toString(), "book-slug", "Book title", true,
+            "GOOGLE_BOOKS", null, null, "GOOGLE_BOOKS"
+        );
+    }
+
+    private BookAiContentRequestQueue.EnqueuedTask<Void> failedTask(String taskId, RuntimeException failure) {
+        CompletableFuture<Void> failedResult = new CompletableFuture<>();
+        failedResult.completeExceptionally(failure);
+        return new BookAiContentRequestQueue.EnqueuedTask<>(taskId, CompletableFuture.completedFuture(null), failedResult);
+    }
+
+    private BookAiContentRequestQueue.EnqueuedTask<Void> executeTask(String taskId, Supplier<Void> supplier) {
+        CompletableFuture<Void> result = new CompletableFuture<>();
+        try {
+            result.complete(supplier.get());
+        } catch (RuntimeException failure) {
+            result.completeExceptionally(failure);
+        }
+        return new BookAiContentRequestQueue.EnqueuedTask<>(taskId, CompletableFuture.completedFuture(null), result);
+    }
+
+    private void beginTransactionSynchronization() {
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+        TransactionSynchronizationManager.initSynchronization();
+    }
+
+    private void completeTransactionSynchronization(int completionStatus) {
+        List<TransactionSynchronization> synchronizations = TransactionSynchronizationManager.getSynchronizations();
+        if (completionStatus == TransactionSynchronization.STATUS_COMMITTED) {
+            synchronizations.forEach(TransactionSynchronization::afterCommit);
+        }
+        synchronizations.forEach(synchronization -> synchronization.afterCompletion(completionStatus));
+        clearTransactionSynchronization();
+    }
+
+    private void clearTransactionSynchronization() {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+        TransactionSynchronizationManager.setActualTransactionActive(false);
     }
 }

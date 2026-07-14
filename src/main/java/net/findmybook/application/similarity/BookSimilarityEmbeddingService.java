@@ -1,14 +1,13 @@
 package net.findmybook.application.similarity;
 
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import java.security.NoSuchAlgorithmException;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import net.findmybook.adapters.persistence.BookEmbeddingSectionRepository;
 import net.findmybook.adapters.persistence.BookSimilarityEmbeddingRepository;
 import net.findmybook.adapters.persistence.BookSimilarityEmbeddingRepository.FusedEmbeddingRow;
@@ -47,7 +46,7 @@ public class BookSimilarityEmbeddingService {
     private final BookAiContentRequestQueue requestQueue;
     private final ObjectMapper objectMapper;
     private final BookSimilarityEmbeddingProperties properties;
-    private final Cache<UUID, Boolean> recentRefreshAttempts;
+    private final Set<UUID> inFlightRefreshes;
 
     public BookSimilarityEmbeddingService(BookSimilarityEmbeddingRepository repository,
                                           BookEmbeddingSectionRepository sectionRepository,
@@ -65,10 +64,7 @@ public class BookSimilarityEmbeddingService {
         this.requestQueue = requestQueue;
         this.objectMapper = objectMapper;
         this.properties = properties;
-        this.recentRefreshAttempts = Caffeine.newBuilder()
-            .maximumSize(50_000)
-            .expireAfterWrite(Duration.ofMinutes(60))
-            .build();
+        this.inFlightRefreshes = ConcurrentHashMap.newKeySet();
     }
 
     /**
@@ -244,11 +240,12 @@ public class BookSimilarityEmbeddingService {
             && repository.isVectorFresh(bookId, modelVersion, policy.profileHash())) {
             return false;
         }
-        if (recentRefreshAttempts.asMap().putIfAbsent(bookId, Boolean.TRUE) != null) {
+        if (!inFlightRefreshes.add(bookId)) {
             return false;
         }
+        boolean enqueued = false;
         try {
-            requestQueue.enqueueBackground(priority, () -> {
+            BookAiContentRequestQueue.EnqueuedTask<Void> refreshTask = requestQueue.enqueueBackground(priority, () -> {
                 try {
                     refreshBookIfStale(bookId, reason);
                 } catch (BookEmbeddingApiException embeddingApiException) {
@@ -260,15 +257,16 @@ public class BookSimilarityEmbeddingService {
                     );
                 }
                 return null;
-            }).result().whenComplete((ignored, failure) -> {
-                recentRefreshAttempts.invalidate(bookId);
+            });
+            refreshTask.result().whenComplete((ignored, failure) -> {
                 if (failure != null) {
                     log.error("Book similarity embedding refresh failed for book {} ({})", bookId, reason, failure);
                 }
             });
+            refreshTask.finished().whenComplete((ignored, failure) -> inFlightRefreshes.remove(bookId));
+            enqueued = true;
             return true;
         } catch (BookAiQueueCapacityExceededException queueCapacityExceededException) {
-            recentRefreshAttempts.invalidate(bookId);
             log.warn(
                 "Book similarity refresh enqueue skipped for book {} because AI queue cap was reached (pending={}, max={})",
                 bookId,
@@ -276,6 +274,10 @@ public class BookSimilarityEmbeddingService {
                 queueCapacityExceededException.maxPending()
             );
             return false;
+        } finally {
+            if (!enqueued) {
+                inFlightRefreshes.remove(bookId);
+            }
         }
     }
 

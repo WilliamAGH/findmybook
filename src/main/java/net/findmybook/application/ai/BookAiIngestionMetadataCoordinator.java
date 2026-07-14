@@ -1,6 +1,7 @@
 package net.findmybook.application.ai;
 
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import net.findmybook.application.seo.BookSeoGenerationException;
 import net.findmybook.application.seo.BookSeoMetadataGenerationService;
@@ -8,11 +9,12 @@ import net.findmybook.service.event.BookUpsertEvent;
 import net.findmybook.support.ai.BookAiContentRequestQueue;
 import net.findmybook.support.ai.BookAiQueueCapacityExceededException;
 import net.findmybook.support.llm.LlmGatewayTier;
-import org.springframework.dao.DataAccessException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.event.EventListener;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.util.StringUtils;
 
 /**
@@ -42,9 +44,9 @@ public class BookAiIngestionMetadataCoordinator {
     }
 
     /**
-     * Enqueues background metadata generation when a canonical book upsert is published.
+     * Enqueues background metadata generation after a transactional canonical book upsert commits.
      */
-    @EventListener
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void handleBookUpsert(BookUpsertEvent event) {
         if (event == null || !StringUtils.hasText(event.getBookId())) {
             log.warn("Skipping ingestion metadata enqueue: missing bookId in BookUpsertEvent");
@@ -67,7 +69,7 @@ public class BookAiIngestionMetadataCoordinator {
                 return null;
             }).result().whenComplete((ignored, throwable) -> {
                 if (throwable != null) {
-                    log.error("Background ingestion metadata generation failed for book {}", bookId, throwable);
+                    logBackgroundFailure(bookId, throwable);
                 }
             });
         } catch (BookAiQueueCapacityExceededException queueOverflowException) {
@@ -78,6 +80,35 @@ public class BookAiIngestionMetadataCoordinator {
                 queueOverflowException.maxPending()
             );
         }
+    }
+
+    private void logBackgroundFailure(UUID bookId, Throwable failure) {
+        if (failure instanceof CancellationException) {
+            log.debug("Background ingestion metadata generation cancelled for book {}", bookId);
+            return;
+        }
+        if (isExpectedGenerationFailure(failure)) {
+            log.warn("Background ingestion metadata generation did not complete for book {}: {}",
+                bookId, failure.getMessage(), failure);
+            return;
+        }
+        log.error("Background ingestion metadata generation failed for book {}", bookId, failure);
+    }
+
+    private boolean isExpectedGenerationFailure(Throwable failure) {
+        if (failure instanceof BookAiGenerationException aiFailure) {
+            return switch (aiFailure.errorCode()) {
+                case INVALID_RESPONSE, INCOMPLETE_RESPONSE, DEGENERATE_CONTENT, DESCRIPTION_TOO_SHORT -> true;
+                case GENERATION_FAILED, ENRICHMENT_FAILED -> false;
+            };
+        }
+        if (failure instanceof BookSeoGenerationException seoFailure) {
+            return switch (seoFailure.errorCode()) {
+                case INVALID_RESPONSE, DESCRIPTION_TOO_SHORT -> true;
+                case GENERATION_FAILED, API_CALL_FAILED -> false;
+            };
+        }
+        return false;
     }
 
     private void processIngestionMetadata(UUID bookId) {
@@ -122,9 +153,7 @@ public class BookAiIngestionMetadataCoordinator {
                         log.debug("Skipping ingestion SEO metadata generation because relation book_seo_metadata is unavailable.");
                     }
                 } else {
-                    if (firstFailure == null) {
-                        firstFailure = seoFailure;
-                    }
+                    firstFailure = retainHighestSeverityFailure(firstFailure, seoFailure);
                 }
             }
         }
@@ -132,6 +161,21 @@ public class BookAiIngestionMetadataCoordinator {
         if (firstFailure != null) {
             throw firstFailure;
         }
+    }
+
+    private RuntimeException retainHighestSeverityFailure(
+        RuntimeException currentFailure,
+        RuntimeException nextFailure
+    ) {
+        if (currentFailure == null || currentFailure == nextFailure) {
+            return nextFailure;
+        }
+        if (isExpectedGenerationFailure(currentFailure) && !isExpectedGenerationFailure(nextFailure)) {
+            nextFailure.addSuppressed(currentFailure);
+            return nextFailure;
+        }
+        currentFailure.addSuppressed(nextFailure);
+        return currentFailure;
     }
 
     private UUID parseBookId(String rawBookId) {

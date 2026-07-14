@@ -112,7 +112,7 @@
   - Unknown identifiers return `404 application/problem+json`.
 - `POST /api/covers/{identifier}/ingest`
   - Purpose:
-    - Persist a browser-fetched cover image (for example a Google Books cover already rendered in UI) into S3 and canonical cover metadata.
+    - Persist a browser-fetched cover image into S3 and canonical cover metadata. Automatic relay skips server-managed provider hosts (Open Library, Google Books).
   - Request content type:
     - `multipart/form-data`
   - Required fields:
@@ -143,7 +143,13 @@
     - `available: boolean`
     - `environmentMode: string` (`development`, `production`, or `test`)
   - Queue semantics:
-    - Foreground (interactive Svelte) tasks are always dequeued ahead of background ingestion tasks.
+    - `AI_DEFAULT_MAX_PARALLEL` is the global concurrency cap and is coerced to the supported range
+      `2..20`, ensuring capacity for at least one reserved foreground execution slot.
+    - Background ingestion may occupy at most `maxParallel - 1` slots, so it can never consume the
+      reserved foreground capacity. Foreground work may borrow every idle slot up to `maxParallel`.
+    - Foreground tasks are selected before new background tasks; priority ordering is preserved
+      within each lane.
+    - `running` and `pending` aggregate both lanes.
     - Background enqueue is capped by `APP_AI_QUEUE_BACKGROUND_MAX_PENDING` (default `100`).
 - `POST /api/books/{identifier}/ai/content/stream`
   - Query params:
@@ -165,9 +171,9 @@
     - `message_done`: `{ message }`
     - `done`: `{ message, aiContent }` where `aiContent` matches the `book.aiContent` contract
     - `error`: `{ error, code, retryable }`
-      - Queue wait is kept alive for at most ten minutes and then ends with `queue_busy`; the
-        `stream_timeout` generation deadline begins only after `started`, so queued work cannot
-        consume the model's inference budget.
+      - Queue wait ends with `queue_busy` after at most ten minutes. After `started`, the
+        `stream_timeout` generation-and-delivery deadline lasts four minutes thirty seconds, so
+        queued work cannot consume that budget.
       - Cancellation and persistence share one atomic commitment boundary. Cancellation that claims
         first prevents a new AI-content version; persistence that claims first completes its insert,
         while the closed stream suppresses any later delivery.

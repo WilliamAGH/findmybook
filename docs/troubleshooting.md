@@ -35,6 +35,18 @@ but cover uploads are intentionally skipped.
 - Expected behavior: no S3 upload retries are executed for those events.
 - Enable uploads by setting `S3_WRITE_ENABLED=true` with valid S3 credentials/configuration.
 
+## S3 Storage Disabled
+
+When `S3_ENABLED=false`, S3 cover storage and CDN URL resolution are disabled:
+
+- Existing S3 keys in `book_image_links.s3_image_path` are not converted into CDN URLs; supplied external URLs are used as fallback.
+- Cover ranking treats unresolved S3 keys as tier 0 (no cover) rather than tier 5 (S3/CDN).
+- The shared CDN base is cleared at startup, so `CoverUrlResolver.resolve()` does not construct CDN URLs from S3 keys.
+
+`MISSING`-mode backfill candidate selection is independent of `S3_ENABLED`: it excludes books only when a `book_image_links` row has no download error, is not marked grayscale, and has a non-empty `s3_image_path`; external-only rows remain candidates.
+
+Use `S3_ENABLED=false` only when S3 infrastructure is unavailable or intentionally decommissioned.
+
 ## Work Clustering Failure: `check_reasonable_member_count`
 
 If logs show:
