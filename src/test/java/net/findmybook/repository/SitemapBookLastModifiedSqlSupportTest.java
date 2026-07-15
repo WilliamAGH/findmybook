@@ -61,6 +61,18 @@ class SitemapBookLastModifiedSqlSupportTest {
     }
 
     @Test
+    void should_UseOneGlobalAggregateWithoutPerBookGrouping_When_RenderingFingerprintQuery() {
+        String sql = SitemapBookLastModifiedSqlSupport.bookFingerprintQuery("book_updated_at");
+
+        assertThat(sql)
+            .contains("SELECT (SELECT COUNT(*) FROM requested_books) AS total_records")
+            .contains("MAX(change_events.changed_at)")
+            .contains("AS book_updated_at")
+            .doesNotContain("book_last_modified")
+            .doesNotContain("GROUP BY");
+    }
+
+    @Test
     void should_ThrowIllegalArgument_When_AliasContainsSqlInjection() {
         assertThatThrownBy(() ->
             SitemapBookLastModifiedSqlSupport.globalBookLastModifiedCte("x; DROP TABLE books"))
@@ -144,5 +156,31 @@ class SitemapBookLastModifiedSqlSupportTest {
             .contains("requested_books AS MATERIALIZED")
             .contains("LIMIT ? OFFSET ?")
             .doesNotContain("FROM book_last_modified ORDER BY");
+    }
+
+    @Test
+    void should_DisableParallelWorkersForTransaction_When_BookFingerprintIsRequested() {
+        JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+        SitemapRepository sitemapRepository = new SitemapRepository(jdbcTemplate);
+        SitemapRepository.DatasetFingerprint expected = new SitemapRepository.DatasetFingerprint(
+            42,
+            Instant.parse("2026-07-15T00:00:00Z")
+        );
+        when(jdbcTemplate.queryForObject(
+            anyString(),
+            org.mockito.ArgumentMatchers.<RowMapper<SitemapRepository.DatasetFingerprint>>any()
+        )).thenReturn(expected);
+
+        assertThat(sitemapRepository.fetchBookFingerprint()).isEqualTo(expected);
+
+        verify(jdbcTemplate).execute("SET LOCAL max_parallel_workers_per_gather = 0");
+        ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+        verify(jdbcTemplate).queryForObject(
+            sqlCaptor.capture(),
+            org.mockito.ArgumentMatchers.<RowMapper<SitemapRepository.DatasetFingerprint>>any()
+        );
+        assertThat(sqlCaptor.getValue())
+            .contains("MAX(change_events.changed_at)")
+            .doesNotContain("GROUP BY");
     }
 }

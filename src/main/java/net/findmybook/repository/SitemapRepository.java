@@ -4,6 +4,7 @@ import net.findmybook.support.sitemap.SitemapBookLastModifiedSqlSupport;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -30,8 +31,12 @@ public class SitemapRepository {
     private static final String AUTHOR_UPDATED_AT_ALIAS = "author_updated_at";
     private static final String AUTHOR_PAGE_NUMBER_ALIAS = "author_page_number";
     private static final String SQL_EPOCH_TIMESTAMP = "TIMESTAMP 'epoch'";
+    private static final String DISABLE_PARALLEL_QUERY_FOR_TRANSACTION =
+            "SET LOCAL max_parallel_workers_per_gather = 0";
     private static final String BOOK_CHANGE_EVENTS_CTE =
             SitemapBookLastModifiedSqlSupport.globalBookLastModifiedCte(BOOK_UPDATED_AT_ALIAS);
+    private static final String BOOK_FINGERPRINT_QUERY =
+            SitemapBookLastModifiedSqlSupport.bookFingerprintQuery(BOOK_UPDATED_AT_ALIAS);
 
     private static final RowMapper<BookRow> BOOK_ROW_MAPPER = (rs, rowNum) -> new BookRow(
             rs.getString("id"),
@@ -239,14 +244,18 @@ public class SitemapRepository {
         ), htmlPageSize, xmlPageSize);
     }
 
+    /**
+     * Reads the hourly book fingerprint without parallel workers so constrained
+     * PostgreSQL containers never need dynamic shared memory for this maintenance query.
+     *
+     * @return current sitemap book count and latest related-data timestamp
+     */
+    @Transactional(readOnly = true)
     public DatasetFingerprint fetchBookFingerprint() {
-        String sql = BOOK_CHANGE_EVENTS_CTE +
-                "SELECT COUNT(*) AS total_records, " +
-                "COALESCE(MAX(" + BOOK_UPDATED_AT_ALIAS + "), " + SQL_EPOCH_TIMESTAMP + ") AS last_modified " +
-                "FROM book_last_modified";
-        return jdbcTemplate.queryForObject(sql, (rs, rowNum) -> new DatasetFingerprint(
+        jdbcTemplate.execute(DISABLE_PARALLEL_QUERY_FOR_TRANSACTION);
+        return jdbcTemplate.queryForObject(BOOK_FINGERPRINT_QUERY, (rs, rowNum) -> new DatasetFingerprint(
                 rs.getInt("total_records"),
-                rs.getTimestamp("last_modified").toInstant()
+                rs.getTimestamp(BOOK_UPDATED_AT_ALIAS).toInstant()
         ));
     }
 

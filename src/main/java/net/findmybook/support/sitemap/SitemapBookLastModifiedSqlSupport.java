@@ -145,6 +145,34 @@ public final class SitemapBookLastModifiedSqlSupport {
     }
 
     /**
+     * Builds the hourly book fingerprint query without the per-book hash aggregation
+     * required by the full sitemap metadata projection.
+     *
+     * <p>The change-event rows stream into one global aggregate, preserving the
+     * dataset count and latest joined-data timestamp while keeping aggregation state
+     * independent of the number of sitemap books.</p>
+     *
+     * @param bookUpdatedAtAlias SQL alias for the latest dataset timestamp
+     * @return SQL for the streaming book dataset fingerprint
+     */
+    public static String bookFingerprintQuery(String bookUpdatedAtAlias) {
+        validateSqlIdentifier(bookUpdatedAtAlias, "bookUpdatedAtAlias");
+        return """
+                WITH requested_books AS NOT MATERIALIZED (
+                    SELECT b.id AS book_id
+                    FROM books b
+                    WHERE b.slug IS NOT NULL
+                ),
+                change_events AS NOT MATERIALIZED (
+                    %s
+                )
+                SELECT (SELECT COUNT(*) FROM requested_books) AS total_records,
+                       COALESCE(MAX(change_events.changed_at), TIMESTAMP 'epoch') AS %s
+                FROM change_events
+                """.formatted(UNION_ALL_CHANGE_EVENTS, bookUpdatedAtAlias);
+    }
+
+    /**
      * Builds a bounded XML sitemap query that selects the requested book page before
      * aggregating joined-data timestamps.
      *
