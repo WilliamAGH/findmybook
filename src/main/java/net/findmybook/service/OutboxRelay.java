@@ -2,6 +2,7 @@ package net.findmybook.service;
 
 import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.messaging.MessagingException;
@@ -9,44 +10,20 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Relays events from transactional outbox table to WebSocket clients.
- * <p>
- * Implements the Transactional Outbox Pattern:
- * 1. Services write events to events_outbox table (same transaction as business logic)
- * 2. This relay polls the outbox and publishes to WebSocket
- * 3. Successfully sent events are marked with sent_at timestamp
- * <p>
- * Benefits:
- * - Guaranteed event delivery (transactional with database writes)
- * - No lost events if WebSocket publish fails
- * - Automatic retry for failed publishes
- * - Decouples event production from delivery
- * <p>
- * Processing:
- * - Runs every 1 second via @Scheduled
- * - Fetches up to 100 unsent events per batch
- * - Publishes to WebSocket via SimpMessagingTemplate
- * - Marks successful events with sent_at = NOW()
- * <p>
- * Example event flow:
- * <pre>
- * BookUpsertService → INSERT INTO events_outbox (SAME TX)
- *                  ↓
- * OutboxRelay (every 1s) → Poll unsent events
- *                        → Publish to /topic/book.{id}
- *                        → Mark as sent
- * </pre>
- * <p>
- * Topics:
- * - /topic/book.{bookId} - Book upsert events
- * - /topic/search.{searchId} - Search result updates
- * <p>
- * Monitoring:
- * Use getOutboxStats() to monitor pending/sent events.
+ * Relays committed transactional-outbox events to WebSocket clients and marks
+ * successful deliveries as sent.
+ *
+ * <p>Publish failures remain pending for retry. Database failures pause polling
+ * with bounded exponential backoff so one outage remains visible without making
+ * Spring's scheduler log the same exception again.</p>
  */
 @Service
 @Slf4j
@@ -55,15 +32,31 @@ public class OutboxRelay {
     private final JdbcTemplate jdbcTemplate;
     private final SimpMessagingTemplate messagingTemplate;
 
-    // Batch size for processing
     private static final int BATCH_SIZE = 100;
-
-    // Processing interval (1 second for near-real-time)
     private static final long PROCESS_INTERVAL_MS = 1000;
+    private static final long INITIAL_DATABASE_RETRY_DELAY_MS = 5_000;
+    private static final long MAX_DATABASE_RETRY_DELAY_MS = 60_000;
+    private static final int MAX_DATABASE_RETRY_SHIFT = 4;
 
+    private final Clock clock;
+    private int consecutiveDatabaseFailures;
+    private Instant nextDatabaseAttemptAt = Instant.MIN;
+
+    /**
+     * Creates the scheduled relay with a system UTC clock for database retry timing.
+     *
+     * @param jdbcTemplate transactional outbox database access
+     * @param messagingTemplate WebSocket publisher
+     */
+    @Autowired
     public OutboxRelay(JdbcTemplate jdbcTemplate, SimpMessagingTemplate messagingTemplate) {
+        this(jdbcTemplate, messagingTemplate, Clock.systemUTC());
+    }
+
+    OutboxRelay(JdbcTemplate jdbcTemplate, SimpMessagingTemplate messagingTemplate, Clock clock) {
         this.jdbcTemplate = jdbcTemplate;
         this.messagingTemplate = messagingTemplate;
+        this.clock = Objects.requireNonNull(clock, "clock");
     }
 
     /**
@@ -81,6 +74,20 @@ public class OutboxRelay {
      */
     @Scheduled(fixedDelay = PROCESS_INTERVAL_MS)
     public void relayEvents() {
+        Instant pollStartedAt = clock.instant();
+        if (pollStartedAt.isBefore(nextDatabaseAttemptAt)) {
+            return;
+        }
+
+        try {
+            relayAvailableEvents();
+            recordDatabaseRecovery();
+        } catch (DataAccessException databaseFailure) {
+            recordDatabaseFailure(pollStartedAt, databaseFailure);
+        }
+    }
+
+    private void relayAvailableEvents() {
         List<OutboxEvent> events = fetchUnsentEvents(BATCH_SIZE);
 
         if (events.isEmpty()) {
@@ -101,31 +108,12 @@ public class OutboxRelay {
                     ex.getMessage()
                 );
 
-                // Increment retry count
-                try {
-                    incrementRetryCount(event.getEventId());
-                } catch (IllegalStateException retryEx) {
-                    log.error(
-                        "Stopping outbox relay cycle because retry count update failed for event {}",
-                        event.getEventId(),
-                        retryEx
-                    );
-                    throw retryEx;
-                }
+                incrementRetryCount(event.getEventId());
                 continue;
             }
 
             // Mark as sent
-            try {
-                markSent(event.getEventId());
-            } catch (IllegalStateException markSentException) {
-                log.error(
-                    "Stopping outbox relay cycle because mark-sent failed for event {}",
-                    event.getEventId(),
-                    markSentException
-                );
-                throw markSentException;
-            }
+            markSent(event.getEventId());
 
             if (event.getTopic() != null && event.getTopic().startsWith("/topic/cluster.")) {
                 clusterEventsRelayed++;
@@ -136,6 +124,48 @@ public class OutboxRelay {
         if (clusterEventsRelayed > 0) {
             log.info("Relayed {} work-cluster primary change event(s) this cycle", clusterEventsRelayed);
         }
+    }
+
+    private void recordDatabaseFailure(Instant pollStartedAt, DataAccessException databaseFailure) {
+        consecutiveDatabaseFailures++;
+        long retryDelayMillis = Math.min(
+            INITIAL_DATABASE_RETRY_DELAY_MS << Math.min(consecutiveDatabaseFailures - 1, MAX_DATABASE_RETRY_SHIFT),
+            MAX_DATABASE_RETRY_DELAY_MS
+        );
+        nextDatabaseAttemptAt = pollStartedAt.plus(Duration.ofMillis(retryDelayMillis));
+
+        if (consecutiveDatabaseFailures == 1) {
+            log.error(
+                "Outbox relay database access failed; pausing polls for {} ms",
+                retryDelayMillis,
+                databaseFailure
+            );
+            return;
+        }
+        if (retryDelayMillis == MAX_DATABASE_RETRY_DELAY_MS) {
+            log.error(
+                "Outbox relay database access still unavailable after {} attempts; next retry in {} ms: {}",
+                consecutiveDatabaseFailures,
+                retryDelayMillis,
+                databaseFailure.getMostSpecificCause().getMessage()
+            );
+            return;
+        }
+        log.warn(
+            "Outbox relay database access still unavailable after {} attempts; next retry in {} ms: {}",
+            consecutiveDatabaseFailures,
+            retryDelayMillis,
+            databaseFailure.getMostSpecificCause().getMessage()
+        );
+    }
+
+    private void recordDatabaseRecovery() {
+        if (consecutiveDatabaseFailures == 0) {
+            return;
+        }
+        log.info("Outbox relay database access recovered after {} failed attempts", consecutiveDatabaseFailures);
+        consecutiveDatabaseFailures = 0;
+        nextDatabaseAttemptAt = Instant.MIN;
     }
 
     /**
@@ -159,9 +189,8 @@ public class OutboxRelay {
                 ),
                 limit
             );
-        } catch (DataAccessException ex) {
-            log.error("Failed to fetch unsent outbox events", ex);
-            throw new IllegalStateException("Failed to fetch unsent outbox events", ex);
+        } catch (DataAccessException databaseFailure) {
+            throw new OutboxPersistenceException("Failed to fetch unsent outbox events", databaseFailure);
         }
     }
 
@@ -174,9 +203,11 @@ public class OutboxRelay {
                 "UPDATE events_outbox SET sent_at = NOW() WHERE event_id = ?",
                 eventId
             );
-        } catch (DataAccessException ex) {
-            log.error("Failed to mark outbox event {} as sent", eventId, ex);
-            throw new IllegalStateException("Failed to mark outbox event as sent: " + eventId, ex);
+        } catch (DataAccessException databaseFailure) {
+            throw new OutboxPersistenceException(
+                "Failed to mark outbox event " + eventId + " as sent",
+                databaseFailure
+            );
         }
     }
 
@@ -190,9 +221,11 @@ public class OutboxRelay {
                 "UPDATE events_outbox SET retry_count = retry_count + 1 WHERE event_id = ?",
                 eventId
             );
-        } catch (DataAccessException ex) {
-            log.error("Failed to increment retry count for outbox event {}", eventId, ex);
-            throw new IllegalStateException("Failed to increment retry count for outbox event: " + eventId, ex);
+        } catch (DataAccessException databaseFailure) {
+            throw new OutboxPersistenceException(
+                "Failed to increment retry count for outbox event " + eventId,
+                databaseFailure
+            );
         }
     }
 
@@ -254,6 +287,12 @@ public class OutboxRelay {
         } catch (DataAccessException ex) {
             log.error("Failed to reset retry count for stuck outbox events", ex);
             throw new IllegalStateException("Failed to reset retry count for stuck outbox events", ex);
+        }
+    }
+
+    private static final class OutboxPersistenceException extends DataAccessException {
+        private OutboxPersistenceException(String message, DataAccessException cause) {
+            super(message, cause);
         }
     }
 

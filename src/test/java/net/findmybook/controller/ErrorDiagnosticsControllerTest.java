@@ -15,6 +15,7 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.web.servlet.ModelAndView;
 import org.springframework.web.servlet.View;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -25,8 +26,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ErrorDiagnosticsControllerTest {
 
     @Test
-    @DisplayName("Error view resolver returns SPA shell for 404 HTML responses")
-    void errorDiagnostics_resolvesNotFoundSpaShellForHtml() throws Exception {
+    @DisplayName("Error view resolver writes the SPA shell through an already-selected output stream")
+    void should_RenderNotFoundSpaShell_When_OutputStreamWasAlreadySelected() throws Exception {
         LocalDiskCoverCacheService localDiskCoverCacheService = Mockito.mock(LocalDiskCoverCacheService.class);
         BookSeoMetadataService seoMetadataService = new BookSeoMetadataService(localDiskCoverCacheService);
         ErrorDiagnosticsController resolver = errorDiagnosticsController(seoMetadataService);
@@ -42,7 +43,9 @@ class ErrorDiagnosticsControllerTest {
         View view = modelAndView.getView();
         assertNotNull(view);
         MockHttpServletResponse response = new MockHttpServletResponse();
-        view.render(Map.of(), request, response);
+        response.getOutputStream();
+
+        assertDoesNotThrow(() -> view.render(Map.of(), request, response));
 
         assertEquals(MediaType.TEXT_HTML_VALUE, response.getContentType());
         assertTrue(response.getContentAsString().contains("Page Not Found | findmybook"));

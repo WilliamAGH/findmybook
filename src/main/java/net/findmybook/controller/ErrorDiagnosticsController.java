@@ -2,6 +2,7 @@ package net.findmybook.controller;
 
 import jakarta.servlet.RequestDispatcher;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import net.findmybook.domain.seo.SeoMetadata;
 import net.findmybook.service.BookSeoMetadataService;
 import org.springframework.beans.factory.ObjectProvider;
@@ -19,6 +20,7 @@ import org.springframework.web.servlet.ModelAndView;
 import org.springframework.web.servlet.View;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
+import java.nio.charset.Charset;
 import java.util.Map;
 import java.util.Set;
 
@@ -182,9 +184,9 @@ public class ErrorDiagnosticsController implements ErrorViewResolver {
         }
 
         @Override
-        public void render(Map<String, ?> model, HttpServletRequest request, jakarta.servlet.http.HttpServletResponse response) throws Exception {
+        public void render(Map<String, ?> model, HttpServletRequest request, HttpServletResponse response) throws Exception {
             response.setContentType(MediaType.TEXT_HTML_VALUE);
-            response.getWriter().write(html);
+            response.getOutputStream().write(html.getBytes(Charset.forName(response.getCharacterEncoding())));
         }
     }
 }
