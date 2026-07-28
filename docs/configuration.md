@@ -64,7 +64,7 @@ export SPRING_DATASOURCE_PASSWORD="<pass>"
 
 Startup now fails fast with a clear error when database-required profiles are active and no datasource URL is configured. Set one of `SPRING_DATASOURCE_URL`, `DATABASE_URL`, `POSTGRES_URL`, or `JDBC_DATABASE_URL`. For explicit database-less startup, set `SPRING_PROFILES_ACTIVE=nodb`.
 
-The base Hikari pool sends a PostgreSQL TCP keepalive after 60 seconds while retaining the 30-minute connection lifetime. This keeps idle pooled connections observable to the network path without replacing driver validation with a custom test query.
+The base Hikari pool validates idle JDBC connections every 60 seconds while retaining the 30-minute connection lifetime. PostgreSQL `tcpKeepAlive` is also enabled so the driver uses the operating system's TCP keepalive policy; no custom connection test query replaces driver validation.
 
 ## Frontend Static Asset Caching
 
