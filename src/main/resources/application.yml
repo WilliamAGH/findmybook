@@ -18,8 +18,11 @@ spring:
       connection-timeout: 2000
       validation-timeout: 1000
       idle-timeout: 600000
+      keepalive-time: 60000
       max-lifetime: 1800000
       leak-detection-threshold: 60000
+      data-source-properties:
+        tcpKeepAlive: true
   main:
     allow-bean-definition-overriding: true
 
