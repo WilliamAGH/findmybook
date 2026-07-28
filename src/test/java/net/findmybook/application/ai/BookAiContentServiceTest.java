@@ -511,6 +511,17 @@ class BookAiContentServiceTest {
     }
 
     @Test
+    void should_SkipBlankListItems_When_ResponseContainsOtherwiseValidContent() {
+        AiContentJsonParser parser = new AiContentJsonParser(new ObjectMapper());
+        String response = validAiContentJson()
+            .replace("[\"reliability\"]", "[\"reliability\", \"  \", \"evidence\"]");
+
+        BookAiContent content = parser.parse(response);
+
+        assertThat(content.keyThemes()).containsExactly("reliability", "evidence");
+    }
+
+    @Test
     void should_RejectAliasField_When_ResponseOmitsCanonicalFieldName() {
         AiContentJsonParser parser = new AiContentJsonParser(new ObjectMapper());
         String response = validAiContentJson().replace("\"readerFit\":", "\"reader_fit\":");

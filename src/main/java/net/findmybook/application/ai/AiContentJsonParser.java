@@ -154,12 +154,6 @@ class AiContentJsonParser {
         if (!fieldNode.isArray()) {
             throw invalidFieldType(field, "an array of JSON strings");
         }
-        if (fieldNode.size() > maxSize) {
-            throw new IllegalStateException(
-                "AI response field exceeds maximum item count for %s: %d > %d"
-                    .formatted(field, fieldNode.size(), maxSize)
-            );
-        }
         List<String> values = new ArrayList<>(fieldNode.size());
         for (int index = 0; index < fieldNode.size(); index++) {
             JsonNode elementNode = fieldNode.get(index);
@@ -168,11 +162,15 @@ class AiContentJsonParser {
             }
             String text = elementNode.stringValue();
             if (!StringUtils.hasText(text)) {
-                throw new IllegalStateException(
-                    "AI response field item must be nonblank: %s[%d]".formatted(field, index)
-                );
+                continue;
             }
             values.add(text.trim());
+            if (values.size() > maxSize) {
+                throw new IllegalStateException(
+                    "AI response field exceeds maximum item count for %s: %d > %d"
+                        .formatted(field, values.size(), maxSize)
+                );
+            }
         }
         return List.copyOf(values);
     }
