@@ -34,6 +34,8 @@ import net.findmybook.support.llm.LlmGatewayTier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -132,7 +134,7 @@ class BookSeoMetadataClientWireTest {
     }
 
     @Test
-    void should_SendBoundedThinkingBudgetWithoutDisablingReasoning_When_GeneratingSeoMetadata() throws Exception {
+    void should_OmitThinkingBudgetWhen_ReasoningEffortIsUnset() throws Exception {
         server.enqueueJson(chatCompletion("stop", seoJson()));
 
         seoClient().generate(BOOK_ID, "Grounded prompt", LlmGatewayTier.BACKGROUND_BATCH);
@@ -140,20 +142,26 @@ class BookSeoMetadataClientWireTest {
         assertThat(server.requestBodies()).hasSize(1);
         String requestBody = server.requestBodies().getFirst();
         JsonNode request = new ObjectMapper().readTree(requestBody);
-        long maxCompletionTokens = request.path("max_completion_tokens").asLong();
-        long thinkingBudgetTokens = request.path("thinking_budget_tokens").asLong();
 
-        assertThat(request.has("thinking_budget_tokens")).isTrue();
-        assertThat(thinkingBudgetTokens)
-            .isEqualTo(BookSeoMetadataClient.THINKING_BUDGET_TOKENS)
-            .isPositive()
-            .isLessThan(maxCompletionTokens);
-        assertThat(maxCompletionTokens - thinkingBudgetTokens).isGreaterThan(thinkingBudgetTokens);
+        assertThat(request.has("thinking_budget_tokens")).isFalse();
         assertThat(requestBody)
-            .doesNotContain("\"thinking_budget_tokens\":0")
-            .doesNotContain("\"reasoning_effort\":\"none\"")
+            .doesNotContain("\"reasoning_effort\":")
             .doesNotContain("\"enable_thinking\":false")
             .doesNotContain("\"disable_reasoning\":true");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"none", "minimal", "low", "medium", "high", "xhigh", "max"})
+    void should_SendEveryConfiguredStandardReasoningEffortWithoutThinkingBudget_When_GeneratingSeoMetadata(
+        String reasoningEffort
+    ) throws Exception {
+        server.enqueueJson(chatCompletion("stop", seoJson()));
+
+        seoClient(reasoningEffort).generate(BOOK_ID, "Grounded prompt", LlmGatewayTier.BACKGROUND_BATCH);
+
+        JsonNode request = new ObjectMapper().readTree(server.requestBodies().getFirst());
+        assertThat(request.path("reasoning_effort").asString()).isEqualTo(reasoningEffort);
+        assertThat(request.has("thinking_budget_tokens")).isFalse();
     }
 
     @Test
@@ -233,6 +241,12 @@ class BookSeoMetadataClientWireTest {
 
     private BookSeoMetadataClient seoClient() {
         return new BookSeoMetadataClient(new ObjectMapper(), server.openAiProperties());
+    }
+
+    private BookSeoMetadataClient seoClient(String reasoningEffort) {
+        OpenAiProperties properties = server.openAiProperties();
+        properties.setReasoningEffort(reasoningEffort);
+        return new BookSeoMetadataClient(new ObjectMapper(), properties);
     }
 
     private BookDetail bookDetail() {

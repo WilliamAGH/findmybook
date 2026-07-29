@@ -305,6 +305,12 @@
       "description": "Inference model for AI book content and SEO metadata generation"
     },
     {
+      "name": "openai.reasoning-effort",
+      "type": "java.lang.String",
+      "sourceType": "net.findmybook.boot.OpenAiProperties",
+      "description": "Optional standard gateway reasoning effort; unset preserves the model default"
+    },
+    {
       "name": "openai.embeddings.model",
       "type": "java.lang.String",
       "sourceType": "net.findmybook.boot.OpenAiProperties",

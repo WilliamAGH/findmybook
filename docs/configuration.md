@@ -11,6 +11,7 @@ Key variables in `.env`:
 | `OPENAI_API_KEY` | OpenAI-compatible API key for generation and embeddings |
 | `OPENAI_BASE_URL` | OpenAI-compatible base URL for generation and embeddings |
 | `OPENAI_MODEL` | Canonical inference model for AI book content and SEO metadata generation |
+| `OPENAI_REASONING_EFFORT` | Optional standard gateway reasoning effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`; leave unset to use the model default |
 | `OPENAI_EMBEDDINGS_MODEL` | Canonical embeddings model for vector calculations |
 | `AI_DEFAULT_MAX_PARALLEL` | Global outbound AI queue executor cap, coerced to `2..20`; background work may occupy at most `cap - 1` so one slot remains available for foreground generation |
 | `APP_AI_QUEUE_BACKGROUND_MAX_PENDING` | Max pending background ingestion AI jobs (default `100`) |

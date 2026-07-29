@@ -12,6 +12,7 @@ import com.openai.errors.OpenAIRetryableException;
 import com.openai.errors.OpenAIServiceException;
 import com.openai.errors.SseException;
 import com.openai.models.ChatModel;
+import com.openai.models.ReasoningEffort;
 import com.openai.models.chat.completions.ChatCompletionChunk;
 import com.openai.models.chat.completions.ChatCompletionCreateParams;
 import com.openai.models.chat.completions.ChatCompletionMessageParam;
@@ -82,6 +83,7 @@ public class BookAiContentService {
     private final Map<LlmGatewayTier, OpenAIClient> clientsByTier;
     private final boolean available;
     private final String configuredModel;
+    private final Optional<ReasoningEffort> configuredReasoningEffort;
     private final long requestTimeoutSeconds;
     private final long readTimeoutSeconds;
 
@@ -100,6 +102,7 @@ public class BookAiContentService {
         this.bookDataOrchestrator = bookDataOrchestrator;
         this.jsonParser = new AiContentJsonParser(objectMapper);
         this.configuredModel = openAiProperties.model();
+        this.configuredReasoningEffort = openAiProperties.reasoningEffort();
         this.requestTimeoutSeconds = openAiProperties.requestTimeoutSeconds();
         this.readTimeoutSeconds = openAiProperties.readTimeoutSeconds();
 
@@ -291,15 +294,16 @@ public class BookAiContentService {
             throw new BookAiGenerationException(BookAiGenerationException.ErrorCode.GENERATION_FAILED,
                 "No AI content client configured for tier %s".formatted(tier));
         }
-        ChatCompletionCreateParams params = ChatCompletionCreateParams.builder()
+        ChatCompletionCreateParams.Builder paramsBuilder = ChatCompletionCreateParams.builder()
             .model(ChatModel.of(configuredModel))
             .messages(List.of(
                 ChatCompletionMessageParam.ofSystem(ChatCompletionSystemMessageParam.builder().content(SYSTEM_PROMPT).build()),
                 ChatCompletionMessageParam.ofUser(ChatCompletionUserMessageParam.builder().content(prompt).build())
             ))
             .maxCompletionTokens(tier.maxCompletionTokens())
-            .temperature(SAMPLING_TEMPERATURE)
-            .build();
+            .temperature(SAMPLING_TEMPERATURE);
+        configuredReasoningEffort.ifPresent(paramsBuilder::reasoningEffort);
+        ChatCompletionCreateParams params = paramsBuilder.build();
 
         long effectiveRequestTimeoutSeconds = tier == LlmGatewayTier.LIVE_RENDER
             ? Math.min(requestTimeoutSeconds, tier.callTimeoutSeconds())

@@ -2,12 +2,12 @@ package net.findmybook.application.seo;
 
 import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
-import com.openai.core.JsonValue;
 import com.openai.core.RequestOptions;
 import com.openai.core.Timeout;
 import com.openai.errors.OpenAIException;
 import com.openai.errors.OpenAIInvalidDataException;
 import com.openai.models.ChatModel;
+import com.openai.models.ReasoningEffort;
 import com.openai.models.chat.completions.ChatCompletion;
 import com.openai.models.chat.completions.ChatCompletionCreateParams;
 import com.openai.models.chat.completions.ChatCompletionMessageParam;
@@ -17,6 +17,7 @@ import java.time.Duration;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import net.findmybook.application.ai.BookAiGenerationException;
 import net.findmybook.boot.OpenAiProperties;
@@ -37,8 +38,6 @@ class BookSeoMetadataClient {
     private static final String DEFAULT_PROVIDER = "openai";
     private static final int SDK_MAX_RETRIES = 2;
     private static final double SAMPLING_TEMPERATURE = 0.2;
-    static final long THINKING_BUDGET_TOKENS = 2_048L;
-    private static final String THINKING_BUDGET_BODY_PROPERTY = "thinking_budget_tokens";
     private static final String RETRY_RECOVERY_INSTRUCTION = "\n\nRecovery attempt %d: the prior response was empty or invalid. "
         + "Return only the exact canonical JSON object with seoTitle and seoDescription string fields.";
 
@@ -58,6 +57,7 @@ class BookSeoMetadataClient {
     private final Map<LlmGatewayTier, OpenAIClient> clientsByTier;
     private final boolean available;
     private final String configuredModel;
+    private final Optional<ReasoningEffort> configuredReasoningEffort;
     private final long requestTimeoutSeconds;
     private final long readTimeoutSeconds;
 
@@ -71,6 +71,7 @@ class BookSeoMetadataClient {
     ) {
         this.parser = new SeoMetadataJsonParser(objectMapper);
         this.configuredModel = openAiProperties.model();
+        this.configuredReasoningEffort = openAiProperties.reasoningEffort();
         this.requestTimeoutSeconds = openAiProperties.requestTimeoutSeconds();
         this.readTimeoutSeconds = openAiProperties.readTimeoutSeconds();
 
@@ -181,19 +182,18 @@ class BookSeoMetadataClient {
         if (tieredClient == null) {
             throw new BookSeoGenerationException("No SEO metadata client configured for tier " + tier);
         }
-        ChatCompletionCreateParams params = ChatCompletionCreateParams.builder()
+        ChatCompletionCreateParams.Builder paramsBuilder = ChatCompletionCreateParams.builder()
             .model(ChatModel.of(configuredModel))
             .messages(List.of(
                 ChatCompletionMessageParam.ofSystem(ChatCompletionSystemMessageParam.builder().content(SYSTEM_PROMPT).build()),
                 ChatCompletionMessageParam.ofUser(ChatCompletionUserMessageParam.builder().content(prompt).build())
             ))
             .maxCompletionTokens(tier.maxCompletionTokens())
-            .temperature(SAMPLING_TEMPERATURE)
-            .putAdditionalBodyProperty(
-                THINKING_BUDGET_BODY_PROPERTY,
-                JsonValue.from(THINKING_BUDGET_TOKENS)
-            )
-            .build();
+            .temperature(SAMPLING_TEMPERATURE);
+        if (configuredReasoningEffort.isPresent()) {
+            paramsBuilder.reasoningEffort(configuredReasoningEffort.get());
+        }
+        ChatCompletionCreateParams params = paramsBuilder.build();
 
         long effectiveRequestTimeoutSeconds = tier == LlmGatewayTier.LIVE_RENDER
             ? Math.min(requestTimeoutSeconds, tier.callTimeoutSeconds())
