@@ -6,35 +6,24 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentLinkedDeque;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import net.findmybook.adapters.persistence.BookAiContentRepository;
-import net.findmybook.adapters.persistence.BookSeoMetadataRepository;
 import net.findmybook.application.ai.BookAiContentService;
 import net.findmybook.application.ai.BookAiGenerationException;
-import net.findmybook.boot.OpenAiProperties;
 import net.findmybook.domain.ai.BookAiContent;
 import net.findmybook.domain.ai.BookAiContentSnapshot;
-import net.findmybook.domain.seo.BookSeoMetadataSnapshot;
 import net.findmybook.dto.BookDetail;
 import net.findmybook.repository.BookQueryRepository;
 import net.findmybook.service.BookLookupService;
@@ -61,104 +50,16 @@ class GemmaInferenceReliabilityTest {
     );
     private static final String AI_JSON = new ObjectMapper().valueToTree(AI_CONTENT).toString();
 
-    private OpenAiTestServer server;
+    private BookSeoMetadataClientWireTest.OpenAiTestServer server;
 
     @BeforeEach
     void setUp() throws IOException {
-        server = new OpenAiTestServer();
+        server = new BookSeoMetadataClientWireTest.OpenAiTestServer();
     }
 
     @AfterEach
     void tearDown() {
         server.close();
-    }
-
-    @Test
-    void should_NotPersistSeoMetadata_When_RepeatedBlankResponsesExhaustRetries() {
-        server.enqueueJson(chatCompletion("stop", ""));
-        server.enqueueJson(chatCompletion("stop", ""));
-        server.enqueueJson(chatCompletion("stop", ""));
-        BookSeoMetadataRepository repository = mock(BookSeoMetadataRepository.class);
-
-        BookSeoMetadataGenerationService service = seoService(repository);
-        assertThatThrownBy(() -> service.generateAndPersistIfPromptChanged(BOOK_ID))
-            .isInstanceOf(BookSeoGenerationException.class)
-            .hasMessageContaining("response was empty");
-        verify(repository, never()).insertNewCurrentVersion(any(), anyString(), anyString(), anyString(), anyString(), anyString());
-        assertThat(server.requestBodies()).hasSize(3).allSatisfy(body ->
-            assertThat(body).contains("\"max_completion_tokens\":" + LlmGatewayTier.BACKGROUND_BATCH.maxCompletionTokens()));
-    }
-
-    @Test
-    void should_RetryLegacyFallback_When_GemmaReturnsValidSeoForUnchangedPrompt() {
-        server.enqueueJson(chatCompletion("stop", seoJson()));
-        server.enqueueJson(chatCompletion("stop", seoJson()));
-        BookSeoMetadataRepository repository = mock(BookSeoMetadataRepository.class);
-        BookSeoMetadataSnapshot generatedSnapshot = new BookSeoMetadataSnapshot(
-            BOOK_ID,
-            2,
-            Instant.EPOCH,
-            "gemma-4-26b-a4b",
-            "openai",
-            "Test Book - Book Details | findmybook.net",
-            "A specific grounded description helps readers understand this test book and decide whether its practical focus matches their interests and reading goals.",
-            "current-prompt-hash"
-        );
-        when(repository.insertNewCurrentVersion(any(), anyString(), anyString(), anyString(), anyString(), anyString()))
-            .thenReturn(generatedSnapshot);
-        BookSeoMetadataGenerationService service = seoService(repository);
-        BookSeoMetadataGenerationService.GenerationOutcome initialGeneration = service.generateAndPersist(BOOK_ID);
-        BookSeoMetadataSnapshot legacyFallback = new BookSeoMetadataSnapshot(
-            BOOK_ID,
-            1,
-            Instant.EPOCH,
-            "gemma-4-26b-a4b",
-            BookSeoMetadataGenerationService.LEGACY_FALLBACK_PROVIDER,
-            "Test Book - Book Details | findmybook.net",
-            "A legacy deterministic SEO description that exists only to make this row retry eligible for replacement.",
-            initialGeneration.promptHash()
-        );
-        when(repository.fetchCurrent(BOOK_ID)).thenReturn(Optional.of(legacyFallback));
-
-        BookSeoMetadataGenerationService.GenerationOutcome outcome = service.generateAndPersistIfPromptChanged(BOOK_ID);
-
-        assertThat(outcome.generated()).isTrue();
-        assertThat(outcome.promptHash()).isEqualTo(initialGeneration.promptHash());
-        assertThat(outcome.snapshot()).contains(generatedSnapshot);
-        verify(repository, times(2))
-            .insertNewCurrentVersion(any(), anyString(), anyString(), anyString(), anyString(), anyString());
-        assertThat(server.requestBodies()).hasSize(2);
-    }
-
-    @Test
-    void should_RetryBlankSeoResponse_When_SecondGemmaResponseIsValid() {
-        server.enqueueJson(chatCompletion("stop", ""));
-        server.enqueueJson(chatCompletion("stop", seoJson()));
-
-        SeoMetadataCandidate candidate = seoClient().generate(BOOK_ID, "Grounded prompt", LlmGatewayTier.BACKGROUND_BATCH);
-
-        assertThat(candidate.seoTitle()).isEqualTo("Test Book - Book Details | findmybook.net");
-        List<String> requestBodies = server.requestBodies();
-        assertThat(requestBodies).hasSize(2);
-        assertThat(requestBodies.get(0)).doesNotContain("Recovery attempt");
-        assertThat(requestBodies.get(1))
-            .isNotEqualTo(requestBodies.get(0))
-            .contains("Recovery attempt 2")
-            .contains("prior response was empty or invalid")
-            .contains("exact canonical JSON");
-        assertThat(server.requestTiers()).containsOnly(LlmGatewayTier.BACKGROUND_BATCH.headerValue());
-    }
-
-    @Test
-    void should_RetryMalformedSuccessfulSeoResponse_When_SecondGemmaResponseIsValid() {
-        server.enqueueJson("{\"id\":\"chat-1\",\"object\":\"chat.completion\",\"created\":0,\"model\":\"gemma-4-26b-a4b\","
-            + "\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":" + jsonString(seoJson()) + "}}]}");
-        server.enqueueJson(chatCompletion("stop", seoJson()));
-
-        SeoMetadataCandidate candidate = seoClient().generate(BOOK_ID, "Grounded prompt", LlmGatewayTier.BACKGROUND_BATCH);
-
-        assertThat(candidate.seoDescription()).hasSizeBetween(140, 160);
-        assertThat(server.requestBodies()).hasSize(2);
     }
 
     @Test
@@ -290,58 +191,6 @@ class GemmaInferenceReliabilityTest {
     }
 
     @Test
-    void should_ThrowTypedFailure_When_SeoResponseMissesCanonicalField() {
-        SeoMetadataJsonParser parser = new SeoMetadataJsonParser(new ObjectMapper());
-
-        assertThatThrownBy(() -> parser.parse("{\"seoTitle\":\"Title only\"}"))
-            .isInstanceOf(BookSeoGenerationException.class)
-            .hasMessageContaining("fields must exactly match the canonical contract");
-    }
-
-    @Test
-    void should_AcceptWholeResponseFencedSeoJson_When_GemmaReturnsCanonicalJson() {
-        SeoMetadataJsonParser parser = new SeoMetadataJsonParser(new ObjectMapper());
-        SeoMetadataCandidate expected = new SeoMetadataCandidate(
-            "Test Book - Book Details | findmybook.net",
-            "A specific grounded description helps readers understand this test book and decide whether its practical focus matches their interests and reading goals."
-        );
-
-        assertThat(parser.parse(fencedSeoJson("```"))).isEqualTo(expected);
-        assertThat(parser.parse(fencedSeoJson("```json"))).isEqualTo(expected);
-    }
-
-    @Test
-    void should_RejectNonCanonicalSeoResponse_When_GemmaDriftsFromJsonContract() {
-        SeoMetadataJsonParser parser = new SeoMetadataJsonParser(new ObjectMapper());
-        String fencedResponse = fencedSeoJson("```json");
-
-        assertThatThrownBy(() -> parser.parse("SEO title: Test Book; description: useful details"))
-            .isInstanceOf(BookSeoGenerationException.class)
-            .hasMessageContaining("valid JSON object");
-        assertThatThrownBy(() -> parser.parse("{\"title\":\"Test Book\",\"description\":\"Useful details\"}"))
-            .isInstanceOf(BookSeoGenerationException.class)
-            .hasMessageContaining("exactly match the canonical contract");
-        assertThatThrownBy(() -> parser.parse("{\"seoTitle\":42,\"seoDescription\":true}"))
-            .isInstanceOf(BookSeoGenerationException.class)
-            .hasMessageContaining("field must be a string: seoTitle");
-        assertThatThrownBy(() -> parser.parse(
-            "{\"seoTitle\":\"Test Book\",\"seoDescription\":\"Useful details\",\"extra\":true}"
-        )).isInstanceOf(BookSeoGenerationException.class)
-            .hasMessageContaining("exactly match the canonical contract");
-        assertThatThrownBy(() -> parser.parse("Here is the requested JSON:\n" + fencedResponse))
-            .isInstanceOf(BookSeoGenerationException.class)
-            .hasMessageContaining("valid JSON object");
-        assertThatThrownBy(() -> parser.parse(fencedResponse + "\nA trailing note"))
-            .isInstanceOf(BookSeoGenerationException.class)
-            .hasMessageContaining("whole-response");
-        assertThatThrownBy(() -> parser.parse(fencedSeoJson("```markdown")))
-            .isInstanceOf(BookSeoGenerationException.class)
-            .hasMessageContaining("whole-response");
-        assertThatThrownBy(() -> parser.parse(fencedResponse + "\n" + fencedResponse))
-            .isInstanceOf(BookSeoGenerationException.class);
-    }
-
-    @Test
     void should_PreserveDisplayedBookIdentity_When_ResolvingReaderGuideTarget() {
         BookIdentifierResolver identifierResolver = mock(BookIdentifierResolver.class);
         when(identifierResolver.resolveExactBookUuid("test-book")).thenReturn(Optional.of(BOOK_ID));
@@ -354,7 +203,7 @@ class GemmaInferenceReliabilityTest {
             searchService,
             orchestrator,
             new ObjectMapper(),
-            openAiProperties()
+            server.openAiProperties()
         );
 
         assertThat(service.resolveBookId("test-book")).contains(BOOK_ID);
@@ -393,20 +242,6 @@ class GemmaInferenceReliabilityTest {
         verifyNoInteractions(lookupService, jdbcTemplate);
     }
 
-    private BookSeoMetadataGenerationService seoService(BookSeoMetadataRepository repository) {
-        BookSearchService searchService = mock(BookSearchService.class);
-        BookDataOrchestrator orchestrator = mock(BookDataOrchestrator.class);
-        BookDetail detail = bookDetail();
-        when(searchService.fetchBookDetail(BOOK_ID)).thenReturn(Optional.of(detail));
-        when(orchestrator.enrichDescriptionForAiIfNeeded(BOOK_ID, detail, DESCRIPTION, 50)).thenReturn(DESCRIPTION);
-        return new BookSeoMetadataGenerationService(
-            repository, searchService, orchestrator, seoClient(), new SeoMetadataNormalizationPolicy());
-    }
-
-    private BookSeoMetadataClient seoClient() {
-        return new BookSeoMetadataClient(new ObjectMapper(), openAiProperties());
-    }
-
     private BookAiContentService aiService(BookAiContentRepository repository) {
         BookSearchService searchService = mock(BookSearchService.class);
         BookDataOrchestrator orchestrator = mock(BookDataOrchestrator.class);
@@ -414,17 +249,8 @@ class GemmaInferenceReliabilityTest {
         when(searchService.fetchBookDetail(BOOK_ID)).thenReturn(Optional.of(detail));
         when(orchestrator.enrichDescriptionForAiIfNeeded(BOOK_ID, detail, DESCRIPTION, 50)).thenReturn(DESCRIPTION);
         return new BookAiContentService(
-            repository, mock(BookIdentifierResolver.class), searchService, orchestrator, new ObjectMapper(), openAiProperties());
-    }
-
-    private OpenAiProperties openAiProperties() {
-        OpenAiProperties properties = new OpenAiProperties();
-        properties.getApi().setKey("test-key");
-        properties.getBase().setUrl(server.baseUrl());
-        properties.setModel("gemma-4-26b-a4b");
-        properties.setRequestTimeoutSeconds(5);
-        properties.setReadTimeoutSeconds(5);
-        return properties;
+            repository, mock(BookIdentifierResolver.class), searchService, orchestrator, new ObjectMapper(),
+            server.openAiProperties());
     }
 
     private BookDetail bookDetail() {
@@ -436,91 +262,17 @@ class GemmaInferenceReliabilityTest {
             Map.of("source", "test"), List.of());
     }
 
-    private static String seoJson() {
-        SeoMetadataCandidate candidate = new SeoMetadataCandidate(
-            "Test Book - Book Details | findmybook.net",
-            "A specific grounded description helps readers understand this test book and decide whether its practical focus matches their interests and reading goals."
-        );
-        return new ObjectMapper().valueToTree(candidate).toString();
-    }
-
-    private static String fencedSeoJson(String fenceOpener) {
-        return fenceOpener + "\n" + seoJson() + "\n```";
-    }
-
-    private static String chatCompletion(String finishReason, String content) {
-        return "{\"id\":\"chat-1\",\"object\":\"chat.completion\",\"created\":0,\"model\":\"gemma-4-26b-a4b\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":"
-            + jsonString(content) + ",\"refusal\":null},\"finish_reason\":\"" + finishReason + "\"}]}";
-    }
-
     private static String streamChunk(String content, String finishReason) {
         String reason = finishReason == null ? "null" : "\"" + finishReason + "\"";
         return "data: {\"id\":\"chunk-1\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"gemma-4-26b-a4b\",\"choices\":[{\"index\":0,\"delta\":{\"content\":"
-            + jsonString(content) + "},\"finish_reason\":" + reason + "}]}\n\n";
+            + BookSeoMetadataClientWireTest.OpenAiTestServer.jsonString(content)
+            + "},\"finish_reason\":" + reason + "}]}\n\n";
     }
 
     private static String streamRefusalChunk(String refusal, String finishReason) {
         return "data: {\"id\":\"chunk-1\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"gemma-4-26b-a4b\","
-            + "\"choices\":[{\"index\":0,\"delta\":{\"refusal\":" + jsonString(refusal)
+            + "\"choices\":[{\"index\":0,\"delta\":{\"refusal\":"
+            + BookSeoMetadataClientWireTest.OpenAiTestServer.jsonString(refusal)
             + "},\"finish_reason\":\"" + finishReason + "\"}]}\n\n";
-    }
-
-    private static String jsonString(String value) {
-        return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n") + "\"";
-    }
-
-    private static final class OpenAiTestServer implements AutoCloseable {
-        private final HttpServer httpServer;
-        private final Deque<Response> responses = new ConcurrentLinkedDeque<>();
-        private final List<String> requestBodies = new CopyOnWriteArrayList<>();
-        private final List<String> requestTiers = new CopyOnWriteArrayList<>();
-
-        private OpenAiTestServer() throws IOException {
-            httpServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-            httpServer.createContext("/v1/chat/completions", this::handle);
-            httpServer.start();
-        }
-
-        private void enqueueJson(String body) {
-            enqueueJson(200, body);
-        }
-
-        private void enqueueJson(int statusCode, String body) {
-            responses.addLast(new Response(statusCode, "application/json", body));
-        }
-
-        private void enqueueSse(String body) {
-            responses.addLast(new Response(200, "text/event-stream", body + "data: [DONE]\n\n"));
-        }
-
-        private List<String> requestBodies() {
-            return List.copyOf(requestBodies);
-        }
-
-        private List<String> requestTiers() {
-            return List.copyOf(requestTiers);
-        }
-
-        private String baseUrl() {
-            return "http://127.0.0.1:" + httpServer.getAddress().getPort() + "/v1";
-        }
-
-        private void handle(HttpExchange exchange) throws IOException {
-            requestBodies.add(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
-            requestTiers.add(exchange.getRequestHeaders().getFirst(LlmGatewayTier.HEADER_NAME));
-            Response response = responses.removeFirst();
-            byte[] body = response.body().getBytes(StandardCharsets.UTF_8);
-            exchange.getResponseHeaders().set("Content-Type", response.contentType());
-            exchange.sendResponseHeaders(response.statusCode(), body.length);
-            exchange.getResponseBody().write(body);
-            exchange.close();
-        }
-
-        @Override
-        public void close() {
-            httpServer.stop(0);
-        }
-
-        private record Response(int statusCode, String contentType, String body) { }
     }
 }

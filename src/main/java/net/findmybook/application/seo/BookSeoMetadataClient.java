@@ -2,6 +2,7 @@ package net.findmybook.application.seo;
 
 import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
+import com.openai.core.JsonValue;
 import com.openai.core.RequestOptions;
 import com.openai.core.Timeout;
 import com.openai.errors.OpenAIException;
@@ -36,6 +37,8 @@ class BookSeoMetadataClient {
     private static final String DEFAULT_PROVIDER = "openai";
     private static final int SDK_MAX_RETRIES = 2;
     private static final double SAMPLING_TEMPERATURE = 0.2;
+    static final long THINKING_BUDGET_TOKENS = 2_048L;
+    private static final String THINKING_BUDGET_BODY_PROPERTY = "thinking_budget_tokens";
     private static final String RETRY_RECOVERY_INSTRUCTION = "\n\nRecovery attempt %d: the prior response was empty or invalid. "
         + "Return only the exact canonical JSON object with seoTitle and seoDescription string fields.";
 
@@ -186,6 +189,10 @@ class BookSeoMetadataClient {
             ))
             .maxCompletionTokens(tier.maxCompletionTokens())
             .temperature(SAMPLING_TEMPERATURE)
+            .putAdditionalBodyProperty(
+                THINKING_BUDGET_BODY_PROPERTY,
+                JsonValue.from(THINKING_BUDGET_TOKENS)
+            )
             .build();
 
         long effectiveRequestTimeoutSeconds = tier == LlmGatewayTier.LIVE_RENDER
