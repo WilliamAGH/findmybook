@@ -1,6 +1,8 @@
 package net.findmybook.boot;
 
 import com.openai.models.ReasoningEffort;
+import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
@@ -24,6 +26,9 @@ public class OpenAiProperties {
     private static final String MODEL_PROPERTY = "openai.model";
     private static final String REASONING_EFFORT_ENVIRONMENT_VARIABLE = "OPENAI_REASONING_EFFORT";
     private static final String REASONING_EFFORT_PROPERTY = "openai.reasoning-effort";
+    /** Canonical gateway reasoning effort tokens; bind-time tests iterate this single owner list. */
+    static final List<String> SUPPORTED_REASONING_EFFORTS =
+        List.of("none", "minimal", "low", "medium", "high", "xhigh", "max");
     private static final String EMBEDDINGS_MODEL_ENVIRONMENT_VARIABLE = "OPENAI_EMBEDDINGS_MODEL";
     private static final String EMBEDDINGS_MODEL_PROPERTY = "openai.embeddings.model";
     private static final long DEFAULT_REQUEST_TIMEOUT_SECONDS = 120L;
@@ -178,10 +183,15 @@ public class OpenAiProperties {
     /**
      * Binds an optional standard reasoning effort from {@code OPENAI_REASONING_EFFORT}.
      *
+     * <p>Validation happens here, at bind time, so a typo fails startup with a clear message
+     * instead of reaching the gateway and 4xxing every generation call. Tokens are matched
+     * case-insensitively and normalized to lowercase.</p>
+     *
      * @param reasoningEffort gateway reasoning effort, or blank to use the model default
+     * @throws IllegalArgumentException when the token is not one of {@link #SUPPORTED_REASONING_EFFORTS}
      */
     public void setReasoningEffort(String reasoningEffort) {
-        this.reasoningEffort = textOrEmpty(reasoningEffort);
+        this.reasoningEffort = normalizeReasoningEffort(reasoningEffort);
     }
 
     /**
@@ -263,6 +273,20 @@ public class OpenAiProperties {
             }
         }
         return "";
+    }
+
+    private static String normalizeReasoningEffort(String reasoningEffort) {
+        if (!StringUtils.hasText(reasoningEffort)) {
+            return "";
+        }
+        String normalized = reasoningEffort.trim().toLowerCase(Locale.ROOT);
+        if (!SUPPORTED_REASONING_EFFORTS.contains(normalized)) {
+            throw new IllegalArgumentException(
+                "Unsupported " + REASONING_EFFORT_ENVIRONMENT_VARIABLE + " value '" + normalized + "' for "
+                    + REASONING_EFFORT_PROPERTY + "; supported values: "
+                    + String.join(", ", SUPPORTED_REASONING_EFFORTS));
+        }
+        return normalized;
     }
 
     private static String textOrEmpty(String value) {

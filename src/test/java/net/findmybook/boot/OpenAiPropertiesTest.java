@@ -1,11 +1,15 @@
 package net.findmybook.boot;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.openai.models.ReasoningEffort;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
@@ -88,6 +92,43 @@ class OpenAiPropertiesTest {
 
         assertThat(properties.requestTimeoutSeconds()).isEqualTo(1);
         assertThat(properties.readTimeoutSeconds()).isEqualTo(1);
+    }
+
+    @ParameterizedTest
+    @MethodSource("canonicalReasoningEfforts")
+    void should_BindEveryCanonicalReasoningEffort_When_TokenIsSupported(String reasoningEffort) {
+        MapConfigurationPropertySource source = new MapConfigurationPropertySource();
+        source.put("openai.reasoning-effort", reasoningEffort);
+        OpenAiProperties properties = new OpenAiProperties();
+
+        new Binder(source).bind("openai", Bindable.ofInstance(properties));
+
+        assertThat(properties.reasoningEffort()).map(ReasoningEffort::asString).contains(reasoningEffort);
+    }
+
+    @Test
+    void should_NormalizeReasoningEffort_When_TokenHasMixedCaseAndWhitespace() {
+        MapConfigurationPropertySource source = new MapConfigurationPropertySource();
+        source.put("openai.reasoning-effort", "  MaX  ");
+        OpenAiProperties properties = new OpenAiProperties();
+
+        new Binder(source).bind("openai", Bindable.ofInstance(properties));
+
+        assertThat(properties.reasoningEffort()).map(ReasoningEffort::asString).contains("max");
+    }
+
+    @Test
+    void should_FailBindFast_When_ReasoningEffortIsNotACanonicalToken() {
+        MapConfigurationPropertySource source = new MapConfigurationPropertySource();
+        source.put("openai.reasoning-effort", "ultra");
+
+        assertThatThrownBy(() -> new Binder(source).bind("openai", Bindable.ofInstance(new OpenAiProperties())))
+            .hasStackTraceContaining("Unsupported OPENAI_REASONING_EFFORT value 'ultra'")
+            .hasStackTraceContaining("none, minimal, low, medium, high, xhigh, max");
+    }
+
+    private static Stream<String> canonicalReasoningEfforts() {
+        return OpenAiProperties.SUPPORTED_REASONING_EFFORTS.stream();
     }
 
     @Test
