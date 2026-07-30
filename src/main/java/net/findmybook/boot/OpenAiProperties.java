@@ -1,5 +1,7 @@
 package net.findmybook.boot;
 
+import com.openai.models.ReasoningEffort;
+import java.util.Optional;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -20,6 +22,8 @@ public class OpenAiProperties {
     private static final String BASE_URL_PROPERTY = "openai.base.url";
     private static final String MODEL_ENVIRONMENT_VARIABLE = "OPENAI_MODEL";
     private static final String MODEL_PROPERTY = "openai.model";
+    private static final String REASONING_EFFORT_ENVIRONMENT_VARIABLE = "OPENAI_REASONING_EFFORT";
+    private static final String REASONING_EFFORT_PROPERTY = "openai.reasoning-effort";
     private static final String EMBEDDINGS_MODEL_ENVIRONMENT_VARIABLE = "OPENAI_EMBEDDINGS_MODEL";
     private static final String EMBEDDINGS_MODEL_PROPERTY = "openai.embeddings.model";
     private static final long DEFAULT_REQUEST_TIMEOUT_SECONDS = 120L;
@@ -30,6 +34,7 @@ public class OpenAiProperties {
     private Base base = new Base();
     private Embeddings embeddings = new Embeddings();
     private String model = "";
+    private String reasoningEffort = "";
     private long requestTimeoutSeconds = DEFAULT_REQUEST_TIMEOUT_SECONDS;
     private long readTimeoutSeconds = DEFAULT_READ_TIMEOUT_SECONDS;
 
@@ -47,6 +52,7 @@ public class OpenAiProperties {
         projectSystemProperty(API_KEY_PROPERTY, API_KEY_ENVIRONMENT_VARIABLE);
         projectSystemProperty(BASE_URL_PROPERTY, BASE_URL_ENVIRONMENT_VARIABLE);
         projectSystemProperty(MODEL_PROPERTY, MODEL_ENVIRONMENT_VARIABLE);
+        projectSystemProperty(REASONING_EFFORT_PROPERTY, REASONING_EFFORT_ENVIRONMENT_VARIABLE);
         projectSystemProperty(EMBEDDINGS_MODEL_PROPERTY, EMBEDDINGS_MODEL_ENVIRONMENT_VARIABLE);
     }
 
@@ -156,6 +162,26 @@ public class OpenAiProperties {
      */
     public void setModel(String model) {
         this.model = textOrEmpty(model);
+    }
+
+    /**
+     * Returns an optional standard reasoning effort for OpenAI-compatible chat completions.
+     *
+     * @return configured gateway reasoning effort, or empty when the model default should apply
+     */
+    public Optional<ReasoningEffort> reasoningEffort() {
+        return StringUtils.hasText(reasoningEffort)
+            ? Optional.of(ReasoningEffort.of(reasoningEffort))
+            : Optional.empty();
+    }
+
+    /**
+     * Binds an optional standard reasoning effort from {@code OPENAI_REASONING_EFFORT}.
+     *
+     * @param reasoningEffort gateway reasoning effort, or blank to use the model default
+     */
+    public void setReasoningEffort(String reasoningEffort) {
+        this.reasoningEffort = textOrEmpty(reasoningEffort);
     }
 
     /**

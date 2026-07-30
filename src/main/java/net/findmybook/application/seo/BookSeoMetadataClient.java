@@ -7,6 +7,7 @@ import com.openai.core.Timeout;
 import com.openai.errors.OpenAIException;
 import com.openai.errors.OpenAIInvalidDataException;
 import com.openai.models.ChatModel;
+import com.openai.models.ReasoningEffort;
 import com.openai.models.chat.completions.ChatCompletion;
 import com.openai.models.chat.completions.ChatCompletionCreateParams;
 import com.openai.models.chat.completions.ChatCompletionMessageParam;
@@ -16,6 +17,7 @@ import java.time.Duration;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import net.findmybook.application.ai.BookAiGenerationException;
 import net.findmybook.boot.OpenAiProperties;
@@ -55,6 +57,7 @@ class BookSeoMetadataClient {
     private final Map<LlmGatewayTier, OpenAIClient> clientsByTier;
     private final boolean available;
     private final String configuredModel;
+    private final Optional<ReasoningEffort> configuredReasoningEffort;
     private final long requestTimeoutSeconds;
     private final long readTimeoutSeconds;
 
@@ -68,6 +71,7 @@ class BookSeoMetadataClient {
     ) {
         this.parser = new SeoMetadataJsonParser(objectMapper);
         this.configuredModel = openAiProperties.model();
+        this.configuredReasoningEffort = openAiProperties.reasoningEffort();
         this.requestTimeoutSeconds = openAiProperties.requestTimeoutSeconds();
         this.readTimeoutSeconds = openAiProperties.readTimeoutSeconds();
 
@@ -178,15 +182,18 @@ class BookSeoMetadataClient {
         if (tieredClient == null) {
             throw new BookSeoGenerationException("No SEO metadata client configured for tier " + tier);
         }
-        ChatCompletionCreateParams params = ChatCompletionCreateParams.builder()
+        ChatCompletionCreateParams.Builder paramsBuilder = ChatCompletionCreateParams.builder()
             .model(ChatModel.of(configuredModel))
             .messages(List.of(
                 ChatCompletionMessageParam.ofSystem(ChatCompletionSystemMessageParam.builder().content(SYSTEM_PROMPT).build()),
                 ChatCompletionMessageParam.ofUser(ChatCompletionUserMessageParam.builder().content(prompt).build())
             ))
             .maxCompletionTokens(tier.maxCompletionTokens())
-            .temperature(SAMPLING_TEMPERATURE)
-            .build();
+            .temperature(SAMPLING_TEMPERATURE);
+        if (configuredReasoningEffort.isPresent()) {
+            paramsBuilder.reasoningEffort(configuredReasoningEffort.get());
+        }
+        ChatCompletionCreateParams params = paramsBuilder.build();
 
         long effectiveRequestTimeoutSeconds = tier == LlmGatewayTier.LIVE_RENDER
             ? Math.min(requestTimeoutSeconds, tier.callTimeoutSeconds())

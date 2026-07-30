@@ -2,6 +2,7 @@ package net.findmybook.boot;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.openai.models.ReasoningEffort;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -18,10 +19,12 @@ class OpenAiPropertiesTest {
         "OPENAI_API_KEY",
         "OPENAI_BASE_URL",
         "OPENAI_MODEL",
+        "OPENAI_REASONING_EFFORT",
         "OPENAI_EMBEDDINGS_MODEL",
         "openai.api.key",
         "openai.base.url",
         "openai.model",
+        "openai.reasoning-effort",
         "openai.embeddings.model"
     };
 
@@ -32,6 +35,7 @@ class OpenAiPropertiesTest {
             "OPENAI_API_KEY=  test-key  ",
             "OPENAI_BASE_URL=https://llm.example.test/v1/embeddings/",
             "OPENAI_MODEL=  gpt-test  ",
+            "OPENAI_REASONING_EFFORT=  max  ",
             "OPENAI_EMBEDDINGS_MODEL=  embedding-test  "
         ).applyTo(environment, TestPropertyValues.Type.SYSTEM_ENVIRONMENT);
 
@@ -44,6 +48,7 @@ class OpenAiPropertiesTest {
         assertThat(properties.apiKey()).isEqualTo("test-key");
         assertThat(properties.baseUrl()).isEqualTo("https://llm.example.test/v1");
         assertThat(properties.model()).isEqualTo("gpt-test");
+        assertThat(properties.reasoningEffort()).map(ReasoningEffort::asString).contains("max");
         assertThat(properties.embeddingsModel()).isEqualTo("embedding-test");
     }
 
@@ -53,6 +58,7 @@ class OpenAiPropertiesTest {
             System.setProperty("OPENAI_API_KEY", "  dot-env-key  ");
             System.setProperty("OPENAI_BASE_URL", "https://dotenv.example.test/v1/");
             System.setProperty("OPENAI_MODEL", "  dotenv-inference  ");
+            System.setProperty("OPENAI_REASONING_EFFORT", "  none  ");
             System.setProperty("OPENAI_EMBEDDINGS_MODEL", "  dotenv-embeddings  ");
 
             OpenAiProperties.projectEnvironmentVariablesToSystemProperties();
@@ -66,6 +72,7 @@ class OpenAiPropertiesTest {
             assertThat(properties.apiKey()).isEqualTo("dot-env-key");
             assertThat(properties.baseUrl()).isEqualTo("https://dotenv.example.test/v1");
             assertThat(properties.model()).isEqualTo("dotenv-inference");
+            assertThat(properties.reasoningEffort()).map(ReasoningEffort::asString).contains("none");
             assertThat(properties.embeddingsModel()).isEqualTo("dotenv-embeddings");
         });
     }
@@ -90,6 +97,7 @@ class OpenAiPropertiesTest {
         properties.getApi().setKey(" ");
         properties.getBase().setUrl(" ");
         properties.setModel(" ");
+        properties.setReasoningEffort(" ");
         properties.getEmbeddings().setModel(" ");
 
         assertThat(properties.isConfigured()).isFalse();
@@ -97,6 +105,7 @@ class OpenAiPropertiesTest {
         assertThat(properties.apiKey()).isEmpty();
         assertThat(properties.baseUrl()).isEmpty();
         assertThat(properties.model()).isEmpty();
+        assertThat(properties.reasoningEffort()).isEmpty();
         assertThat(properties.embeddingsModel()).isEmpty();
     }
 
