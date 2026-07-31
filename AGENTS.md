@@ -111,9 +111,9 @@
 - [GIT1f] **Repository-Local Writes Only**: NEVER commit or push to this repository from a temporary clone, alternate checkout/worktree, or any other directory copy of the same repo. All git writes must be executed from this exact working tree.
 
 ### [LOC1] File Size Ceiling (Blocking)
-- [LOC1a] Keep new source files under 350 lines.
-- [LOC1b] Start splitting files when they approach 350 lines.
-- [LOC1c] For touched legacy files over 350 lines, include a concrete split plan in the summary.
+- [LOC1a] Keep new source files under 500 lines.
+- [LOC1b] Start splitting files when they approach 500 lines.
+- [LOC1c] For touched legacy files over 500 lines, include a concrete split plan in the summary.
 - [LOC1d] One canonical type per domain concept: never overload files with unrelated types/records/interfaces; split by domain concept, not by convenience
 
 ## Architecture

@@ -21,8 +21,7 @@ import org.springframework.web.server.ResponseStatusException;
 /**
  * Admin endpoints for Google volume and cover image backfill operations.
  *
- * <p>Separated from {@link AdminController} to keep both controllers under the
- * 350-line file-size ceiling while reusing the shared {@code /admin/**} security rule.</p>
+ * <p>Shares the {@code /admin/**} security rule with {@link AdminController}.</p>
  */
 @RestController
 @RequestMapping("/admin")
