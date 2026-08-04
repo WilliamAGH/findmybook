@@ -39,10 +39,12 @@ public final class GoogleExternalSearchFlow {
     /**
      * Indicates whether Google fallback dependencies are available.
      *
-     * @return true when both fetcher and mapper are present
+     * @return true when both dependencies are present and an authenticated or fallback tier is enabled
      */
     public boolean isAvailable() {
-        return googleApiFetcher.isPresent() && googleBooksMapper.isPresent();
+        return googleApiFetcher.isPresent()
+            && googleBooksMapper.isPresent()
+            && (googleApiFetcher.get().isApiKeyAvailable() || googleApiFetcher.get().isGoogleFallbackEnabled());
     }
 
     /**
@@ -69,15 +71,27 @@ public final class GoogleExternalSearchFlow {
         GoogleBooksMapper mapper = googleBooksMapper.get();
         String externalOrderBy = SearchExternalProviderUtils.normalizeGoogleOrderBy(orderBy);
 
-        Flux<JsonNode> authenticated = fetcher.isApiKeyAvailable()
-            ? fetcher.streamSearchItems(query, maxResults, externalOrderBy, null, true)
-                .onErrorResume(ex -> fetcher.isFallbackAllowed() ? Flux.empty() : Flux.error(ex))
-            : Flux.empty();
-        Flux<JsonNode> unauthenticated = fetcher.isFallbackAllowed()
-            ? fetcher.streamSearchItems(query, maxResults, externalOrderBy, null, false)
-            : Flux.empty();
+        Flux<JsonNode> providerItems;
+        if (!fetcher.isApiKeyAvailable()) {
+            providerItems = fetcher.isGoogleFallbackEnabled()
+                ? fetcher.streamSearchItems(query, maxResults, externalOrderBy, null, false)
+                : Flux.empty();
+        } else {
+            Flux<JsonNode> authenticated = fetcher.streamSearchItems(query, maxResults, externalOrderBy, null, true);
+            if (!fetcher.isGoogleFallbackEnabled()) {
+                providerItems = authenticated;
+            } else if (!fetcher.isFallbackAllowed()) {
+                providerItems = authenticated.onErrorMap(failure -> new IllegalStateException(
+                    "Google Books authenticated search failed while unauthenticated fallback is unavailable",
+                    failure
+                ));
+            } else {
+                Flux<JsonNode> unauthenticated = fetcher.streamSearchItems(query, maxResults, externalOrderBy, null, false);
+                providerItems = Flux.concat(authenticated.onErrorResume(ex -> Flux.empty()), unauthenticated);
+            }
+        }
 
-        return Flux.concat(authenticated, unauthenticated)
+        return providerItems
             .map(mapper::map)
             .filter(Objects::nonNull)
             .map(BookDomainMapper::fromAggregate)

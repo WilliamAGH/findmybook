@@ -1,11 +1,11 @@
 package net.findmybook.service;
 
 import tools.jackson.databind.ObjectMapper;
-import tools.jackson.databind.JsonNode;
 import net.findmybook.dto.BookAggregate;
 import net.findmybook.dto.BookDetail;
 import net.findmybook.model.Book;
 import net.findmybook.util.ApplicationConstants;
+import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
@@ -15,8 +15,11 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.time.LocalDate;
 import java.time.Instant;
@@ -24,15 +27,19 @@ import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 import reactor.core.publisher.Flux;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -42,6 +49,14 @@ import static org.mockito.Mockito.when;
  */
 @ExtendWith(MockitoExtension.class)
 class BookDataOrchestratorPersistenceScenariosTest {
+
+    private static final UUID ENRICHMENT_BOOK_ID = UUID.fromString("019cb5e1-d100-719e-8194-f6f5af0af7a8");
+    private static final String ENRICHMENT_ISBN_13 = "9781234567890";
+    private static final String ENRICHMENT_QUERY = "isbn:" + ENRICHMENT_ISBN_13;
+    private static final String OPEN_LIBRARY_ENRICHMENT_QUERY = ENRICHMENT_ISBN_13;
+    private static final String DESCRIPTION_ENRICHMENT_SORT = "relevance";
+    private static final int DESCRIPTION_ENRICHMENT_LIMIT = 6;
+    private static final String SHORT_DESCRIPTION = "short description";
 
     @Mock
     private BookSearchService bookSearchService;
@@ -178,48 +193,167 @@ class BookDataOrchestratorPersistenceScenariosTest {
     }
 
     @Test
-    void enrichDescription_continuesWithGoogle_When_OpenLibraryFails() {
-        UUID bookId = UUID.randomUUID();
+    void should_ReturnCurrentDescription_When_BothProvidersReturnNoCandidates() {
         OpenLibraryBookDataService openLibrary = mock(OpenLibraryBookDataService.class);
         GoogleApiFetcher googleApiFetcher = mock(GoogleApiFetcher.class);
-        JsonNode googlePayload = mock(JsonNode.class);
-        BookDetail detail = new BookDetail(
-            bookId.toString(), "canonical-title", "Canonical title", "", "Canonical publisher",
-            LocalDate.of(2020, 1, 1), "en", 250, List.of("Canonical author"), List.of("Fiction"),
-            "https://example.com/cover.jpg", "covers/canonical.jpg", "https://example.com/fallback.jpg",
-            "https://example.com/thumbnail.jpg", 600, 900, true, "GOOGLE_BOOKS", 4.0, 10,
-            "1234567890", "9781234567890", "https://example.com/preview", "https://example.com/info",
-            java.util.Map.of("source", "test"), List.of()
-        );
-        when(openLibrary.queryBooksByEverything("isbn:9781234567890", "relevance", 0, 6))
-            .thenReturn(Flux.error(new IllegalStateException("Open Library unavailable")));
-        when(googleApiFetcher.isApiKeyAvailable()).thenReturn(false);
-        when(googleApiFetcher.isFallbackAllowed()).thenReturn(true);
+        AtomicInteger openLibrarySubscriptions = new AtomicInteger();
+        when(openLibrary.queryBooksByEverything(OPEN_LIBRARY_ENRICHMENT_QUERY, DESCRIPTION_ENRICHMENT_SORT, 0, DESCRIPTION_ENRICHMENT_LIMIT))
+            .thenReturn(Flux.<Book>defer(() -> {
+                openLibrarySubscriptions.incrementAndGet();
+                return Flux.empty();
+            }));
+        configureGoogleFallback(googleApiFetcher);
         when(googleApiFetcher.streamSearchItems(
-                eq("isbn:9781234567890"), eq(6), eq("relevance"), isNull(), eq(false)))
-            .thenReturn(Flux.just(googlePayload));
-        when(googleBooksMapper.map(googlePayload)).thenReturn(BookAggregate.builder()
-            .title("Different title")
-            .identifiers(BookAggregate.ExternalIdentifiers.builder()
-                .source("GOOGLE_BOOKS")
-                .externalId("google-candidate")
-                .build())
-            .build());
-        BookDataOrchestrator enrichmentOrchestrator = new BookDataOrchestrator(
-            bookSearchService,
-            postgresBookRepository,
-            batchPersistenceService,
-            Optional.of(openLibrary),
-            Optional.of(googleApiFetcher),
-            Optional.of(googleBooksMapper),
-            bookUpsertService
-        );
+                eq(ENRICHMENT_QUERY), eq(DESCRIPTION_ENRICHMENT_LIMIT), eq(DESCRIPTION_ENRICHMENT_SORT), isNull(), eq(false)))
+            .thenReturn(Flux.empty());
 
-        String description = enrichmentOrchestrator.enrichDescriptionForAiIfNeeded(bookId, detail, null, 50);
+        String description = enrichmentOrchestrator(Optional.of(openLibrary), Optional.of(googleApiFetcher))
+            .enrichDescriptionForAiIfNeeded(ENRICHMENT_BOOK_ID, enrichmentDetail(), SHORT_DESCRIPTION, 50);
 
-        assertThat(description).isNull();
+        assertThat(description).isEqualTo(SHORT_DESCRIPTION);
+        assertThat(openLibrarySubscriptions.get()).isEqualTo(1);
         verify(googleApiFetcher).streamSearchItems(
-            eq("isbn:9781234567890"), eq(6), eq("relevance"), isNull(), eq(false));
+            eq(ENRICHMENT_QUERY), eq(DESCRIPTION_ENRICHMENT_LIMIT), eq(DESCRIPTION_ENRICHMENT_SORT), isNull(), eq(false));
+    }
+
+    @Test
+    void should_ReturnCurrentDescription_When_OpenLibraryIsEmptyAndGoogleFails() {
+        OpenLibraryBookDataService openLibrary = mock(OpenLibraryBookDataService.class);
+        GoogleApiFetcher googleApiFetcher = mock(GoogleApiFetcher.class);
+        IllegalStateException googleFailure = new IllegalStateException("Google Books unavailable");
+        when(openLibrary.queryBooksByEverything(OPEN_LIBRARY_ENRICHMENT_QUERY, DESCRIPTION_ENRICHMENT_SORT, 0, DESCRIPTION_ENRICHMENT_LIMIT))
+            .thenReturn(Flux.empty());
+        configureGoogleFallback(googleApiFetcher);
+        when(googleApiFetcher.streamSearchItems(
+                eq(ENRICHMENT_QUERY), eq(DESCRIPTION_ENRICHMENT_LIMIT), eq(DESCRIPTION_ENRICHMENT_SORT), isNull(), eq(false)))
+            .thenReturn(Flux.error(googleFailure));
+
+        String description = enrichmentOrchestrator(Optional.of(openLibrary), Optional.of(googleApiFetcher))
+            .enrichDescriptionForAiIfNeeded(ENRICHMENT_BOOK_ID, enrichmentDetail(), SHORT_DESCRIPTION, 50);
+
+        assertThat(description).isEqualTo(SHORT_DESCRIPTION);
+        verify(googleApiFetcher).streamSearchItems(
+            eq(ENRICHMENT_QUERY), eq(DESCRIPTION_ENRICHMENT_LIMIT), eq(DESCRIPTION_ENRICHMENT_SORT), isNull(), eq(false));
+    }
+
+    @Test
+    void should_PreserveSecondaryFailure_When_AllProvidersFail() {
+        OpenLibraryBookDataService openLibrary = mock(OpenLibraryBookDataService.class);
+        GoogleApiFetcher googleApiFetcher = mock(GoogleApiFetcher.class);
+        IllegalStateException openLibraryFailure = new IllegalStateException("Open Library unavailable");
+        IllegalStateException googleFailure = new IllegalStateException("Google fallback circuit is open");
+        when(openLibrary.queryBooksByEverything(OPEN_LIBRARY_ENRICHMENT_QUERY, DESCRIPTION_ENRICHMENT_SORT, 0, DESCRIPTION_ENRICHMENT_LIMIT))
+            .thenReturn(Flux.error(openLibraryFailure));
+        configureGoogleFallback(googleApiFetcher);
+        when(googleApiFetcher.streamSearchItems(
+                eq(ENRICHMENT_QUERY), eq(DESCRIPTION_ENRICHMENT_LIMIT), eq(DESCRIPTION_ENRICHMENT_SORT), isNull(), eq(false)))
+            .thenReturn(Flux.error(googleFailure));
+
+        assertThatThrownBy(() -> enrichmentOrchestrator(Optional.of(openLibrary), Optional.of(googleApiFetcher))
+            .enrichDescriptionForAiIfNeeded(ENRICHMENT_BOOK_ID, enrichmentDetail(), SHORT_DESCRIPTION, 50))
+            .isSameAs(openLibraryFailure)
+            .satisfies(failure -> assertThat(failure.getSuppressed()).contains(googleFailure));
+        verify(googleApiFetcher).streamSearchItems(
+            eq(ENRICHMENT_QUERY), eq(DESCRIPTION_ENRICHMENT_LIMIT), eq(DESCRIPTION_ENRICHMENT_SORT), isNull(), eq(false));
+    }
+
+    @Test
+    void should_ReturnCurrentDescription_When_GoogleFallbackIsDisabled() {
+        GoogleApiFetcher googleApiFetcher = mock(GoogleApiFetcher.class);
+        when(googleApiFetcher.isApiKeyAvailable()).thenReturn(false);
+        when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(false);
+
+        String description = enrichmentOrchestrator(Optional.empty(), Optional.of(googleApiFetcher))
+            .enrichDescriptionForAiIfNeeded(ENRICHMENT_BOOK_ID, enrichmentDetail(), SHORT_DESCRIPTION, 50);
+
+        assertThat(description).isEqualTo(SHORT_DESCRIPTION);
+    }
+
+    @Test
+    void should_PropagateOpenLibraryFailure_When_GoogleFallbackIsDisabled() {
+        OpenLibraryBookDataService openLibrary = mock(OpenLibraryBookDataService.class);
+        GoogleApiFetcher googleApiFetcher = mock(GoogleApiFetcher.class);
+        IllegalStateException openLibraryFailure = new IllegalStateException("Open Library unavailable");
+        when(openLibrary.queryBooksByEverything(OPEN_LIBRARY_ENRICHMENT_QUERY, DESCRIPTION_ENRICHMENT_SORT, 0, DESCRIPTION_ENRICHMENT_LIMIT))
+            .thenReturn(Flux.error(openLibraryFailure));
+        when(googleApiFetcher.isApiKeyAvailable()).thenReturn(false);
+        when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(false);
+
+        assertThatThrownBy(() -> enrichmentOrchestrator(Optional.of(openLibrary), Optional.of(googleApiFetcher))
+            .enrichDescriptionForAiIfNeeded(ENRICHMENT_BOOK_ID, enrichmentDetail(), SHORT_DESCRIPTION, 50))
+            .isSameAs(openLibraryFailure);
+    }
+
+    @Test
+    void should_PropagateAuthenticatedGoogleFailure_When_FallbackCircuitIsOpen() {
+        GoogleApiFetcher googleApiFetcher = mock(GoogleApiFetcher.class);
+        IllegalStateException authenticatedFailure = new IllegalStateException("Google Books unavailable");
+        when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
+        when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(true);
+        when(googleApiFetcher.isFallbackAllowed()).thenReturn(false);
+        when(googleApiFetcher.streamSearchItems(
+                eq(ENRICHMENT_QUERY), eq(DESCRIPTION_ENRICHMENT_LIMIT), eq(DESCRIPTION_ENRICHMENT_SORT), isNull(), eq(true)))
+            .thenReturn(Flux.error(authenticatedFailure));
+
+        assertThatThrownBy(() -> enrichmentOrchestrator(Optional.empty(), Optional.of(googleApiFetcher))
+            .enrichDescriptionForAiIfNeeded(ENRICHMENT_BOOK_ID, enrichmentDetail(), SHORT_DESCRIPTION, 50))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("fallback is unavailable")
+            .hasCause(authenticatedFailure);
+        verify(googleApiFetcher, never()).streamSearchItems(
+            eq(ENRICHMENT_QUERY), eq(DESCRIPTION_ENRICHMENT_LIMIT), eq(DESCRIPTION_ENRICHMENT_SORT), isNull(), eq(false));
+    }
+
+    @Test
+    void should_RetryOpenLibraryOnce_When_TransientFailureThenEmptyResult() {
+        OpenLibraryBookDataService openLibrary = mock(OpenLibraryBookDataService.class);
+        WebClientResponseException transientFailure = providerFailure(HttpStatus.SERVICE_UNAVAILABLE);
+        AtomicInteger openLibrarySubscriptions = new AtomicInteger();
+        when(openLibrary.queryBooksByEverything(OPEN_LIBRARY_ENRICHMENT_QUERY, DESCRIPTION_ENRICHMENT_SORT, 0, DESCRIPTION_ENRICHMENT_LIMIT))
+            .thenReturn(Flux.<Book>defer(() -> openLibrarySubscriptions.incrementAndGet() == 1
+                ? Flux.error(transientFailure)
+                : Flux.empty()));
+
+        String description = enrichmentOrchestrator(Optional.of(openLibrary), Optional.empty())
+            .enrichDescriptionForAiIfNeeded(ENRICHMENT_BOOK_ID, enrichmentDetail(), SHORT_DESCRIPTION, 50);
+
+        assertThat(description).isEqualTo(SHORT_DESCRIPTION);
+        assertThat(openLibrarySubscriptions.get()).isEqualTo(2);
+    }
+
+    @Test
+    void should_PreserveTransientFailure_When_OpenLibraryOutagePersists() {
+        OpenLibraryBookDataService openLibrary = mock(OpenLibraryBookDataService.class);
+        WebClientResponseException transientFailure = providerFailure(HttpStatus.SERVICE_UNAVAILABLE);
+        AtomicInteger openLibrarySubscriptions = new AtomicInteger();
+        when(openLibrary.queryBooksByEverything(OPEN_LIBRARY_ENRICHMENT_QUERY, DESCRIPTION_ENRICHMENT_SORT, 0, DESCRIPTION_ENRICHMENT_LIMIT))
+            .thenReturn(Flux.<Book>defer(() -> {
+                openLibrarySubscriptions.incrementAndGet();
+                return Flux.error(transientFailure);
+            }));
+
+        assertThatThrownBy(() -> enrichmentOrchestrator(Optional.of(openLibrary), Optional.empty())
+            .enrichDescriptionForAiIfNeeded(ENRICHMENT_BOOK_ID, enrichmentDetail(), SHORT_DESCRIPTION, 50))
+            .isSameAs(transientFailure);
+        assertThat(openLibrarySubscriptions.get()).isEqualTo(2);
+    }
+
+    @Test
+    void should_MapOpenLibraryTimeout_When_RetryBudgetIsExhausted() {
+        OpenLibraryBookDataService openLibrary = mock(OpenLibraryBookDataService.class);
+        TimeoutException timeoutFailure = new TimeoutException("Open Library timed out");
+        AtomicInteger openLibrarySubscriptions = new AtomicInteger();
+        when(openLibrary.queryBooksByEverything(OPEN_LIBRARY_ENRICHMENT_QUERY, DESCRIPTION_ENRICHMENT_SORT, 0, DESCRIPTION_ENRICHMENT_LIMIT))
+            .thenReturn(Flux.<Book>defer(() -> {
+                openLibrarySubscriptions.incrementAndGet();
+                return Flux.error(timeoutFailure);
+            }));
+
+        assertThatThrownBy(() -> enrichmentOrchestrator(Optional.of(openLibrary), Optional.empty())
+            .enrichDescriptionForAiIfNeeded(ENRICHMENT_BOOK_ID, enrichmentDetail(), SHORT_DESCRIPTION, 50))
+            .isInstanceOf(IllegalStateException.class)
+            .hasCause(timeoutFailure);
+        assertThat(openLibrarySubscriptions.get()).isEqualTo(2);
     }
 
     @Test
@@ -302,5 +436,40 @@ class BookDataOrchestratorPersistenceScenariosTest {
                 eq(ApplicationConstants.Provider.GOOGLE_BOOKS),
                 any()
         )).thenReturn(bookId);
+    }
+
+    private BookDataOrchestrator enrichmentOrchestrator(Optional<OpenLibraryBookDataService> openLibrary,
+                                                         Optional<GoogleApiFetcher> googleApiFetcher) {
+        return new BookDataOrchestrator(
+            bookSearchService,
+            postgresBookRepository,
+            batchPersistenceService,
+            openLibrary,
+            googleApiFetcher,
+            Optional.of(googleBooksMapper),
+            bookUpsertService
+        );
+    }
+
+    private void configureGoogleFallback(GoogleApiFetcher googleApiFetcher) {
+        when(googleApiFetcher.isApiKeyAvailable()).thenReturn(false);
+        when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(true);
+    }
+
+    private BookDetail enrichmentDetail() {
+        return new BookDetail(
+            ENRICHMENT_BOOK_ID.toString(), "canonical-title", "Canonical title", "", "Canonical publisher",
+            LocalDate.of(2020, 1, 1), "en", 250, List.of("Canonical author"), List.of("Fiction"),
+            "https://example.com/cover.jpg", "covers/canonical.jpg", "https://example.com/fallback.jpg",
+            "https://example.com/thumbnail.jpg", 600, 900, true, "GOOGLE_BOOKS", 4.0, 10,
+            "1234567890", ENRICHMENT_ISBN_13, "https://example.com/preview", "https://example.com/info",
+            java.util.Map.of("source", "test"), List.of()
+        );
+    }
+
+    private WebClientResponseException providerFailure(HttpStatus status) {
+        return WebClientResponseException.create(
+            status.value(), "provider failure", HttpHeaders.EMPTY, new byte[0], StandardCharsets.UTF_8
+        );
     }
 }

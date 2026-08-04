@@ -240,7 +240,6 @@ public class OpenLibraryBookDataService {
             })
             .retrieve()
             .bodyToMono(JsonNode.class)
-            .timeout(Duration.ofSeconds(5))
             .onErrorMap(PrematureCloseException.class, e -> {
                 log.debug("OpenLibrary {} search connection closed early for '{}': {}", queryParamName, queryValue, e.toString());
                 return new IllegalStateException("OpenLibrary " + queryParamName + " search connection closed early for '" + queryValue + "'", e);
