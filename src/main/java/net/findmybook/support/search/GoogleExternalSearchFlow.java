@@ -12,6 +12,7 @@ import reactor.core.publisher.Flux;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Shared Google Books fallback flow used by paginated and realtime search pipelines.
@@ -87,7 +88,7 @@ public final class GoogleExternalSearchFlow {
                 ));
             } else {
                 Flux<JsonNode> unauthenticated = fetcher.streamSearchItems(query, maxResults, externalOrderBy, null, false);
-                providerItems = Flux.concat(authenticated.onErrorResume(ex -> Flux.empty()), unauthenticated);
+                providerItems = streamAuthenticatedThenFallback(authenticated, unauthenticated);
             }
         }
 
@@ -100,5 +101,22 @@ public final class GoogleExternalSearchFlow {
             .map(SearchExternalProviderUtils::tagGoogleFallback)
             .filter(book -> SearchExternalProviderUtils.matchesPublishedYear(book, publishedYear))
             .take(maxResults);
+    }
+
+    private Flux<JsonNode> streamAuthenticatedThenFallback(Flux<JsonNode> authenticated,
+                                                            Flux<JsonNode> unauthenticated) {
+        return Flux.defer(() -> {
+            AtomicBoolean fallbackConsumed = new AtomicBoolean(false);
+            Flux<JsonNode> authenticatedOrFallback = authenticated.onErrorResume(authenticatedFailure -> {
+                fallbackConsumed.set(true);
+                return unauthenticated.onErrorMap(fallbackFailure -> {
+                    authenticatedFailure.addSuppressed(fallbackFailure);
+                    return authenticatedFailure;
+                });
+            });
+            return authenticatedOrFallback.concatWith(Flux.defer(
+                () -> fallbackConsumed.get() ? Flux.empty() : unauthenticated
+            ));
+        });
     }
 }
