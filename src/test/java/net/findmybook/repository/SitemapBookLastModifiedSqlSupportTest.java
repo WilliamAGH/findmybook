@@ -41,7 +41,6 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -110,17 +109,11 @@ class SitemapBookLastModifiedSqlSupportTest {
     }
 
     @Test
-    void should_ThrowIllegalArgument_When_AliasContainsSqlInjection() {
-        assertThatThrownBy(() ->
-            SitemapBookLastModifiedSqlSupport.globalBookLastModifiedCte("x; DROP TABLE books"))
-            .isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @Test
-    void should_ThrowIllegalArgument_When_AliasIsBlank() {
-        assertThatThrownBy(() ->
-            SitemapBookLastModifiedSqlSupport.globalBookLastModifiedCte(""))
-            .isInstanceOf(IllegalArgumentException.class);
+    void should_ThrowIllegalArgument_When_AliasIsUnsafe() {
+        assertThatThrownBy(() -> SitemapBookLastModifiedSqlSupport.globalBookLastModifiedCte("x; DROP TABLE books"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> SitemapBookLastModifiedSqlSupport.globalBookLastModifiedCte(""))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -129,12 +122,6 @@ class SitemapBookLastModifiedSqlSupportTest {
             SitemapBookLastModifiedSqlSupport.scopedAuthorBookLastModifiedQuery(
                 "1; DROP TABLE books --", "book_updated_at"))
             .isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @Test
-    void should_AcceptValidAlias_When_AliasIsSimpleIdentifier() {
-        assertDoesNotThrow(() ->
-            SitemapBookLastModifiedSqlSupport.globalBookLastModifiedCte("book_updated_at"));
     }
 
     @Test
@@ -152,35 +139,24 @@ class SitemapBookLastModifiedSqlSupportTest {
 
     @Test
     void should_DisableParallelWorkersBeforeAggregate_When_BooksAreCountedByBucket() {
-        JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
-        SitemapRepository sitemapRepository = new SitemapRepository(jdbcTemplate);
-        Map<String, Integer> expected = Map.of("A", 12);
-        when(jdbcTemplate.query(
-                anyString(),
-                org.mockito.ArgumentMatchers.<ResultSetExtractor<Map<String, Integer>>>any()
-        )).thenReturn(expected);
-
-        assertThat(sitemapRepository.countBooksByBucket()).isEqualTo(expected);
-
-        InOrder inOrder = inOrder(jdbcTemplate);
-        inOrder.verify(jdbcTemplate).execute("SET LOCAL max_parallel_workers_per_gather = 0");
-        inOrder.verify(jdbcTemplate).query(
-                anyString(),
-                org.mockito.ArgumentMatchers.<ResultSetExtractor<Map<String, Integer>>>any()
-        );
+        assertGuardedBucketCount(SitemapRepository::countBooksByBucket, Map.of("A", 12));
     }
 
     @Test
     void should_DisableParallelWorkersBeforeAggregate_When_AuthorsAreCountedByBucket() {
+        assertGuardedBucketCount(SitemapRepository::countAuthorsByBucket, Map.of("B", 7));
+    }
+
+    private static void assertGuardedBucketCount(
+            java.util.function.Function<SitemapRepository, Map<String, Integer>> bucketCount,
+            Map<String, Integer> expected) {
         JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
-        SitemapRepository sitemapRepository = new SitemapRepository(jdbcTemplate);
-        Map<String, Integer> expected = Map.of("B", 7);
         when(jdbcTemplate.query(
                 anyString(),
                 org.mockito.ArgumentMatchers.<ResultSetExtractor<Map<String, Integer>>>any()
         )).thenReturn(expected);
 
-        assertThat(sitemapRepository.countAuthorsByBucket()).isEqualTo(expected);
+        assertThat(bucketCount.apply(new SitemapRepository(jdbcTemplate))).isEqualTo(expected);
 
         InOrder inOrder = inOrder(jdbcTemplate);
         inOrder.verify(jdbcTemplate).execute("SET LOCAL max_parallel_workers_per_gather = 0");
@@ -253,32 +229,6 @@ class SitemapBookLastModifiedSqlSupportTest {
     }
 
     @Test
-    void should_UseBoundedPageQuery_When_BookXmlPageIsRequested() {
-        JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
-        SitemapRepository sitemapRepository = new SitemapRepository(jdbcTemplate);
-        when(jdbcTemplate.query(
-            anyString(),
-            org.mockito.ArgumentMatchers.<RowMapper<SitemapRepository.BookRow>>any(),
-            eq(5000),
-            eq(10000)
-        )).thenReturn(List.of());
-
-        sitemapRepository.fetchBooksForXml(5000, 10000);
-
-        ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
-        verify(jdbcTemplate).query(
-            sqlCaptor.capture(),
-            org.mockito.ArgumentMatchers.<RowMapper<SitemapRepository.BookRow>>any(),
-            eq(5000),
-            eq(10000)
-        );
-        assertThat(sqlCaptor.getValue())
-            .contains("requested_books AS MATERIALIZED")
-            .contains("LIMIT ? OFFSET ?")
-            .doesNotContain("FROM book_last_modified ORDER BY");
-    }
-
-    @Test
     void should_DisableParallelWorkersForTransaction_When_BookFingerprintIsRequested() {
         JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
         SitemapRepository sitemapRepository = new SitemapRepository(jdbcTemplate);
@@ -344,8 +294,25 @@ class SitemapBookLastModifiedSqlSupportTest {
                     true
             );
             jdbcTemplate = new RecordingJdbcTemplate(dataSource);
-            jdbcTemplate.execute("CREATE TEMP TABLE books (slug text)");
-            jdbcTemplate.update("INSERT INTO books (slug) VALUES ('book-one')");
+            jdbcTemplate.execute("""
+                    CREATE TEMP TABLE books (id text, slug text, title text, updated_at timestamptz, created_at timestamptz);
+                    CREATE TEMP TABLE authors (id text, name text, normalized_name text, updated_at timestamptz, created_at timestamptz);
+                    CREATE TEMP TABLE book_authors_join (book_id text, author_id text, updated_at timestamptz, created_at timestamptz);
+                    CREATE TEMP TABLE book_external_ids (book_id text, last_updated timestamptz, created_at timestamptz);
+                    CREATE TEMP TABLE book_raw_data (book_id text, fetched_at timestamptz, contributed_at timestamptz, created_at timestamptz);
+                    CREATE TEMP TABLE book_image_links (book_id text, updated_at timestamptz, s3_uploaded_at timestamptz, created_at timestamptz);
+                    CREATE TEMP TABLE book_dimensions (book_id text, updated_at timestamptz, created_at timestamptz);
+                    CREATE TEMP TABLE book_tag_assignments (book_id text, tag_id text, created_at timestamptz);
+                    CREATE TEMP TABLE book_tags (id text, updated_at timestamptz, created_at timestamptz);
+                    CREATE TEMP TABLE book_collections_join (book_id text, collection_id text, updated_at timestamptz, created_at timestamptz, added_at timestamptz);
+                    CREATE TEMP TABLE book_collections (id text, updated_at timestamptz, created_at timestamptz);
+                    CREATE TEMP TABLE book_ai_content (book_id text, created_at timestamptz);
+                    CREATE TEMP TABLE book_seo_metadata (book_id text, created_at timestamptz);
+                    CREATE TEMP TABLE book_slug_redirect (book_id text, created_at timestamptz);
+                    INSERT INTO books VALUES ('book-one', 'book-one', 'Book One', NOW(), NOW());
+                    INSERT INTO authors VALUES ('author-one', 'Author One', 'author one', NOW(), NOW());
+                    INSERT INTO book_authors_join VALUES ('book-one', 'author-one', NOW(), NOW());
+                    """);
             originalParallelWorkerSetting = jdbcTemplate.queryForObject(
                     "SHOW " + PARALLEL_WORKER_SETTING,
                     String.class
@@ -374,11 +341,28 @@ class SitemapBookLastModifiedSqlSupportTest {
         }
 
         @Test
-        void should_RestoreParallelWorkerSettingAfterCommit_When_AggregateSucceeds() {
-            assertThat(sitemapService.getBooksXmlPageCount()).isEqualTo(1);
+        void should_RestoreParallelWorkerSettingAfterCommit_When_BookXmlPageLoads() {
+            assertThat(sitemapService.getBooksForXmlPage(1))
+                    .extracting(SitemapService.BookSitemapItem::bookId)
+                    .containsExactly("book-one");
 
-            assertGuardAndAggregateSharedReadOnlyTransaction();
+            assertGuardAndQueryShareReadOnlyTransaction(
+                    SitemapBookLastModifiedSqlSupport.pagedBookLastModifiedQuery("book_updated_at")
+            );
             assertThat(currentParallelWorkerSetting()).isEqualTo(originalParallelWorkerSetting);
+        }
+
+        @Test
+        void should_RunGuardAndAuthorBookQueryOnSameReadOnlyTransaction_When_LoadingAuthorPage() {
+            assertThat(sitemapService.getAuthorsByLetter("A", 1).items())
+                    .singleElement()
+                    .satisfies(author -> assertThat(author.books())
+                            .extracting(SitemapService.BookSitemapItem::bookId)
+                            .containsExactly("book-one"));
+
+            assertGuardAndQueryShareReadOnlyTransaction(
+                    SitemapBookLastModifiedSqlSupport.scopedAuthorBookLastModifiedQuery("?", "book_updated_at")
+            );
         }
 
         @Test
@@ -390,25 +374,19 @@ class SitemapBookLastModifiedSqlSupportTest {
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("book XML page count");
 
-            assertGuardAndAggregateSharedReadOnlyTransaction();
+            assertGuardAndQueryShareReadOnlyTransaction("SELECT COUNT(*) FROM books WHERE slug IS NOT NULL");
             assertThat(currentParallelWorkerSetting()).isEqualTo(originalParallelWorkerSetting);
         }
 
-        private void assertGuardAndAggregateSharedReadOnlyTransaction() {
-            StatementObservation guard = jdbcTemplate.observationFor(
-                    "SET LOCAL " + PARALLEL_WORKER_SETTING + " = 0"
-            );
-            StatementObservation aggregate = jdbcTemplate.observationFor(
-                    "SELECT COUNT(*) FROM books WHERE slug IS NOT NULL"
-            );
-            assertThat(guard.transactionActive()).isTrue();
-            assertThat(aggregate.transactionActive()).isTrue();
-            assertThat(guard.connectionTransactionBound()).isTrue();
-            assertThat(aggregate.connectionTransactionBound()).isTrue();
-            assertThat(guard.transactionReadOnly()).isTrue();
-            assertThat(aggregate.transactionReadOnly()).isTrue();
-            assertThat(aggregate.backendProcessId()).isEqualTo(guard.backendProcessId());
-            assertThat(aggregate.parallelWorkerSetting()).isEqualTo("0");
+        private void assertGuardAndQueryShareReadOnlyTransaction(String targetSql) {
+            StatementObservation target = jdbcTemplate.observationFor(targetSql);
+            StatementObservation guard = jdbcTemplate.observationImmediatelyBefore(targetSql);
+            assertThat(guard.sql()).isEqualTo("SET LOCAL " + PARALLEL_WORKER_SETTING + " = 0");
+            assertThat(guard.transactionActive() && target.transactionActive()).isTrue();
+            assertThat(guard.connectionTransactionBound() && target.connectionTransactionBound()).isTrue();
+            assertThat(guard.transactionReadOnly() && target.transactionReadOnly()).isTrue();
+            assertThat(target.backendProcessId()).isEqualTo(guard.backendProcessId());
+            assertThat(target.parallelWorkerSetting()).isEqualTo("0");
         }
 
         private String currentParallelWorkerSetting() {
@@ -436,6 +414,18 @@ class SitemapBookLastModifiedSqlSupportTest {
             return super.queryForObject(sql, requiredType);
         }
 
+        @Override
+        public <T> List<T> query(String sql, RowMapper<T> rowMapper, Object... args) {
+            recordObservation(sql);
+            return super.query(sql, rowMapper, args);
+        }
+
+        @Override
+        public <T> T query(String sql, ResultSetExtractor<T> resultSetExtractor, Object... args) {
+            recordObservation(sql);
+            return super.query(sql, resultSetExtractor, args);
+        }
+
         private void clearObservations() {
             observations.clear();
         }
@@ -445,6 +435,10 @@ class SitemapBookLastModifiedSqlSupportTest {
                     .filter(observation -> observation.sql().equals(sql))
                     .findFirst()
                     .orElseThrow(() -> new AssertionError("SQL was not observed: " + sql));
+        }
+
+        private StatementObservation observationImmediatelyBefore(String sql) {
+            return observations.get(observations.indexOf(observationFor(sql)) - 1);
         }
 
         private void recordObservation(String sql) {

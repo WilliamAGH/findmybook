@@ -88,6 +88,24 @@ class SitemapServiceTest {
         assertThat(first).isEqualTo(second);
         assertThat(first).isSortedAccordingTo((left, right) -> left.updatedAt().compareTo(right.updatedAt()));
         verify(sitemapRepository, times(1)).fetchBooksForXml(5000, 0);
+        assertReadOnlyTransactionsStarted(1);
+    }
+
+    @Test
+    void should_UseReadOnlyTransaction_When_AuthorBooksAreLoaded() {
+        SitemapRepository.AuthorRow author = new SitemapRepository.AuthorRow(
+                "author-1",
+                "Octavia Butler",
+                Instant.parse("2024-01-01T00:00:00Z")
+        );
+        when(sitemapRepository.countAuthorsByBucket()).thenReturn(Map.of("B", 1));
+        when(sitemapRepository.fetchAuthorsForBucket("B", 100, 0)).thenReturn(List.of(author));
+        when(sitemapRepository.fetchBooksForAuthors(java.util.Set.of("author-1"))).thenReturn(Map.of());
+
+        assertThat(sitemapService.getAuthorsByLetter("B", 1).items()).hasSize(1);
+
+        verify(sitemapRepository).fetchBooksForAuthors(java.util.Set.of("author-1"));
+        assertReadOnlyTransactionsStarted(2);
     }
 
     @Test

@@ -82,6 +82,7 @@ public class SitemapRepository {
 
     public List<BookRow> fetchBooksForXml(int limit, int offset) {
         String sql = SitemapBookLastModifiedSqlSupport.pagedBookLastModifiedQuery(BOOK_UPDATED_AT_ALIAS);
+        disableParallelWorkersForTransaction();
         return jdbcTemplate.query(sql, BOOK_ROW_MAPPER, limit, offset);
     }
 
@@ -120,6 +121,7 @@ public class SitemapRepository {
                 BOOK_UPDATED_AT_ALIAS
         );
         Object[] params = authorIds.toArray();
+        disableParallelWorkersForTransaction();
         return jdbcTemplate.query(resolvedSql, rs -> {
             Map<String, List<BookRow>> results = new LinkedHashMap<>();
             while (rs.next()) {

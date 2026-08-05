@@ -131,7 +131,9 @@ public class SitemapService {
         }
         Set<String> authorIds = authorRows.stream().map(AuthorRow::id)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
-        Map<String, List<BookRow>> booksByAuthor = sitemapRepository.fetchBooksForAuthors(authorIds);
+        Map<String, List<BookRow>> booksByAuthor = inReadOnlyTransaction(
+                () -> sitemapRepository.fetchBooksForAuthors(authorIds)
+        );
         List<AuthorSection> sections = authorRows.stream()
                 .map(row -> new AuthorSection(
                         row.id(),
@@ -269,7 +271,7 @@ public class SitemapService {
         int pageSize = properties.getXmlPageSize();
         int offset = (page - 1) * pageSize;
         try {
-            return sitemapRepository.fetchBooksForXml(pageSize, offset)
+            return inReadOnlyTransaction(() -> sitemapRepository.fetchBooksForXml(pageSize, offset))
                     .stream()
                     .map(row -> new BookSitemapItem(row.bookId(), row.slug(), row.title(), row.updatedAt()))
                     .toList();
