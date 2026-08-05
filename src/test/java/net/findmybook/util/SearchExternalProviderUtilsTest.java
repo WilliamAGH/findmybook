@@ -40,11 +40,15 @@ class SearchExternalProviderUtilsTest {
     }
 
     @Test
-    @DisplayName("normalizeOrderBy defaults unsupported and missing values to newest")
-    void normalizeOrderByContracts() {
+    @DisplayName("normalizeOrderBy defaults unsupported and missing values to relevance")
+    void should_DefaultToRelevance_When_OrderByIsMissingOrUnsupported() {
         assertThat(SearchExternalProviderUtils.normalizeOrderBy("author")).isEqualTo("author");
-        assertThat(SearchExternalProviderUtils.normalizeOrderBy("rating")).isEqualTo("newest");
-        assertThat(SearchExternalProviderUtils.normalizeOrderBy(null)).isEqualTo("newest");
+        assertThat(SearchExternalProviderUtils.normalizeOrderBy("title")).isEqualTo("title");
+        assertThat(SearchExternalProviderUtils.normalizeOrderBy("newest")).isEqualTo("newest");
+        assertThat(SearchExternalProviderUtils.normalizeOrderBy("rating"))
+            .isEqualTo(SearchExternalProviderUtils.DEFAULT_ORDER_BY);
+        assertThat(SearchExternalProviderUtils.normalizeOrderBy(null))
+            .isEqualTo(SearchExternalProviderUtils.DEFAULT_ORDER_BY);
     }
 
     @Test

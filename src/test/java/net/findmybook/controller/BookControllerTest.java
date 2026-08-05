@@ -12,6 +12,7 @@ import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.model.image.ImageResolutionPreference;
 import net.findmybook.service.RecentBookViewRepository;
 import net.findmybook.service.SearchPaginationService;
+import net.findmybook.util.SearchExternalProviderUtils;
 import net.findmybook.util.cover.CoverUrlResolver;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -54,7 +55,7 @@ class BookControllerTest extends AbstractBookControllerMvcTest {
             false,
             0,
             0,
-            "newest",
+            SearchExternalProviderUtils.DEFAULT_ORDER_BY,
             CoverImageSource.ANY,
             ImageResolutionPreference.ANY
         );
@@ -80,9 +81,42 @@ class BookControllerTest extends AbstractBookControllerMvcTest {
             .andExpect(jsonPath("$.hasMore", equalTo(false)))
             .andExpect(jsonPath("$.nextStartIndex", equalTo(0)))
             .andExpect(jsonPath("$.prefetchedCount", equalTo(0)))
-            .andExpect(jsonPath("$.orderBy", equalTo("newest")))
+            .andExpect(jsonPath("$.orderBy", equalTo(SearchExternalProviderUtils.DEFAULT_ORDER_BY)))
             .andExpect(jsonPath("$.coverSource", equalTo("ANY")))
             .andExpect(jsonPath("$.resolution", equalTo("ANY")));
+
+        verify(searchPaginationService).search(argThat(request ->
+            SearchExternalProviderUtils.DEFAULT_ORDER_BY.equals(request.orderBy())));
+    }
+
+    @Test
+    @DisplayName("GET /api/books/search preserves explicit newest ordering")
+    void should_PreserveNewest_When_OrderByIsExplicit() throws Exception {
+        SearchPaginationService.SearchPage page = new SearchPaginationService.SearchPage(
+            "Fixture",
+            0,
+            12,
+            12,
+            0,
+            List.of(),
+            List.of(),
+            false,
+            0,
+            0,
+            "newest",
+            CoverImageSource.ANY,
+            ImageResolutionPreference.ANY
+        );
+        when(searchPaginationService.search(any(SearchPaginationService.SearchRequest.class)))
+            .thenReturn(Mono.just(page));
+
+        performAsync(get("/api/books/search")
+            .param("query", "Fixture")
+            .param("orderBy", "newest"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.orderBy", equalTo("newest")));
+
+        verify(searchPaginationService).search(argThat(request -> "newest".equals(request.orderBy())));
     }
 
     @Test

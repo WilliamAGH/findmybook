@@ -10,6 +10,7 @@ import net.findmybook.support.search.PostgresSearchResultHydrator;
 import net.findmybook.support.search.CandidateKeyResolver;
 import net.findmybook.support.search.SearchCandidatePersistence;
 import net.findmybook.support.search.SearchPageAssembler;
+import net.findmybook.support.search.SearchQuerySnapshotStore;
 import net.findmybook.util.ApplicationConstants;
 import net.findmybook.util.PagingUtils;
 import net.findmybook.util.SearchExternalProviderUtils;
@@ -42,10 +43,11 @@ import java.util.Optional;
 @Slf4j
 public class SearchPaginationService {
 
-    private static final int EXTERNAL_PROVIDER_WINDOW_CAP = ApplicationConstants.Paging.MAX_TIERED_LIMIT;
+    private static final int SEARCH_SNAPSHOT_WINDOW_CAP = ApplicationConstants.Paging.MAX_TIERED_LIMIT;
     private final BookSearchService bookSearchService;
     private final PostgresSearchResultHydrator postgresSearchResultHydrator;
     private final SearchPageAssembler searchPageAssembler;
+    private final SearchQuerySnapshotStore searchQuerySnapshotStore;
     private final Optional<OpenLibraryBookDataService> openLibraryBookDataService;
     private final GoogleExternalSearchFlow googleExternalSearchFlow;
     private final SearchCandidatePersistence searchCandidatePersistence;
@@ -79,6 +81,7 @@ public class SearchPaginationService {
         this.bookSearchService = Objects.requireNonNull(bookSearchService, "bookSearchService");
         this.postgresSearchResultHydrator = new PostgresSearchResultHydrator(bookQueryRepository);
         this.searchPageAssembler = new SearchPageAssembler();
+        this.searchQuerySnapshotStore = new SearchQuerySnapshotStore();
         this.openLibraryBookDataService = openLibraryBookDataService != null ? openLibraryBookDataService : Optional.empty();
         this.googleExternalSearchFlow = new GoogleExternalSearchFlow(googleApiFetcher, googleBooksMapper);
         this.searchCandidatePersistence = new SearchCandidatePersistence(bookDataOrchestrator, persistSearchResultsEnabled);
@@ -100,7 +103,7 @@ public class SearchPaginationService {
      * @return page payload containing ordered items and pagination metadata
      */
     public Mono<SearchPage> search(SearchRequest request) {
-        PagingUtils.Window window = PagingUtils.window(
+        PagingUtils.Window requestedWindow = PagingUtils.window(
             request.startIndex(),
             request.maxResults(),
             ApplicationConstants.Paging.DEFAULT_SEARCH_LIMIT,
@@ -108,13 +111,27 @@ public class SearchPaginationService {
             ApplicationConstants.Paging.MAX_SEARCH_LIMIT,
             0
         );
+        long startNanos = System.nanoTime();
+        SearchRequest snapshotRequest = request.atStartIndex(0);
 
-        return performSearch(request, window, System.nanoTime());
+        return searchQuerySnapshotStore.getOrLoad(snapshotRequest, canonicalRequest -> {
+            PagingUtils.Window snapshotWindow = PagingUtils.window(
+                0,
+                canonicalRequest.maxResults(),
+                ApplicationConstants.Paging.DEFAULT_SEARCH_LIMIT,
+                ApplicationConstants.Paging.MIN_SEARCH_LIMIT,
+                ApplicationConstants.Paging.MAX_SEARCH_LIMIT,
+                SEARCH_SNAPSHOT_WINDOW_CAP
+            );
+            return performSearch(canonicalRequest, snapshotWindow)
+                .doOnNext(snapshot -> searchRealtimeCoordinator.trigger(canonicalRequest, snapshot));
+        })
+            .map(snapshot -> searchPageAssembler.slicePage(snapshot, requestedWindow))
+            .doOnNext(page -> logPageMetrics(request, requestedWindow, page, startNanos));
     }
 
     private Mono<SearchPage> performSearch(SearchRequest request,
-                                           PagingUtils.Window window,
-                                           long startNanos) {
+                                           PagingUtils.Window window) {
         return Mono.fromCallable(() -> bookSearchService.searchBooks(request.query(), window.totalRequested()))
             .subscribeOn(Schedulers.boundedElastic())
             .map(results -> postgresSearchResultHydrator.filterByPublishedYear(results, request.publishedYear()))
@@ -128,9 +145,7 @@ public class SearchPaginationService {
                 list,
                 window
             ))
-            .flatMap(page -> maybeFallback(request, window, page))
-            .doOnNext(page -> searchRealtimeCoordinator.trigger(request, page))
-            .doOnNext(page -> logPageMetrics(request, window, page, startNanos));
+            .flatMap(page -> maybeFallback(request, window, page));
     }
 
     /**
@@ -191,7 +206,7 @@ public class SearchPaginationService {
     private int requestedExternalWindow(PagingUtils.Window window) {
         int minimumWindow = Math.max(1, window.limit());
         int desiredWindow = Math.max(minimumWindow, window.totalRequested());
-        return Math.min(desiredWindow, EXTERNAL_PROVIDER_WINDOW_CAP);
+        return Math.min(desiredWindow, SEARCH_SNAPSHOT_WINDOW_CAP);
     }
 
     private boolean shouldFetchGoogleSecondary(int requestedWindow,
@@ -479,6 +494,24 @@ public class SearchPaginationService {
             resolutionPreference = Optional.ofNullable(resolutionPreference).orElse(ImageResolutionPreference.ANY);
             publishedYear = publishedYear != null && publishedYear > 0 ? publishedYear : null;
         }
+
+        /**
+         * Returns the same canonical search request at a different absolute offset.
+         *
+         * @param requestedStartIndex zero-based absolute offset
+         * @return request preserving every search filter with the requested offset
+         */
+        public SearchRequest atStartIndex(int requestedStartIndex) {
+            return new SearchRequest(
+                query,
+                requestedStartIndex,
+                maxResults,
+                orderBy,
+                coverSource,
+                resolutionPreference,
+                publishedYear
+            );
+        }
     }
 
     /**
@@ -513,6 +546,11 @@ public class SearchPaginationService {
                              CoverImageSource coverSource,
                              ImageResolutionPreference resolutionPreference,
                              Integer publishedYear) {
+        public SearchPage {
+            pageItems = List.copyOf(Objects.requireNonNull(pageItems, "pageItems"));
+            uniqueResults = List.copyOf(Objects.requireNonNull(uniqueResults, "uniqueResults"));
+        }
+
         public SearchPage(String query,
                           int startIndex,
                           int maxResults,

@@ -42,11 +42,15 @@ class SearchPaginationServiceRealtimeTest extends AbstractSearchPaginationServic
 
         SearchPaginationService realtimeService = fallbackEnabledService();
         SearchPaginationService.SearchPage page = realtimeService.search(searchRequest("distributed systems", 0, 12, "author")).block();
+        SearchPaginationService.SearchPage secondPage = realtimeService
+            .search(searchRequest("distributed systems", 12, 12, "author"))
+            .block();
 
         assertThat(page).isNotNull();
+        assertThat(secondPage).isNotNull();
         verify(googleApiFetcher, times(1))
             .streamSearchItems("distributed systems", 12, "relevance", null, true);
-        verify(openLibraryBookDataService, timeout(2000).atLeastOnce())
+        verify(openLibraryBookDataService, timeout(2000).times(1))
             .queryBooksByEverything("distributed systems", "author");
         verify(eventPublisher, timeout(2000).atLeastOnce()).publishEvent((Object) argThat(AbstractSearchPaginationServiceTest::isGoogleRealtimeEvent));
     }

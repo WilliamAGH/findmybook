@@ -2,6 +2,7 @@ package net.findmybook.service;
 
 import net.findmybook.dto.BookListItem;
 import net.findmybook.model.Book;
+import net.findmybook.util.SearchExternalProviderUtils;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -15,6 +16,32 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.when;
 
 class SearchPaginationServiceOrderingTest extends AbstractSearchPaginationServiceTest {
+
+    @Test
+    @DisplayName("search() defaults omitted orderBy to relevance")
+    void should_OrderByRelevance_When_OrderByIsOmitted() {
+        UUID higherRelevanceId = UUID.randomUUID();
+        UUID lowerRelevanceId = UUID.randomUUID();
+
+        when(bookSearchService.searchBooks("default-relevance", 24)).thenReturn(List.of(
+            new BookSearchService.SearchResult(higherRelevanceId, 0.95d, "TSVECTOR"),
+            new BookSearchService.SearchResult(lowerRelevanceId, 0.65d, "TSVECTOR")
+        ));
+        when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(List.of(
+            buildListItem(lowerRelevanceId, "Lower Relevance", 600, 900, true, "https://cdn.test/lower.jpg"),
+            buildListItem(higherRelevanceId, "Higher Relevance", 600, 900, true, "https://cdn.test/higher.jpg")
+        ));
+
+        SearchPaginationService.SearchPage page = service.search(
+            searchRequest("default-relevance", 0, 12, null)
+        ).block();
+
+        assertThat(page).isNotNull();
+        assertThat(page.orderBy()).isEqualTo(SearchExternalProviderUtils.DEFAULT_ORDER_BY);
+        assertThat(page.pageItems())
+            .extracting(Book::getId)
+            .containsExactly(higherRelevanceId.toString(), lowerRelevanceId.toString());
+    }
 
     @Test
     @DisplayName("search() keeps non-color results behind color covers even when orderBy=newest")

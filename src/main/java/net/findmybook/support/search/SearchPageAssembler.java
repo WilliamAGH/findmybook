@@ -95,6 +95,7 @@ public final class SearchPageAssembler {
         ImageResolutionPreference effectiveResolution = resolutionPreference == null
             ? ImageResolutionPreference.ANY
             : resolutionPreference;
+        String effectiveOrderBy = SearchExternalProviderUtils.normalizeOrderBy(orderBy);
 
         return new SearchPaginationService.SearchPage(
             query,
@@ -107,10 +108,44 @@ public final class SearchPageAssembler {
             hasMore,
             nextStartIndex,
             prefetched,
-            Optional.ofNullable(orderBy).orElse("newest"),
+            effectiveOrderBy,
             effectiveSource,
             effectiveResolution,
             publishedYear
+        );
+    }
+
+    /**
+     * Slices one requested page from an already ordered immutable query snapshot, preserving the
+     * snapshot total and ordering across repository or provider changes.
+     *
+     * @param snapshot canonical offset-zero search snapshot
+     * @param window requested response window
+     * @return immutable page slice backed by the snapshot's ordered candidate universe
+     */
+    public SearchPaginationService.SearchPage slicePage(SearchPaginationService.SearchPage snapshot,
+                                                        PagingUtils.Window window) {
+        List<Book> orderedSnapshot = snapshot.uniqueResults();
+        List<Book> pageItems = PagingUtils.slice(orderedSnapshot, window.startIndex(), window.limit());
+        boolean hasMore = PagingUtils.hasMore(snapshot.totalUnique(), window.startIndex(), window.limit());
+        int prefetched = PagingUtils.prefetchedCount(snapshot.totalUnique(), window.startIndex(), window.limit());
+        int nextStartIndex = hasMore ? window.startIndex() + window.limit() : window.startIndex();
+
+        return new SearchPaginationService.SearchPage(
+            snapshot.query(),
+            window.startIndex(),
+            window.limit(),
+            snapshot.totalRequested(),
+            snapshot.totalUnique(),
+            pageItems,
+            orderedSnapshot,
+            hasMore,
+            nextStartIndex,
+            prefetched,
+            snapshot.orderBy(),
+            snapshot.coverSource(),
+            snapshot.resolutionPreference(),
+            snapshot.publishedYear()
         );
     }
 
@@ -138,7 +173,7 @@ public final class SearchPageAssembler {
                 String.CASE_INSENSITIVE_ORDER
             );
             default -> Comparator
-                .comparing(Book::getPublishedDate, Comparator.nullsLast(java.util.Date::compareTo))
+                .comparingDouble(this::relevanceScoreForSort)
                 .reversed();
         };
         return CoverPrioritizer.bookComparatorWithPrimarySort(insertionOrder, primarySort);

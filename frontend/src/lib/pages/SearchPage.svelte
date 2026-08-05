@@ -4,7 +4,7 @@
   import SearchPageFilters from "$lib/components/SearchPageFilters.svelte";
   import SearchPageStatus from "$lib/components/SearchPageStatus.svelte";
   import SearchResultsPanel from "$lib/components/SearchResultsPanel.svelte";
-  import { navigate, type SearchRouteName } from "$lib/router/router";
+  import { navigate, searchRouteDefaultsForRoute, type SearchRouteDefaults, type SearchRouteName } from "$lib/router/router";
   import { searchBooks, type SearchParams } from "$lib/services/books";
   import { getCategoryFacets, getHomePagePayload, type PopularWindow } from "$lib/services/pages";
   import { subscribeToSearchTopics } from "$lib/services/realtime";
@@ -19,10 +19,18 @@
   const searchCache = new Map<string, SearchResponse>();
   let unsubscribeRealtime: (() => void) | null = null;
 
+  function initialOrderBy(): SortOption {
+    return readSearchPageRouteState(
+      routeName,
+      currentUrl,
+      searchRouteDefaultsForRoute(routeName),
+    ).orderBy;
+  }
+
   let query = $state("");
   // UI route page is one-based; API calls convert this to zero-based startIndex.
   let page = $state(1);
-  let orderBy = $state<SortOption>("newest");
+  let orderBy = $state<SortOption>(initialOrderBy());
   let coverSource = $state<CoverOption>("ANY");
   let resolution = $state<ResolutionOption>("HIGH_FIRST");
   let viewMode = $state<"grid" | "list">("grid");
@@ -38,8 +46,8 @@
   let searchResult = $state<SearchResponse | null>(null);
   let searchLoadSequence = 0;
 
-  function syncStateFromUrl(url: URL): void {
-    const next = readSearchPageRouteState(routeName, url);
+  function syncStateFromUrl(url: URL, routeDefaults: SearchRouteDefaults): void {
+    const next = readSearchPageRouteState(routeName, url, routeDefaults);
     page = next.page;
     orderBy = next.orderBy;
     coverSource = next.coverSource;
@@ -274,12 +282,13 @@
   }
 
   $effect(() => {
-    const exploreDefaultUrl = buildExploreDefaultUrl(routeName, currentUrl);
+    const routeDefaults = searchRouteDefaultsForRoute(routeName);
+    const exploreDefaultUrl = buildExploreDefaultUrl(routeName, currentUrl, routeDefaults);
     if (exploreDefaultUrl) {
       navigate(exploreDefaultUrl, true);
       return;
     }
-    syncStateFromUrl(currentUrl);
+    syncStateFromUrl(currentUrl, routeDefaults);
     untrack(() => { void loadSearch(); });
   });
 

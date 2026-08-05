@@ -1,5 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 
+const SEARCH_ROUTE_DEFAULTS_FIXTURE = { orderBy: "relevance" } as const;
+
 (window as Window & { __FMB_ROUTE_MANIFEST__?: unknown }).__FMB_ROUTE_MANIFEST__ = {
   version: 1,
   publicRoutes: [
@@ -17,7 +19,7 @@ import "@testing-library/jest-dom/vitest";
       matchType: "exact",
       pattern: "/search",
       paramNames: [],
-      defaults: {},
+      defaults: SEARCH_ROUTE_DEFAULTS_FIXTURE,
       allowedQueryParams: ["query", "year", "page", "orderBy", "source", "coverSource", "resolution", "genre", "view"],
       canonicalPathTemplate: "/search",
     },
@@ -26,7 +28,7 @@ import "@testing-library/jest-dom/vitest";
       matchType: "exact",
       pattern: "/explore",
       paramNames: [],
-      defaults: {},
+      defaults: SEARCH_ROUTE_DEFAULTS_FIXTURE,
       allowedQueryParams: ["query", "year", "page", "orderBy", "source", "coverSource", "resolution", "genre", "view"],
       canonicalPathTemplate: "/explore",
     },
@@ -35,7 +37,7 @@ import "@testing-library/jest-dom/vitest";
       matchType: "exact",
       pattern: "/categories",
       paramNames: [],
-      defaults: {},
+      defaults: SEARCH_ROUTE_DEFAULTS_FIXTURE,
       allowedQueryParams: ["query", "year", "page", "orderBy", "source", "coverSource", "resolution", "genre", "view"],
       canonicalPathTemplate: "/categories",
     },

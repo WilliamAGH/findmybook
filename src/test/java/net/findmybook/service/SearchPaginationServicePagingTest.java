@@ -15,6 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -89,8 +90,8 @@ class SearchPaginationServicePagingTest extends AbstractSearchPaginationServiceT
     }
 
     @Test
-    @DisplayName("search() slices with start offsets and computes prefetch metadata")
-    void searchRespectsOffsetsAndPrefetch() {
+    @DisplayName("search() keeps one ordered snapshot while repository results mutate between pages")
+    void should_KeepStableSnapshot_When_RepositoryMutatesBetweenPages() {
         List<UUID> bookIds = new ArrayList<>();
         List<BookSearchService.SearchResult> searchResults = new ArrayList<>();
         List<BookListItem> listItems = new ArrayList<>();
@@ -102,14 +103,25 @@ class SearchPaginationServicePagingTest extends AbstractSearchPaginationServiceT
             listItems.add(buildListItem(id, String.format("Book %02d", index)));
         }
 
-        when(bookSearchService.searchBooks("java", 36)).thenReturn(searchResults);
+        when(bookSearchService.searchBooks("java", 24)).thenReturn(searchResults);
         when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(listItems);
 
-        SearchPaginationService.SearchPage page = service.search(searchRequest("java", 12, 12, "newest")).block();
+        SearchPaginationService.SearchPage firstPage = service.search(searchRequest("java", 0, 12, "newest")).block();
 
-        assertThat(page).isNotNull();
-        assertThat(page.pageItems()).hasSize(12);
-        assertThat(page.pageItems())
+        searchResults.clear();
+        listItems.clear();
+        UUID replacementId = UUID.fromString("00000000-0000-0000-0000-000000000099");
+        searchResults.add(new BookSearchService.SearchResult(replacementId, 1.0, "TSVECTOR"));
+        listItems.add(buildListItem(replacementId, "Repository Mutation"));
+
+        SearchPaginationService.SearchPage secondPage = service.search(searchRequest("java", 12, 12, "newest")).block();
+
+        assertThat(firstPage).isNotNull();
+        assertThat(secondPage).isNotNull();
+        assertThat(firstPage.totalUnique()).isEqualTo(29);
+        assertThat(secondPage.totalUnique()).isEqualTo(firstPage.totalUnique());
+        assertThat(secondPage.pageItems()).hasSize(12);
+        assertThat(secondPage.pageItems())
             .extracting(Book::getId)
             .containsExactly(
                 bookIds.get(12).toString(),
@@ -125,9 +137,11 @@ class SearchPaginationServicePagingTest extends AbstractSearchPaginationServiceT
                 bookIds.get(22).toString(),
                 bookIds.get(23).toString()
             );
-        assertThat(page.hasMore()).isTrue();
-        assertThat(page.prefetchedCount()).isEqualTo(5);
-        assertThat(page.nextStartIndex()).isEqualTo(24);
+        assertThat(secondPage.pageItems()).doesNotContainAnyElementsOf(firstPage.pageItems());
+        assertThat(secondPage.hasMore()).isTrue();
+        assertThat(secondPage.prefetchedCount()).isEqualTo(5);
+        assertThat(secondPage.nextStartIndex()).isEqualTo(24);
+        verify(bookSearchService, times(1)).searchBooks("java", 24);
     }
 
     @Test
@@ -145,7 +159,7 @@ class SearchPaginationServicePagingTest extends AbstractSearchPaginationServiceT
             new BookSearchService.SearchResult(thirdId, 0.72, "TSVECTOR")
         );
 
-        when(bookSearchService.searchBooks("miss", 34)).thenReturn(results);
+        when(bookSearchService.searchBooks("miss", 24)).thenReturn(results);
         when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(List.of(
             buildListItem(firstId, "First"),
             buildListItem(secondId, "Second"),
@@ -163,11 +177,11 @@ class SearchPaginationServicePagingTest extends AbstractSearchPaginationServiceT
     }
 
     @Test
-    @DisplayName("search() supplements startIndex>0 pages with external fallback when Postgres underfills")
-    void should_SupplementSecondPage_When_PostgresPageUnderfilled() {
+    @DisplayName("search() shares one fallback snapshot across the first and second pages")
+    void should_NotRerunFallback_When_SecondPageUsesCachedSnapshot() {
         UUID postgresOnlyId = UUID.randomUUID();
 
-        when(bookSearchService.searchBooks("spring boot", 36)).thenReturn(List.of(
+        when(bookSearchService.searchBooks("spring boot", 24)).thenReturn(List.of(
             new BookSearchService.SearchResult(postgresOnlyId, 0.99, "FULLTEXT")
         ));
         when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(List.of(
@@ -178,16 +192,63 @@ class SearchPaginationServicePagingTest extends AbstractSearchPaginationServiceT
         for (int index = 1; index <= 40; index++) {
             openLibraryCandidates.add(buildOpenLibraryCandidate("OL-PAGE-" + index, "Open Candidate " + index));
         }
-        when(openLibraryBookDataService.queryBooksByEverything(eq("spring boot"), anyString(), eq(0), eq(36)))
+        when(openLibraryBookDataService.queryBooksByEverything(eq("spring boot"), anyString(), eq(0), eq(24)))
             .thenReturn(Flux.fromIterable(openLibraryCandidates));
 
         SearchPaginationService pageSupplementService = fallbackEnabledService();
-        SearchPaginationService.SearchPage page = pageSupplementService.search(searchRequest("spring boot", 12, 12, "newest")).block();
+        SearchPaginationService.SearchPage firstPage = pageSupplementService
+            .search(searchRequest("spring boot", 0, 12, "newest"))
+            .block();
+        SearchPaginationService.SearchPage secondPage = pageSupplementService
+            .search(searchRequest("spring boot", 12, 12, "newest"))
+            .block();
 
-        assertThat(page).isNotNull();
-        assertThat(page.pageItems()).hasSize(12);
-        assertThat(page.totalUnique()).isGreaterThan(12);
-        verify(openLibraryBookDataService).queryBooksByEverything("spring boot", "newest", 0, 36);
+        assertThat(firstPage).isNotNull();
+        assertThat(secondPage).isNotNull();
+        assertThat(firstPage.totalUnique()).isEqualTo(secondPage.totalUnique());
+        assertThat(secondPage.pageItems()).hasSize(12);
+        assertThat(secondPage.pageItems()).doesNotContainAnyElementsOf(firstPage.pageItems());
+        verify(openLibraryBookDataService, times(1))
+            .queryBooksByEverything("spring boot", "newest", 0, 24);
+    }
+
+    @Test
+    @DisplayName("search() isolates snapshots by page size and publication-year filter")
+    void should_LoadDistinctSnapshots_When_PageSizeOrFilterDiffers() {
+        UUID baselineId = UUID.fromString("00000000-0000-0000-0000-000000000101");
+        UUID pageSizeId = UUID.fromString("00000000-0000-0000-0000-000000000102");
+        UUID publishedYearId = UUID.fromString("00000000-0000-0000-0000-000000000103");
+
+        when(bookSearchService.searchBooks("snapshot boundary", 24))
+            .thenReturn(List.of(new BookSearchService.SearchResult(baselineId, 0.9, "TSVECTOR")))
+            .thenReturn(List.of(new BookSearchService.SearchResult(publishedYearId, 0.95, "TSVECTOR")));
+        when(bookSearchService.searchBooks("snapshot boundary", 12)).thenReturn(
+            List.of(new BookSearchService.SearchResult(pageSizeId, 0.92, "TSVECTOR"))
+        );
+        when(bookQueryRepository.fetchPublishedYears(anyList())).thenReturn(Map.of(publishedYearId, 2024));
+        when(bookQueryRepository.fetchBookListItems(anyList()))
+            .thenReturn(List.of(buildListItem(baselineId, "Baseline Snapshot")))
+            .thenReturn(List.of(buildListItem(pageSizeId, "Page Size Snapshot")))
+            .thenReturn(List.of(buildListItem(publishedYearId, "Filtered Snapshot")));
+
+        SearchPaginationService.SearchPage baseline = service
+            .search(searchRequest("snapshot boundary", 0, 12, "newest"))
+            .block();
+        SearchPaginationService.SearchPage differentPageSize = service
+            .search(searchRequest("snapshot boundary", 0, 6, "newest"))
+            .block();
+        SearchPaginationService.SearchPage differentFilter = service
+            .search(searchRequest("snapshot boundary", 0, 12, "newest", 2024))
+            .block();
+
+        assertThat(baseline).isNotNull();
+        assertThat(differentPageSize).isNotNull();
+        assertThat(differentFilter).isNotNull();
+        assertThat(baseline.pageItems()).extracting(Book::getId).containsExactly(baselineId.toString());
+        assertThat(differentPageSize.pageItems()).extracting(Book::getId).containsExactly(pageSizeId.toString());
+        assertThat(differentFilter.pageItems()).extracting(Book::getId).containsExactly(publishedYearId.toString());
+        verify(bookSearchService, times(2)).searchBooks("snapshot boundary", 24);
+        verify(bookSearchService, times(1)).searchBooks("snapshot boundary", 12);
     }
 
     @Test

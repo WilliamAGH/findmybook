@@ -54,7 +54,7 @@
   - `query` (required)
   - `startIndex` (default `0`; **zero-based absolute offset**, not a one-based page number)
   - `maxResults` (default `12`)
-  - `orderBy` (`relevance`, `newest`, `title`, `author`)
+  - `orderBy` (default `relevance`; supported values: `relevance`, `newest`, `title`, `author`)
   - `publishedYear` (optional integer year filter)
   - `coverSource` (default `ANY`)
   - `resolution` (default `ANY`)
@@ -203,7 +203,9 @@
   - `page = floor(startIndex / maxResults) + 1`
 - The backend search API itself is offset-based and does not use Spring Data `Pageable`/`PageRequest`.
 - Returns cursor metadata: `hasMore`, `nextStartIndex`, `prefetchedCount`.
-- Prefetches an additional page window to keep pagination deterministic.
+- Each canonical query/filter/page-size combination builds one bounded, immutable ordered candidate snapshot from offset zero.
+- Later offsets slice that same snapshot, so totals and ordering remain stable for the snapshot's two-minute TTL even when realtime persistence changes Postgres.
+- The snapshot prefetches one additional page window and is capped at 200 candidates.
 - Web UI caches up to six prefetched pages in-memory.
 
 ## SPA Page Payload Contracts

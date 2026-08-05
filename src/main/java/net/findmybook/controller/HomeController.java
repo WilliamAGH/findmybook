@@ -1,6 +1,7 @@
 package net.findmybook.controller;
 
 import net.findmybook.service.BookSeoMetadataService;
+import net.findmybook.util.SearchExternalProviderUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -52,7 +53,8 @@ public class HomeController extends SpaShellController {
     public Mono<ResponseEntity<String>> search(@RequestParam(required = false) String query,
                                                @RequestParam(required = false) Integer year,
                                                @RequestParam(required = false, defaultValue = "0") int page,
-                                               @RequestParam(required = false, defaultValue = "newest") String orderBy,
+                                               @RequestParam(required = false,
+                                                   defaultValue = SearchExternalProviderUtils.DEFAULT_ORDER_BY) String orderBy,
                                                @RequestParam(required = false) String source,
                                                @RequestParam(required = false, defaultValue = "ANY") String coverSource,
                                                @RequestParam(required = false, defaultValue = "ANY") String resolution) {

@@ -1,4 +1,8 @@
-import { searchBasePathForRoute, type SearchRouteName } from "$lib/router/router";
+import {
+  searchBasePathForRoute,
+  type SearchRouteDefaults,
+  type SearchRouteName,
+} from "$lib/router/router";
 import type { SearchParams } from "$lib/services/books";
 import type { PopularWindow } from "$lib/services/pages";
 import { EXPLORE_DEFAULT_POPULAR_WINDOW, parsePopularWindow } from "$lib/services/explorePopular";
@@ -20,7 +24,6 @@ import type { SearchHit } from "$lib/validation/schemas";
 
 const EXPLORE_DEFAULT_QUERY_PARAMS: ReadonlyArray<readonly [string, string]> = [
   ["page", "1"],
-  ["orderBy", "newest"],
   ["view", "grid"],
   ["coverSource", "ANY"],
   ["resolution", "HIGH_FIRST"],
@@ -61,10 +64,15 @@ interface BuildBookDetailHrefArgs {
   readonly viewMode: "grid" | "list";
 }
 
-export function readSearchPageRouteState(routeName: SearchRouteName, url: URL): SearchPageRouteState {
+export function readSearchPageRouteState(
+  routeName: SearchRouteName,
+  url: URL,
+  routeDefaults: SearchRouteDefaults,
+): SearchPageRouteState {
   const params = url.searchParams;
   const page = parsePositiveNumber(params.get("page"), 1);
-  const orderBy = parseEnumParam(params, "orderBy", SORT_OPTIONS, "newest");
+  const defaultOrderBy = sortOptionFromRouteDefaults(routeName, routeDefaults);
+  const orderBy = parseEnumParam(params, "orderBy", SORT_OPTIONS, defaultOrderBy);
   const coverSource = parseEnumParam(params, "coverSource", COVER_OPTIONS, "ANY");
   const resolution = parseEnumParam(params, "resolution", RESOLUTION_OPTIONS, "HIGH_FIRST");
   const viewMode = params.get("view") === "list" ? "list" : "grid";
@@ -86,7 +94,11 @@ export function readSearchPageRouteState(routeName: SearchRouteName, url: URL): 
   };
 }
 
-export function buildExploreDefaultUrl(routeName: SearchRouteName, url: URL): string | null {
+export function buildExploreDefaultUrl(
+  routeName: SearchRouteName,
+  url: URL,
+  routeDefaults: SearchRouteDefaults,
+): string | null {
   if (routeName !== "explore") return null;
   const currentQuery = url.searchParams.get("query")?.trim();
   if (currentQuery && currentQuery.length > 0) return null;
@@ -98,6 +110,10 @@ export function buildExploreDefaultUrl(routeName: SearchRouteName, url: URL): st
     params.set("popularWindow", normalizedWindow);
     changed = true;
   }
+  if (!params.has("orderBy")) {
+    params.set("orderBy", sortOptionFromRouteDefaults(routeName, routeDefaults));
+    changed = true;
+  }
   for (const [key, value] of EXPLORE_DEFAULT_QUERY_PARAMS) {
     if (!params.has(key)) {
       params.set(key, value);
@@ -107,6 +123,18 @@ export function buildExploreDefaultUrl(routeName: SearchRouteName, url: URL): st
 
   if (!changed) return null;
   return `${searchBasePathForRoute(routeName)}?${params.toString()}`;
+}
+
+function sortOptionFromRouteDefaults(
+  routeName: SearchRouteName,
+  routeDefaults: SearchRouteDefaults,
+): SortOption {
+  const defaultOrderBy = routeDefaults.orderBy;
+  const matchingSortOption = SORT_OPTIONS.find((sortOption) => sortOption === defaultOrderBy);
+  if (!matchingSortOption) {
+    throw new Error(`Route manifest has unsupported orderBy default '${defaultOrderBy}' for ${routeName}.`);
+  }
+  return matchingSortOption;
 }
 
 export function createSearchParams(

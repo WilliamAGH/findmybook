@@ -7,6 +7,7 @@ import net.findmybook.domain.seo.SeoMetadata;
 import net.findmybook.service.BookSeoMetadataService;
 import net.findmybook.service.HomePageSectionsService;
 import net.findmybook.util.IsbnUtils;
+import net.findmybook.util.SearchExternalProviderUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -54,7 +55,7 @@ public class BookDetailPageController extends SpaShellController {
         }
 
         String effectiveOrderBy() {
-            return orderBy != null && !orderBy.isBlank() ? orderBy : "newest";
+            return SearchExternalProviderUtils.normalizeOrderBy(orderBy);
         }
 
         String effectiveView() {

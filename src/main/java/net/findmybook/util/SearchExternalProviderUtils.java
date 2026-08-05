@@ -13,6 +13,7 @@ import java.util.Optional;
  */
 public final class SearchExternalProviderUtils {
 
+    public static final String DEFAULT_ORDER_BY = "relevance";
     private static final List<String> SUPPORTED_ORDER_BY = List.of("relevance", "newest", "title", "author");
 
     private SearchExternalProviderUtils() {
@@ -37,14 +38,14 @@ public final class SearchExternalProviderUtils {
      * Normalizes orderBy values for internal search orchestration.
      *
      * @param orderBy raw orderBy value
-     * @return supported orderBy value, defaulting to newest
+     * @return supported orderBy value, defaulting to relevance
      */
     public static String normalizeOrderBy(String orderBy) {
         if (!StringUtils.hasText(orderBy)) {
-            return "newest";
+            return DEFAULT_ORDER_BY;
         }
         String normalized = orderBy.trim().toLowerCase(Locale.ROOT);
-        return SUPPORTED_ORDER_BY.contains(normalized) ? normalized : "newest";
+        return SUPPORTED_ORDER_BY.contains(normalized) ? normalized : DEFAULT_ORDER_BY;
     }
 
     /**

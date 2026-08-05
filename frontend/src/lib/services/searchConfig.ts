@@ -11,6 +11,7 @@ export const CATEGORY_MIN_BOOKS = 1;
 export const COVER_OPTIONS = ["ANY", "GOOGLE_BOOKS", "OPEN_LIBRARY", "LONGITOOD"] as const;
 export const RESOLUTION_OPTIONS = ["ANY", "HIGH_ONLY", "HIGH_FIRST"] as const;
 export const SORT_OPTIONS = ["relevance", "title", "author", "newest"] as const;
+export type SortOption = (typeof SORT_OPTIONS)[number];
 
 export const SORT_LABELS: Record<SortOption, string> = {
   relevance: "Most Relevant",
@@ -21,7 +22,6 @@ export const SORT_LABELS: Record<SortOption, string> = {
 
 export type CoverOption = (typeof COVER_OPTIONS)[number];
 export type ResolutionOption = (typeof RESOLUTION_OPTIONS)[number];
-export type SortOption = (typeof SORT_OPTIONS)[number];
 export type TimeWindow = "30d" | "90d" | "all";
 
 export function parsePositiveNumber(value: string | null, fallback: number): number {

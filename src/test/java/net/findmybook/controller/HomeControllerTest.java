@@ -12,6 +12,7 @@ import net.findmybook.domain.seo.SeoMetadata;
 import net.findmybook.service.BookSeoMetadataService;
 import net.findmybook.service.HomePageSectionsService;
 import net.findmybook.service.image.LocalDiskCoverCacheService;
+import net.findmybook.util.SearchExternalProviderUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -151,7 +152,23 @@ class HomeControllerTest {
             .expectHeader().value("Location", location -> {
                 assertTrue(location.contains("year=2020"));
                 assertTrue(location.contains("query=dune"));
+                assertTrue(location.contains("orderBy=title"));
             });
+    }
+
+    @Test
+    void should_DefaultRedirectOrderToRelevance_When_YearQueryOmitsOrderBy() {
+        webTestClient.get()
+            .uri(uriBuilder -> uriBuilder.path("/search")
+                .queryParam("query", "dune 2020")
+                .build())
+            .exchange()
+            .expectStatus().isEqualTo(HttpStatus.SEE_OTHER)
+            .expectHeader().valueEquals(
+                "Location",
+                "/search?query=dune&year=2020&orderBy=" + SearchExternalProviderUtils.DEFAULT_ORDER_BY
+                    + "&coverSource=ANY&resolution=ANY"
+            );
     }
 
     @Test
@@ -195,6 +212,22 @@ class HomeControllerTest {
             .exchange()
             .expectStatus().isEqualTo(HttpStatus.SEE_OTHER)
             .expectHeader().valueEquals("Location", "/book/canonical-book?query=foo&page=2&orderBy=newest&view=list");
+    }
+
+    @Test
+    void should_DefaultRedirectOrderToRelevance_When_BookContextOmitsOrderBy() {
+        Book canonical = new Book();
+        canonical.setId("book-id");
+        canonical.setSlug("canonical-book");
+        when(homePageSectionsService.locateBook("book-id")).thenReturn(Mono.just(canonical));
+
+        webTestClient.get().uri("/book/book-id?query=foo")
+            .exchange()
+            .expectStatus().isEqualTo(HttpStatus.SEE_OTHER)
+            .expectHeader().valueEquals(
+                "Location",
+                "/book/canonical-book?query=foo&orderBy=" + SearchExternalProviderUtils.DEFAULT_ORDER_BY + "&view=grid"
+            );
     }
 
     @Test

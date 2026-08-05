@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/svelte";
 import SearchPage from "$lib/pages/SearchPage.svelte";
+import { searchRouteDefaultsForRoute } from "$lib/router/router";
 
 const {
   searchBooksMock,
@@ -66,6 +67,41 @@ function createDeferred<T>() {
 }
 
 describe("SearchPage loading state", () => {
+  it("shouldDefaultToMostRelevantAndRequestRelevanceWhenOrderByIsOmitted", async () => {
+    const manifestOrderByDefault = searchRouteDefaultsForRoute("search").orderBy;
+    searchBooksMock.mockResolvedValue({
+      query: "alpha",
+      queryHash: "alpha",
+      startIndex: 0,
+      maxResults: 12,
+      totalResults: 0,
+      hasMore: false,
+      nextStartIndex: 0,
+      prefetchedCount: 0,
+      orderBy: manifestOrderByDefault,
+      coverSource: "ANY",
+      resolution: "HIGH_FIRST",
+      results: [],
+    });
+
+    render(SearchPage, {
+      props: {
+        currentUrl: new URL("https://findmybook.net/search?query=alpha"),
+        routeName: "search",
+      },
+    });
+
+    const sortSelect = screen.getByRole("combobox", { name: "Sort:" });
+    expect(sortSelect).toHaveValue(manifestOrderByDefault);
+    expect(screen.getByRole("option", { name: "Most Relevant", selected: true })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(searchBooksMock).toHaveBeenCalledWith(expect.objectContaining({
+        query: "alpha",
+        orderBy: manifestOrderByDefault,
+      }));
+    });
+  });
+
   it("shouldClearLoadingWhenQueryIsRemovedDuringInFlightSearch", async () => {
     const pendingSearch = createDeferred<never>();
     searchBooksMock.mockReturnValue(pendingSearch.promise);

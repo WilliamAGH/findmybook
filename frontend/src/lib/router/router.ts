@@ -22,6 +22,9 @@ export interface RouteMatch {
   };
 }
 export type SearchRouteName = "search" | "explore" | "categories";
+export interface SearchRouteDefaults {
+  readonly orderBy: string;
+}
 
 const ROUTE_MANIFEST_UNAVAILABLE_MESSAGE =
   "[router] Route manifest unavailable. Backend must embed window.__FMB_ROUTE_MANIFEST__ or expose /api/pages/routes.";
@@ -190,6 +193,18 @@ export function searchBasePathForRoute(routeName: SearchRouteName): "/search" | 
   }
 
   return routeName === "explore" ? "/explore" : routeName === "categories" ? "/categories" : "/search";
+}
+
+export function searchRouteDefaultsForRoute(routeName: SearchRouteName): SearchRouteDefaults {
+  const routeManifest = requireRouteManifest();
+  const exactMatch = routeManifest.publicRoutes.find((routeDefinition) => (
+    routeDefinition.name === routeName && routeDefinition.matchType === "exact"
+  ));
+  const orderBy = exactMatch?.defaults.orderBy?.trim();
+  if (!orderBy) {
+    throw new Error(`[router] Route manifest is missing the orderBy default for ${routeName}.`);
+  }
+  return { orderBy };
 }
 
 function shouldHandleAsSpaLink(anchor: HTMLAnchorElement): boolean {
