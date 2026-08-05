@@ -214,20 +214,21 @@ class BookDataOrchestratorPersistenceScenariosTest {
     }
 
     @Test
-    void should_PropagateGoogleFailure_When_OpenLibraryReturnsNoCandidates() {
+    void should_ReturnCurrentDescription_When_OpenLibraryFailsAndGoogleReturnsNoCandidates() {
         OpenLibraryBookDataService openLibrary = mock(OpenLibraryBookDataService.class);
         GoogleApiFetcher googleApiFetcher = mock(GoogleApiFetcher.class);
-        IllegalStateException googleFailure = new IllegalStateException("Google Books unavailable");
+        IllegalStateException openLibraryFailure = new IllegalStateException("Open Library unavailable");
         when(openLibrary.queryBooksByEverything(anyString(), anyString(), eq(0), anyInt()))
-            .thenReturn(Flux.empty());
+            .thenReturn(Flux.error(openLibraryFailure));
         configureGoogleFallback(googleApiFetcher);
         when(googleApiFetcher.streamSearchItems(
                 anyString(), anyInt(), anyString(), isNull(), eq(false)))
-            .thenReturn(Flux.error(googleFailure));
+            .thenReturn(Flux.empty());
 
-        assertThatThrownBy(() -> enrichmentOrchestrator(Optional.of(openLibrary), Optional.of(googleApiFetcher))
-            .enrichDescriptionForAiIfNeeded(ENRICHMENT_BOOK_ID, enrichmentDetail(), SHORT_DESCRIPTION, 50))
-            .isSameAs(googleFailure);
+        String description = enrichmentOrchestrator(Optional.of(openLibrary), Optional.of(googleApiFetcher))
+            .enrichDescriptionForAiIfNeeded(ENRICHMENT_BOOK_ID, enrichmentDetail(), SHORT_DESCRIPTION, 50);
+
+        assertThat(description).isEqualTo(SHORT_DESCRIPTION);
         verify(googleApiFetcher).streamSearchItems(
             anyString(), anyInt(), anyString(), isNull(), eq(false));
     }
