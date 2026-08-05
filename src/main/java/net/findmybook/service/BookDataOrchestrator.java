@@ -135,11 +135,9 @@ public class BookDataOrchestrator {
     private List<Book> fetchDescriptionEnrichmentCandidates(UUID bookId, String query) {
         List<Book> candidates = new ArrayList<>();
         RuntimeException firstProviderFailure = null;
-        boolean providerSucceeded = false;
         if (openLibraryBookDataService.isPresent()) {
             try {
                 candidates.addAll(fetchOpenLibraryCandidates(query));
-                providerSucceeded = true;
             } catch (RuntimeException openLibraryFailure) {
                 firstProviderFailure = openLibraryFailure;
                 logger.warn("Open Library description enrichment failed for bookId={} (continuing with Google Books): {}",
@@ -149,7 +147,6 @@ public class BookDataOrchestrator {
         if (googleExternalSearchFlow.isAvailable()) {
             try {
                 candidates.addAll(fetchGoogleCandidates(query));
-                providerSucceeded = true;
             } catch (RuntimeException googleFailure) {
                 if (firstProviderFailure != null) {
                     firstProviderFailure.addSuppressed(googleFailure);
@@ -158,7 +155,7 @@ public class BookDataOrchestrator {
                 }
             }
         }
-        if (!providerSucceeded && firstProviderFailure != null) {
+        if (candidates.isEmpty() && firstProviderFailure != null) {
             throw firstProviderFailure;
         }
         return candidates;
