@@ -228,14 +228,6 @@ resilience4j:
       googleBooksServiceBulkhead:
         maxConcurrentCalls: 5       # Max concurrent API calls
         maxWaitDuration: 100ms      # Max wait for permit
-  retry:
-    instances:
-      googleBooksServiceRetry:
-        maxAttempts: 3              # Retry up to 3 times
-        waitDuration: 1s            # Wait 1s between retries
-        retryExceptions:
-          - org.springframework.web.client.HttpServerErrorException
-          - java.io.IOException
 
 # Common Logging - Production-safe defaults (minimal verbosity)
 logging:

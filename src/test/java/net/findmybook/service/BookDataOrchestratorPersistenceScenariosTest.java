@@ -4,10 +4,8 @@ import tools.jackson.databind.ObjectMapper;
 import net.findmybook.dto.BookAggregate;
 import net.findmybook.dto.BookDetail;
 import net.findmybook.model.Book;
-import net.findmybook.util.ApplicationConstants;
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -21,8 +19,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
-import java.time.LocalDate;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Date;
 import java.util.List;
 import java.util.Optional;
@@ -98,28 +97,6 @@ class BookDataOrchestratorPersistenceScenariosTest {
                 .thenThrow(new EmptyResultDataAccessException(1));
         lenient().when(jdbcTemplate.queryForObject(anyString(), eq(String.class), any(), any()))
                 .thenThrow(new EmptyResultDataAccessException(1));
-    }
-
-    @Test
-    @Disabled("Method resolveCanonicalBookId was moved from BookDataOrchestrator to CanonicalBookPersistenceService (deprecated)")
-    void resolveCanonicalBookId_prefersExistingExternalMapping() {
-        whenExternalIdLookupReturns("existing-book-id");
-
-        Book incoming = new Book();
-        incoming.setId("temporary-id");
-        incoming.setIsbn13("9781234567890");
-        incoming.setIsbn10("1234567890");
-
-        String resolved = ReflectionTestUtils.invokeMethod(
-                orchestrator,
-                "resolveCanonicalBookId",
-                incoming,
-                "google-abc",
-                "9781234567890",
-                "1234567890"
-        );
-
-        assertThat(resolved).isEqualTo("existing-book-id");
     }
 
     @Test
@@ -345,21 +322,32 @@ class BookDataOrchestratorPersistenceScenariosTest {
     }
 
     @Test
-    void should_MapOpenLibraryTimeout_When_RetryBudgetIsExhausted() {
+    void should_EnforceOneRequestWideDeadline_When_SequentialProvidersStall() {
         OpenLibraryBookDataService openLibrary = mock(OpenLibraryBookDataService.class);
-        TimeoutException timeoutFailure = new TimeoutException("Open Library timed out");
-        AtomicInteger openLibrarySubscriptions = new AtomicInteger();
+        GoogleApiFetcher googleApiFetcher = mock(GoogleApiFetcher.class);
         when(openLibrary.queryBooksByEverything(anyString(), anyString(), eq(0), anyInt()))
-            .thenReturn(Flux.<Book>defer(() -> {
-                openLibrarySubscriptions.incrementAndGet();
-                return Flux.error(timeoutFailure);
-            }));
+            .thenReturn(Flux.never());
+        configureGoogleFallback(googleApiFetcher);
+        when(googleApiFetcher.streamSearchItems(
+                anyString(), anyInt(), anyString(), isNull(), eq(false)))
+            .thenReturn(Flux.never());
 
-        assertThatThrownBy(() -> enrichmentOrchestrator(Optional.of(openLibrary), Optional.empty())
+        long startedAtNanos = System.nanoTime();
+        assertThatThrownBy(() -> enrichmentOrchestrator(Optional.of(openLibrary), Optional.of(googleApiFetcher))
             .enrichDescriptionForAiIfNeeded(ENRICHMENT_BOOK_ID, enrichmentDetail(), SHORT_DESCRIPTION, 50))
             .isInstanceOf(IllegalStateException.class)
-            .hasCause(timeoutFailure);
-        assertThat(openLibrarySubscriptions.get()).isEqualTo(2);
+            .hasMessageContaining("Open Library")
+            .hasCauseInstanceOf(TimeoutException.class)
+            .satisfies(failure -> assertThat(failure.getSuppressed())
+                .anySatisfy(googleFailure -> {
+                    assertThat(googleFailure).isInstanceOf(IllegalStateException.class);
+                    assertThat(googleFailure.getMessage()).contains("Google Books");
+                }));
+
+        Duration elapsed = Duration.ofNanos(System.nanoTime() - startedAtNanos);
+        assertThat(elapsed).isLessThan(Duration.ofSeconds(12));
+        verify(googleApiFetcher).streamSearchItems(
+            anyString(), anyInt(), anyString(), isNull(), eq(false));
     }
 
     @Test
@@ -433,15 +421,6 @@ class BookDataOrchestratorPersistenceScenariosTest {
         );
 
         assertThat(code).isEqualTo("BOOK_UPSERT_NON_SYSTEMIC");
-    }
-
-    private void whenExternalIdLookupReturns(String bookId) {
-        lenient().when(jdbcTemplate.queryForObject(
-                eq("SELECT book_id FROM book_external_ids WHERE source = ? AND external_id = ? LIMIT 1"),
-                eq(String.class),
-                eq(ApplicationConstants.Provider.GOOGLE_BOOKS),
-                any()
-        )).thenReturn(bookId);
     }
 
     private BookDataOrchestrator enrichmentOrchestrator(Optional<OpenLibraryBookDataService> openLibrary,
