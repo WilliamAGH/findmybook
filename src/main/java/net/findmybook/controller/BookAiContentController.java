@@ -437,6 +437,8 @@ public class BookAiContentController {
             AiErrorCode code = switch (generationException.errorCode()) {
                 case DESCRIPTION_TOO_SHORT -> AiErrorCode.DESCRIPTION_TOO_SHORT;
                 case ENRICHMENT_FAILED -> AiErrorCode.ENRICHMENT_FAILED;
+                case LOCAL_RATE_LIMITED -> AiErrorCode.LOCAL_RATE_LIMITED;
+                case LOCAL_CIRCUIT_OPEN -> AiErrorCode.LOCAL_CIRCUIT_OPEN;
                 case DEGENERATE_CONTENT -> AiErrorCode.DEGENERATE_CONTENT;
                 case GENERATION_FAILED, INCOMPLETE_RESPONSE, INVALID_RESPONSE -> AiErrorCode.GENERATION_FAILED;
             };

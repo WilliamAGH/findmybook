@@ -27,6 +27,7 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 import net.findmybook.application.ai.BookAiGenerationException;
 import net.findmybook.application.ai.BookAiContentService;
 import net.findmybook.domain.ai.BookAiContent;
@@ -38,6 +39,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
 import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -435,6 +439,25 @@ class BookAiContentControllerTest {
             .contains("length=0");
     }
 
+    @ParameterizedTest
+    @MethodSource("localDescriptionEnrichmentErrorCodes")
+    @DisplayName("POST stream emits typed local admission errors from description enrichment")
+    void should_EmitLocalAdmissionCode_When_DescriptionEnrichmentIsDenied(
+        BookAiGenerationException.ErrorCode generationErrorCode,
+        AiErrorCode expectedSseErrorCode
+    ) throws Exception {
+        String responseBody = streamResponseForFailedGeneration("production", new BookAiGenerationException(
+            generationErrorCode,
+            "Description enrichment local admission was denied"
+        ));
+
+        assertThat(responseBody)
+            .contains("event:error")
+            .contains("\"code\":\"" + expectedSseErrorCode.wireValue() + "\"")
+            .contains("\"retryable\":true")
+            .doesNotContain("\"code\":\"generation_failed\"");
+    }
+
     @Test
     @DisplayName("queue ticker executor is multi-threaded to avoid cross-stream starvation")
     void queueTickerExecutor_usesMultipleThreads() {
@@ -563,6 +586,19 @@ class BookAiContentControllerTest {
             .andReturn()
             .getResponse()
             .getContentAsString();
+    }
+
+    private static Stream<Arguments> localDescriptionEnrichmentErrorCodes() {
+        return Stream.of(
+            Arguments.of(
+                BookAiGenerationException.ErrorCode.LOCAL_RATE_LIMITED,
+                AiErrorCode.LOCAL_RATE_LIMITED
+            ),
+            Arguments.of(
+                BookAiGenerationException.ErrorCode.LOCAL_CIRCUIT_OPEN,
+                AiErrorCode.LOCAL_CIRCUIT_OPEN
+            )
+        );
     }
 
     private void configureController(String environmentMode) {

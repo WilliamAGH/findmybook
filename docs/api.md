@@ -177,18 +177,11 @@
       - Cancellation and persistence share one atomic commitment boundary. Cancellation that claims
         first prevents a new AI-content version; persistence that claims first completes its insert,
         while the closed stream suppresses any later delivery.
-      - `code` values include:
-        - `identifier_required`
-        - `book_not_found`
-        - `service_unavailable`
-        - `stream_timeout`
-        - `empty_generation`
-        - `degenerate_content`
-        - `cache_serialization_failed`
-        - `queue_busy`
-        - `description_too_short` (emitted only after canonical description enrichment attempts from Open Library and Google Books still fail to satisfy minimum content requirements)
-        - `enrichment_failed` (emitted when book description enrichment providers are unavailable)
-        - `generation_failed`
+      - `code` is a non-empty machine-readable token owned by the backend SSE contract. Clients
+        preserve unknown future values instead of replacing them with a generic failure.
+      - Description enrichment distinguishes insufficient source content (`description_too_short`),
+        provider failure (`enrichment_failed`), local admission denial (`local_rate_limited`), and
+        an open local provider circuit (`local_circuit_open`).
 - `POST /api/books/ai/content/requests/{requestId}/cancel`
   - Sends no request body and returns `204 No Content`.
   - Cancels pending or running generation through the same terminal owner used by SSE disconnects,

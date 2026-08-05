@@ -337,19 +337,7 @@ export const BookAiContentMessageDoneSchema = z.object({
   message: z.string(),
 });
 
-export const BookAiErrorCodeSchema = z.enum([
-  "identifier_required",
-  "book_not_found",
-  "service_unavailable",
-  "queue_busy",
-  "stream_timeout",
-  "empty_generation",
-  "degenerate_content",
-  "cache_serialization_failed",
-  "description_too_short",
-  "enrichment_failed",
-  "generation_failed",
-]);
+export const BookAiErrorCodeSchema = z.string().min(1);
 
 export const BookAiContentStreamErrorSchema = z.object({
   error: z.string(),
