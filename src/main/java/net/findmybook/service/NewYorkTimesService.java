@@ -27,9 +27,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.ClientRequest;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
+import org.springframework.web.util.UriUtils;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -66,9 +68,8 @@ public class NewYorkTimesService {
             .filter((request, next) -> {
                 ClientRequest authenticatedRequest = ClientRequest.from(request)
                     .url(UriComponentsBuilder.fromUri(request.url())
-                        .queryParam("api-key", nytApiKey)
-                        .build()
-                        .encode()
+                        .queryParam("api-key", UriUtils.encodeQueryParam(nytApiKey, StandardCharsets.UTF_8))
+                        .build(true)
                         .toUri())
                     .build();
                 return next.exchange(authenticatedRequest);

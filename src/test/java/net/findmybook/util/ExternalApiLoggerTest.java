@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.web.reactive.function.client.ClientRequest;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
@@ -125,13 +126,23 @@ public class ExternalApiLoggerTest {
     }
 
     @Test
-    void should_PreserveFailureCauseWithoutCredentialInReactorCheckpoint_When_NytRequestFails() {
-        String apiKey = "nyt-secret-sentinel";
+    void should_PreserveEncodedQueryAndFailureCauseWithoutCredential_When_NytRequestFails() {
+        String apiKey = "nyt secret&sentinel";
+        AtomicReference<URI> preAuthenticationUri = new AtomicReference<>();
         AtomicReference<URI> outboundUri = new AtomicReference<>();
-        WebClient.Builder builder = WebClient.builder().exchangeFunction(request -> {
-            outboundUri.set(request.url());
-            return Mono.error(new IllegalStateException("network failure"));
-        });
+        WebClient.Builder builder = WebClient.builder()
+            .filter((request, next) -> {
+                URI encodedQueryUri = URI.create(request.url().toASCIIString() + "&list=hardcover%20fiction");
+                preAuthenticationUri.set(encodedQueryUri);
+                ClientRequest encodedQueryRequest = ClientRequest.from(request)
+                    .url(encodedQueryUri)
+                    .build();
+                return next.exchange(encodedQueryRequest);
+            })
+            .exchangeFunction(request -> {
+                outboundUri.set(request.url());
+                return Mono.error(new IllegalStateException("network failure"));
+            });
         NewYorkTimesService service = new NewYorkTimesService(
             builder,
             "https://api.nytimes.com/svc/books/v3",
@@ -158,8 +169,12 @@ public class ExternalApiLoggerTest {
                 })
                 .verify();
 
-            assertTrue(outboundUri.get().getQuery().contains("api-key=" + apiKey));
-            assertTrue(outboundUri.get().getQuery().contains("published_date=2026-08-02"));
+            assertFalse(preAuthenticationUri.get().getRawQuery().contains("api-key="));
+            String outboundQuery = outboundUri.get().getRawQuery();
+            assertTrue(outboundQuery.contains("published_date=2026-08-02"));
+            assertTrue(outboundQuery.contains("list=hardcover%20fiction"));
+            assertFalse(outboundQuery.contains("%2520"));
+            assertTrue(outboundQuery.contains("api-key=nyt%20secret%26sentinel"));
             assertTrue(appender.list.stream()
                 .map(ILoggingEvent::getFormattedMessage)
                 .noneMatch(message -> message.contains(apiKey)));
