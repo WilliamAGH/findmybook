@@ -294,7 +294,8 @@
 - Provider priority for opportunistic enrichment:
   - Open Library is the primary external provider.
   - Google Books runs in parallel for realtime enrichment and contributes additional candidates when available.
-  - Provider failures are isolated; one provider failure does not terminate the other provider stream.
+- Provider failures are isolated; one provider failure does not terminate the other provider stream.
+- Progress status distinguishes local admission from provider failure: `LOCAL_RATE_LIMITED` means the local Open Library limiter denied the call, `LOCAL_CIRCUIT_OPEN` means the local provider circuit rejected it, `RATE_LIMITED` means the provider returned HTTP 429, and `PROVIDER_UNAVAILABLE` covers other provider failures.
 
 ## External Book Provider Contracts (Top 4 Public APIs)
 - **Google Books Volumes Search API**

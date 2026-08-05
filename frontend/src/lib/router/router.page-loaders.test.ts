@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/svelte";
 import SearchPage from "$lib/pages/SearchPage.svelte";
 import { searchRouteDefaultsForRoute } from "$lib/router/router";
+import type { SearchProgressEvent } from "$lib/validation/schemas";
 
 const {
   searchBooksMock,
@@ -16,7 +17,12 @@ const {
   mergeSearchHitsMock: vi.fn((existingResults: unknown[]) => existingResults),
   getCategoryFacetsMock: vi.fn(),
   getHomePagePayloadMock: vi.fn(),
-  subscribeToSearchTopicsMock: vi.fn(async () => () => {}),
+  subscribeToSearchTopicsMock: vi.fn<(
+    queryHash: string,
+    onProgress: (progress: SearchProgressEvent) => void,
+    onResults: (results: unknown[]) => void,
+    onError: (error: Error) => void,
+  ) => Promise<() => void>>(),
 }));
 
 vi.mock("$lib/services/books", () => ({
@@ -126,6 +132,56 @@ describe("SearchPage loading state", () => {
       expect(screen.queryByText("Searching books...")).not.toBeInTheDocument();
       expect(screen.getByText("Search for books")).toBeInTheDocument();
     });
+  });
+
+  it("should_PreserveProgressStatus_When_RenderingHumanReadableMessage", async () => {
+    let progressHandler: ((progress: SearchProgressEvent) => void) | undefined;
+    subscribeToSearchTopicsMock.mockImplementation(async (
+      _queryHash: string,
+      onProgress: (progress: SearchProgressEvent) => void,
+    ) => {
+      progressHandler = onProgress;
+      return () => {};
+    });
+    searchBooksMock.mockResolvedValue({
+      query: "alpha",
+      queryHash: "alpha",
+      startIndex: 0,
+      maxResults: 12,
+      totalResults: 0,
+      hasMore: false,
+      nextStartIndex: 0,
+      prefetchedCount: 0,
+      orderBy: "newest",
+      coverSource: "ANY",
+      resolution: "HIGH_FIRST",
+      results: [],
+    });
+
+    render(SearchPage, {
+      props: {
+        currentUrl: new URL("https://findmybook.net/search?query=alpha"),
+        routeName: "search",
+      },
+    });
+
+    await waitFor(() => {
+      expect(progressHandler).toBeDefined();
+    });
+
+    if (!progressHandler) {
+      throw new Error("Search progress subscription was not established");
+    }
+
+    const progressStatus = "LOCAL_RATE_LIMITED";
+    progressHandler({ status: progressStatus, message: "Provider state updated" });
+
+    expect(await screen.findByText("Provider state updated")).toBeInTheDocument();
+    expect(screen.queryByText(progressStatus)).not.toBeInTheDocument();
+
+    progressHandler({ status: progressStatus });
+
+    expect(await screen.findByText("Searching...")).toBeInTheDocument();
   });
 
   it("shouldLoadPopularExploreViewFromHomePayloadWhenNoQueryProvided", async () => {

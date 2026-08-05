@@ -269,9 +269,16 @@ export const ThemePreferenceSchema = z.object({
 
 export const AffiliateLinksSchema = z.record(z.string(), z.string()).default({});
 
+export const SearchProgressStatusSchema = z.string().min(1);
+
+export type SearchProgressStatus = z.infer<typeof SearchProgressStatusSchema>;
+
 export const SearchProgressEventSchema = z.object({
+  status: SearchProgressStatusSchema,
   message: z.string().optional(),
 });
+
+export type SearchProgressEvent = z.infer<typeof SearchProgressEventSchema>;
 
 export const SearchResultsEventSchema = z.object({
   newResults: z.array(z.unknown()).default([]),

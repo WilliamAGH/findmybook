@@ -12,6 +12,7 @@ import {
   SearchProgressEventSchema,
   SearchResultsEventSchema,
 } from "$lib/validation/schemas";
+import type { SearchProgressEvent } from "$lib/validation/schemas";
 import { validateWithSchema } from "$lib/validation/validate";
 
 const STOMP_RECONNECT_DELAY_MS = 5000;
@@ -98,7 +99,7 @@ export async function ensureRealtimeClient(): Promise<Client> {
 
 export async function subscribeToSearchTopics(
   queryHash: string,
-  onProgress: (message: string) => void,
+  onProgress: (progress: SearchProgressEvent) => void,
   onResults: (results: unknown[]) => void,
   onError: (error: Error) => void,
 ): Promise<() => void> {
@@ -110,7 +111,7 @@ export async function subscribeToSearchTopics(
       onError(new Error("Failed to parse search progress event"));
       return;
     }
-    onProgress(payload.message ?? "Searching...");
+    onProgress(payload);
   });
 
   const resultsSub = client.subscribe(`/topic/search/${queryHash}/results`, (message) => {

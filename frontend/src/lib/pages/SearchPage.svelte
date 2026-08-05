@@ -12,7 +12,7 @@
   import { EXPLORE_DEFAULT_POPULAR_WINDOW, EXPLORE_POPULAR_LIMIT, buildExplorePopularSearchResponse, popularWindowLabel } from "$lib/services/explorePopular";
   import { PAGE_SIZE, PREFETCH_WINDOW_SIZE, CATEGORY_FACET_LIMIT, CATEGORY_MIN_BOOKS, pageFromStartIndex, type CoverOption, type ResolutionOption, type SortOption } from "$lib/services/searchConfig";
   import { buildBookDetailHref, buildExploreDefaultUrl, buildSearchRouteUrl, createSearchParams, mapSearchHitToBookCard, readSearchPageRouteState, searchParamsCacheKey } from "$lib/services/searchPageViewModel";
-  import type { SearchHit, SearchResponse, CategoryFacet } from "$lib/validation/schemas";
+  import type { SearchHit, SearchResponse, CategoryFacet, SearchProgressEvent } from "$lib/validation/schemas";
 
   let { currentUrl, routeName }: { currentUrl: URL; routeName: SearchRouteName } = $props();
 
@@ -42,7 +42,12 @@
   let explorePopularWindow = $state<PopularWindow>(EXPLORE_DEFAULT_POPULAR_WINDOW);
   let loading = $state(false);
   let errorMessage = $state<string | null>(null);
-  let realtimeMessage = $state<string | null>(null);
+  let realtimeProgress = $state<SearchProgressEvent | null>(null);
+  let realtimeMessage = $derived(
+    realtimeProgress
+      ? realtimeProgress.message ?? "Searching..."
+      : null,
+  );
   let searchResult = $state<SearchResponse | null>(null);
   let searchLoadSequence = 0;
 
@@ -61,7 +66,7 @@
   async function loadExplorePopular(sequence: number): Promise<void> {
     loading = true;
     errorMessage = null;
-    realtimeMessage = null;
+    realtimeProgress = null;
 
     try {
       const payload = await getHomePagePayload({
@@ -128,16 +133,16 @@
     try {
       return await subscribeToSearchTopics(
         queryHash,
-        (message) => { realtimeMessage = message; },
+        (progress) => { realtimeProgress = progress; },
         (results) => { mergeRealtimeHits(results); },
         (error) => {
           console.error("Realtime search subscription error:", error.message);
-          realtimeMessage = null;
+          realtimeProgress = null;
         },
       );
     } catch (realtimeError) {
       console.error("Realtime search subscription failed:", realtimeError);
-      realtimeMessage = null;
+      realtimeProgress = null;
       return null;
     }
   }
@@ -160,12 +165,12 @@
       loading = false;
       searchResult = null;
       errorMessage = null;
-      realtimeMessage = null;
+      realtimeProgress = null;
       return;
     }
     loading = true;
     errorMessage = null;
-    realtimeMessage = null;
+    realtimeProgress = null;
     const params = createSearchParams(query, page, orderBy, coverSource, resolution, PAGE_SIZE);
     const key = searchParamsCacheKey(params);
     try {

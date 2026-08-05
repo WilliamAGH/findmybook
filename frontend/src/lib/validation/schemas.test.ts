@@ -4,6 +4,7 @@ import {
   BookAiContentQueuedUpdateSchema,
   BookAiContentQueueUpdateSchema,
   CoverSchema,
+  SearchProgressEventSchema,
   buildCover,
   resolveCoverDisplayUrl,
 } from "$lib/validation/schemas";
@@ -110,6 +111,29 @@ describe("BookAiContentQueueUpdateSchema", () => {
     });
 
     expect(result.success).toBe(true);
+  });
+});
+
+describe("SearchProgressEventSchema", () => {
+  it("should_PreserveOpaqueStatus_When_ParsingProgressEvent", () => {
+    const progressEvent = SearchProgressEventSchema.parse({
+      status: "LOCAL_RATE_LIMITED",
+      message: "Provider state updated",
+    });
+
+    expect(progressEvent.status).toBe("LOCAL_RATE_LIMITED");
+  });
+
+  it("should_RejectEmptyStatus_When_ParsingProgressEvent", () => {
+    const result = SearchProgressEventSchema.safeParse({ status: "" });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("should_RejectMissingStatus_When_ParsingProgressEvent", () => {
+    const result = SearchProgressEventSchema.safeParse({});
+
+    expect(result.success).toBe(false);
   });
 });
 

@@ -1,10 +1,16 @@
 package net.findmybook.service;
 
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.ratelimiter.RateLimiter;
+import io.github.resilience4j.ratelimiter.RequestNotPermitted;
 import net.findmybook.dto.BookAggregate;
+import net.findmybook.service.event.SearchProgressEvent;
 import net.findmybook.service.event.SearchResultsUpdatedEvent;
 import net.findmybook.util.SearchQueryUtils;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 import reactor.core.publisher.Flux;
 
 import java.time.LocalDate;
@@ -25,6 +31,53 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class SearchPaginationServiceRealtimeTest extends AbstractSearchPaginationServiceTest {
+
+    @Test
+    void should_ClassifyLocalResilienceDenialsSeparately_When_ProviderErrorIsWrapped() {
+        RequestNotPermitted rateLimiterDenial = RequestNotPermitted.createRequestNotPermitted(
+            RateLimiter.ofDefaults("open-library-test")
+        );
+        CallNotPermittedException circuitDenial = CallNotPermittedException.createCallNotPermittedException(
+            CircuitBreaker.ofDefaults("open-library-test")
+        );
+
+        SearchProgressEvent.SearchStatus rateLimiterStatus = ReflectionTestUtils.invokeMethod(
+            SearchRealtimeCoordinator.class,
+            "classifyProviderError",
+            new IllegalStateException("wrapped", rateLimiterDenial)
+        );
+        SearchProgressEvent.SearchStatus circuitStatus = ReflectionTestUtils.invokeMethod(
+            SearchRealtimeCoordinator.class,
+            "classifyProviderError",
+            new IllegalStateException("wrapped", circuitDenial)
+        );
+
+        assertThat(rateLimiterStatus).isEqualTo(SearchProgressEvent.SearchStatus.LOCAL_RATE_LIMITED);
+        assertThat(circuitStatus).isEqualTo(SearchProgressEvent.SearchStatus.LOCAL_CIRCUIT_OPEN);
+    }
+
+    @Test
+    void should_PublishDeniedLocalRateLimitStatus_When_OpenLibraryRejectsRealtimeRequest() {
+        stubCompletePostgresPage("distributed systems", 24, 12, null);
+        RequestNotPermitted denial = RequestNotPermitted.createRequestNotPermitted(
+            RateLimiter.ofDefaults("open-library-realtime-test")
+        );
+        when(openLibraryBookDataService.queryBooksByEverything("distributed systems", "author"))
+            .thenReturn(Flux.error(denial));
+
+        SearchPaginationService.SearchPage page = fallbackEnabledService()
+            .search(searchRequest("distributed systems", 0, 12, "author"))
+            .block();
+
+        assertThat(page).isNotNull();
+        verify(eventPublisher, timeout(2000).atLeastOnce()).publishEvent((Object) argThat(event ->
+            event instanceof SearchProgressEvent progressEvent
+                && progressEvent.getStatus() == SearchProgressEvent.SearchStatus.LOCAL_RATE_LIMITED
+                && "OPEN_LIBRARY".equals(progressEvent.getSource())
+                && progressEvent.getMessage().contains("request denied by local rate limiting")
+                && !progressEvent.getMessage().contains("deferred")
+        ));
+    }
 
     @Test
     @DisplayName("search() publishes realtime external candidates when Postgres has baseline results")

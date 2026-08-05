@@ -2,6 +2,8 @@ package net.findmybook.service;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.ratelimiter.RequestNotPermitted;
 import net.findmybook.mapper.GoogleBooksMapper;
 import net.findmybook.model.Book;
 import net.findmybook.support.search.CandidateKeyResolver;
@@ -143,7 +145,7 @@ final class SearchRealtimeCoordinator {
             .onErrorResume(ex -> {
                 SearchProgressEvent.SearchStatus errorStatus = classifyProviderError(ex);
                 log.warn("Realtime Google search failed for '{}' (status={}): {}", query, errorStatus, ex.getMessage());
-                publishProgress(query, errorStatus, "Google Books unavailable, continuing with other providers",
+                publishProgress(query, errorStatus, providerFailureMessage("Google Books", errorStatus),
                     queryHash, "GOOGLE_BOOKS");
                 return Flux.empty();
             });
@@ -176,7 +178,7 @@ final class SearchRealtimeCoordinator {
             .onErrorResume(ex -> {
                 SearchProgressEvent.SearchStatus errorStatus = classifyProviderError(ex);
                 log.warn("Realtime Open Library search failed for '{}' (status={}): {}", request.query(), errorStatus, ex.getMessage());
-                publishProgress(request.query(), errorStatus, "Open Library unavailable, continuing with other providers",
+                publishProgress(request.query(), errorStatus, providerFailureMessage("Open Library", errorStatus),
                     queryHash, "OPEN_LIBRARY");
                 return Flux.empty();
             });
@@ -206,11 +208,31 @@ final class SearchRealtimeCoordinator {
     }
 
     private static SearchProgressEvent.SearchStatus classifyProviderError(Throwable ex) {
-        if (ex instanceof WebClientResponseException webEx
-            && webEx.getStatusCode().value() == HttpStatus.TOO_MANY_REQUESTS.value()) {
-            return SearchProgressEvent.SearchStatus.RATE_LIMITED;
+        Throwable current = ex;
+        while (current != null) {
+            if (current instanceof RequestNotPermitted) {
+                return SearchProgressEvent.SearchStatus.LOCAL_RATE_LIMITED;
+            }
+            if (current instanceof CallNotPermittedException) {
+                return SearchProgressEvent.SearchStatus.LOCAL_CIRCUIT_OPEN;
+            }
+            if (current instanceof WebClientResponseException webEx
+                && webEx.getStatusCode().value() == HttpStatus.TOO_MANY_REQUESTS.value()) {
+                return SearchProgressEvent.SearchStatus.RATE_LIMITED;
+            }
+            current = current.getCause();
         }
         return SearchProgressEvent.SearchStatus.PROVIDER_UNAVAILABLE;
+    }
+
+    private static String providerFailureMessage(String provider,
+                                                  SearchProgressEvent.SearchStatus status) {
+        return switch (status) {
+            case LOCAL_RATE_LIMITED -> provider + " request denied by local rate limiting; continuing with other providers";
+            case LOCAL_CIRCUIT_OPEN -> provider + " circuit is open locally; continuing with other providers";
+            case RATE_LIMITED -> provider + " returned a rate-limit response; continuing with other providers";
+            default -> provider + " unavailable, continuing with other providers";
+        };
     }
 
     private boolean hasExternalFallbackResults(List<Book> results) {
