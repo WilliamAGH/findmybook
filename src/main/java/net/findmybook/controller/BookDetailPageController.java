@@ -1,6 +1,7 @@
 package net.findmybook.controller;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.function.Predicate;
 import net.findmybook.model.Book;
 import net.findmybook.domain.seo.SeoMetadata;
@@ -79,7 +80,7 @@ public class BookDetailPageController extends SpaShellController {
                     return Mono.empty();
                 }
 
-                UriComponentsBuilder builder = UriComponentsBuilder.fromPath("/book/" + canonical);
+                UriComponentsBuilder builder = UriComponentsBuilder.fromPath("/book").pathSegment(canonical);
                 if (StringUtils.hasText(search.query())) {
                     builder.queryParam("query", search.query());
                 }
@@ -92,7 +93,7 @@ public class BookDetailPageController extends SpaShellController {
                 if (StringUtils.hasText(search.effectiveView())) {
                     builder.queryParam("view", search.effectiveView());
                 }
-                String redirectPath = builder.build().toUriString();
+                String redirectPath = builder.build().encode(StandardCharsets.UTF_8).toUriString();
                 return Mono.just(ResponseEntity.status(HttpStatus.SEE_OTHER)
                     .location(URI.create(redirectPath))
                     .build());
@@ -171,15 +172,19 @@ public class BookDetailPageController extends SpaShellController {
         String sanitized = IsbnUtils.sanitize(rawIsbn);
         if (!StringUtils.hasText(sanitized) || !validator.test(sanitized)) {
             log.warn("Invalid ISBN format: {}", rawIsbn);
-            return Mono.just(redirectTo(String.format("/?error=%s&originalIsbn=%s", errorCode, rawIsbn)));
+            return Mono.just(redirectTo(UriComponentsBuilder.fromPath("/")
+                .queryParam("error", errorCode)
+                .queryParam("originalIsbn", rawIsbn)));
         }
         Mono<Book> lookupMono = homePageSectionsService.locateBook(sanitized);
 
         return lookupMono
             .map(book -> book == null ? null : canonicalIdentifier(book))
             .filter(StringUtils::hasText)
-            .map(target -> redirectTo("/book/" + target))
-            .switchIfEmpty(Mono.fromSupplier(() -> redirectTo("/?info=bookNotFound&isbn=" + sanitized)))
+            .map(target -> redirectTo(UriComponentsBuilder.fromPath("/book").pathSegment(target)))
+            .switchIfEmpty(Mono.fromSupplier(() -> redirectTo(UriComponentsBuilder.fromPath("/")
+                .queryParam("info", "bookNotFound")
+                .queryParam("isbn", sanitized))))
             .onErrorMap(e -> {
                 log.error("Error during ISBN lookup for {}: {}", rawIsbn, e.getMessage(), e);
                 return new ResponseStatusException(
@@ -194,9 +199,12 @@ public class BookDetailPageController extends SpaShellController {
         return StringUtils.hasText(book.getSlug()) ? book.getSlug() : book.getId();
     }
 
-    private ResponseEntity<Void> redirectTo(String path) {
+    private ResponseEntity<Void> redirectTo(UriComponentsBuilder redirectBuilder) {
+        URI location = URI.create(
+            redirectBuilder.build().encode(StandardCharsets.UTF_8).toUriString()
+        );
         return ResponseEntity.status(HttpStatus.SEE_OTHER)
-            .location(URI.create(path))
+            .location(location)
             .build();
     }
 
