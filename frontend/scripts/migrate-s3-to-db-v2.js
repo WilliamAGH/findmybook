@@ -974,29 +974,50 @@ class BookMigrator {
   async insertAuthors(bookId, authors) {
     if (!authors || authors.length === 0) return;
 
-    for (let i = 0; i < authors.length; i++) {
-      const authorName = authors[i];
+    const candidatesByName = new Map();
+    for (let position = 0; position < authors.length; position++) {
+      const authorName = authors[position];
       if (!authorName?.trim()) continue;
+      candidatesByName.set(authorName, {
+        name: authorName,
+        normalizedName: this.normalizeAuthorName(authorName),
+        position
+      });
+    }
 
-      const normalizedName = this.normalizeAuthorName(authorName);
+    const lockOrderedCandidates = [...candidatesByName.values()]
+      .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
+    const authorIdsByName = new Map();
+    for (const candidate of lockOrderedCandidates) {
+
       // Insert or get author
       const authorResult = await this.client.query(
         `INSERT INTO authors (id, name, normalized_name, created_at, updated_at)
          VALUES ($1, $2, $3, NOW(), NOW())
          ON CONFLICT (name) DO UPDATE SET updated_at = NOW()
          RETURNING id`,
-        [generateNanoId(10), authorName, normalizedName]
+        [generateNanoId(10), candidate.name, candidate.normalizedName]
       );
 
       const authorId = authorResult.rows[0].id;
-      this.log(`↻ Upserted author ${authorId} (${authorName})`);
+      authorIdsByName.set(candidate.name, authorId);
+      this.log(`↻ Upserted author ${authorId} (${candidate.name})`);
+    }
 
+    const joinOrderedCandidates = [...candidatesByName.values()]
+      .sort((left, right) => {
+        const leftId = authorIdsByName.get(left.name);
+        const rightId = authorIdsByName.get(right.name);
+        return leftId < rightId ? -1 : leftId > rightId ? 1 : 0;
+      });
+    for (const candidate of joinOrderedCandidates) {
+      const authorId = authorIdsByName.get(candidate.name);
       // Link book to author
       await this.client.query(
         `INSERT INTO book_authors_join (id, book_id, author_id, position, created_at)
          VALUES ($1, $2::uuid, $3, $4, NOW())
          ON CONFLICT (book_id, author_id) DO UPDATE SET position = EXCLUDED.position`,
-        [generateNanoId(12), bookId, authorId, i]
+        [generateNanoId(12), bookId, authorId, candidate.position]
       );
       this.log(`↻ Upserted author→book link (${authorId} → ${bookId})`);
     }

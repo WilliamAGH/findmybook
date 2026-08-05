@@ -97,11 +97,6 @@ public final class ApplicationConstants {
             public static final String EDITIONS_BY_GROUP_KEY = "SELECT id, edition_number FROM books WHERE edition_group_key = ?";
             public static final String UPDATE_EDITION_GROUP = "UPDATE books SET edition_group_key = ? WHERE id = ?";
 
-            // Author queries
-            public static final String AUTHORS_BY_BOOK = "SELECT a.name FROM authors a JOIN book_authors ba ON a.id = ba.author_id WHERE ba.book_id = ?";
-            public static final String INSERT_AUTHOR = "INSERT INTO authors (name) VALUES (?) ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id";
-            public static final String LINK_BOOK_AUTHOR = "INSERT INTO book_authors (book_id, author_id) VALUES (?, ?) ON CONFLICT DO NOTHING";
-
             // Category queries
             public static final String CATEGORIES_BY_BOOK = "SELECT c.display_name FROM categories c JOIN book_categories bc ON c.id = bc.category_id WHERE bc.book_id = ?";
             public static final String INSERT_CATEGORY = "INSERT INTO categories (display_name) VALUES (?) ON CONFLICT (display_name) DO UPDATE SET display_name = EXCLUDED.display_name RETURNING id";

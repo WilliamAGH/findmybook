@@ -1,8 +1,11 @@
 package net.findmybook.service;
 
 import java.sql.Date;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import net.findmybook.dto.BookAggregate;
@@ -155,7 +158,8 @@ public class BookUpsertTransactionService {
 
     /** Upserts normalized author rows and join relations in positional order. */
     public void upsertAuthors(UUID bookId, List<String> authors) {
-        int position = 0;
+        Map<String, AuthorCandidate> candidatesByName = new LinkedHashMap<>();
+        int validPosition = 0;
         for (String authorName : authors) {
             if (authorName == null || authorName.isBlank()) {
                 continue;
@@ -167,22 +171,27 @@ public class BookUpsertTransactionService {
             }
 
             String normalized = nullIfBlank(normalizeAuthorKey(canonicalAuthorName));
-            String authorId = upsertAuthor(canonicalAuthorName, normalized);
-
-            jdbcTemplate.update(
-                """
-                INSERT INTO book_authors_join (id, book_id, author_id, position, created_at, updated_at)
-                VALUES (?, ?, ?, ?, NOW(), NOW())
-                ON CONFLICT (book_id, author_id) DO UPDATE SET
-                    position = EXCLUDED.position,
-                    updated_at = NOW()
-                """,
-                IdGenerator.generateLong(),
-                bookId,
-                authorId,
-                position++
+            candidatesByName.put(
+                canonicalAuthorName,
+                new AuthorCandidate(canonicalAuthorName, normalized, validPosition++)
             );
         }
+
+        List<AuthorCandidate> lockOrderedCandidates = candidatesByName.values().stream()
+            .sorted(Comparator.comparing(AuthorCandidate::name))
+            .toList();
+        Map<String, String> authorIdsByName = new LinkedHashMap<>();
+        for (AuthorCandidate candidate : lockOrderedCandidates) {
+            authorIdsByName.put(candidate.name(), upsertAuthor(candidate.name(), candidate.normalizedName()));
+        }
+
+        candidatesByName.values().stream()
+            .sorted(Comparator.comparing(candidate -> authorIdsByName.get(candidate.name())))
+            .forEach(candidate -> upsertAuthorJoin(
+                bookId,
+                authorIdsByName.get(candidate.name()),
+                candidate.position()
+            ));
     }
 
     /** Upserts provider identifiers and related metadata into book_external_ids. */
@@ -349,6 +358,22 @@ public class BookUpsertTransactionService {
         }
     }
 
+    private void upsertAuthorJoin(UUID bookId, String authorId, int position) {
+        jdbcTemplate.update(
+            """
+            INSERT INTO book_authors_join (id, book_id, author_id, position, created_at, updated_at)
+            VALUES (?, ?, ?, ?, NOW(), NOW())
+            ON CONFLICT (book_id, author_id) DO UPDATE SET
+                position = EXCLUDED.position,
+                updated_at = NOW()
+            """,
+            IdGenerator.generateLong(),
+            bookId,
+            authorId,
+            position
+        );
+    }
+
     private String normalizeAuthorKey(String authorName) {
         return authorName.toLowerCase(Locale.ROOT)
             .replaceAll(AUTHOR_NAME_NORMALIZE_PATTERN, "")
@@ -361,5 +386,8 @@ public class BookUpsertTransactionService {
 
     private String normalizeToHttps(String url) {
         return UrlUtils.normalizeToHttps(url);
+    }
+
+    private record AuthorCandidate(String name, String normalizedName, int position) {
     }
 }
