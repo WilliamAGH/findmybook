@@ -211,4 +211,27 @@ class SitemapBookLastModifiedSqlSupportTest {
             .contains("MAX(change_events.changed_at)")
             .doesNotContain("GROUP BY");
     }
+
+    @Test
+    void should_DisableParallelWorkersBeforeQuery_When_AuthorFingerprintIsRequested() {
+        JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+        SitemapRepository sitemapRepository = new SitemapRepository(jdbcTemplate);
+        SitemapRepository.DatasetFingerprint expected = new SitemapRepository.DatasetFingerprint(
+            17,
+            Instant.parse("2026-07-16T00:00:00Z")
+        );
+        when(jdbcTemplate.queryForObject(
+            anyString(),
+            org.mockito.ArgumentMatchers.<RowMapper<SitemapRepository.DatasetFingerprint>>any()
+        )).thenReturn(expected);
+
+        assertThat(sitemapRepository.fetchAuthorFingerprint()).isEqualTo(expected);
+
+        InOrder inOrder = inOrder(jdbcTemplate);
+        inOrder.verify(jdbcTemplate).execute("SET LOCAL max_parallel_workers_per_gather = 0");
+        inOrder.verify(jdbcTemplate).queryForObject(
+            anyString(),
+            org.mockito.ArgumentMatchers.<RowMapper<SitemapRepository.DatasetFingerprint>>any()
+        );
+    }
 }
