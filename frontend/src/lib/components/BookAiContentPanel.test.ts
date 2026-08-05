@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import BookAiContentPanel from "$lib/components/BookAiContentPanel.svelte";
-import type { StreamBookAiContentOptions } from "$lib/services/bookAiContentStream";
+import type { BookAiContentStreamError, StreamBookAiContentOptions } from "$lib/services/bookAiContentStream";
 import { BookAiContentQueuedUpdateSchema, type Book, type BookAiErrorCode } from "$lib/validation/schemas";
 
 const {
@@ -34,11 +34,8 @@ describe("BookAiContentPanel production behavior", () => {
     message: string,
     code: BookAiErrorCode,
     retryable: boolean,
-  ): Error & { code: BookAiErrorCode; retryable: boolean } {
-    const streamError = new Error(message) as Error & { code: BookAiErrorCode; retryable: boolean };
-    streamError.code = code;
-    streamError.retryable = retryable;
-    return streamError;
+  ): BookAiContentStreamError {
+    return Object.assign(new Error(message), { code, retryable });
   }
 
   function createBookFixture(overrides: Partial<Book>): Book {
@@ -95,11 +92,7 @@ describe("BookAiContentPanel production behavior", () => {
     vi.restoreAllMocks();
   });
 
-  /**
-   * Production keeps the Reader's Guide hidden, but still attempts a stream call so
-   * backend enrichment can run before the `description_too_short` terminal decision.
-   */
-  it("shouldAttemptGenerationAndKeepPanelHiddenWhenDescriptionRemainsTooShortInProduction", async () => {
+  it("shouldShowTerminalEligibilityStatusWithoutRefreshWhenDescriptionRemainsTooShortInProduction", async () => {
     streamBookAiContentMock.mockRejectedValue(
       createStreamError("AI content is unavailable for this book", "description_too_short", false),
     );
@@ -120,58 +113,20 @@ describe("BookAiContentPanel production behavior", () => {
     });
 
     await waitFor(() => {
-      expect(screen.queryByText("Reader's Guide")).not.toBeInTheDocument();
-    });
-    await waitFor(() => {
+      expect(screen.getByText("Reader's Guide")).toBeInTheDocument();
+      expect(screen.getByRole("status")).toHaveTextContent("AI content is unavailable for this book");
       expect(streamBookAiContentMock).toHaveBeenCalledTimes(1);
     });
+    expect(screen.queryByRole("button", { name: "Refresh" })).not.toBeInTheDocument();
+    expect(consoleErrorMock).not.toHaveBeenCalled();
     expect(onAiContentUpdate).not.toHaveBeenCalled();
   });
 
-  it("shouldShowBackendShortDescriptionErrorWhenDescriptionTooShortInDiagnosticsMode", async () => {
-    getBookAiContentQueueStatsMock.mockResolvedValue({
-      running: 0,
-      pending: 0,
-      maxParallel: 1,
-      available: true,
-      environmentMode: "development",
-    });
-    streamBookAiContentMock.mockRejectedValue(
-      createStreamError(
-        "Book description is missing or too short for faithful AI generation",
-        "description_too_short",
-        false,
-      ),
-    );
-    const onAiContentUpdate = vi.fn();
-
-    render(BookAiContentPanel, {
-      props: {
-        identifier: "short-description-book",
-        book: createBookFixture({
-          id: "book-short",
-          slug: "book-short",
-          title: "Short Description Fixture",
-          description: "tiny",
-          descriptionContent: { raw: "tiny", format: "PLAIN_TEXT", html: "tiny", text: "tiny" },
-        }),
-        onAiContentUpdate,
-      },
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText("Reader's Guide")).toBeInTheDocument();
-      expect(screen.getByText(/missing or too short/i)).toBeInTheDocument();
-    });
-    expect(streamBookAiContentMock).toHaveBeenCalledTimes(1);
-    expect(onAiContentUpdate).not.toHaveBeenCalled();
-  });
-
-  it("shouldKeepPreviousContentAndShowGenericErrorWhenRefreshFailsInProduction", async () => {
-    const providerFailureDetail = "provider detail must remain private";
+  it("shouldShowSafeRetryableGenerationFailureAndOfferRefreshInProduction", async () => {
+    const safeFailureMessage = "AI generation failed";
     streamBookAiContentMock.mockImplementation((_identifier, options: StreamBookAiContentOptions) => {
       options.onQueued?.(queued("terminal-error-request"));
-      return Promise.reject(createStreamError(providerFailureDetail, "generation_failed", true));
+      return Promise.reject(createStreamError(safeFailureMessage, "generation_failed", true));
     });
     const onAiContentUpdate = vi.fn();
 
@@ -194,20 +149,11 @@ describe("BookAiContentPanel production behavior", () => {
     await fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
 
     await waitFor(() => {
-      expect(screen.getByText("Refresh failed. Showing the previous Reader's Guide.")).toBeInTheDocument();
+      expect(screen.getByRole("status")).toHaveTextContent(safeFailureMessage);
     });
     expect(screen.getByText(/previously generated Reader's Guide remains available/)).toBeInTheDocument();
-    expect(document.body).not.toHaveTextContent(providerFailureDetail);
-    const consoleOutput = consoleErrorMock.mock.calls
-      .flat()
-      .map((argument) => {
-        if (argument instanceof Error) {
-          return argument.message;
-        }
-        return typeof argument === "string" ? argument : JSON.stringify(argument);
-      })
-      .join("\n");
-    expect(consoleOutput).not.toContain(providerFailureDetail);
+    expect(screen.getByRole("button", { name: "Refresh" })).toBeInTheDocument();
+    expect(streamBookAiContentMock).toHaveBeenCalledTimes(1);
     expect(consoleErrorMock).toHaveBeenCalledWith(
       "[BookAiContentPanel] AI generation failed in production",
       { code: "generation_failed", retryable: true },

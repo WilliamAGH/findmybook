@@ -6,6 +6,7 @@
     cancelBookAiContentRequest,
     isBookAiContentStreamError,
     streamBookAiContent,
+    type BookAiContentStreamError,
   } from "$lib/services/bookAiContentStream";
   import { getBookAiContentQueueStats } from "$lib/services/books";
   import {
@@ -20,7 +21,6 @@
     BookAiContentQueuedUpdate,
     BookAiContentQueueUpdate,
     BookAiContentSnapshot,
-    BookAiErrorCode,
   } from "$lib/validation/schemas";
 
   let { identifier, book, onAiContentUpdate }: {
@@ -30,6 +30,7 @@
   const COLLAPSE_STORAGE_KEY = "findmybook:ai-collapsed";
 
   let aiLoading = $state(false);
+  let aiTerminalFailure = $state<BookAiContentStreamError | null>(null);
   let aiErrorMessage = $state<string | null>(null);
   let aiQueueMessage = $state<string | null>(null);
   let aiLoadingMessage = $state("Generating AI content...");
@@ -70,7 +71,7 @@
   }
 
   function shouldDisplayPanel(): boolean {
-    return shouldRenderPanel(aiFailureDiagnosticsEnabled(), aiServiceAvailable, book);
+    return shouldRenderPanel(aiServiceAvailable, aiTerminalFailure !== null, book);
   }
 
   function isActiveAttempt(attempt: BookAiContentRequestAttempt): boolean {
@@ -85,42 +86,20 @@
     }
   }
 
-  interface AiStreamFailure {
-    code: BookAiErrorCode;
-    message: string;
-    retryable: boolean;
-  }
-  function resolveAiStreamFailure(error: unknown): AiStreamFailure {
+  function resolveAiStreamFailure(error: unknown): BookAiContentStreamError {
     if (isBookAiContentStreamError(error)) {
-      return {
-        code: error.code,
-        message: error.message,
-        retryable: error.retryable,
-      };
+      return error;
     }
 
-    const defaultErrorMessage = error instanceof Error ? error.message : "Unable to generate AI content";
-    return {
-      code: "generation_failed",
-      message: defaultErrorMessage,
+    return Object.assign(new Error("AI generation failed"), {
+      code: "generation_failed" as const,
       retryable: true,
-    };
+    });
   }
 
-  function applyAiFailureState(failure: AiStreamFailure, refresh: boolean): void {
-    if (aiFailureDiagnosticsEnabled()) {
-      if (failure.code === "service_unavailable") {
-        aiServiceAvailable = false;
-      }
-      aiErrorMessage = failure.message;
-      aiQueueMessage = null;
-      aiAutoTriggerDeferred = false;
-      return;
-    }
-
-    aiErrorMessage = refresh && hasRenderableAiContent(book)
-      ? "Refresh failed. Showing the previous Reader's Guide."
-      : null;
+  function applyAiFailureState(failure: BookAiContentStreamError, refresh: boolean): void {
+    aiTerminalFailure = failure;
+    aiErrorMessage = null;
     if (failure.code === "queue_busy") {
       aiQueueMessage = "Queue is busy right now. Try again shortly.";
       aiAutoTriggerDeferred = !refresh;
@@ -129,7 +108,7 @@
 
     aiQueueMessage = null;
     aiAutoTriggerDeferred = false;
-    if (!hasRenderableAiContent(book) || failure.code === "service_unavailable" || failure.retryable === false) {
+    if (failure.code === "service_unavailable") {
       aiServiceAvailable = false;
     }
   }
@@ -224,6 +203,7 @@
     const attempt = new BookAiContentRequestAttempt(requestIdentifier, cancelBookAiContentRequest);
     activeGenerationAttempt = attempt;
     aiLoading = true;
+    aiTerminalFailure = null;
     aiErrorMessage = null;
     aiQueueMessage = null;
     aiAutoTriggerDeferred = false;
@@ -242,6 +222,7 @@
       return;
     }
 
+    aiTerminalFailure = null;
     aiErrorMessage = null;
     aiQueueMessage = null;
 
@@ -265,6 +246,7 @@
       onAiContentUpdate(result.aiContent);
 
       aiQueueMessage = null;
+      aiTerminalFailure = null;
       aiErrorMessage = null;
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError" && attempt.isCanceled) {
@@ -278,13 +260,15 @@
       }
       const failure = resolveAiStreamFailure(error);
       applyAiFailureState(failure, refresh);
-      if (aiFailureDiagnosticsEnabled()) {
-        console.error("Book AI content generation failed:", error);
-      } else {
-        console.error("[BookAiContentPanel] AI generation failed in production", {
-          code: failure.code,
-          retryable: failure.retryable,
-        });
+      if (failure.code !== "description_too_short") {
+        if (aiFailureDiagnosticsEnabled()) {
+          console.error("Book AI content generation failed:", error);
+        } else {
+          console.error("[BookAiContentPanel] AI generation failed in production", {
+            code: failure.code,
+            retryable: failure.retryable,
+          });
+        }
       }
     } finally {
       if (activeGenerationAttempt === attempt) {
@@ -308,6 +292,7 @@
 
     cancelActiveGeneration();
     aiLoading = false;
+    aiTerminalFailure = null;
     aiErrorMessage = null;
     aiQueueMessage = null;
     aiAutoTriggerDeferred = false;
@@ -339,6 +324,7 @@
     {collapsed}
     {aiServiceAvailable}
     {aiLoading}
+    {aiTerminalFailure}
     {aiErrorMessage}
     {aiQueueMessage}
     {aiLoadingMessage}
