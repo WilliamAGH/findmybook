@@ -278,6 +278,13 @@ public class SitemapRepository {
         ));
     }
 
+    /**
+     * Reads the hourly author fingerprint without parallel workers so constrained
+     * PostgreSQL containers never need dynamic shared memory for this maintenance query.
+     *
+     * @return current sitemap author count and latest related-data timestamp
+     */
+    @Transactional(readOnly = true)
     public DatasetFingerprint fetchAuthorFingerprint() {
         String sql = "SELECT COUNT(DISTINCT a.id) AS total_records, " +
                 "GREATEST(" +
@@ -287,6 +294,7 @@ public class SitemapRepository {
                 "FROM authors a " +
                 "LEFT JOIN book_authors_join baj ON baj.author_id = a.id " +
                 "LEFT JOIN books b ON b.id = baj.book_id AND b.slug IS NOT NULL";
+        disableParallelWorkersForTransaction();
         return jdbcTemplate.queryForObject(sql, (rs, rowNum) -> new DatasetFingerprint(
                 rs.getInt("total_records"),
                 rs.getTimestamp("last_modified").toInstant()
