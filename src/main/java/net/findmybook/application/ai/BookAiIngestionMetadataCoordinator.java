@@ -1,7 +1,9 @@
 package net.findmybook.application.ai;
 
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import net.findmybook.application.seo.BookSeoGenerationException;
 import net.findmybook.application.seo.BookSeoMetadataGenerationService;
@@ -32,6 +34,7 @@ public class BookAiIngestionMetadataCoordinator {
     private final BookAiContentRequestQueue requestQueue;
     private final BookAiContentService bookAiContentService;
     private final BookSeoMetadataGenerationService bookSeoMetadataGenerationService;
+    private final Set<UUID> activeBackgroundBookIds;
     private final AtomicBoolean seoGenerationEnabled;
 
     public BookAiIngestionMetadataCoordinator(BookAiContentRequestQueue requestQueue,
@@ -40,6 +43,7 @@ public class BookAiIngestionMetadataCoordinator {
         this.requestQueue = requestQueue;
         this.bookAiContentService = bookAiContentService;
         this.bookSeoMetadataGenerationService = bookSeoMetadataGenerationService;
+        this.activeBackgroundBookIds = ConcurrentHashMap.newKeySet();
         this.seoGenerationEnabled = new AtomicBoolean(true);
     }
 
@@ -62,23 +66,39 @@ public class BookAiIngestionMetadataCoordinator {
         if (bookId == null) {
             return;
         }
+        if (!activeBackgroundBookIds.add(bookId)) {
+            log.debug(
+                "Skipping ingestion metadata enqueue for book {} because background metadata generation is already pending or running",
+                bookId
+            );
+            return;
+        }
 
         try {
-            requestQueue.enqueueBackground(BACKGROUND_INGESTION_PRIORITY, () -> {
-                processIngestionMetadata(bookId);
-                return null;
-            }).result().whenComplete((ignored, throwable) -> {
+            BookAiContentRequestQueue.EnqueuedTask<Void> backgroundTask = requestQueue.enqueueBackground(
+                BACKGROUND_INGESTION_PRIORITY,
+                () -> {
+                    processIngestionMetadata(bookId);
+                    return null;
+                }
+            );
+            backgroundTask.finished().whenComplete((ignored, throwable) -> activeBackgroundBookIds.remove(bookId));
+            backgroundTask.result().whenComplete((ignored, throwable) -> {
                 if (throwable != null) {
                     logBackgroundFailure(bookId, throwable);
                 }
             });
         } catch (BookAiQueueCapacityExceededException queueOverflowException) {
+            activeBackgroundBookIds.remove(bookId);
             log.warn(
                 "Background ingestion metadata enqueue skipped for book {} because queue cap was reached (pending={}, max={})",
                 bookId,
                 queueOverflowException.currentPending(),
                 queueOverflowException.maxPending()
             );
+        } catch (RuntimeException enqueueFailure) {
+            activeBackgroundBookIds.remove(bookId);
+            throw enqueueFailure;
         }
     }
 
@@ -98,8 +118,9 @@ public class BookAiIngestionMetadataCoordinator {
     private boolean isExpectedGenerationFailure(Throwable failure) {
         if (failure instanceof BookAiGenerationException aiFailure) {
             return switch (aiFailure.errorCode()) {
-                case INVALID_RESPONSE, INCOMPLETE_RESPONSE, DEGENERATE_CONTENT, DESCRIPTION_TOO_SHORT -> true;
-                case GENERATION_FAILED, ENRICHMENT_FAILED -> false;
+                case INVALID_RESPONSE, INCOMPLETE_RESPONSE, DEGENERATE_CONTENT, DESCRIPTION_TOO_SHORT,
+                    ENRICHMENT_FAILED -> true;
+                case GENERATION_FAILED -> false;
             };
         }
         if (failure instanceof BookSeoGenerationException seoFailure) {
