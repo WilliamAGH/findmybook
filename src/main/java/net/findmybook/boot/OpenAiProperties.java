@@ -26,8 +26,7 @@ public class OpenAiProperties {
     private static final String MODEL_PROPERTY = "openai.model";
     private static final String REASONING_EFFORT_ENVIRONMENT_VARIABLE = "OPENAI_REASONING_EFFORT";
     private static final String REASONING_EFFORT_PROPERTY = "openai.reasoning-effort";
-    /** Canonical gateway reasoning effort tokens; bind-time tests iterate this single owner list. */
-    static final List<String> SUPPORTED_REASONING_EFFORTS =
+    private static final List<String> SUPPORTED_REASONING_EFFORTS =
         List.of("none", "minimal", "low", "medium", "high", "xhigh", "max");
     private static final String EMBEDDINGS_MODEL_ENVIRONMENT_VARIABLE = "OPENAI_EMBEDDINGS_MODEL";
     private static final String EMBEDDINGS_MODEL_PROPERTY = "openai.embeddings.model";
@@ -178,6 +177,18 @@ public class OpenAiProperties {
         return StringUtils.hasText(reasoningEffort)
             ? Optional.of(ReasoningEffort.of(reasoningEffort))
             : Optional.empty();
+    }
+
+    /**
+     * Returns the canonical gateway reasoning-effort tokens accepted at configuration bind time.
+     *
+     * <p>Consumers use this immutable projection so tests and other typed surfaces cannot create
+     * independent token inventories.</p>
+     *
+     * @return immutable supported reasoning-effort tokens
+     */
+    public static List<String> supportedReasoningEfforts() {
+        return SUPPORTED_REASONING_EFFORTS;
     }
 
     /**

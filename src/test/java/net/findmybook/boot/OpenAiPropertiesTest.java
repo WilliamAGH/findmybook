@@ -121,14 +121,17 @@ class OpenAiPropertiesTest {
     void should_FailBindFast_When_ReasoningEffortIsNotACanonicalToken() {
         MapConfigurationPropertySource source = new MapConfigurationPropertySource();
         source.put("openai.reasoning-effort", "ultra");
+        String supportedReasoningEfforts = String.join(", ", OpenAiProperties.supportedReasoningEfforts());
 
         assertThatThrownBy(() -> new Binder(source).bind("openai", Bindable.ofInstance(new OpenAiProperties())))
-            .hasStackTraceContaining("Unsupported OPENAI_REASONING_EFFORT value 'ultra'")
-            .hasStackTraceContaining("none, minimal, low, medium, high, xhigh, max");
+            .hasRootCauseMessage(
+                "Unsupported OPENAI_REASONING_EFFORT value 'ultra' for openai.reasoning-effort; "
+                    + "supported values: " + supportedReasoningEfforts
+            );
     }
 
     private static Stream<String> canonicalReasoningEfforts() {
-        return OpenAiProperties.SUPPORTED_REASONING_EFFORTS.stream();
+        return OpenAiProperties.supportedReasoningEfforts().stream();
     }
 
     @Test

@@ -35,7 +35,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -151,7 +151,7 @@ class BookSeoMetadataClientWireTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"none", "minimal", "low", "medium", "high", "xhigh", "max"})
+    @MethodSource("net.findmybook.boot.OpenAiProperties#supportedReasoningEfforts")
     void should_SendEveryConfiguredStandardReasoningEffortWithoutThinkingBudget_When_GeneratingSeoMetadata(
         String reasoningEffort
     ) throws Exception {
