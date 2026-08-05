@@ -8,11 +8,15 @@ import net.findmybook.repository.SitemapRepository.BookRow;
 import net.findmybook.repository.SitemapRepository.DatasetFingerprint;
 import net.findmybook.repository.SitemapRepository.PageMetadata;
 import net.findmybook.util.PagingUtils;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionException;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
 import java.time.Instant;
@@ -48,6 +52,7 @@ public class SitemapService {
 
     private final SitemapRepository sitemapRepository;
     private final SitemapProperties properties;
+    private final ObjectProvider<PlatformTransactionManager> transactionManagerProvider;
     private final Cache booksXmlPageCountCache;
     private final Cache booksXmlPageCache;
     private final Cache overviewCache;
@@ -63,9 +68,11 @@ public class SitemapService {
 
     public SitemapService(SitemapRepository sitemapRepository,
                           SitemapProperties properties,
-                          @Qualifier("sitemapCacheManager") CacheManager cacheManager) {
+                          @Qualifier("sitemapCacheManager") CacheManager cacheManager,
+                          ObjectProvider<PlatformTransactionManager> transactionManagerProvider) {
         this.sitemapRepository = sitemapRepository;
         this.properties = properties;
+        this.transactionManagerProvider = transactionManagerProvider;
         this.booksXmlPageCountCache = requireCache(cacheManager, CacheNames.BOOK_XML_PAGE_COUNT);
         this.booksXmlPageCache = requireCache(cacheManager, CacheNames.BOOK_XML_PAGE);
         this.overviewCache = requireCache(cacheManager, CacheNames.BOOK_OVERVIEW);
@@ -178,17 +185,17 @@ public class SitemapService {
     }
 
     public DatasetFingerprint currentBookFingerprint() {
-        return bookFingerprintRef.updateAndGet(existing -> existing != null ? existing : sitemapRepository.fetchBookFingerprint());
+        return bookFingerprintRef.updateAndGet(existing -> existing != null ? existing : loadBookFingerprint());
     }
 
     public DatasetFingerprint currentAuthorFingerprint() {
-        return authorFingerprintRef.updateAndGet(existing -> existing != null ? existing : sitemapRepository.fetchAuthorFingerprint());
+        return authorFingerprintRef.updateAndGet(existing -> existing != null ? existing : loadAuthorFingerprint());
     }
 
     public boolean refreshSitemapCachesIfDatasetChanged() {
         // Fetch latest fingerprints from database
-        DatasetFingerprint latestBook = sitemapRepository.fetchBookFingerprint();
-        DatasetFingerprint latestAuthor = sitemapRepository.fetchAuthorFingerprint();
+        DatasetFingerprint latestBook = loadBookFingerprint();
+        DatasetFingerprint latestAuthor = loadAuthorFingerprint();
 
         // Thread-safe comparison and update using compareAndSet pattern
         DatasetFingerprint previousBook = bookFingerprintRef.get();
@@ -250,10 +257,10 @@ public class SitemapService {
 
     private int calculateBooksXmlPageCount() {
         try {
-            int total = sitemapRepository.countAllBooks();
+            int total = inReadOnlyTransaction(sitemapRepository::countAllBooks);
             int pageSize = properties.getXmlPageSize();
             return total == 0 ? 0 : (int) Math.ceil((double) total / pageSize);
-        } catch (DataAccessException ex) {
+        } catch (DataAccessException | TransactionException ex) {
             throw new IllegalStateException("Failed to compute book XML page count", ex);
         }
     }
@@ -290,7 +297,7 @@ public class SitemapService {
                             resolveAuthorListingLastModified(entry)
                     ))
                     .toList();
-        } catch (DataAccessException ex) {
+        } catch (DataAccessException | TransactionException ex) {
             throw new IllegalStateException("Failed to load author listings for sitemap page " + page, ex);
         }
     }
@@ -298,10 +305,10 @@ public class SitemapService {
     private List<SitemapPageMetadata> loadBookPageMetadata() {
         int pageSize = properties.getXmlPageSize();
         try {
-            return sitemapRepository.fetchBookPageMetadata(pageSize).stream()
+            return inReadOnlyTransaction(() -> sitemapRepository.fetchBookPageMetadata(pageSize)).stream()
                     .map(entry -> new SitemapPageMetadata(entry.pageNumber(), entry.lastModified()))
                     .toList();
-        } catch (DataAccessException ex) {
+        } catch (DataAccessException | TransactionException ex) {
             throw new IllegalStateException("Failed to load book sitemap metadata", ex);
         }
     }
@@ -320,7 +327,7 @@ public class SitemapService {
                 pageMetadata.add(new SitemapPageMetadata((startIndex / xmlPageSize) + 1, lastModified));
             }
             return List.copyOf(pageMetadata);
-        } catch (DataAccessException ex) {
+        } catch (DataAccessException | TransactionException ex) {
             throw new IllegalStateException("Failed to load author sitemap metadata", ex);
         }
     }
@@ -332,32 +339,50 @@ public class SitemapService {
 
     private Map<String, Integer> loadBookLetterCounts() {
         try {
-            Map<String, Integer> raw = sitemapRepository.countBooksByBucket();
+            Map<String, Integer> raw = inReadOnlyTransaction(sitemapRepository::countBooksByBucket);
             Map<String, Integer> counts = new LinkedHashMap<>();
             for (String bucket : LETTER_BUCKETS) {
                 counts.put(bucket, raw.getOrDefault(bucket, 0));
             }
             return Map.copyOf(counts);
-        } catch (DataAccessException ex) {
+        } catch (DataAccessException | TransactionException ex) {
             throw new IllegalStateException("Failed to load book letter counts", ex);
         }
     }
 
     private Map<String, Integer> loadAuthorLetterCounts() {
         try {
-            Map<String, Integer> raw = sitemapRepository.countAuthorsByBucket();
+            Map<String, Integer> raw = inReadOnlyTransaction(sitemapRepository::countAuthorsByBucket);
             Map<String, Integer> counts = new LinkedHashMap<>();
             for (String bucket : LETTER_BUCKETS) {
                 counts.put(bucket, raw.getOrDefault(bucket, 0));
             }
             return Map.copyOf(counts);
-        } catch (DataAccessException ex) {
+        } catch (DataAccessException | TransactionException ex) {
             throw new IllegalStateException("Failed to load author letter counts", ex);
         }
     }
 
     private List<AuthorListingMetadata> loadAuthorListingMetadata() {
-        return List.copyOf(sitemapRepository.fetchAuthorListingMetadata(properties.getHtmlPageSize()));
+        return List.copyOf(inReadOnlyTransaction(
+                () -> sitemapRepository.fetchAuthorListingMetadata(properties.getHtmlPageSize())));
+    }
+
+    private DatasetFingerprint loadBookFingerprint() {
+        return inReadOnlyTransaction(sitemapRepository::fetchBookFingerprint);
+    }
+
+    private DatasetFingerprint loadAuthorFingerprint() {
+        return inReadOnlyTransaction(sitemapRepository::fetchAuthorFingerprint);
+    }
+
+    private <T> T inReadOnlyTransaction(Supplier<T> query) {
+        TransactionTemplate readOnlyTransaction = new TransactionTemplate(transactionManagerProvider.getObject());
+        readOnlyTransaction.setReadOnly(true);
+        return Objects.requireNonNull(
+                readOnlyTransaction.execute(status -> query.get()),
+                "Read-only sitemap transaction returned null"
+        );
     }
 
     private <T> T cached(Cache cache, Object key, Supplier<T> loader) {

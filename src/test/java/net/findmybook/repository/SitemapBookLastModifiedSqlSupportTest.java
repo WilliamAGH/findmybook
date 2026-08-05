@@ -1,15 +1,42 @@
 package net.findmybook.repository;
 
+import net.findmybook.config.CacheComponentsConfig;
+import net.findmybook.config.SitemapProperties;
+import net.findmybook.service.SitemapService;
 import net.findmybook.support.sitemap.SitemapBookLastModifiedSqlSupport;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.support.SimpleCacheManager;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.ResultSetExtractor;
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.jdbc.datasource.DataSourceUtils;
+import org.springframework.jdbc.datasource.SingleConnectionDataSource;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
 
+import javax.sql.DataSource;
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -24,7 +51,14 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+@Testcontainers
 class SitemapBookLastModifiedSqlSupportTest {
+
+    private static final String PARALLEL_WORKER_SETTING = "max_parallel_workers_per_gather";
+
+    @Container
+    static final PostgreSQLContainer POSTGRES =
+            new PostgreSQLContainer(DockerImageName.parse("postgres:17-alpine"));
 
     @Test
     @DisplayName("globalBookLastModifiedCte injects alias and leaves no unresolved placeholders")
@@ -101,6 +135,59 @@ class SitemapBookLastModifiedSqlSupportTest {
     void should_AcceptValidAlias_When_AliasIsSimpleIdentifier() {
         assertDoesNotThrow(() ->
             SitemapBookLastModifiedSqlSupport.globalBookLastModifiedCte("book_updated_at"));
+    }
+
+    @Test
+    void should_DisableParallelWorkersBeforeAggregate_When_AllBooksAreCounted() {
+        JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+        SitemapRepository sitemapRepository = new SitemapRepository(jdbcTemplate);
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class))).thenReturn(12);
+
+        assertThat(sitemapRepository.countAllBooks()).isEqualTo(12);
+
+        InOrder inOrder = inOrder(jdbcTemplate);
+        inOrder.verify(jdbcTemplate).execute("SET LOCAL max_parallel_workers_per_gather = 0");
+        inOrder.verify(jdbcTemplate).queryForObject(anyString(), eq(Integer.class));
+    }
+
+    @Test
+    void should_DisableParallelWorkersBeforeAggregate_When_BooksAreCountedByBucket() {
+        JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+        SitemapRepository sitemapRepository = new SitemapRepository(jdbcTemplate);
+        Map<String, Integer> expected = Map.of("A", 12);
+        when(jdbcTemplate.query(
+                anyString(),
+                org.mockito.ArgumentMatchers.<ResultSetExtractor<Map<String, Integer>>>any()
+        )).thenReturn(expected);
+
+        assertThat(sitemapRepository.countBooksByBucket()).isEqualTo(expected);
+
+        InOrder inOrder = inOrder(jdbcTemplate);
+        inOrder.verify(jdbcTemplate).execute("SET LOCAL max_parallel_workers_per_gather = 0");
+        inOrder.verify(jdbcTemplate).query(
+                anyString(),
+                org.mockito.ArgumentMatchers.<ResultSetExtractor<Map<String, Integer>>>any()
+        );
+    }
+
+    @Test
+    void should_DisableParallelWorkersBeforeAggregate_When_AuthorsAreCountedByBucket() {
+        JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+        SitemapRepository sitemapRepository = new SitemapRepository(jdbcTemplate);
+        Map<String, Integer> expected = Map.of("B", 7);
+        when(jdbcTemplate.query(
+                anyString(),
+                org.mockito.ArgumentMatchers.<ResultSetExtractor<Map<String, Integer>>>any()
+        )).thenReturn(expected);
+
+        assertThat(sitemapRepository.countAuthorsByBucket()).isEqualTo(expected);
+
+        InOrder inOrder = inOrder(jdbcTemplate);
+        inOrder.verify(jdbcTemplate).execute("SET LOCAL max_parallel_workers_per_gather = 0");
+        inOrder.verify(jdbcTemplate).query(
+                anyString(),
+                org.mockito.ArgumentMatchers.<ResultSetExtractor<Map<String, Integer>>>any()
+        );
     }
 
     @Test
@@ -238,5 +325,159 @@ class SitemapBookLastModifiedSqlSupportTest {
             anyString(),
             org.mockito.ArgumentMatchers.<RowMapper<SitemapRepository.DatasetFingerprint>>any()
         );
+    }
+
+    @Nested
+    class PostgreSqlTransactionBoundaryTest {
+
+        private SingleConnectionDataSource dataSource;
+        private RecordingJdbcTemplate jdbcTemplate;
+        private SitemapService sitemapService;
+        private String originalParallelWorkerSetting;
+
+        @BeforeEach
+        void setUpPostgreSqlBoundary() {
+            dataSource = new SingleConnectionDataSource(
+                    POSTGRES.getJdbcUrl(),
+                    POSTGRES.getUsername(),
+                    POSTGRES.getPassword(),
+                    true
+            );
+            jdbcTemplate = new RecordingJdbcTemplate(dataSource);
+            jdbcTemplate.execute("CREATE TEMP TABLE books (slug text)");
+            jdbcTemplate.update("INSERT INTO books (slug) VALUES ('book-one')");
+            originalParallelWorkerSetting = jdbcTemplate.queryForObject(
+                    "SHOW " + PARALLEL_WORKER_SETTING,
+                    String.class
+            );
+            jdbcTemplate.clearObservations();
+
+            SitemapProperties properties = new SitemapProperties();
+            CacheManager cacheManager = new CacheComponentsConfig().sitemapCacheManager(properties);
+            if (cacheManager instanceof SimpleCacheManager simpleCacheManager) {
+                simpleCacheManager.initializeCaches();
+            }
+            DataSourceTransactionManager transactionManager = new DataSourceTransactionManager(dataSource);
+            StaticListableBeanFactory transactionManagerFactory = new StaticListableBeanFactory();
+            transactionManagerFactory.addBean("transactionManager", transactionManager);
+            sitemapService = new SitemapService(
+                    new SitemapRepository(jdbcTemplate),
+                    properties,
+                    cacheManager,
+                    transactionManagerFactory.getBeanProvider(PlatformTransactionManager.class)
+            );
+        }
+
+        @AfterEach
+        void closePostgreSqlConnection() {
+            dataSource.destroy();
+        }
+
+        @Test
+        void should_RestoreParallelWorkerSettingAfterCommit_When_AggregateSucceeds() {
+            assertThat(sitemapService.getBooksXmlPageCount()).isEqualTo(1);
+
+            assertGuardAndAggregateSharedReadOnlyTransaction();
+            assertThat(currentParallelWorkerSetting()).isEqualTo(originalParallelWorkerSetting);
+        }
+
+        @Test
+        void should_RestoreParallelWorkerSettingAfterRollback_When_AggregateFails() {
+            jdbcTemplate.execute("DROP TABLE books");
+            jdbcTemplate.clearObservations();
+
+            assertThatThrownBy(sitemapService::getBooksXmlPageCount)
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("book XML page count");
+
+            assertGuardAndAggregateSharedReadOnlyTransaction();
+            assertThat(currentParallelWorkerSetting()).isEqualTo(originalParallelWorkerSetting);
+        }
+
+        private void assertGuardAndAggregateSharedReadOnlyTransaction() {
+            StatementObservation guard = jdbcTemplate.observationFor(
+                    "SET LOCAL " + PARALLEL_WORKER_SETTING + " = 0"
+            );
+            StatementObservation aggregate = jdbcTemplate.observationFor(
+                    "SELECT COUNT(*) FROM books WHERE slug IS NOT NULL"
+            );
+            assertThat(guard.transactionActive()).isTrue();
+            assertThat(aggregate.transactionActive()).isTrue();
+            assertThat(guard.connectionTransactionBound()).isTrue();
+            assertThat(aggregate.connectionTransactionBound()).isTrue();
+            assertThat(guard.transactionReadOnly()).isTrue();
+            assertThat(aggregate.transactionReadOnly()).isTrue();
+            assertThat(aggregate.backendProcessId()).isEqualTo(guard.backendProcessId());
+            assertThat(aggregate.parallelWorkerSetting()).isEqualTo("0");
+        }
+
+        private String currentParallelWorkerSetting() {
+            return jdbcTemplate.queryForObject("SHOW " + PARALLEL_WORKER_SETTING, String.class);
+        }
+    }
+
+    private static final class RecordingJdbcTemplate extends JdbcTemplate {
+
+        private final List<StatementObservation> observations = new ArrayList<>();
+
+        private RecordingJdbcTemplate(SingleConnectionDataSource dataSource) {
+            super(dataSource);
+        }
+
+        @Override
+        public void execute(String sql) {
+            recordObservation(sql);
+            super.execute(sql);
+        }
+
+        @Override
+        public <T> T queryForObject(String sql, Class<T> requiredType) {
+            recordObservation(sql);
+            return super.queryForObject(sql, requiredType);
+        }
+
+        private void clearObservations() {
+            observations.clear();
+        }
+
+        private StatementObservation observationFor(String sql) {
+            return observations.stream()
+                    .filter(observation -> observation.sql().equals(sql))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("SQL was not observed: " + sql));
+        }
+
+        private void recordObservation(String sql) {
+            DataSource configuredDataSource = Objects.requireNonNull(getDataSource());
+            Connection connection = DataSourceUtils.getConnection(configuredDataSource);
+            try (Statement statement = connection.createStatement();
+                 ResultSet resultSet = statement.executeQuery(
+                         "SELECT pg_backend_pid(), " +
+                         "current_setting('" + PARALLEL_WORKER_SETTING + "'), " +
+                         "current_setting('transaction_read_only')"
+                 )) {
+                resultSet.next();
+                observations.add(new StatementObservation(
+                        sql,
+                        resultSet.getInt(1),
+                        resultSet.getString(2),
+                        "on".equals(resultSet.getString(3)),
+                        TransactionSynchronizationManager.isActualTransactionActive(),
+                        DataSourceUtils.isConnectionTransactional(connection, configuredDataSource)
+                ));
+            } catch (SQLException exception) {
+                throw new IllegalStateException("Failed to observe PostgreSQL transaction", exception);
+            } finally {
+                DataSourceUtils.releaseConnection(connection, configuredDataSource);
+            }
+        }
+    }
+
+    private record StatementObservation(String sql,
+                                        int backendProcessId,
+                                        String parallelWorkerSetting,
+                                        boolean transactionReadOnly,
+                                        boolean transactionActive,
+                                        boolean connectionTransactionBound) {
     }
 }

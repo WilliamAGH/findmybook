@@ -4,7 +4,6 @@ import net.findmybook.support.sitemap.SitemapBookLastModifiedSqlSupport;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -55,6 +54,7 @@ public class SitemapRepository {
 
     public int countAllBooks() {
         String sql = "SELECT COUNT(*) FROM books WHERE slug IS NOT NULL";
+        disableParallelWorkersForTransaction();
         return Objects.requireNonNullElse(jdbcTemplate.queryForObject(sql, Integer.class), 0);
     }
 
@@ -62,6 +62,7 @@ public class SitemapRepository {
         String expr = LETTER_BUCKET_EXPRESSION.formatted("title", "title");
         String sql = "SELECT " + expr + " AS bucket, COUNT(*) AS total FROM books " +
                      "WHERE slug IS NOT NULL GROUP BY bucket";
+        disableParallelWorkersForTransaction();
         return jdbcTemplate.query(sql, rs -> {
             Map<String, Integer> counts = new LinkedHashMap<>();
             while (rs.next()) {
@@ -69,12 +70,6 @@ public class SitemapRepository {
             }
             return counts;
         });
-    }
-
-    public int countBooksForBucket(String bucket) {
-        String expr = LETTER_BUCKET_EXPRESSION.formatted("title", "title");
-        String sql = "SELECT COUNT(*) FROM books WHERE slug IS NOT NULL AND " + expr + " = ?";
-        return Objects.requireNonNullElse(jdbcTemplate.queryForObject(sql, Integer.class, bucket.toLowerCase(Locale.ROOT)), 0);
     }
 
     public List<BookRow> fetchBooksForBucket(String bucket, int limit, int offset) {
@@ -93,6 +88,7 @@ public class SitemapRepository {
     public Map<String, Integer> countAuthorsByBucket() {
         String expr = LETTER_BUCKET_EXPRESSION.formatted("COALESCE(normalized_name, name)", "COALESCE(normalized_name, name)");
         String sql = "SELECT " + expr + " AS bucket, COUNT(*) AS total FROM authors GROUP BY bucket";
+        disableParallelWorkersForTransaction();
         return jdbcTemplate.query(sql, rs -> {
             Map<String, Integer> counts = new LinkedHashMap<>();
             while (rs.next()) {
@@ -100,12 +96,6 @@ public class SitemapRepository {
             }
             return counts;
         });
-    }
-
-    public int countAuthorsForBucket(String bucket) {
-        String expr = LETTER_BUCKET_EXPRESSION.formatted("COALESCE(normalized_name, name)", "COALESCE(normalized_name, name)");
-        String sql = "SELECT COUNT(*) FROM authors WHERE " + expr + " = ?";
-        return Objects.requireNonNullElse(jdbcTemplate.queryForObject(sql, Integer.class, bucket.toLowerCase(Locale.ROOT)), 0);
     }
 
     public List<AuthorRow> fetchAuthorsForBucket(String bucket, int limit, int offset) {
@@ -147,7 +137,7 @@ public class SitemapRepository {
     }
 
     /**
-     * Computes XML sitemap metadata for all book listing pages in one database round trip.
+     * Computes XML sitemap metadata for all book listing pages in one aggregate query.
      *
      * <p>The read transaction disables PostgreSQL gather workers before this global aggregate
      * to avoid dynamic shared-memory exhaustion in constrained database containers.</p>
@@ -155,7 +145,6 @@ public class SitemapRepository {
      * @param pageSize number of books in one XML sitemap page
      * @return page metadata ordered by XML sitemap page number
      */
-    @Transactional(readOnly = true)
     public List<PageMetadata> fetchBookPageMetadata(int pageSize) {
         if (pageSize <= 0) {
             throw new IllegalArgumentException("Page size must be positive, got: " + pageSize);
@@ -179,7 +168,7 @@ public class SitemapRepository {
     }
 
     /**
-     * Computes the canonical ordered inventory of HTML author listing pages in one database read.
+     * Computes the canonical ordered inventory of HTML author listing pages in one aggregate query.
      *
      * <p>Each entry combines its route coordinates with the latest author or canonical-book
      * change represented by that HTML page. XML sitemap shards and their aggregate metadata can
@@ -189,7 +178,6 @@ public class SitemapRepository {
      * @param htmlPageSize number of authors in one HTML listing page
      * @return listing metadata ordered by route bucket and HTML page number
      */
-    @Transactional(readOnly = true)
     public List<AuthorListingMetadata> fetchAuthorListingMetadata(int htmlPageSize) {
         if (htmlPageSize <= 0) {
             throw new IllegalArgumentException("HTML page size must be positive, got: " + htmlPageSize);
@@ -262,7 +250,6 @@ public class SitemapRepository {
      *
      * @return current sitemap book count and latest related-data timestamp
      */
-    @Transactional(readOnly = true)
     public DatasetFingerprint fetchBookFingerprint() {
         disableParallelWorkersForTransaction();
         return jdbcTemplate.queryForObject(BOOK_FINGERPRINT_QUERY, (rs, rowNum) -> new DatasetFingerprint(
@@ -277,7 +264,6 @@ public class SitemapRepository {
      *
      * @return current sitemap author count and latest related-data timestamp
      */
-    @Transactional(readOnly = true)
     public DatasetFingerprint fetchAuthorFingerprint() {
         String sql = "SELECT COUNT(DISTINCT a.id) AS total_records, " +
                 "GREATEST(" +
