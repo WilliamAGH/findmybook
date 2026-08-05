@@ -1,21 +1,36 @@
 package net.findmybook;
 
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import io.github.resilience4j.ratelimiter.RateLimiter;
+import io.github.resilience4j.ratelimiter.RateLimiterRegistry;
+import io.github.resilience4j.ratelimiter.RequestNotPermitted;
 // CachedBookRepository removed with Redis cleanup
 import net.findmybook.config.DatabaseUrlEnvironmentPostProcessor;
+import net.findmybook.service.OpenLibraryBookDataService;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.http.client.autoconfigure.HttpClientsProperties;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.env.Environment;
+import org.springframework.core.io.buffer.DataBufferLimitException;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.aop.support.AopUtils;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.services.s3.S3Client;
+import reactor.core.publisher.Mono;
+import reactor.test.StepVerifier;
 
 import java.time.Duration;
 import java.util.Optional;
@@ -27,6 +42,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * Basic application context load test for findmybook
@@ -53,6 +69,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @ActiveProfiles("test") // Ensure the "test" profile and its Redis configuration are active
 class FindmybookApplicationTests {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(FindmybookApplicationTests.class);
     private static final String APPLICATION_TASK_SCHEDULER_BEAN = "taskScheduler";
     private static final String MESSAGE_BROKER_TASK_SCHEDULER_BEAN = "messageBrokerTaskScheduler";
     private static final String APPLICATION_SCHEDULER_THREAD_PREFIX = "AppScheduler-";
@@ -78,6 +95,15 @@ class FindmybookApplicationTests {
     @Autowired
     private HttpClientsProperties httpClientsProperties;
 
+    @Autowired
+    private RateLimiterRegistry rateLimiterRegistry;
+
+    @Autowired
+    private CircuitBreakerRegistry circuitBreakerRegistry;
+
+    @Autowired
+    private OpenLibraryBookDataService openLibraryBookDataService;
+
     // No-op: cached repository removed
 
     /**
@@ -86,6 +112,77 @@ class FindmybookApplicationTests {
     @Test
     void contextLoads() {
         // Test will pass if the context loads with the mocked repository
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void should_RedactEveryCredentialShape_When_ApplicationLogbackRendersThrowable(CapturedOutput output) {
+        DataBufferLimitException requestFailure = assertThrows(
+            DataBufferLimitException.class,
+            () -> Mono.error(new DataBufferLimitException("Exceeded max bytes to buffer"))
+                .checkpoint(
+                    "Request to GET https://api.nytimes.com/lists/overview.json?api-key=throwable-secret-sentinel "
+                        + "[DefaultWebClient]"
+                )
+                .block()
+        );
+        requestFailure.addSuppressed(new IllegalStateException(
+            "Reactor checkpoint details:token=suppressed-secret-sentinel checkpoint-marker"
+        ));
+
+        LOGGER.error(
+            "API_KEY=message-secret-sentinel NYT refresh failed request-marker",
+            requestFailure
+        );
+
+        String renderedOutput = output.getOut();
+        assertFalse(renderedOutput.contains("message-secret-sentinel"));
+        assertFalse(renderedOutput.contains("throwable-secret-sentinel"));
+        assertFalse(renderedOutput.contains("suppressed-secret-sentinel"));
+        assertTrue(renderedOutput.contains("API_KEY=********"));
+        assertTrue(renderedOutput.contains("api-key=********"));
+        assertTrue(renderedOutput.contains("token=********"));
+        assertTrue(renderedOutput.contains("request-marker"));
+        assertTrue(renderedOutput.contains("checkpoint-marker"));
+        assertTrue(renderedOutput.contains("DataBufferLimitException"));
+        assertTrue(renderedOutput.contains("Request to GET"));
+        assertTrue(renderedOutput.contains("DefaultWebClient"));
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void should_ApplyProxiedOpenLibraryFallbackWithoutRecordingRateLimiterDenialAsCircuitFailure(
+        CapturedOutput output
+    ) {
+        RateLimiter rateLimiter = rateLimiterRegistry.rateLimiter("openLibraryDataService");
+        assertEquals(1, rateLimiter.getRateLimiterConfig().getLimitForPeriod());
+        assertEquals(Duration.ofSeconds(2), rateLimiter.getRateLimiterConfig().getLimitRefreshPeriod());
+        assertEquals(Duration.ofSeconds(2), rateLimiter.getRateLimiterConfig().getTimeoutDuration());
+
+        CircuitBreaker circuitBreaker = circuitBreakerRegistry.circuitBreaker("openLibraryDataService");
+        circuitBreaker.reset();
+        rateLimiter.changeTimeoutDuration(Duration.ZERO);
+        rateLimiter.drainPermissions();
+        try {
+            assertTrue(AopUtils.isAopProxy(openLibraryBookDataService));
+
+            StepVerifier.create(openLibraryBookDataService.queryBooksByEverything(
+                    "rate-limit-probe",
+                    "relevance",
+                    0,
+                    1
+                ))
+                .expectError(RequestNotPermitted.class)
+                .verify(Duration.ofSeconds(1));
+
+            assertEquals(0, circuitBreaker.getMetrics().getNumberOfFailedCalls());
+            assertEquals(0, circuitBreaker.getMetrics().getNumberOfBufferedCalls());
+            assertEquals(CircuitBreaker.State.CLOSED, circuitBreaker.getState());
+            assertTrue(output.getOut().contains("LOCAL_ADMISSION"));
+            assertTrue(output.getOut().contains("RequestNotPermitted"));
+        } finally {
+            rateLimiter.changeTimeoutDuration(Duration.ofSeconds(2));
+        }
     }
 
     @Test

@@ -3,13 +3,18 @@ package net.findmybook.config;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.health.contributor.Status;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.http.codec.autoconfigure.CodecsAutoConfiguration;
+import org.springframework.boot.http.codec.autoconfigure.HttpCodecsProperties;
+import org.springframework.boot.jackson.autoconfigure.JacksonAutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.boot.test.context.ConfigDataApplicationContextInitializer;
 import org.springframework.boot.webclient.autoconfigure.WebClientAutoConfiguration;
 import org.springframework.boot.web.server.context.WebServerApplicationContext;
 import org.springframework.boot.web.server.context.WebServerInitializedEvent;
 import org.springframework.boot.web.server.WebServer;
 import org.springframework.mock.web.MockServletContext;
 import org.springframework.http.HttpStatus;
+import org.springframework.util.unit.DataSize;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.context.support.StaticWebApplicationContext;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
@@ -19,6 +24,8 @@ import org.springframework.web.servlet.resource.ResourceHttpRequestHandler;
 import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
+import reactor.netty.DisposableServer;
+import reactor.netty.http.server.HttpServer;
 import reactor.test.StepVerifier;
 import io.github.resilience4j.ratelimiter.RateLimiter;
 import software.amazon.awssdk.awscore.exception.AwsErrorDetails;
@@ -280,6 +287,54 @@ class WebClientConfigTest {
                 assertEquals(URI.create("https://first.example/books"), firstRequestUri.get());
                 assertEquals(URI.create("https://second.example/books"), secondRequestUri.get());
             });
+    }
+
+    @Test
+    void should_DecodeJsonLargerThanDefaultBuffer_When_RepositoryConfigurationIsLoaded() {
+        String payload = "x".repeat(300_000);
+        String responseBody = "{\"payload\":\"" + payload + "\"}";
+        DisposableServer server = HttpServer.create()
+            .host("127.0.0.1")
+            .port(0)
+            .route(routes -> routes.get("/large-json", (request, response) -> response
+                .header("Content-Type", "application/json")
+                .sendString(Mono.just(responseBody))))
+            .bindNow();
+
+        try {
+            new ApplicationContextRunner()
+                .withInitializer(new ConfigDataApplicationContextInitializer())
+                .withConfiguration(AutoConfigurations.of(
+                    JacksonAutoConfiguration.class,
+                    CodecsAutoConfiguration.class,
+                    WebClientAutoConfiguration.class
+                ))
+                .withUserConfiguration(WebClientConfig.class)
+                .run(context -> {
+                    assertEquals(
+                        "10MB",
+                        context.getEnvironment().getProperty("spring.http.codecs.max-in-memory-size")
+                    );
+                    assertEquals(
+                        DataSize.ofMegabytes(10),
+                        context.getBean(HttpCodecsProperties.class).getMaxInMemorySize()
+                    );
+                    WebClient client = context.getBean(WebClient.Builder.class)
+                        .baseUrl("http://127.0.0.1:" + server.port())
+                        .build();
+
+                    tools.jackson.databind.JsonNode decoded = client.get()
+                        .uri("/large-json")
+                        .retrieve()
+                        .bodyToMono(tools.jackson.databind.JsonNode.class)
+                        .block(Duration.ofSeconds(5));
+
+                    assertNotNull(decoded);
+                    assertEquals(payload.length(), decoded.path("payload").stringValue().length());
+                });
+        } finally {
+            server.disposeNow();
+        }
     }
 }
 

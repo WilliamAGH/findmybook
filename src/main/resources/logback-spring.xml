@@ -1,23 +1,26 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
-    
+    <conversionRule
+        conversionWord="maskSensitiveQueryParameters"
+        converterClass="net.findmybook.util.ExternalApiLogger$SensitiveQueryParameterConverter" />
+
     <!-- Console appender (always enabled) -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
-            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %maskSensitiveQueryParameters(%msg%n%ex)</pattern>
             <charset>UTF-8</charset>
         </encoder>
     </appender>
-    
+
     <!-- File appender (enabled via spring profile) -->
     <springProfile name="dev,local">
         <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
             <file>logs/spring.log</file>
             <encoder>
-                <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+                <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %maskSensitiveQueryParameters(%msg%n%ex)</pattern>
                 <charset>UTF-8</charset>
             </encoder>
-            
+
             <!-- Rolling policy: daily rotation + size limit -->
             <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
                 <!-- Daily rollover -->
@@ -30,54 +33,54 @@
                 <totalSizeCap>100MB</totalSizeCap>
             </rollingPolicy>
         </appender>
-        
+
         <!-- Application log (separate file for application-specific logs) -->
         <appender name="APP_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
             <file>logs/application.log</file>
             <encoder>
-                <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+                <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %maskSensitiveQueryParameters(%msg%n%ex)</pattern>
                 <charset>UTF-8</charset>
             </encoder>
-            
+
             <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
                 <fileNamePattern>logs/application.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
                 <maxFileSize>10MB</maxFileSize>
                 <maxHistory>7</maxHistory>
                 <totalSizeCap>100MB</totalSizeCap>
             </rollingPolicy>
-            
+
             <!-- Only log application packages -->
             <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
                 <level>INFO</level>
             </filter>
         </appender>
     </springProfile>
-    
+
     <!-- Root logger -->
     <root level="INFO">
         <appender-ref ref="CONSOLE" />
     </root>
-    
+
     <!-- Application-specific loggers when running locally -->
     <springProfile name="dev,local">
         <root level="INFO">
             <appender-ref ref="CONSOLE" />
             <appender-ref ref="FILE" />
         </root>
-        
+
         <logger name="net.findmybook" level="DEBUG" additivity="false">
             <appender-ref ref="CONSOLE" />
             <appender-ref ref="APP_FILE" />
         </logger>
     </springProfile>
-    
+
     <!-- Reduce noise from frameworks -->
     <logger name="org.springframework" level="INFO" />
     <logger name="org.hibernate" level="WARN" />
     <logger name="com.zaxxer.hikari" level="WARN" />
     <logger name="io.netty" level="WARN" />
     <logger name="reactor.netty" level="WARN" />
-    
+
     <!-- API call logging at INFO level -->
     <logger name="net.findmybook.service.GoogleApiFetcher" level="INFO" />
     <logger name="net.findmybook.service.OpenLibraryBookDataService" level="INFO" />

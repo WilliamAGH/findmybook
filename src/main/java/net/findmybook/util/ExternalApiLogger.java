@@ -1,6 +1,10 @@
 package net.findmybook.util;
 
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.pattern.CompositeConverter;
 import org.slf4j.Logger;
+
+import java.util.regex.Pattern;
 
 /**
  * Centralized console logging for external API calls during opportunistic backfill/supplementation.
@@ -14,14 +18,33 @@ import org.slf4j.Logger;
 public class ExternalApiLogger {
 
     private static final String PREFIX = "[EXTERNAL-API]";
+    private static final Pattern SENSITIVE_ASSIGNMENT = Pattern.compile(
+        "(^|[?&\\s:])((?:key|api[-_]key|token)\\s*=\\s*)[^&#\\s]*?"
+            + "(?=[&#\\s]|[,;\\)\\]\\}](?:\\s|$)|$)",
+        Pattern.CASE_INSENSITIVE
+    );
 
     /**
      * Masks sensitive query parameters (like 'key') in a URL or query string.
      */
     private static String sanitize(String input) {
         if (input == null) return null;
-        // Mask 'key=...', 'api_key=...', 'token=...'
-        return input.replaceAll("([?&](?:key|api_key|token)=)[^&]*", "$1********");
+        return SENSITIVE_ASSIGNMENT.matcher(input).replaceAll("$1$2********");
+    }
+
+    /**
+     * Redacts credential query parameters from the complete rendered Logback event.
+     *
+     * <p>Applying the canonical sanitizer after message and throwable rendering also
+     * protects framework-generated diagnostics, including Reactor checkpoints that
+     * bypass the explicit external-API logging methods in this class.</p>
+     */
+    public static final class SensitiveQueryParameterConverter extends CompositeConverter<ILoggingEvent> {
+
+        @Override
+        protected String transform(ILoggingEvent event, String renderedEvent) {
+            return sanitize(renderedEvent);
+        }
     }
 
     /**
@@ -48,7 +71,7 @@ public class ExternalApiLogger {
      */
     public static void logApiCallFailure(Logger log, String apiName, String operation, String query, String reason) {
         String message = String.format("%s [%s] FAILURE: %s failed for query='%s' - %s",
-            PREFIX, apiName, operation, sanitize(query), reason);
+            PREFIX, apiName, operation, sanitize(query), sanitize(reason));
         log.warn(message);
     }
 
@@ -163,7 +186,7 @@ public class ExternalApiLogger {
             PREFIX,
             context,
             sanitize(identifier),
-            reason);
+            sanitize(reason));
         log.warn(message);
     }
 
@@ -190,7 +213,7 @@ public class ExternalApiLogger {
             PREFIX,
             context,
             sanitize(identifier),
-            reason);
+            sanitize(reason));
         log.warn(message);
     }
 
