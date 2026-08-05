@@ -6,6 +6,7 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -13,6 +14,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -177,25 +179,20 @@ public class SitemapRepository {
     }
 
     /**
-     * Computes XML sitemap metadata for all author listing pages in one database round trip.
+     * Computes the canonical ordered inventory of HTML author listing pages in one database read.
      *
-     * <p>Author XML pages contain links to HTML author listing pages rather than individual
-     * authors. This query preserves that listing order while aggregating author and canonical
-     * book last-modified timestamps in the database. The read transaction disables PostgreSQL
-     * gather workers before the aggregate to avoid dynamic shared-memory exhaustion in
-     * constrained database containers.</p>
+     * <p>Each entry combines its route coordinates with the latest author or canonical-book
+     * change represented by that HTML page. XML sitemap shards and their aggregate metadata can
+     * therefore project the same inventory without loading the authors and books for every
+     * listing page. Parallel gather workers are disabled for constrained database containers.</p>
      *
      * @param htmlPageSize number of authors in one HTML listing page
-     * @param xmlPageSize number of HTML listing pages in one XML sitemap page
-     * @return page metadata ordered by XML sitemap page number
+     * @return listing metadata ordered by route bucket and HTML page number
      */
     @Transactional(readOnly = true)
-    public List<PageMetadata> fetchAuthorPageMetadata(int htmlPageSize, int xmlPageSize) {
+    public List<AuthorListingMetadata> fetchAuthorListingMetadata(int htmlPageSize) {
         if (htmlPageSize <= 0) {
             throw new IllegalArgumentException("HTML page size must be positive, got: " + htmlPageSize);
-        }
-        if (xmlPageSize <= 0) {
-            throw new IllegalArgumentException("XML page size must be positive, got: " + xmlPageSize);
         }
         String authorBucketExpression = LETTER_BUCKET_EXPRESSION.formatted(
                 "COALESCE(a.normalized_name, a.name)",
@@ -223,23 +220,14 @@ public class SitemapRepository {
                     LEFT JOIN book_authors_join ON book_authors_join.author_id = ranked_authors.id
                     LEFT JOIN book_last_modified ON book_last_modified.id = book_authors_join.book_id
                     GROUP BY ranked_authors.bucket, ranked_authors.%s
-                ),
-                ordered_author_listing_pages AS (
-                    SELECT last_modified,
-                           ROW_NUMBER() OVER (
-                               ORDER BY CASE bucket
-                                   WHEN '0-9' THEN 27
-                                   ELSE ASCII(bucket) - ASCII('a') + 1
-                               END,
-                               %s
-                           ) AS rn
-                    FROM author_listing_pages
                 )
-                SELECT CAST(FLOOR((rn - 1) / ?::numeric) AS bigint) + 1 AS page_number,
-                       MAX(last_modified) AS last_modified
-                FROM ordered_author_listing_pages
-                GROUP BY page_number
-                ORDER BY page_number
+                SELECT bucket, %s, last_modified
+                FROM author_listing_pages
+                ORDER BY CASE bucket
+                    WHEN '0-9' THEN 27
+                    ELSE ASCII(bucket) - ASCII('a') + 1
+                END,
+                %s
                 """.formatted(
                 authorBucketExpression,
                 AUTHOR_UPDATED_AT_ALIAS,
@@ -250,13 +238,18 @@ public class SitemapRepository {
                 BOOK_UPDATED_AT_ALIAS,
                 SQL_EPOCH_TIMESTAMP,
                 AUTHOR_PAGE_NUMBER_ALIAS,
+                AUTHOR_PAGE_NUMBER_ALIAS,
                 AUTHOR_PAGE_NUMBER_ALIAS
         );
         disableParallelWorkersForTransaction();
-        return jdbcTemplate.query(sql, (rs, rowNum) -> new PageMetadata(
-                rs.getInt("page_number"),
-                rs.getTimestamp("last_modified").toInstant()
-        ), htmlPageSize, xmlPageSize);
+        return jdbcTemplate.query(sql, (rs, rowNum) -> {
+            Timestamp lastModified = rs.getTimestamp("last_modified");
+            return new AuthorListingMetadata(
+                    rs.getString("bucket").toUpperCase(Locale.ROOT),
+                    rs.getInt(AUTHOR_PAGE_NUMBER_ALIAS),
+                    Optional.ofNullable(lastModified).map(Timestamp::toInstant)
+            );
+        }, htmlPageSize);
     }
 
     private void disableParallelWorkersForTransaction() {
@@ -306,6 +299,20 @@ public class SitemapRepository {
     public record AuthorRow(String id, String name, Instant updatedAt) {}
 
     public record PageMetadata(int pageNumber, Instant lastModified) {}
+
+    /**
+     * Canonical route coordinates and freshness for one HTML author listing page.
+     *
+     * @param bucket route bucket in public URL form
+     * @param htmlPage HTML listing page number within the bucket
+     * @param lastModified latest known author or canonical-book change when available
+     */
+    public record AuthorListingMetadata(String bucket, int htmlPage, Optional<Instant> lastModified) {
+        public AuthorListingMetadata {
+            Objects.requireNonNull(bucket, "bucket");
+            Objects.requireNonNull(lastModified, "lastModified");
+        }
+    }
 
     public record DatasetFingerprint(int totalRecords, Instant lastModified) {}
 }

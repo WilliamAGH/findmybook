@@ -3,6 +3,7 @@ package net.findmybook.service;
 import net.findmybook.config.CacheComponentsConfig;
 import net.findmybook.config.SitemapProperties;
 import net.findmybook.repository.SitemapRepository;
+import net.findmybook.repository.SitemapRepository.AuthorListingMetadata;
 import net.findmybook.repository.SitemapRepository.BookRow;
 import net.findmybook.repository.SitemapRepository.DatasetFingerprint;
 import net.findmybook.repository.SitemapRepository.PageMetadata;
@@ -18,6 +19,7 @@ import org.springframework.jdbc.CannotGetJdbcConnectionException;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -78,24 +80,85 @@ class SitemapServiceTest {
     }
 
     @Test
-    void should_ReturnBulkAuthorMetadata_When_RepositoryProvidesAuthorPageMetadata() {
-        List<PageMetadata> expected = List.of(
-                new PageMetadata(1, Instant.parse("2024-02-01T00:00:00Z")),
-                new PageMetadata(2, Instant.parse("2024-02-02T00:00:00Z"))
+    void should_SliceAndCacheCanonicalAuthorListings_When_XmlPagesAreRequested() {
+        sitemapProperties.setXmlPageSize(2);
+        CacheManager cacheManager = new CacheComponentsConfig().sitemapCacheManager(sitemapProperties);
+        if (cacheManager instanceof SimpleCacheManager simpleCacheManager) {
+            simpleCacheManager.initializeCaches();
+        }
+        sitemapService = new SitemapService(sitemapRepository, sitemapProperties, cacheManager);
+        List<AuthorListingMetadata> expected = List.of(
+                new AuthorListingMetadata("A", 1, Optional.of(Instant.parse("2024-02-01T00:00:00Z"))),
+                new AuthorListingMetadata("A", 2, Optional.of(Instant.parse("2024-02-03T00:00:00Z"))),
+                new AuthorListingMetadata("B", 1, Optional.of(Instant.parse("2024-02-02T00:00:00Z")))
         );
-        when(sitemapRepository.fetchAuthorPageMetadata(100, 5000)).thenReturn(expected);
+        when(sitemapRepository.fetchAuthorListingMetadata(100)).thenReturn(expected);
+
+        List<SitemapService.AuthorListingXmlItem> firstPage = sitemapService.getAuthorListingsForXmlPage(1);
+        List<SitemapService.AuthorListingXmlItem> cachedFirstPage = sitemapService.getAuthorListingsForXmlPage(1);
+        List<SitemapService.AuthorListingXmlItem> secondPage = sitemapService.getAuthorListingsForXmlPage(2);
+
+        assertThat(firstPage).containsExactly(
+                new SitemapService.AuthorListingXmlItem("A", 1, Instant.parse("2024-02-01T00:00:00Z")),
+                new SitemapService.AuthorListingXmlItem("A", 2, Instant.parse("2024-02-03T00:00:00Z"))
+        );
+        assertThat(cachedFirstPage).isEqualTo(firstPage);
+        assertThat(secondPage).containsExactly(
+                new SitemapService.AuthorListingXmlItem("B", 1, Instant.parse("2024-02-02T00:00:00Z"))
+        );
+        assertThat(sitemapService.getAuthorXmlPageCount()).isEqualTo(2);
+        assertThat(sitemapService.listAuthorListingDescriptors()).containsExactly(
+                new SitemapService.AuthorListingDescriptor("A", 1),
+                new SitemapService.AuthorListingDescriptor("A", 2),
+                new SitemapService.AuthorListingDescriptor("B", 1)
+        );
+        verify(sitemapRepository, times(1)).fetchAuthorListingMetadata(100);
+        verify(sitemapRepository, never()).fetchAuthorsForBucket(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt());
+        verify(sitemapRepository, never()).fetchBooksForAuthors(org.mockito.ArgumentMatchers.anySet());
+        verify(sitemapRepository, never()).fetchAuthorFingerprint();
+    }
+
+    @Test
+    void should_DeriveAuthorXmlMetadataFromCanonicalListings_When_ListingsSpanShards() {
+        sitemapProperties.setXmlPageSize(2);
+        CacheManager cacheManager = new CacheComponentsConfig().sitemapCacheManager(sitemapProperties);
+        if (cacheManager instanceof SimpleCacheManager simpleCacheManager) {
+            simpleCacheManager.initializeCaches();
+        }
+        sitemapService = new SitemapService(sitemapRepository, sitemapProperties, cacheManager);
+        when(sitemapRepository.fetchAuthorListingMetadata(100)).thenReturn(List.of(
+                new AuthorListingMetadata("A", 1, Optional.of(Instant.parse("2024-02-01T00:00:00Z"))),
+                new AuthorListingMetadata("A", 2, Optional.of(Instant.parse("2024-02-03T00:00:00Z"))),
+                new AuthorListingMetadata("B", 1, Optional.of(Instant.parse("2024-02-02T00:00:00Z")))
+        ));
 
         List<SitemapService.SitemapPageMetadata> metadata = sitemapService.getAuthorSitemapPageMetadata();
 
         assertThat(metadata).containsExactly(
-                new SitemapService.SitemapPageMetadata(1, Instant.parse("2024-02-01T00:00:00Z")),
+                new SitemapService.SitemapPageMetadata(1, Instant.parse("2024-02-03T00:00:00Z")),
                 new SitemapService.SitemapPageMetadata(2, Instant.parse("2024-02-02T00:00:00Z"))
         );
         assertThat(sitemapService.getAuthorSitemapPageMetadata()).isEqualTo(metadata);
-        verify(sitemapRepository, times(1)).fetchAuthorPageMetadata(100, 5000);
+        verify(sitemapRepository, times(1)).fetchAuthorListingMetadata(100);
         verify(sitemapRepository, never()).fetchAuthorsForBucket(org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt());
         verify(sitemapRepository, never()).fetchBooksForAuthors(org.mockito.ArgumentMatchers.anySet());
+    }
+
+    @Test
+    void should_FetchAuthorFingerprintLazily_When_ListingTimestampIsAbsent() {
+        Instant fallback = Instant.parse("2024-04-01T00:00:00Z");
+        when(sitemapRepository.fetchAuthorListingMetadata(100)).thenReturn(List.of(
+                new AuthorListingMetadata("A", 1, Optional.empty())
+        ));
+        when(sitemapRepository.fetchAuthorFingerprint()).thenReturn(new DatasetFingerprint(1, fallback));
+
+        assertThat(sitemapService.getAuthorListingsForXmlPage(1)).containsExactly(
+                new SitemapService.AuthorListingXmlItem("A", 1, fallback)
+        );
+
+        verify(sitemapRepository, times(1)).fetchAuthorFingerprint();
     }
 
     @Test
@@ -245,7 +308,7 @@ class SitemapServiceTest {
 
     @Test
     void should_ThrowIllegalStateException_When_AuthorMetadataRepositoryIsUnavailable() {
-        when(sitemapRepository.fetchAuthorPageMetadata(100, 5000))
+        when(sitemapRepository.fetchAuthorListingMetadata(100))
                 .thenThrow(new CannotGetJdbcConnectionException("db down", new SQLException("auth")));
 
         assertThatThrownBy(() -> sitemapService.getAuthorSitemapPageMetadata())

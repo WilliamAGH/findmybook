@@ -10,6 +10,7 @@ import org.springframework.jdbc.core.RowMapper;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -103,29 +104,31 @@ class SitemapBookLastModifiedSqlSupportTest {
     }
 
     @Test
-    void should_DisableParallelWorkersBeforeBulkQuery_When_AuthorPageMetadataIsRequested() {
+    void should_SelectCanonicalOrderedListings_When_AuthorListingMetadataIsRequested() {
         JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
         SitemapRepository sitemapRepository = new SitemapRepository(jdbcTemplate);
-        List<SitemapRepository.PageMetadata> expected = List.of(
-                new SitemapRepository.PageMetadata(1, Instant.parse("2024-02-01T00:00:00Z"))
+        List<SitemapRepository.AuthorListingMetadata> expected = List.of(
+                new SitemapRepository.AuthorListingMetadata(
+                        "A",
+                        1,
+                        Optional.of(Instant.parse("2024-02-01T00:00:00Z"))
+                )
         );
         when(jdbcTemplate.query(
                 anyString(),
-                org.mockito.ArgumentMatchers.<RowMapper<SitemapRepository.PageMetadata>>any(),
-                eq(100),
-                eq(5000)
+                org.mockito.ArgumentMatchers.<RowMapper<SitemapRepository.AuthorListingMetadata>>any(),
+                eq(100)
         )).thenReturn(expected);
 
-        assertThat(sitemapRepository.fetchAuthorPageMetadata(100, 5000)).isEqualTo(expected);
+        assertThat(sitemapRepository.fetchAuthorListingMetadata(100)).isEqualTo(expected);
 
         ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
         InOrder inOrder = inOrder(jdbcTemplate);
         inOrder.verify(jdbcTemplate).execute("SET LOCAL max_parallel_workers_per_gather = 0");
         inOrder.verify(jdbcTemplate).query(
                 sqlCaptor.capture(),
-                org.mockito.ArgumentMatchers.<RowMapper<SitemapRepository.PageMetadata>>any(),
-                eq(100),
-                eq(5000)
+                org.mockito.ArgumentMatchers.<RowMapper<SitemapRepository.AuthorListingMetadata>>any(),
+                eq(100)
         );
         assertThat(sqlCaptor.getValue())
                 .contains("book_last_modified")
@@ -133,6 +136,8 @@ class SitemapBookLastModifiedSqlSupportTest {
                 .contains("author_listing_pages")
                 .contains("ROW_NUMBER() OVER")
                 .contains("ORDER BY CASE bucket")
+                .contains("SELECT bucket, author_page_number, last_modified")
+                .doesNotContain("GROUP BY page_number")
                 .doesNotContain("%s");
     }
 
