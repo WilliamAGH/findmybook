@@ -144,6 +144,16 @@ public class SitemapRepository {
         }, params);
     }
 
+    /**
+     * Computes XML sitemap metadata for all book listing pages in one database round trip.
+     *
+     * <p>The read transaction disables PostgreSQL gather workers before this global aggregate
+     * to avoid dynamic shared-memory exhaustion in constrained database containers.</p>
+     *
+     * @param pageSize number of books in one XML sitemap page
+     * @return page metadata ordered by XML sitemap page number
+     */
+    @Transactional(readOnly = true)
     public List<PageMetadata> fetchBookPageMetadata(int pageSize) {
         if (pageSize <= 0) {
             throw new IllegalArgumentException("Page size must be positive, got: " + pageSize);
@@ -159,6 +169,7 @@ public class SitemapRepository {
                 "SELECT CAST(FLOOR((rn - 1) / ?::numeric) AS bigint) + 1 AS page_number, " +
                 "       MAX(" + BOOK_UPDATED_AT_ALIAS + ") AS last_modified " +
                 "FROM ordered GROUP BY page_number ORDER BY page_number";
+        disableParallelWorkersForTransaction();
         return jdbcTemplate.query(sql, (rs, rowNum) -> new PageMetadata(
                 rs.getInt("page_number"),
                 rs.getTimestamp("last_modified").toInstant()
@@ -170,12 +181,15 @@ public class SitemapRepository {
      *
      * <p>Author XML pages contain links to HTML author listing pages rather than individual
      * authors. This query preserves that listing order while aggregating author and canonical
-     * book last-modified timestamps in the database.</p>
+     * book last-modified timestamps in the database. The read transaction disables PostgreSQL
+     * gather workers before the aggregate to avoid dynamic shared-memory exhaustion in
+     * constrained database containers.</p>
      *
      * @param htmlPageSize number of authors in one HTML listing page
      * @param xmlPageSize number of HTML listing pages in one XML sitemap page
      * @return page metadata ordered by XML sitemap page number
      */
+    @Transactional(readOnly = true)
     public List<PageMetadata> fetchAuthorPageMetadata(int htmlPageSize, int xmlPageSize) {
         if (htmlPageSize <= 0) {
             throw new IllegalArgumentException("HTML page size must be positive, got: " + htmlPageSize);
@@ -238,10 +252,15 @@ public class SitemapRepository {
                 AUTHOR_PAGE_NUMBER_ALIAS,
                 AUTHOR_PAGE_NUMBER_ALIAS
         );
+        disableParallelWorkersForTransaction();
         return jdbcTemplate.query(sql, (rs, rowNum) -> new PageMetadata(
                 rs.getInt("page_number"),
                 rs.getTimestamp("last_modified").toInstant()
         ), htmlPageSize, xmlPageSize);
+    }
+
+    private void disableParallelWorkersForTransaction() {
+        jdbcTemplate.execute(DISABLE_PARALLEL_QUERY_FOR_TRANSACTION);
     }
 
     /**
@@ -252,7 +271,7 @@ public class SitemapRepository {
      */
     @Transactional(readOnly = true)
     public DatasetFingerprint fetchBookFingerprint() {
-        jdbcTemplate.execute(DISABLE_PARALLEL_QUERY_FOR_TRANSACTION);
+        disableParallelWorkersForTransaction();
         return jdbcTemplate.queryForObject(BOOK_FINGERPRINT_QUERY, (rs, rowNum) -> new DatasetFingerprint(
                 rs.getInt("total_records"),
                 rs.getTimestamp(BOOK_UPDATED_AT_ALIAS).toInstant()
