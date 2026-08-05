@@ -1,5 +1,6 @@
 package net.findmybook.service;
 
+import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -23,11 +24,16 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import org.springframework.util.StringUtils;
+import org.springframework.web.reactive.function.client.WebClientRequestException;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Flux;
+import reactor.netty.http.client.PrematureCloseException;
+import reactor.util.retry.Retry;
 
 @Service
 public class BookDataOrchestrator {
@@ -43,8 +49,11 @@ public class BookDataOrchestrator {
     private static final long SEARCH_VIEW_REFRESH_INTERVAL_MS = 60_000L;
     private static final int DESCRIPTION_ENRICHMENT_LIMIT = 6;
     private static final Duration DESCRIPTION_ENRICHMENT_TIMEOUT = Duration.ofSeconds(8);
+    private static final int OPEN_LIBRARY_TRANSIENT_RETRY_LIMIT = 1;
     private static final String DESCRIPTION_ENRICHMENT_SORT = "relevance";
     private static final String ISBN_QUERY_PREFIX = "isbn:";
+    private static final String OPEN_LIBRARY_PROVIDER = "Open Library";
+    private static final String GOOGLE_BOOKS_PROVIDER = "Google Books";
     private final AtomicLong lastSearchViewRefresh = new AtomicLong(0L);
     private final AtomicBoolean searchViewRefreshInProgress = new AtomicBoolean(false);
 
@@ -126,11 +135,9 @@ public class BookDataOrchestrator {
     private List<Book> fetchDescriptionEnrichmentCandidates(UUID bookId, String query) {
         List<Book> candidates = new ArrayList<>();
         RuntimeException firstProviderFailure = null;
-        boolean providerSucceeded = false;
         if (openLibraryBookDataService.isPresent()) {
             try {
                 candidates.addAll(fetchOpenLibraryCandidates(query));
-                providerSucceeded = true;
             } catch (RuntimeException openLibraryFailure) {
                 firstProviderFailure = openLibraryFailure;
                 logger.warn("Open Library description enrichment failed for bookId={} (continuing with Google Books): {}",
@@ -140,7 +147,6 @@ public class BookDataOrchestrator {
         if (googleExternalSearchFlow.isAvailable()) {
             try {
                 candidates.addAll(fetchGoogleCandidates(query));
-                providerSucceeded = true;
             } catch (RuntimeException googleFailure) {
                 if (firstProviderFailure != null) {
                     firstProviderFailure.addSuppressed(googleFailure);
@@ -149,7 +155,7 @@ public class BookDataOrchestrator {
                 }
             }
         }
-        if (!providerSucceeded && firstProviderFailure != null) {
+        if (candidates.isEmpty() && firstProviderFailure != null) {
             throw firstProviderFailure;
         }
         return candidates;
@@ -162,17 +168,61 @@ public class BookDataOrchestrator {
             || SearchQueryUtils.isWildcard(openLibraryQuery)) {
             return List.of();
         }
-        return collectWithTimeout(openLibraryBookDataService.get()
-            .queryBooksByEverything(openLibraryQuery, DESCRIPTION_ENRICHMENT_SORT, 0, DESCRIPTION_ENRICHMENT_LIMIT));
+        Flux<Book> candidates = openLibraryBookDataService.get()
+            .queryBooksByEverything(openLibraryQuery, DESCRIPTION_ENRICHMENT_SORT, 0, DESCRIPTION_ENRICHMENT_LIMIT);
+        return collectOpenLibraryCandidates(candidates);
     }
 
     private List<Book> fetchGoogleCandidates(String query) {
-        return collectWithTimeout(googleExternalSearchFlow
-            .streamCandidates(query, DESCRIPTION_ENRICHMENT_SORT, null, DESCRIPTION_ENRICHMENT_LIMIT));
+        Flux<Book> candidates = googleExternalSearchFlow
+            .streamCandidates(query, DESCRIPTION_ENRICHMENT_SORT, null, DESCRIPTION_ENRICHMENT_LIMIT);
+        return collectGoogleCandidates(candidates);
     }
 
-    private List<Book> collectWithTimeout(Flux<Book> source) {
-        return source.timeout(DESCRIPTION_ENRICHMENT_TIMEOUT).collectList().block();
+    private List<Book> collectOpenLibraryCandidates(Flux<Book> candidates) {
+        Mono<List<Book>> retriedCandidates = candidates.collectList()
+            .retryWhen(Retry.max(OPEN_LIBRARY_TRANSIENT_RETRY_LIMIT)
+                .filter(this::isTransientProviderFailure)
+                .doBeforeRetry(retrySignal -> logger.info(
+                    "Retrying Open Library description enrichment after transient {} (retry={})",
+                    retrySignal.failure().getClass().getSimpleName(),
+                    retrySignal.totalRetries() + 1
+                ))
+                .onRetryExhaustedThrow((retrySpec, retrySignal) -> retrySignal.failure()));
+        return collectWithDescriptionEnrichmentDeadline(OPEN_LIBRARY_PROVIDER, retriedCandidates);
+    }
+
+    private List<Book> collectGoogleCandidates(Flux<Book> candidates) {
+        return collectWithDescriptionEnrichmentDeadline(GOOGLE_BOOKS_PROVIDER, candidates.collectList());
+    }
+
+    private List<Book> collectWithDescriptionEnrichmentDeadline(String providerName, Mono<List<Book>> candidates) {
+        return candidates
+            .timeout(DESCRIPTION_ENRICHMENT_TIMEOUT)
+            .onErrorMap(TimeoutException.class, timeoutFailure -> new IllegalStateException(
+                providerName + " description enrichment exceeded its "
+                    + DESCRIPTION_ENRICHMENT_TIMEOUT.toSeconds() + "s total deadline",
+                timeoutFailure
+            ))
+            .block();
+    }
+
+    private boolean isTransientProviderFailure(Throwable failure) {
+        Throwable currentFailure = failure;
+        while (currentFailure != null) {
+            if (currentFailure instanceof WebClientResponseException responseException
+                && responseException.getStatusCode().is5xxServerError()) {
+                return true;
+            }
+            if (currentFailure instanceof TimeoutException
+                || currentFailure instanceof IOException
+                || currentFailure instanceof WebClientRequestException
+                || currentFailure instanceof PrematureCloseException) {
+                return true;
+            }
+            currentFailure = currentFailure.getCause();
+        }
+        return false;
     }
 
     private String persistEnrichedDescription(UUID bookId,

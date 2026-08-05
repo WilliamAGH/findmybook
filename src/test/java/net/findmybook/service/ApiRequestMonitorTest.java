@@ -19,6 +19,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.test.StepVerifier;
 
 import java.time.LocalDate;
@@ -29,7 +30,10 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 public class ApiRequestMonitorTest {
 
@@ -105,7 +109,11 @@ public class ApiRequestMonitorTest {
         fetcherLogger.addAppender(logEvents);
         try {
             StepVerifier.create(fetcher.streamSearchItems("failure query", 1, "relevance", null, true))
-                    .expectError(IllegalStateException.class)
+                    .expectErrorSatisfies(failure -> {
+                        assertInstanceOf(IllegalStateException.class, failure);
+                        assertThat(failure)
+                                .hasRootCauseInstanceOf(WebClientResponseException.ServiceUnavailable.class);
+                    })
                     .verify();
 
             List<ILoggingEvent> warnings = logEvents.list.stream()
@@ -122,6 +130,32 @@ public class ApiRequestMonitorTest {
             fetcherLogger.detachAppender(logEvents);
             logEvents.stop();
         }
+    }
+
+    @Test
+    void should_CompleteEmpty_When_GoogleFallbackFeatureIsDisabled() {
+        GoogleApiFetcher fetcher = googleFetcherWithFallback(false, mock(ApiCircuitBreakerService.class));
+
+        StepVerifier.create(fetcher.streamSearchItems("disabled fallback", 1, "relevance", null, false))
+                .verifyComplete();
+    }
+
+    @Test
+    void should_PropagateFailure_When_GoogleFallbackCircuitIsOpen() {
+        ApiCircuitBreakerService circuitBreaker = mock(ApiCircuitBreakerService.class);
+        when(circuitBreaker.isFallbackAllowed()).thenReturn(false);
+        GoogleApiFetcher fetcher = googleFetcherWithFallback(true, circuitBreaker);
+
+        StepVerifier.create(fetcher.streamSearchItems("blocked fallback", 1, "relevance", null, false))
+                .expectErrorMatches(failure -> failure instanceof IllegalStateException
+                        && failure.getMessage().contains("Fallback circuit OPEN"))
+                .verify();
+
+        StepVerifier.create(fetcher.searchVolumesUnauthenticated(
+                        "blocked fallback", 0, "relevance", null, 1))
+                .expectErrorMatches(failure -> failure instanceof IllegalStateException
+                        && failure.getMessage().contains("Fallback circuit OPEN"))
+                .verify();
     }
 
     @Test
@@ -160,6 +194,19 @@ public class ApiRequestMonitorTest {
         assertEquals(2L, (Long) apiRequestMonitor.getMetricsMap().get("total_requests"));
         assertEquals(1L, (Long) apiRequestMonitor.getMetricsMap().get("total_successful"));
         assertEquals(1L, (Long) apiRequestMonitor.getMetricsMap().get("total_failed"));
+    }
+
+    private GoogleApiFetcher googleFetcherWithFallback(
+            boolean fallbackEnabled,
+            ApiCircuitBreakerService circuitBreaker
+    ) {
+        GoogleApiFetcher fetcher = new GoogleApiFetcher(
+                WebClient.builder(),
+                apiRequestMonitor,
+                circuitBreaker
+        );
+        ReflectionTestUtils.setField(fetcher, "googleFallbackEnabled", fallbackEnabled);
+        return fetcher;
     }
 
     @Test

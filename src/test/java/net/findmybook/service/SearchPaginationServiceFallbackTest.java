@@ -34,11 +34,9 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
 
         when(bookSearchService.searchBooks("fallback", 24)).thenReturn(List.of());
         when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
+        when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(true);
         when(googleApiFetcher.streamSearchItems("fallback", 24, "newest", null, true))
             .thenReturn(Flux.just(googleVolumeNode("google-vol-1", "Fallback Title")));
-        when(googleApiFetcher.streamSearchItems("fallback", 24, "newest", null, false))
-            .thenReturn(Flux.empty());
-        when(googleApiFetcher.isFallbackAllowed()).thenReturn(true);
 
         BookAggregate aggregate = BookAggregate.builder()
             .title("Fallback Title")
@@ -74,6 +72,7 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
         Book openLibraryTwo = buildOpenLibraryCandidate("OL-PRIMARY-2", "Open Primary Two");
 
         when(bookSearchService.searchBooks("fallback", 2)).thenReturn(List.of());
+        when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(false);
         when(openLibraryBookDataService.queryBooksByEverything(eq("fallback"), anyString(), eq(0), eq(2)))
             .thenReturn(Flux.just(openLibraryOne, openLibraryTwo));
 
@@ -84,7 +83,8 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
         assertThat(page.totalUnique()).isEqualTo(2);
         assertThat(page.pageItems()).extracting(Book::getId).containsExactly("OL-PRIMARY-1");
         verify(openLibraryBookDataService).queryBooksByEverything("fallback", "newest", 0, 2);
-        verifyNoInteractions(googleApiFetcher);
+        verify(googleApiFetcher, never())
+            .streamSearchItems(anyString(), anyInt(), anyString(), any(), anyBoolean());
         verifyNoInteractions(googleBooksMapper);
     }
 
@@ -97,9 +97,9 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
         when(openLibraryBookDataService.queryBooksByEverything(eq("fallback"), anyString(), eq(0), eq(4)))
             .thenReturn(Flux.just(openLibraryOnly));
         when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
+        when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(false);
         when(googleApiFetcher.streamSearchItems("fallback", 4, "newest", null, true))
             .thenReturn(Flux.just(googleVolumeNode("google-vol-2", "Google Secondary")));
-        when(googleApiFetcher.isFallbackAllowed()).thenReturn(false);
         when(googleBooksMapper.map(argThat(node -> "google-vol-2".equals(node.path("id").asString("")))))
             .thenReturn(googleAggregate("GOOGLE-SECONDARY-1", "Google Secondary", "https://example.test/google-secondary.jpg"));
 
@@ -135,9 +135,9 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
         when(openLibraryBookDataService.queryBooksByEverything(eq("0061120081"), anyString(), eq(0), eq(4)))
             .thenReturn(Flux.just(openLibraryCandidate));
         when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
+        when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(false);
         when(googleApiFetcher.streamSearchItems("0061120081", 4, "newest", null, true))
             .thenReturn(Flux.just(googleVolumeNode("google-vol-isbn", "Provider Secondary Title")));
-        when(googleApiFetcher.isFallbackAllowed()).thenReturn(false);
         when(googleBooksMapper.map(argThat(node -> "google-vol-isbn".equals(node.path("id").asString("")))))
             .thenReturn(googleCandidate);
 
@@ -172,9 +172,9 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
         when(openLibraryBookDataService.queryBooksByEverything(eq("0061120081"), anyString(), eq(0), eq(4)))
             .thenReturn(Flux.just(openLibraryCandidate));
         when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
+        when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(false);
         when(googleApiFetcher.streamSearchItems("0061120081", 4, "newest", null, true))
             .thenReturn(Flux.just(googleVolumeNode("google-vol-title-author", "To Kill a Mockingbird")));
-        when(googleApiFetcher.isFallbackAllowed()).thenReturn(false);
         when(googleBooksMapper.map(argThat(node -> "google-vol-title-author".equals(node.path("id").asString("")))))
             .thenReturn(googleCandidate);
 
@@ -210,9 +210,9 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
         when(openLibraryBookDataService.queryBooksByEverything(eq("same title"), anyString(), eq(0), eq(4)))
             .thenReturn(Flux.just(openLibraryCandidate));
         when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
+        when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(false);
         when(googleApiFetcher.streamSearchItems("same title", 4, "newest", null, true))
             .thenReturn(Flux.just(googleVolumeNode("google-vol-different-isbn", "Same Title")));
-        when(googleApiFetcher.isFallbackAllowed()).thenReturn(false);
         when(googleBooksMapper.map(argThat(node -> "google-vol-different-isbn".equals(node.path("id").asString("")))))
             .thenReturn(googleCandidate);
 
@@ -250,6 +250,7 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
         duplicateFallback.setAuthors(List.of("John Grisham"));
         Book distinctFallback = buildOpenLibraryCandidate("OL37836170W", "Camino Ghosts");
         distinctFallback.setAuthors(List.of("John Grisham"));
+        when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(false);
         when(openLibraryBookDataService.queryBooksByEverything(eq("john grisham"), anyString(), eq(0), eq(4)))
             .thenReturn(Flux.just(duplicateFallback, distinctFallback));
 
@@ -273,6 +274,7 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
         openLibraryCandidate.setLanguage("eng");
 
         when(bookSearchService.searchBooks("john grisham", 2)).thenReturn(List.of());
+        when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(false);
         when(openLibraryBookDataService.queryBooksByEverything(eq("john grisham"), anyString(), eq(0), eq(2)))
             .thenReturn(Flux.just(openLibraryCandidate));
 
@@ -297,9 +299,9 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
         when(openLibraryBookDataService.queryBooksByEverything(eq("fallback"), anyString(), eq(0), eq(4)))
             .thenReturn(Flux.just(openLibraryOnly));
         when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
+        when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(false);
         when(googleApiFetcher.streamSearchItems("fallback", 4, "newest", null, true))
             .thenReturn(Flux.error(new IllegalStateException("rate limited")));
-        when(googleApiFetcher.isFallbackAllowed()).thenReturn(false);
 
         SearchPaginationService openLibraryPrimaryService = fallbackEnabledService();
         SearchPaginationService.SearchPage page = openLibraryPrimaryService.search(searchRequest("fallback", 0, 2, "newest")).block();
@@ -329,6 +331,7 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
         openLibraryCandidate.setCoverImageWidth(600);
         openLibraryCandidate.setCoverImageHeight(900);
         openLibraryCandidate.setIsCoverHighResolution(true);
+        when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(false);
         when(openLibraryBookDataService.queryBooksByEverything(eq("john grisham"), anyString(), eq(0), eq(6)))
             .thenReturn(Flux.just(openLibraryCandidate));
 
@@ -361,6 +364,7 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
             )
         ));
 
+        when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(false);
         when(openLibraryBookDataService.queryBooksByEverything(eq("john grisham"), anyString()))
             .thenReturn(Flux.never());
 
@@ -386,7 +390,7 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
             .thenReturn(Flux.empty());
 
         when(googleApiFetcher.isApiKeyAvailable()).thenReturn(false);
-        when(googleApiFetcher.isFallbackAllowed()).thenReturn(true);
+        when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(true);
         when(googleApiFetcher.streamSearchItems("distributed systems", 24, "relevance", null, false))
             .thenReturn(Flux.just(googleVolumeNode("google-vol-unauth", "Pragmatic Distributed Systems")));
         when(googleBooksMapper.map(argThat(node -> "google-vol-unauth".equals(node.path("id").asString("")))))

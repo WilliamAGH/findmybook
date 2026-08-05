@@ -12,6 +12,7 @@ import reactor.core.publisher.Flux;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Shared Google Books fallback flow used by paginated and realtime search pipelines.
@@ -39,10 +40,12 @@ public final class GoogleExternalSearchFlow {
     /**
      * Indicates whether Google fallback dependencies are available.
      *
-     * @return true when both fetcher and mapper are present
+     * @return true when both dependencies are present and an authenticated or fallback tier is enabled
      */
     public boolean isAvailable() {
-        return googleApiFetcher.isPresent() && googleBooksMapper.isPresent();
+        return googleApiFetcher.isPresent()
+            && googleBooksMapper.isPresent()
+            && (googleApiFetcher.get().isApiKeyAvailable() || googleApiFetcher.get().isGoogleFallbackEnabled());
     }
 
     /**
@@ -69,15 +72,27 @@ public final class GoogleExternalSearchFlow {
         GoogleBooksMapper mapper = googleBooksMapper.get();
         String externalOrderBy = SearchExternalProviderUtils.normalizeGoogleOrderBy(orderBy);
 
-        Flux<JsonNode> authenticated = fetcher.isApiKeyAvailable()
-            ? fetcher.streamSearchItems(query, maxResults, externalOrderBy, null, true)
-                .onErrorResume(ex -> fetcher.isFallbackAllowed() ? Flux.empty() : Flux.error(ex))
-            : Flux.empty();
-        Flux<JsonNode> unauthenticated = fetcher.isFallbackAllowed()
-            ? fetcher.streamSearchItems(query, maxResults, externalOrderBy, null, false)
-            : Flux.empty();
+        Flux<JsonNode> providerItems;
+        if (!fetcher.isApiKeyAvailable()) {
+            providerItems = fetcher.isGoogleFallbackEnabled()
+                ? fetcher.streamSearchItems(query, maxResults, externalOrderBy, null, false)
+                : Flux.empty();
+        } else {
+            Flux<JsonNode> authenticated = fetcher.streamSearchItems(query, maxResults, externalOrderBy, null, true);
+            if (!fetcher.isGoogleFallbackEnabled()) {
+                providerItems = authenticated;
+            } else if (!fetcher.isFallbackAllowed()) {
+                providerItems = authenticated.onErrorMap(failure -> new IllegalStateException(
+                    "Google Books authenticated search failed while unauthenticated fallback is unavailable",
+                    failure
+                ));
+            } else {
+                Flux<JsonNode> unauthenticated = fetcher.streamSearchItems(query, maxResults, externalOrderBy, null, false);
+                providerItems = streamAuthenticatedThenFallback(authenticated, unauthenticated);
+            }
+        }
 
-        return Flux.concat(authenticated, unauthenticated)
+        return providerItems
             .map(mapper::map)
             .filter(Objects::nonNull)
             .map(BookDomainMapper::fromAggregate)
@@ -86,5 +101,22 @@ public final class GoogleExternalSearchFlow {
             .map(SearchExternalProviderUtils::tagGoogleFallback)
             .filter(book -> SearchExternalProviderUtils.matchesPublishedYear(book, publishedYear))
             .take(maxResults);
+    }
+
+    private Flux<JsonNode> streamAuthenticatedThenFallback(Flux<JsonNode> authenticated,
+                                                            Flux<JsonNode> unauthenticated) {
+        return Flux.defer(() -> {
+            AtomicBoolean fallbackConsumed = new AtomicBoolean(false);
+            Flux<JsonNode> authenticatedOrFallback = authenticated.onErrorResume(authenticatedFailure -> {
+                fallbackConsumed.set(true);
+                return unauthenticated.onErrorMap(fallbackFailure -> {
+                    authenticatedFailure.addSuppressed(fallbackFailure);
+                    return authenticatedFailure;
+                });
+            });
+            return authenticatedOrFallback.concatWith(Flux.defer(
+                () -> fallbackConsumed.get() ? Flux.empty() : unauthenticated
+            ));
+        });
     }
 }

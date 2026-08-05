@@ -32,9 +32,9 @@ class SearchPaginationServiceRealtimeTest extends AbstractSearchPaginationServic
         stubCompletePostgresPage("distributed systems", 24, 12, null);
 
         when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
+        when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(false);
         when(googleApiFetcher.streamSearchItems("distributed systems", 12, "relevance", null, true))
             .thenReturn(Flux.just(googleVolumeNode("google-vol-realtime", "Realtime Systems")));
-        when(googleApiFetcher.isFallbackAllowed()).thenReturn(false);
         when(googleBooksMapper.map(argThat(node -> "google-vol-realtime".equals(node.path("id").asString("")))))
             .thenReturn(googleAggregate("google-vol-realtime", "Realtime Systems", "https://example.test/realtime.jpg"));
         when(openLibraryBookDataService.queryBooksByEverything(eq("distributed systems"), anyString(), eq(0), eq(24)))
@@ -77,6 +77,7 @@ class SearchPaginationServiceRealtimeTest extends AbstractSearchPaginationServic
         stubCompletePostgresPage("distributed systems", 24, 12, LocalDate.of(2024, 1, 1));
 
         when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
+        when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(false);
         when(googleApiFetcher.streamSearchItems("distributed systems", 12, "relevance", null, true))
             .thenReturn(Flux.just(googleVolumeNode("google-vol-filtered", "Filtered Systems")));
         when(googleBooksMapper.map(argThat(node -> "google-vol-filtered".equals(node.path("id").asString("")))))
@@ -125,6 +126,7 @@ class SearchPaginationServiceRealtimeTest extends AbstractSearchPaginationServic
         stubCompletePostgresPage("distributed systems", 200, 100, null);
 
         when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
+        when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(false);
         when(googleApiFetcher.streamSearchItems("distributed systems", 20, "relevance", null, true))
             .thenReturn(Flux.just(googleVolumeNode("google-vol-clamped", "Realtime Systems")));
         when(googleBooksMapper.map(argThat(node -> "google-vol-clamped".equals(node.path("id").asString("")))))

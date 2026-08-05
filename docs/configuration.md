@@ -11,7 +11,7 @@ Key variables in `.env`:
 | `OPENAI_API_KEY` | OpenAI-compatible API key for generation and embeddings |
 | `OPENAI_BASE_URL` | OpenAI-compatible base URL for generation and embeddings |
 | `OPENAI_MODEL` | Canonical inference model for AI book content and SEO metadata generation |
-| `OPENAI_REASONING_EFFORT` | Optional standard gateway reasoning effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`; leave unset to use the model default |
+| `OPENAI_REASONING_EFFORT` | Optional canonical gateway reasoning effort; leave unset to use the model default. Invalid values fail startup and report the accepted tokens. OFF (`none`) is honored only for GENERAL-class gateway keys — other key classes are clamped to reasoning-ON |
 | `OPENAI_EMBEDDINGS_MODEL` | Canonical embeddings model for vector calculations |
 | `AI_DEFAULT_MAX_PARALLEL` | Global outbound AI queue executor cap, coerced to `2..20`; background work may occupy at most `cap - 1` so one slot remains available for foreground generation |
 | `APP_AI_QUEUE_BACKGROUND_MAX_PENDING` | Max pending background ingestion AI jobs (default `100`) |
@@ -33,7 +33,7 @@ Key variables in `.env`:
 | `APP_NYT_SCHEDULER_STANDALONE_ENABLED` | Enables standalone NYT `@Scheduled` execution when not using the weekly orchestrator |
 | `GOOGLE_BOOKS_API_KEY` | Book data source |
 | `S3_*` | S3 storage configuration (credentials, bucket, CDN URLs) |
-| `S3_ENABLED` | When `false`, S3 cover storage and CDN URL resolution are disabled; bare S3 keys do not count as usable covers, and supplied external fallback URLs are used (default `true`) |
+| `S3_ENABLED` | When `false`, S3 cover storage and CDN URL resolution are disabled; bare S3 keys do not count as usable covers for URL resolution, and supplied external fallback URLs are used. Backfill candidate selection is independent of this flag (see `docs/troubleshooting.md`). (default `true`) |
 | `S3_WRITE_ENABLED` | Enables/disables S3 cover uploads at runtime (`false` skips upload attempts without disabling S3 cover URL resolution) |
 | `APP_ADMIN_PASSWORD` | Admin user password |
 | `APP_USER_PASSWORD` | Basic user password |

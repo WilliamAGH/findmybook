@@ -121,9 +121,9 @@ public class GoogleApiFetcher {
                 .retrieve()
                 .toEntity(JsonNode.class)
                 .doOnSubscribe(s -> log.debug("Fetching from Google API: {}", url))
-                .timeout(Duration.ofSeconds(5))
                 .retryWhen(authenticated
-                    ? Retry.max(0) // NO RETRIES for authenticated calls - fail fast to trigger circuit breaker
+                    ? Retry.max(0)
+                        .onRetryExhaustedThrow((retrySpec, retrySignal) -> retrySignal.failure())
                     : Retry.backoff(1, Duration.ofSeconds(1))
                         .filter(throwable -> {
                             if (throwable instanceof WebClientResponseException wcre) {
@@ -245,7 +245,7 @@ public class GoogleApiFetcher {
         }
         if (!circuitBreakerService.isFallbackAllowed()) {
             log.info("Fallback circuit is OPEN - skipping unauthenticated search for query '{}'", query);
-            return Mono.empty();
+            return Mono.error(new IllegalStateException("Fallback circuit OPEN for unauthenticated Google Books search"));
         }
         return searchVolumesInternal(query, startIndex, orderBy, langCode, false, pageSize);
     }
@@ -271,9 +271,13 @@ public class GoogleApiFetcher {
         final int effectiveMax = maxResultsToFetch > 0 ? maxResultsToFetch : maxResultsPerPage;
         final int pageCount = (effectiveMax + maxResultsPerPage - 1) / maxResultsPerPage;
 
-        if (!authenticated && (!googleFallbackEnabled || !circuitBreakerService.isFallbackAllowed())) {
-            log.debug("Skipping unauthenticated stream for query '{}' because fallback is disabled or blocked", query);
+        if (!authenticated && !googleFallbackEnabled) {
+            log.debug("Skipping unauthenticated stream for query '{}' because fallback is disabled", query);
             return Flux.empty();
+        }
+        if (!authenticated && !circuitBreakerService.isFallbackAllowed()) {
+            log.info("Fallback circuit is OPEN - skipping unauthenticated stream for query '{}'", query);
+            return Flux.error(new IllegalStateException("Fallback circuit OPEN for unauthenticated Google Books search"));
         }
 
         return Flux.range(0, pageCount)
@@ -364,9 +368,9 @@ public class GoogleApiFetcher {
                 .retrieve()
                 .toEntity(JsonNode.class)
                 .doOnSubscribe(s -> log.debug("Making Google Books API search call ({}) for query: {}, startIndex: {}", authStatus, query, startIndex))
-                .timeout(Duration.ofSeconds(5))
                 .retryWhen(authenticated
-                    ? Retry.max(0) // NO RETRIES for authenticated calls - fail fast to trigger circuit breaker
+                    ? Retry.max(0)
+                        .onRetryExhaustedThrow((retrySpec, retrySignal) -> retrySignal.failure())
                     : Retry.backoff(1, Duration.ofSeconds(1)) // One retry for unauthenticated
                         .filter(throwable -> {
                             if (throwable instanceof WebClientResponseException wcre) {
