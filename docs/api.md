@@ -198,7 +198,8 @@
 - Returns cursor metadata: `hasMore`, `nextStartIndex`, `prefetchedCount`.
 - Each canonical query/filter/page-size combination builds one bounded, immutable ordered candidate snapshot from offset zero.
 - Later offsets slice that same snapshot, so totals and ordering remain stable for the snapshot's two-minute TTL even when realtime persistence changes Postgres.
-- The snapshot loads the complete bounded candidate universe, capped at 200 candidates, before slicing pages.
+- The snapshot loads one bounded candidate universe before slicing pages: Postgres and Open Library may contribute up to 200 candidates, while Google secondary supplementation is limited to one 40-result provider page.
+- Cold snapshot admission allows at most four concurrent loads and thirty new query snapshots per minute; excess unique-query bursts return HTTP `429` instead of consuming unbounded database or provider capacity.
 - Web UI caches up to six prefetched pages in-memory.
 
 ## SPA Page Payload Contracts

@@ -1,10 +1,16 @@
 package net.findmybook.util;
 
+import io.github.resilience4j.bulkhead.BulkheadFullException;
+import io.github.resilience4j.ratelimiter.RequestNotPermitted;
 import net.findmybook.model.Book;
 import java.time.ZoneOffset;
+import java.util.ArrayDeque;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Shared normalization and validation rules for external book-provider search flows.
@@ -12,6 +18,9 @@ import java.util.Optional;
  * across fallback and realtime enrichment pipelines.
  */
 public final class SearchExternalProviderUtils {
+
+    private static final String SEARCH_SOURCE_QUALIFIER = "search.source";
+    private static final String EXTERNAL_FALLBACK_SOURCE = "EXTERNAL_FALLBACK";
 
     public static final String DEFAULT_ORDER_BY = "relevance";
     private static final List<String> SUPPORTED_ORDER_BY = List.of("relevance", "newest", "title", "author");
@@ -148,11 +157,64 @@ public final class SearchExternalProviderUtils {
         return tagExternalFallback(book, "OPEN_LIBRARY_API", "OPEN_LIBRARY");
     }
 
+    /**
+     * Identifies candidates discovered through an external search fallback.
+     *
+     * @param book candidate to inspect
+     * @return true when the canonical search-source qualifier marks an external fallback
+     */
+    public static boolean isExternalFallback(Book book) {
+        if (book == null || book.getQualifiers() == null) {
+            return false;
+        }
+        Object source = book.getQualifiers().get(SEARCH_SOURCE_QUALIFIER);
+        return source != null && EXTERNAL_FALLBACK_SOURCE.equalsIgnoreCase(source.toString());
+    }
+
+    /**
+     * Detects local search-admission denials anywhere in a failure graph.
+     *
+     * <p>Provider fallback joins may retain one failure as a suppressed exception, while
+     * other provider branches wrap it as a cause. Traversing both relationships ensures
+     * local capacity rejection always reaches the HTTP 429 boundary instead of being
+     * swallowed as a provider failure or reported as an internal error.</p>
+     *
+     * @param failure root failure emitted by a search flow
+     * @return true when the failure graph contains a local rate-limit or bulkhead denial
+     */
+    public static boolean isLocalAdmissionDenied(Throwable failure) {
+        if (failure == null) {
+            return false;
+        }
+
+        Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+        ArrayDeque<Throwable> pending = new ArrayDeque<>();
+        pending.add(failure);
+        while (!pending.isEmpty()) {
+            Throwable current = pending.removeFirst();
+            if (!visited.add(current)) {
+                continue;
+            }
+            if (current instanceof RequestNotPermitted || current instanceof BulkheadFullException) {
+                return true;
+            }
+            if (current.getCause() != null) {
+                pending.addLast(current.getCause());
+            }
+            for (Throwable suppressed : current.getSuppressed()) {
+                if (suppressed != null) {
+                    pending.addLast(suppressed);
+                }
+            }
+        }
+        return false;
+    }
+
     private static Book tagExternalFallback(Book book, String matchType, String source) {
         if (book == null) {
             return null;
         }
-        book.addQualifier("search.source", "EXTERNAL_FALLBACK");
+        book.addQualifier(SEARCH_SOURCE_QUALIFIER, EXTERNAL_FALLBACK_SOURCE);
         book.addQualifier("search.provider", source);
         book.addQualifier("search.matchType", matchType);
         book.setRetrievedFrom(source);

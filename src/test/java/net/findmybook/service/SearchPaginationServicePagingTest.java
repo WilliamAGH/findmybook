@@ -1,5 +1,6 @@
 package net.findmybook.service;
 
+import io.github.resilience4j.ratelimiter.RequestNotPermitted;
 import net.findmybook.dto.BookListItem;
 import net.findmybook.model.Book;
 import org.junit.jupiter.api.DisplayName;
@@ -12,14 +13,31 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class SearchPaginationServicePagingTest extends AbstractSearchPaginationServiceTest {
+
+    @Test
+    @DisplayName("search() rejects excess unique cold snapshots through explicit admission")
+    void should_RejectColdSnapshotLoad_When_PerMinuteAdmissionIsExhausted() {
+        when(bookSearchService.searchBooks(anyString(), eq(SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP)))
+            .thenReturn(List.of());
+
+        for (int index = 0; index < 30; index++) {
+            service.search(searchRequest("unique-cold-query-" + index, 0, 12, "relevance")).block();
+        }
+
+        assertThatThrownBy(() -> service.search(
+            searchRequest("unique-cold-query-over-limit", 0, 12, "relevance")
+        ).block()).isInstanceOf(RequestNotPermitted.class);
+    }
 
     @Test
     @DisplayName("search() deduplicates results, preserves Postgres ordering, and returns paginated results")
@@ -219,6 +237,10 @@ class SearchPaginationServicePagingTest extends AbstractSearchPaginationServiceT
         assertThat(page.pageItems()).hasSize(12);
         assertThat(page.totalUnique()).isEqualTo(80);
         assertThat(page.hasMore()).isTrue();
+        verify(bookDataOrchestrator).persistBooksAsync(
+            argThat(books -> books.size() == 12),
+            eq("SEARCH")
+        );
         verify(openLibraryBookDataService).queryBooksByEverything(
             "mixed coverage",
             "newest",
@@ -259,10 +281,15 @@ class SearchPaginationServicePagingTest extends AbstractSearchPaginationServiceT
         SearchPaginationService.SearchPage secondPage = pageSupplementService
             .search(searchRequest("spring boot", 12, 12, "newest"))
             .block();
+        SearchPaginationService.SearchPage repeatedSecondPage = pageSupplementService
+            .search(searchRequest("spring boot", 12, 12, "newest"))
+            .block();
 
         assertThat(firstPage).isNotNull();
         assertThat(secondPage).isNotNull();
+        assertThat(repeatedSecondPage).isNotNull();
         assertThat(firstPage.totalUnique()).isEqualTo(secondPage.totalUnique());
+        assertThat(repeatedSecondPage.pageItems()).isEqualTo(secondPage.pageItems());
         assertThat(secondPage.pageItems()).hasSize(12);
         assertThat(secondPage.pageItems()).doesNotContainAnyElementsOf(firstPage.pageItems());
         verify(openLibraryBookDataService, times(1))
@@ -272,6 +299,7 @@ class SearchPaginationServicePagingTest extends AbstractSearchPaginationServiceT
                 0,
                 SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP
             );
+        verify(bookDataOrchestrator, times(2)).persistBooksAsync(anyList(), eq("SEARCH"));
     }
 
     @Test

@@ -1,5 +1,7 @@
 package net.findmybook.controller;
 
+import io.github.resilience4j.ratelimiter.RateLimiter;
+import io.github.resilience4j.ratelimiter.RequestNotPermitted;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -143,6 +145,34 @@ class BookControllerTest extends AbstractBookControllerMvcTest {
                 ResponseStatusException exception = (ResponseStatusException) result.getResolvedException();
                 assertEquals(500, exception.getStatusCode().value());
             });
+    }
+
+    @Test
+    @DisplayName("GET /api/books/search returns 429 when a local admission denial is wrapped as a cause")
+    void should_ReturnTooManyRequests_When_LocalAdmissionDenialIsWrappedAsCause() throws Exception {
+        RequestNotPermitted denial = RequestNotPermitted.createRequestNotPermitted(
+            RateLimiter.ofDefaults("search-controller-cause-test")
+        );
+        when(searchPaginationService.search(any(SearchPaginationService.SearchRequest.class)))
+            .thenReturn(Mono.error(new IllegalStateException("provider wrapper", denial)));
+
+        performAsync(get("/api/books/search").param("query", "Fixture"))
+            .andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    @DisplayName("GET /api/books/search returns 429 when a local admission denial is suppressed")
+    void should_ReturnTooManyRequests_When_LocalAdmissionDenialIsSuppressed() throws Exception {
+        RequestNotPermitted denial = RequestNotPermitted.createRequestNotPermitted(
+            RateLimiter.ofDefaults("search-controller-suppressed-test")
+        );
+        IllegalStateException providerWrapper = new IllegalStateException("provider wrapper");
+        providerWrapper.addSuppressed(denial);
+        when(searchPaginationService.search(any(SearchPaginationService.SearchRequest.class)))
+            .thenReturn(Mono.error(providerWrapper));
+
+        performAsync(get("/api/books/search").param("query", "Fixture"))
+            .andExpect(status().isTooManyRequests());
     }
 
     @Test

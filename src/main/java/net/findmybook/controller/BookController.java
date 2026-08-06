@@ -154,6 +154,13 @@ public class BookController {
                 if (ex instanceof ResponseStatusException responseStatusException) {
                     return Mono.error(responseStatusException);
                 }
+                if (SearchExternalProviderUtils.isLocalAdmissionDenied(ex)) {
+                    return Mono.error(new ResponseStatusException(
+                        HttpStatus.TOO_MANY_REQUESTS,
+                        "Search capacity is temporarily busy; retry shortly",
+                        ex
+                    ));
+                }
                 log.error("Failed to search books for query '{}': {}", normalizedQuery, ex.getMessage(), ex);
                 return Mono.error(new ResponseStatusException(
                     HttpStatus.INTERNAL_SERVER_ERROR,

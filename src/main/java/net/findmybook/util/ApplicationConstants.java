@@ -125,6 +125,7 @@ public final class ApplicationConstants {
 
     public static final class ExternalServices {
         public static final String GOOGLE_BOOKS_API_BASE = "https://www.googleapis.com/books/v1/volumes";
+        public static final int GOOGLE_BOOKS_MAX_RESULTS_PER_REQUEST = 40;
         public static final String OPEN_LIBRARY_API_BASE = "https://openlibrary.org";
         public static final String AMAZON_LINK_TEMPLATE = "https://www.amazon.com/dp/";
         public static final String BARNES_NOBLE_LINK_TEMPLATE = "https://www.barnesandnoble.com/w/?ean=";

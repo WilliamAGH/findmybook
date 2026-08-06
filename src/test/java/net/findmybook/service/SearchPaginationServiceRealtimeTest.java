@@ -87,9 +87,20 @@ class SearchPaginationServiceRealtimeTest extends AbstractSearchPaginationServic
         when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
         when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(false);
         when(googleApiFetcher.streamSearchItems("distributed systems", 12, "relevance", null, true))
-            .thenReturn(Flux.just(googleVolumeNode("google-vol-realtime", "Realtime Systems")));
-        when(googleBooksMapper.map(argThat(node -> "google-vol-realtime".equals(node.path("id").asString("")))))
+            .thenReturn(Flux.just(
+                googleVolumeNode("google-vol-realtime", "Realtime Systems"),
+                googleVolumeNode("google-vol-realtime-2", "Realtime Systems Two")
+            ));
+        when(googleBooksMapper.map(argThat(node -> node != null
+            && "google-vol-realtime".equals(node.path("id").asString("")))))
             .thenReturn(googleAggregate("google-vol-realtime", "Realtime Systems", "https://example.test/realtime.jpg"));
+        when(googleBooksMapper.map(argThat(node -> node != null
+            && "google-vol-realtime-2".equals(node.path("id").asString("")))))
+            .thenReturn(googleAggregate(
+                "google-vol-realtime-2",
+                "Realtime Systems Two",
+                "https://example.test/realtime-2.jpg"
+            ));
         when(openLibraryBookDataService.queryBooksByEverything(
             eq("distributed systems"),
             anyString(),
@@ -111,6 +122,10 @@ class SearchPaginationServiceRealtimeTest extends AbstractSearchPaginationServic
         verify(openLibraryBookDataService, timeout(2000).times(1))
             .queryBooksByEverything("distributed systems", "author");
         verify(eventPublisher, timeout(2000).atLeastOnce()).publishEvent((Object) argThat(AbstractSearchPaginationServiceTest::isGoogleRealtimeEvent));
+        verify(bookDataOrchestrator, timeout(2000).times(1)).persistBooksAsync(
+            argThat(books -> books.size() == 2),
+            eq("SEARCH")
+        );
     }
 
     @Test

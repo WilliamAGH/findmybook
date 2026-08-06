@@ -12,6 +12,9 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import io.github.resilience4j.ratelimiter.RateLimiter;
+import io.github.resilience4j.ratelimiter.RateLimiterConfig;
+import io.github.resilience4j.ratelimiter.RequestNotPermitted;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
@@ -22,6 +25,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.test.StepVerifier;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -99,7 +103,8 @@ public class ApiRequestMonitorTest {
                                 .body("provider unavailable")
                                 .build())),
                 apiRequestMonitor,
-                new ApiCircuitBreakerService());
+                new ApiCircuitBreakerService(),
+                RateLimiter.ofDefaults("google-api-failure-test"));
         ReflectionTestUtils.setField(fetcher, "googleBooksApiUrl", "https://books.googleapis.test");
         ReflectionTestUtils.setField(fetcher, "googleBooksApiKey", "test-key");
 
@@ -130,6 +135,32 @@ public class ApiRequestMonitorTest {
             fetcherLogger.detachAppender(logEvents);
             logEvents.stop();
         }
+    }
+
+    @Test
+    void should_PreserveLocalAdmissionDenial_When_GoogleRateLimitIsExhausted() {
+        RateLimiter exhaustedLimiter = RateLimiter.of(
+            "google-api-exhausted-test",
+            RateLimiterConfig.custom()
+                .limitForPeriod(1)
+                .limitRefreshPeriod(Duration.ofMinutes(1))
+                .timeoutDuration(Duration.ZERO)
+                .build()
+        );
+        assertTrue(exhaustedLimiter.acquirePermission());
+
+        GoogleApiFetcher fetcher = new GoogleApiFetcher(
+            WebClient.builder(),
+            apiRequestMonitor,
+            new ApiCircuitBreakerService(),
+            exhaustedLimiter
+        );
+        ReflectionTestUtils.setField(fetcher, "googleBooksApiUrl", "https://books.googleapis.test");
+        ReflectionTestUtils.setField(fetcher, "googleBooksApiKey", "test-key");
+
+        StepVerifier.create(fetcher.streamSearchItems("admission query", 1, "relevance", null, true))
+            .expectError(RequestNotPermitted.class)
+            .verify();
     }
 
     @Test
@@ -203,7 +234,8 @@ public class ApiRequestMonitorTest {
         GoogleApiFetcher fetcher = new GoogleApiFetcher(
                 WebClient.builder(),
                 apiRequestMonitor,
-                circuitBreaker
+                circuitBreaker,
+                RateLimiter.ofDefaults("google-api-fallback-test")
         );
         ReflectionTestUtils.setField(fetcher, "googleFallbackEnabled", fallbackEnabled);
         return fetcher;
