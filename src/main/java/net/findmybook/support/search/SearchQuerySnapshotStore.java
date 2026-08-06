@@ -15,7 +15,7 @@ import java.util.function.Function;
  */
 public final class SearchQuerySnapshotStore {
 
-    private static final int SNAPSHOT_CACHE_MAXIMUM_SIZE = 1_000;
+    private static final int SNAPSHOT_CACHE_MAXIMUM_SIZE = 100;
     private static final Duration SNAPSHOT_CACHE_TTL = Duration.ofMinutes(2);
 
     private final Cache<SearchPaginationService.SearchRequest, Mono<SearchPaginationService.SearchPage>> snapshots =

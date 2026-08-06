@@ -43,7 +43,7 @@ import java.util.Optional;
 @Slf4j
 public class SearchPaginationService {
 
-    private static final int SEARCH_SNAPSHOT_WINDOW_CAP = ApplicationConstants.Paging.MAX_TIERED_LIMIT;
+    static final int SEARCH_SNAPSHOT_WINDOW_CAP = ApplicationConstants.Paging.MAX_TIERED_LIMIT;
     private final BookSearchService bookSearchService;
     private final PostgresSearchResultHydrator postgresSearchResultHydrator;
     private final SearchPageAssembler searchPageAssembler;
@@ -115,12 +115,9 @@ public class SearchPaginationService {
         SearchRequest snapshotRequest = request.atStartIndex(0);
 
         return searchQuerySnapshotStore.getOrLoad(snapshotRequest, canonicalRequest -> {
-            PagingUtils.Window snapshotWindow = PagingUtils.window(
+            PagingUtils.Window snapshotWindow = new PagingUtils.Window(
                 0,
-                canonicalRequest.maxResults(),
-                ApplicationConstants.Paging.DEFAULT_SEARCH_LIMIT,
-                ApplicationConstants.Paging.MIN_SEARCH_LIMIT,
-                ApplicationConstants.Paging.MAX_SEARCH_LIMIT,
+                requestedWindow.limit(),
                 SEARCH_SNAPSHOT_WINDOW_CAP
             );
             return performSearch(canonicalRequest, snapshotWindow)
@@ -167,9 +164,8 @@ public class SearchPaginationService {
             return Mono.just(currentPage);
         }
 
-        boolean shouldSupplementCurrentPage = currentPage.totalUnique() == 0
-            || currentPage.pageItems().size() < window.limit();
-        if (!shouldSupplementCurrentPage) {
+        boolean shouldSupplementSnapshot = currentPage.totalUnique() < requestedWindow;
+        if (!shouldSupplementSnapshot) {
             return Mono.just(currentPage);
         }
 
@@ -182,7 +178,7 @@ public class SearchPaginationService {
                     currentPage.uniqueResults(),
                     primaryCandidates,
                     googleAvailable,
-                    shouldSupplementCurrentPage
+                    shouldSupplementSnapshot
                 )) {
                     return Mono.just(mergeFallbackResults(primaryCandidates, currentPage, window, request));
                 }
@@ -213,8 +209,8 @@ public class SearchPaginationService {
                                                List<Book> existingResults,
                                                List<Book> openLibraryCandidates,
                                                boolean googleAvailable,
-                                               boolean shouldSupplementResultWindow) {
-        if (!googleAvailable || !shouldSupplementResultWindow) {
+                                               boolean shouldSupplementSnapshot) {
+        if (!googleAvailable || !shouldSupplementSnapshot) {
             return false;
         }
         if (openLibraryBookDataService.isEmpty()) {

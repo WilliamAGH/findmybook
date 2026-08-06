@@ -198,7 +198,7 @@
 - Returns cursor metadata: `hasMore`, `nextStartIndex`, `prefetchedCount`.
 - Each canonical query/filter/page-size combination builds one bounded, immutable ordered candidate snapshot from offset zero.
 - Later offsets slice that same snapshot, so totals and ordering remain stable for the snapshot's two-minute TTL even when realtime persistence changes Postgres.
-- The snapshot prefetches one additional page window and is capped at 200 candidates.
+- The snapshot loads the complete bounded candidate universe, capped at 200 candidates, before slicing pages.
 - Web UI caches up to six prefetched pages in-memory.
 
 ## SPA Page Payload Contracts

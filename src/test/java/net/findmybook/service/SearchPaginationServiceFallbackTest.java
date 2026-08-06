@@ -32,16 +32,17 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
     void searchInvokesFallbackWhenPostgresEmpty() {
         UUID fallbackId = UUID.randomUUID();
 
-        when(bookSearchService.searchBooks("fallback", 24)).thenReturn(List.of());
+        when(bookSearchService.searchBooks("fallback", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP))
+            .thenReturn(List.of());
         when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
         when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(true);
-        when(googleApiFetcher.streamSearchItems("fallback", 24, "newest", null, true))
+        when(googleApiFetcher.streamSearchItems(
+            "fallback", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP, "newest", null, true))
             .thenReturn(Flux.just(googleVolumeNode("google-vol-1", "Fallback Title")));
 
         BookAggregate aggregate = BookAggregate.builder()
             .title("Fallback Title")
             .authors(List.of("Google Author"))
-            .slugBase("fallback-title")
             .identifiers(BookAggregate.ExternalIdentifiers.builder()
                 .source("GOOGLE_BOOKS")
                 .externalId(fallbackId.toString())
@@ -62,7 +63,8 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
         assertThat(page).isNotNull();
         assertThat(page.totalUnique()).isEqualTo(1);
         assertThat(page.pageItems()).extracting(Book::getId).containsExactly(fallbackId.toString());
-        verify(googleApiFetcher, times(1)).streamSearchItems("fallback", 24, "newest", null, true);
+        verify(googleApiFetcher, times(1)).streamSearchItems(
+            "fallback", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP, "newest", null, true);
     }
 
     @Test
@@ -71,9 +73,11 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
         Book openLibraryOne = buildOpenLibraryCandidate("OL-PRIMARY-1", "Open Primary One");
         Book openLibraryTwo = buildOpenLibraryCandidate("OL-PRIMARY-2", "Open Primary Two");
 
-        when(bookSearchService.searchBooks("fallback", 2)).thenReturn(List.of());
+        when(bookSearchService.searchBooks("fallback", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP))
+            .thenReturn(List.of());
         when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(false);
-        when(openLibraryBookDataService.queryBooksByEverything(eq("fallback"), anyString(), eq(0), eq(2)))
+        when(openLibraryBookDataService.queryBooksByEverything(
+            eq("fallback"), anyString(), eq(0), eq(SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP)))
             .thenReturn(Flux.just(openLibraryOne, openLibraryTwo));
 
         SearchPaginationService openLibraryPrimaryService = fallbackEnabledService();
@@ -82,7 +86,12 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
         assertThat(page).isNotNull();
         assertThat(page.totalUnique()).isEqualTo(2);
         assertThat(page.pageItems()).extracting(Book::getId).containsExactly("OL-PRIMARY-1");
-        verify(openLibraryBookDataService).queryBooksByEverything("fallback", "newest", 0, 2);
+        verify(openLibraryBookDataService).queryBooksByEverything(
+            "fallback",
+            "newest",
+            0,
+            SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP
+        );
         verify(googleApiFetcher, never())
             .streamSearchItems(anyString(), anyInt(), anyString(), any(), anyBoolean());
         verifyNoInteractions(googleBooksMapper);
@@ -93,12 +102,15 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
     void should_QueryGoogleSecondaryFallback_When_OpenLibraryUnderfills() {
         Book openLibraryOnly = buildOpenLibraryCandidate("OL-PRIMARY-1", "Open Primary One");
 
-        when(bookSearchService.searchBooks("fallback", 4)).thenReturn(List.of());
-        when(openLibraryBookDataService.queryBooksByEverything(eq("fallback"), anyString(), eq(0), eq(4)))
+        when(bookSearchService.searchBooks("fallback", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP))
+            .thenReturn(List.of());
+        when(openLibraryBookDataService.queryBooksByEverything(
+            eq("fallback"), anyString(), eq(0), eq(SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP)))
             .thenReturn(Flux.just(openLibraryOnly));
         when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
         when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(false);
-        when(googleApiFetcher.streamSearchItems("fallback", 4, "newest", null, true))
+        when(googleApiFetcher.streamSearchItems(
+            "fallback", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP, "newest", null, true))
             .thenReturn(Flux.just(googleVolumeNode("google-vol-2", "Google Secondary")));
         when(googleBooksMapper.map(argThat(node -> "google-vol-2".equals(node.path("id").asString("")))))
             .thenReturn(googleAggregate("GOOGLE-SECONDARY-1", "Google Secondary", "https://example.test/google-secondary.jpg"));
@@ -109,7 +121,8 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
         assertThat(page).isNotNull();
         assertThat(page.totalUnique()).isEqualTo(2);
         assertThat(page.pageItems()).extracting(Book::getId).containsExactlyInAnyOrder("OL-PRIMARY-1", "GOOGLE-SECONDARY-1");
-        verify(googleApiFetcher, times(1)).streamSearchItems("fallback", 4, "newest", null, true);
+        verify(googleApiFetcher, times(1)).streamSearchItems(
+            "fallback", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP, "newest", null, true);
     }
 
     @Test
@@ -123,7 +136,6 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
             .title("Provider Secondary Title")
             .authors(List.of("Google Author"))
             .isbn13("9780061120084")
-            .slugBase("provider-secondary-title")
             .identifiers(BookAggregate.ExternalIdentifiers.builder()
                 .source("GOOGLE_BOOKS")
                 .externalId("google-vol-isbn")
@@ -131,12 +143,15 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
                 .build())
             .build();
 
-        when(bookSearchService.searchBooks("0061120081", 4)).thenReturn(List.of());
-        when(openLibraryBookDataService.queryBooksByEverything(eq("0061120081"), anyString(), eq(0), eq(4)))
+        when(bookSearchService.searchBooks("0061120081", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP))
+            .thenReturn(List.of());
+        when(openLibraryBookDataService.queryBooksByEverything(
+            eq("0061120081"), anyString(), eq(0), eq(SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP)))
             .thenReturn(Flux.just(openLibraryCandidate));
         when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
         when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(false);
-        when(googleApiFetcher.streamSearchItems("0061120081", 4, "newest", null, true))
+        when(googleApiFetcher.streamSearchItems(
+            "0061120081", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP, "newest", null, true))
             .thenReturn(Flux.just(googleVolumeNode("google-vol-isbn", "Provider Secondary Title")));
         when(googleBooksMapper.map(argThat(node -> "google-vol-isbn".equals(node.path("id").asString("")))))
             .thenReturn(googleCandidate);
@@ -147,7 +162,8 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
         assertThat(page).isNotNull();
         assertThat(page.totalUnique()).isEqualTo(1);
         assertThat(page.pageItems()).extracting(Book::getId).containsExactly("OL-ISBN-10");
-        verify(googleApiFetcher, times(1)).streamSearchItems("0061120081", 4, "newest", null, true);
+        verify(googleApiFetcher, times(1)).streamSearchItems(
+            "0061120081", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP, "newest", null, true);
     }
 
     @Test
@@ -160,7 +176,6 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
         BookAggregate googleCandidate = BookAggregate.builder()
             .title("To Kill a Mockingbird")
             .authors(List.of("Harper Lee"))
-            .slugBase("to-kill-a-mockingbird-harper-lee")
             .identifiers(BookAggregate.ExternalIdentifiers.builder()
                 .source("GOOGLE_BOOKS")
                 .externalId("google-vol-title-author")
@@ -168,12 +183,15 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
                 .build())
             .build();
 
-        when(bookSearchService.searchBooks("0061120081", 4)).thenReturn(List.of());
-        when(openLibraryBookDataService.queryBooksByEverything(eq("0061120081"), anyString(), eq(0), eq(4)))
+        when(bookSearchService.searchBooks("0061120081", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP))
+            .thenReturn(List.of());
+        when(openLibraryBookDataService.queryBooksByEverything(
+            eq("0061120081"), anyString(), eq(0), eq(SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP)))
             .thenReturn(Flux.just(openLibraryCandidate));
         when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
         when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(false);
-        when(googleApiFetcher.streamSearchItems("0061120081", 4, "newest", null, true))
+        when(googleApiFetcher.streamSearchItems(
+            "0061120081", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP, "newest", null, true))
             .thenReturn(Flux.just(googleVolumeNode("google-vol-title-author", "To Kill a Mockingbird")));
         when(googleBooksMapper.map(argThat(node -> "google-vol-title-author".equals(node.path("id").asString("")))))
             .thenReturn(googleCandidate);
@@ -184,7 +202,8 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
         assertThat(page).isNotNull();
         assertThat(page.totalUnique()).isEqualTo(1);
         assertThat(page.pageItems()).extracting(Book::getId).containsExactly("OL-TITLE-AUTHOR");
-        verify(googleApiFetcher, times(1)).streamSearchItems("0061120081", 4, "newest", null, true);
+        verify(googleApiFetcher, times(1)).streamSearchItems(
+            "0061120081", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP, "newest", null, true);
     }
 
     @Test
@@ -198,7 +217,6 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
             .title("Same Title")
             .authors(List.of("Shared Author"))
             .isbn13("9780132350884")
-            .slugBase("same-title-shared-author")
             .identifiers(BookAggregate.ExternalIdentifiers.builder()
                 .source("GOOGLE_BOOKS")
                 .externalId("google-vol-different-isbn")
@@ -206,12 +224,15 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
                 .build())
             .build();
 
-        when(bookSearchService.searchBooks("same title", 4)).thenReturn(List.of());
-        when(openLibraryBookDataService.queryBooksByEverything(eq("same title"), anyString(), eq(0), eq(4)))
+        when(bookSearchService.searchBooks("same title", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP))
+            .thenReturn(List.of());
+        when(openLibraryBookDataService.queryBooksByEverything(
+            eq("same title"), anyString(), eq(0), eq(SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP)))
             .thenReturn(Flux.just(openLibraryCandidate));
         when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
         when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(false);
-        when(googleApiFetcher.streamSearchItems("same title", 4, "newest", null, true))
+        when(googleApiFetcher.streamSearchItems(
+            "same title", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP, "newest", null, true))
             .thenReturn(Flux.just(googleVolumeNode("google-vol-different-isbn", "Same Title")));
         when(googleBooksMapper.map(argThat(node -> "google-vol-different-isbn".equals(node.path("id").asString("")))))
             .thenReturn(googleCandidate);
@@ -231,7 +252,7 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
     void should_DeduplicateOpenLibraryFallback_When_PersistedBookMatchesTitleAndAuthor() {
         UUID postgresId = UUID.randomUUID();
 
-        when(bookSearchService.searchBooks("john grisham", 4)).thenReturn(List.of(
+        when(bookSearchService.searchBooks("john grisham", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP)).thenReturn(List.of(
             new BookSearchService.SearchResult(postgresId, 1.0, "FULLTEXT")
         ));
         when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(List.of(
@@ -251,7 +272,8 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
         Book distinctFallback = buildOpenLibraryCandidate("OL37836170W", "Camino Ghosts");
         distinctFallback.setAuthors(List.of("John Grisham"));
         when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(false);
-        when(openLibraryBookDataService.queryBooksByEverything(eq("john grisham"), anyString(), eq(0), eq(4)))
+        when(openLibraryBookDataService.queryBooksByEverything(
+            eq("john grisham"), anyString(), eq(0), eq(SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP)))
             .thenReturn(Flux.just(duplicateFallback, distinctFallback));
 
         SearchPaginationService fallbackService = fallbackEnabledService();
@@ -273,9 +295,11 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
         openLibraryCandidate.setPublisher("Doubleday");
         openLibraryCandidate.setLanguage("eng");
 
-        when(bookSearchService.searchBooks("john grisham", 2)).thenReturn(List.of());
+        when(bookSearchService.searchBooks("john grisham", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP))
+            .thenReturn(List.of());
         when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(false);
-        when(openLibraryBookDataService.queryBooksByEverything(eq("john grisham"), anyString(), eq(0), eq(2)))
+        when(openLibraryBookDataService.queryBooksByEverything(
+            eq("john grisham"), anyString(), eq(0), eq(SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP)))
             .thenReturn(Flux.just(openLibraryCandidate));
 
         SearchPaginationService openLibraryPrimaryService = fallbackEnabledService();
@@ -295,12 +319,15 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
     void should_KeepOpenLibraryResults_When_GoogleSecondaryFails() {
         Book openLibraryOnly = buildOpenLibraryCandidate("OL-PRIMARY-1", "Open Primary One");
 
-        when(bookSearchService.searchBooks("fallback", 4)).thenReturn(List.of());
-        when(openLibraryBookDataService.queryBooksByEverything(eq("fallback"), anyString(), eq(0), eq(4)))
+        when(bookSearchService.searchBooks("fallback", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP))
+            .thenReturn(List.of());
+        when(openLibraryBookDataService.queryBooksByEverything(
+            eq("fallback"), anyString(), eq(0), eq(SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP)))
             .thenReturn(Flux.just(openLibraryOnly));
         when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
         when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(false);
-        when(googleApiFetcher.streamSearchItems("fallback", 4, "newest", null, true))
+        when(googleApiFetcher.streamSearchItems(
+            "fallback", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP, "newest", null, true))
             .thenReturn(Flux.error(new IllegalStateException("rate limited")));
 
         SearchPaginationService openLibraryPrimaryService = fallbackEnabledService();
@@ -317,7 +344,7 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
         UUID postgresCoveredId = UUID.randomUUID();
         UUID postgresSuppressedId = UUID.randomUUID();
 
-        when(bookSearchService.searchBooks("john grisham", 6)).thenReturn(List.of(
+        when(bookSearchService.searchBooks("john grisham", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP)).thenReturn(List.of(
             new BookSearchService.SearchResult(postgresCoveredId, 0.98, "FULLTEXT"),
             new BookSearchService.SearchResult(postgresSuppressedId, 0.88, "FULLTEXT")
         ));
@@ -332,7 +359,8 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
         openLibraryCandidate.setCoverImageHeight(900);
         openLibraryCandidate.setIsCoverHighResolution(true);
         when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(false);
-        when(openLibraryBookDataService.queryBooksByEverything(eq("john grisham"), anyString(), eq(0), eq(6)))
+        when(openLibraryBookDataService.queryBooksByEverything(
+            eq("john grisham"), anyString(), eq(0), eq(SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP)))
             .thenReturn(Flux.just(openLibraryCandidate));
 
         SearchPaginationService augmentingService = fallbackEnabledService();
@@ -349,7 +377,7 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
     void should_ReturnPostgresPageWithoutWaiting_When_MetadataRefreshDoesNotComplete() {
         UUID postgresId = UUID.randomUUID();
 
-        when(bookSearchService.searchBooks("john grisham", 2)).thenReturn(List.of(
+        when(bookSearchService.searchBooks("john grisham", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP)).thenReturn(List.of(
             new BookSearchService.SearchResult(postgresId, 0.98, "FULLTEXT")
         ));
         when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(List.of(
@@ -365,6 +393,12 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
         ));
 
         when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(false);
+        when(openLibraryBookDataService.queryBooksByEverything(
+            "john grisham",
+            "relevance",
+            0,
+            SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP
+        )).thenReturn(Flux.empty());
         when(openLibraryBookDataService.queryBooksByEverything(eq("john grisham"), anyString()))
             .thenReturn(Flux.never());
 
@@ -376,8 +410,13 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
         assertThat(page).isNotNull();
         assertThat(page.pageItems()).extracting(Book::getId).containsExactly(postgresId.toString());
         verify(openLibraryBookDataService).queryBooksByEverything("john grisham", "relevance");
-        verify(openLibraryBookDataService, never())
-            .queryBooksByEverything("john grisham", "relevance", 0, 2);
+        verify(openLibraryBookDataService)
+            .queryBooksByEverything(
+                "john grisham",
+                "relevance",
+                0,
+                SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP
+            );
         verify(bookDataOrchestrator, never()).persistBooksAsync(anyList(), anyString());
         verify(googleApiFetcher, times(0)).streamSearchItems(anyString(), anyInt(), anyString(), any(), anyBoolean());
     }
@@ -385,13 +424,27 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
     @Test
     @DisplayName("search() uses unauthenticated Google fallback when API key is unavailable")
     void should_UseUnauthenticatedGoogleFallback_When_ApiKeyMissing() {
-        when(bookSearchService.searchBooks("distributed systems", 24)).thenReturn(List.of());
-        when(openLibraryBookDataService.queryBooksByEverything(eq("distributed systems"), anyString(), eq(0), eq(24)))
+        when(bookSearchService.searchBooks(
+            "distributed systems",
+            SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP
+        )).thenReturn(List.of());
+        when(openLibraryBookDataService.queryBooksByEverything(
+            eq("distributed systems"),
+            anyString(),
+            eq(0),
+            eq(SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP)
+        ))
             .thenReturn(Flux.empty());
 
         when(googleApiFetcher.isApiKeyAvailable()).thenReturn(false);
         when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(true);
-        when(googleApiFetcher.streamSearchItems("distributed systems", 24, "relevance", null, false))
+        when(googleApiFetcher.streamSearchItems(
+            "distributed systems",
+            SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP,
+            "relevance",
+            null,
+            false
+        ))
             .thenReturn(Flux.just(googleVolumeNode("google-vol-unauth", "Pragmatic Distributed Systems")));
         when(googleBooksMapper.map(argThat(node -> "google-vol-unauth".equals(node.path("id").asString("")))))
             .thenReturn(googleAggregate("google-vol-unauth", "Pragmatic Distributed Systems", "https://example.test/google-unauth.jpg"));
@@ -403,8 +456,20 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
         assertThat(page.totalUnique()).isEqualTo(1);
         assertThat(page.pageItems()).extracting(Book::getId).containsExactly("google-vol-unauth");
         verify(googleApiFetcher, times(0))
-            .streamSearchItems("distributed systems", 24, "relevance", null, true);
+            .streamSearchItems(
+                "distributed systems",
+                SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP,
+                "relevance",
+                null,
+                true
+            );
         verify(googleApiFetcher, times(1))
-            .streamSearchItems("distributed systems", 24, "relevance", null, false);
+            .streamSearchItems(
+                "distributed systems",
+                SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP,
+                "relevance",
+                null,
+                false
+            );
     }
 }
