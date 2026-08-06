@@ -3,6 +3,7 @@ package net.findmybook.util;
 import io.github.resilience4j.bulkhead.BulkheadFullException;
 import io.github.resilience4j.ratelimiter.RequestNotPermitted;
 import net.findmybook.model.Book;
+import java.io.Serializable;
 import java.time.ZoneOffset;
 import java.util.ArrayDeque;
 import java.util.Collections;
@@ -167,7 +168,7 @@ public final class SearchExternalProviderUtils {
         if (book == null || book.getQualifiers() == null) {
             return false;
         }
-        Object source = book.getQualifiers().get(SEARCH_SOURCE_QUALIFIER);
+        Serializable source = book.getQualifiers().get(SEARCH_SOURCE_QUALIFIER);
         return source != null && EXTERNAL_FALLBACK_SOURCE.equalsIgnoreCase(source.toString());
     }
 
