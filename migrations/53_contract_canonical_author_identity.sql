@@ -28,8 +28,11 @@ CREATE TEMP TABLE canonical_author_upgrade ON COMMIT DROP AS
 WITH projected_authors AS (
   SELECT
     authors.*,
-    public.canonical_author_name(
-      regexp_replace(authors.name, '^[[:space:]]+', '')
+    COALESCE(
+      public.canonical_author_name(
+        regexp_replace(authors.name, '^[[:space:]]+', '')
+      ),
+      public.canonical_author_name(authors.normalized_name)
     ) AS canonical_name
   FROM public.authors
 ),
