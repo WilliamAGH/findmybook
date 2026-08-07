@@ -6,7 +6,6 @@ import tools.jackson.databind.ObjectMapper;
 import net.findmybook.dto.BookAggregate;
 import net.findmybook.util.DateParsingUtils;
 import net.findmybook.util.IsbnUtils;
-import net.findmybook.util.SlugGenerator;
 import net.findmybook.util.TextUtils;
 import jakarta.annotation.Nullable;
 import org.slf4j.Logger;
@@ -19,7 +18,6 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -161,19 +159,31 @@ public class NytBestsellerPayloadMapper {
         }
     }
 
+    /**
+     * Builds a persistable NYT aggregate only when the row has both a title
+     * and a resolved NYT provider identity.
+     *
+     * @return the aggregate, or {@code null} when the payload cannot identify
+     *     a canonical NYT book safely
+     */
+    @Nullable
     public BookAggregate buildBookAggregateFromNyt(JsonNode bookNode,
                                                    NytListContext listContext,
-                                                   String isbn13,
-                                                   String isbn10) {
+                                                   @Nullable String externalId,
+                                                   @Nullable String isbn13,
+                                                   @Nullable String isbn10) {
         String title = firstNonEmptyText(bookNode, "book_title", "title");
         if (!StringUtils.hasText(title)) {
             return null;
         }
 
         String normalizedTitle = TextUtils.normalizeBookTitle(title);
-        List<String> normalizedAuthors = extractAuthors(bookNode).stream()
-            .map(TextUtils::normalizeAuthorName)
-            .toList();
+        if (!StringUtils.hasText(externalId)) {
+            log.warn("Skipping NYT book aggregate without resolved provider identity for title '{}'.",
+                normalizedTitle);
+            return null;
+        }
+        List<String> authors = extractAuthors(bookNode);
 
         return BookAggregate.builder()
             .title(normalizedTitle)
@@ -182,10 +192,9 @@ public class NytBestsellerPayloadMapper {
             .isbn13(nullIfBlank(isbn13))
             .isbn10(nullIfBlank(isbn10))
             .publishedDate(parsePublishedLocalDate(bookNode))
-            .authors(normalizedAuthors.isEmpty() ? null : normalizedAuthors)
+            .authors(authors.isEmpty() ? null : authors)
             .categories(buildNytCategories(listContext))
-            .identifiers(buildNytIdentifiers(bookNode, isbn13, isbn10))
-            .slugBase(SlugGenerator.generateBookSlug(normalizedTitle, normalizedAuthors))
+            .identifiers(buildNytIdentifiers(bookNode, externalId, isbn13, isbn10))
             .build();
     }
 
@@ -206,13 +215,7 @@ public class NytBestsellerPayloadMapper {
     private List<String> extractAuthors(JsonNode bookNode) {
         List<String> authors = new ArrayList<>();
         addAuthors(authors, firstNonEmptyText(bookNode, "author"));
-        addAuthors(authors, firstNonEmptyText(bookNode, "contributor"));
-        addAuthors(authors, firstNonEmptyText(bookNode, "contributor_note"));
-        if (authors.isEmpty()) {
-            return List.of();
-        }
-        LinkedHashSet<String> dedupedAuthors = new LinkedHashSet<>(authors);
-        return new ArrayList<>(dedupedAuthors);
+        return authors;
     }
 
     private void addAuthors(List<String> authors, @Nullable String rawValue) {
@@ -220,11 +223,11 @@ public class NytBestsellerPayloadMapper {
         if (!StringUtils.hasText(sanitized)) {
             return;
         }
-        String normalized = AUTHOR_AND_SEPARATOR_PATTERN.matcher(sanitized).replaceAll(",");
-        for (String authorPart : normalized.split(AUTHOR_DELIMITER_PATTERN)) {
-            String cleaned = authorPart.trim();
-            if (StringUtils.hasText(cleaned)) {
-                authors.add(cleaned);
+        String separatedAuthorLabels = AUTHOR_AND_SEPARATOR_PATTERN.matcher(sanitized).replaceAll(",");
+        for (String authorPart : separatedAuthorLabels.split(AUTHOR_DELIMITER_PATTERN)) {
+            String authorLabel = authorPart.trim();
+            if (StringUtils.hasText(authorLabel)) {
+                authors.add(authorLabel);
             }
         }
     }
@@ -242,17 +245,19 @@ public class NytBestsellerPayloadMapper {
         return List.of("NYT " + naturalListLabel);
     }
 
-    private BookAggregate.ExternalIdentifiers buildNytIdentifiers(JsonNode bookNode, String isbn13, String isbn10) {
+    private BookAggregate.ExternalIdentifiers buildNytIdentifiers(JsonNode bookNode,
+                                                                   String externalId,
+                                                                   @Nullable String isbn13,
+                                                                   @Nullable String isbn10) {
         Map<String, String> imageLinks = new HashMap<>();
         String imageUrl = firstNonEmptyText(bookNode, "book_image", "book_image_url");
         if (StringUtils.hasText(imageUrl)) {
             imageLinks.put("thumbnail", imageUrl);
         }
-
         BookAggregate.ExternalIdentifiers.ExternalIdentifiersBuilder builder =
             BookAggregate.ExternalIdentifiers.builder()
                 .source("NEW_YORK_TIMES")
-                .externalId(isbn13 != null ? isbn13 : isbn10)
+                .externalId(externalId)
                 .providerIsbn13(isbn13)
                 .providerIsbn10(isbn10)
                 .imageLinks(imageLinks);
@@ -278,6 +283,27 @@ public class NytBestsellerPayloadMapper {
             builder.canonicalVolumeLink(canonicalVolumeLink);
         }
         return builder.build();
+    }
+
+    /**
+     * Resolves the preferred identity in the current NYT payload. A nonblank
+     * {@code book_uri} takes precedence, followed by a syntactically valid
+     * ISBN-13 and ISBN-10. Persisted identity reconciliation remains the
+     * responsibility of {@link NytBestsellerPersistenceCollaborator}.
+     */
+    @Nullable
+    public String resolveNytExternalId(@Nullable JsonNode bookNode,
+                                       @Nullable String isbn13,
+                                       @Nullable String isbn10) {
+        String bookUri = firstNonEmptyText(bookNode, "book_uri");
+        if (StringUtils.hasText(bookUri)) {
+            return bookUri;
+        }
+        String validIsbn13 = sanitizeValidIsbn13(isbn13);
+        if (validIsbn13 != null) {
+            return validIsbn13;
+        }
+        return sanitizeValidIsbn10(isbn10);
     }
 
     public Map<String, String> extractBuyLinks(JsonNode bookNode) {

@@ -65,6 +65,9 @@ create unique index if not exists uq_book_external_ids_provider_isbn10
 create index if not exists idx_book_external_ids_isbn13 on book_external_ids(provider_isbn13) where provider_isbn13 is not null;
 create index if not exists idx_book_external_ids_isbn10 on book_external_ids(provider_isbn10) where provider_isbn10 is not null;
 create index if not exists idx_book_external_ids_asin on book_external_ids(provider_asin) where provider_asin is not null;
+create index if not exists idx_book_external_ids_nyt_canonical_volume_link
+  on book_external_ids(canonical_volume_link)
+  where source = 'NEW_YORK_TIMES' and canonical_volume_link is not null;
 
 -- Table and column comments for book_external_ids
 comment on table book_external_ids is 'External provider IDs and metadata for books (Google Books, Amazon, OpenLibrary, etc.)';

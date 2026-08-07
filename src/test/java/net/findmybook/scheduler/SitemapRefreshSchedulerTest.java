@@ -22,8 +22,10 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 import reactor.core.publisher.Mono;
 
+import java.sql.ResultSet;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -36,10 +38,12 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.times;
@@ -121,19 +125,22 @@ class NewYorkTimesBestsellerSchedulerTest {
         persistenceCollaborator = new NytBestsellerPersistenceCollaborator(
             jdbcTemplate,
             supplementalPersistenceService,
-            payloadMapper
+            payloadMapper,
+            bookLookupService,
+            bookUpsertService
         );
         NewYorkTimesBestsellerScheduler.NytIngestServices services = new NewYorkTimesBestsellerScheduler.NytIngestServices(
             newYorkTimesService,
-            bookLookupService,
             jdbcTemplate,
             collectionPersistenceService,
-            bookUpsertService,
             payloadMapper,
             persistenceCollaborator
         );
         NewYorkTimesBestsellerScheduler.SchedulerConfig config = new NewYorkTimesBestsellerScheduler.SchedulerConfig(true, true, true);
         scheduler = new NewYorkTimesBestsellerScheduler(services, config);
+        lenient().when(jdbcTemplate.update(
+            anyString(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()
+        )).thenReturn(1);
     }
 
     @Test
@@ -152,6 +159,7 @@ class NewYorkTimesBestsellerSchedulerTest {
         persistenceCollaborator.upsertNytExternalIdentifiers(
             UUID.randomUUID().toString(),
             bookNode,
+            "https://example.com/book",
             "9780316769488",
             "0316769487"
         );
@@ -172,7 +180,7 @@ class NewYorkTimesBestsellerSchedulerTest {
     }
 
     @Test
-    void should_IgnoreMissingOptionalListFields_When_OverviewContainsPartialData() throws Exception {
+    void should_FailIngest_When_OverviewListsContainNoBooks() throws Exception {
         JsonNode overview = objectMapper.readTree(
             """
             {
@@ -194,12 +202,90 @@ class NewYorkTimesBestsellerSchedulerTest {
             any(BookCollectionPersistenceService.BestsellerCollectionDto.class)
         )).thenReturn(Optional.of("collection-1"));
 
-        assertDoesNotThrow(() -> scheduler.processNewYorkTimesBestsellers());
+        IllegalStateException thrown = assertThrows(
+            IllegalStateException.class,
+            scheduler::processNewYorkTimesBestsellers
+        );
 
+        assertThat(thrown.getMessage()).contains("no usable lists");
         verify(collectionPersistenceService).upsertBestsellerCollection(
             any(BookCollectionPersistenceService.BestsellerCollectionDto.class)
         );
         verifyNoInteractions(bookLookupService, supplementalPersistenceService, bookUpsertService);
+    }
+
+    @Test
+    void should_FailIngest_When_NytOverviewIsNullOrEmpty() {
+        when(newYorkTimesService.fetchBestsellerListOverview(nullable(LocalDate.class)))
+            .thenReturn(Mono.empty())
+            .thenReturn(Mono.just(objectMapper.createObjectNode()));
+
+        IllegalStateException nullOverviewFailure = assertThrows(
+            IllegalStateException.class,
+            () -> scheduler.forceProcessNewYorkTimesBestsellers()
+        );
+        IllegalStateException emptyOverviewFailure = assertThrows(
+            IllegalStateException.class,
+            () -> scheduler.forceProcessNewYorkTimesBestsellers()
+        );
+
+        assertThat(nullOverviewFailure.getMessage()).contains("returned no data");
+        assertThat(emptyOverviewFailure.getMessage()).contains("returned no data");
+        verifyNoInteractions(collectionPersistenceService);
+    }
+
+    @Test
+    void should_FailIngest_When_JdbcTemplateIsUnavailable() {
+        NytBestsellerPayloadMapper payloadMapper = new NytBestsellerPayloadMapper(objectMapper);
+        NewYorkTimesBestsellerScheduler schedulerWithoutJdbc = new NewYorkTimesBestsellerScheduler(
+            new NewYorkTimesBestsellerScheduler.NytIngestServices(
+                newYorkTimesService,
+                null,
+                collectionPersistenceService,
+                payloadMapper,
+                persistenceCollaborator
+            ),
+            new NewYorkTimesBestsellerScheduler.SchedulerConfig(true, true, true)
+        );
+
+        IllegalStateException thrown = assertThrows(
+            IllegalStateException.class,
+            () -> schedulerWithoutJdbc.forceProcessNewYorkTimesBestsellers()
+        );
+
+        assertThat(thrown.getMessage()).contains("JdbcTemplate unavailable");
+        verifyNoInteractions(newYorkTimesService, collectionPersistenceService);
+    }
+
+    @Test
+    void should_FailIngest_When_NoBookCanLandABestsellerMembership() throws Exception {
+        JsonNode overview = objectMapper.readTree(
+            """
+            {
+              "results": {
+                "lists": [{
+                  "list_name_encoded": "hardcover-fiction",
+                  "books": [{"title":"Unstable", "primary_isbn13":"invalid"}]
+                }]
+              }
+            }
+            """
+        );
+        when(newYorkTimesService.fetchBestsellerListOverview(nullable(LocalDate.class)))
+            .thenReturn(Mono.just(overview));
+        when(collectionPersistenceService.upsertBestsellerCollection(
+            any(BookCollectionPersistenceService.BestsellerCollectionDto.class)
+        )).thenReturn(Optional.of("collection-1"));
+
+        IllegalStateException thrown = assertThrows(
+            IllegalStateException.class,
+            () -> scheduler.forceProcessNewYorkTimesBestsellers()
+        );
+
+        assertThat(thrown.getMessage()).contains("persisted zero bestseller memberships from 1 processed entries");
+        verify(collectionPersistenceService, never()).upsertBestsellerMembership(
+            any(BookCollectionPersistenceService.BestsellerMembershipDto.class)
+        );
     }
 
     @Test
@@ -319,8 +405,9 @@ class NewYorkTimesBestsellerSchedulerTest {
     }
 
     @Test
-    void processNewYorkTimesBestsellers_shouldSkipInvalidIsbnsAndProcessValidEntries() throws Exception {
+    void processNewYorkTimesBestsellers_shouldSkipUnstableIdentityAndProcessUriOrIsbnEntries() throws Exception {
         UUID existingBookId = UUID.randomUUID();
+        UUID uriOnlyBookId = UUID.randomUUID();
         JsonNode overview = objectMapper.readTree(
             """
             {
@@ -332,6 +419,7 @@ class NewYorkTimesBestsellerSchedulerTest {
                     "display_name": "Hardcover Fiction",
                     "books": [
                       { "title": "Invalid", "primary_isbn13": "X0234484", "primary_isbn10": "ABC" },
+                      { "title": "URI only", "book_uri": "nyt://book/uri-only", "rank": 1 },
                       { "title": "Valid", "primary_isbn10": "0140177396", "rank": 1 }
                     ]
                   }
@@ -344,14 +432,128 @@ class NewYorkTimesBestsellerSchedulerTest {
         when(collectionPersistenceService.upsertBestsellerCollection(
             any(BookCollectionPersistenceService.BestsellerCollectionDto.class)
         )).thenReturn(Optional.of("collection-1"));
+        when(bookLookupService.resolveCanonicalBookId(null, null)).thenReturn(null);
         when(bookLookupService.resolveCanonicalBookId(null, "0140177396")).thenReturn(existingBookId.toString());
+        when(bookUpsertService.upsert(any(BookAggregate.class))).thenReturn(
+            BookUpsertService.UpsertResult.builder()
+                .bookId(uriOnlyBookId)
+                .slug("uri-only")
+                .isNew(true)
+                .build()
+        );
 
-        assertDoesNotThrow(() -> scheduler.processNewYorkTimesBestsellers());
+        NewYorkTimesBestsellerScheduler.NytIngestSummary summary =
+            scheduler.processNewYorkTimesBestsellers((LocalDate) null);
 
+        assertThat(summary.executed()).isTrue();
+        assertThat(summary.totalLists()).isEqualTo(1);
+        assertThat(summary.usableLists()).isEqualTo(1);
+        assertThat(summary.processedEntries()).isEqualTo(3);
+        assertThat(summary.persistedMemberships()).isEqualTo(2);
+        assertThat(summary.hasValidatedIngestion()).isTrue();
+        org.mockito.ArgumentCaptor<BookAggregate> aggregateCaptor = org.mockito.ArgumentCaptor.forClass(BookAggregate.class);
+        verify(bookUpsertService, times(1)).upsert(aggregateCaptor.capture());
+        assertThat(aggregateCaptor.getValue().getIdentifiers().getExternalId()).isEqualTo("nyt://book/uri-only");
+        verify(bookLookupService, times(1)).resolveCanonicalBookId(null, null);
         verify(bookLookupService, times(1)).resolveCanonicalBookId(null, "0140177396");
-        verify(collectionPersistenceService, times(1)).upsertBestsellerMembership(
+        verify(collectionPersistenceService, times(2)).upsertBestsellerMembership(
             any(BookCollectionPersistenceService.BestsellerMembershipDto.class)
         );
+    }
+
+    @Test
+    void should_PreserveProviderMappedBook_When_RerunUsesIsbnFromDifferentBook() throws Exception {
+        UUID providerMappedBookId = UUID.randomUUID();
+        UUID changedIsbnBookId = UUID.randomUUID();
+        String bookUri = "nyt://book/stable-rerun-identity";
+        String initialIsbn13 = "9780316769488";
+        String changedIsbn13 = "9780140177398";
+        JsonNode initialOverview = objectMapper.readTree(
+            """
+            {
+              "results": {
+                "published_date": "2026-02-08",
+                "lists": [{
+                  "list_name_encoded": "hardcover-fiction",
+                  "display_name": "Hardcover Fiction",
+                  "books": [{
+                    "title": "Stable NYT Identity",
+                    "primary_isbn13": "9780316769488",
+                    "book_uri": "nyt://book/stable-rerun-identity",
+                    "rank": 1
+                  }]
+                }]
+              }
+            }
+            """
+        );
+        JsonNode rerunOverview = objectMapper.readTree(
+            """
+            {
+              "results": {
+                "published_date": "2026-02-08",
+                "lists": [{
+                  "list_name_encoded": "hardcover-fiction",
+                  "display_name": "Hardcover Fiction",
+                  "books": [{
+                    "title": "Stable NYT Identity",
+                    "primary_isbn13": "9780140177398",
+                    "book_uri": "nyt://book/stable-rerun-identity",
+                    "rank": 1
+                  }]
+                }]
+              }
+            }
+            """
+        );
+        when(newYorkTimesService.fetchBestsellerListOverview(nullable(LocalDate.class)))
+            .thenReturn(Mono.just(initialOverview))
+            .thenReturn(Mono.just(rerunOverview));
+        when(collectionPersistenceService.upsertBestsellerCollection(
+            any(BookCollectionPersistenceService.BestsellerCollectionDto.class)
+        )).thenReturn(Optional.of("collection-1"));
+        when(jdbcTemplate.query(
+            org.mockito.ArgumentMatchers.contains("pg_advisory_xact_lock"),
+            org.mockito.ArgumentMatchers.<org.springframework.jdbc.core.ResultSetExtractor<Object>>any(),
+            anyString()
+        )).thenReturn(null);
+        when(jdbcTemplate.query(
+            org.mockito.ArgumentMatchers.contains("FROM book_external_ids"),
+            org.mockito.ArgumentMatchers.<RowMapper<Object>>any(),
+            eq(bookUri), eq(bookUri), eq(bookUri),
+            nullable(String.class), nullable(String.class), nullable(String.class),
+            nullable(String.class), nullable(String.class), nullable(String.class),
+            eq(bookUri), eq(bookUri)
+        )).thenReturn(List.of()).thenAnswer(invocation -> {
+            RowMapper<Object> rowMapper = invocation.getArgument(1);
+            ResultSet resultSet = org.mockito.Mockito.mock(ResultSet.class);
+            when(resultSet.getString("id")).thenReturn("nyt-stable-rerun-identity");
+            when(resultSet.getObject("book_id", UUID.class)).thenReturn(providerMappedBookId);
+            when(resultSet.getString("external_id")).thenReturn(bookUri);
+            when(resultSet.getString("canonical_volume_link")).thenReturn(bookUri);
+            return List.of(rowMapper.mapRow(resultSet, 0));
+        });
+        when(bookLookupService.resolveCanonicalBookId(any(), nullable(String.class)))
+            .thenAnswer(invocation -> changedIsbn13.equals(invocation.getArgument(0, String.class))
+                ? changedIsbnBookId.toString()
+                : providerMappedBookId.toString());
+
+        scheduler.processNewYorkTimesBestsellers();
+        scheduler.processNewYorkTimesBestsellers();
+
+        org.mockito.ArgumentCaptor<BookCollectionPersistenceService.BestsellerMembershipDto> membershipCaptor =
+            org.mockito.ArgumentCaptor.forClass(BookCollectionPersistenceService.BestsellerMembershipDto.class);
+        verify(collectionPersistenceService, times(2)).upsertBestsellerMembership(membershipCaptor.capture());
+        assertThat(membershipCaptor.getAllValues())
+            .extracting(BookCollectionPersistenceService.BestsellerMembershipDto::bookId)
+            .containsExactly(providerMappedBookId.toString(), providerMappedBookId.toString())
+            .doesNotContain(changedIsbnBookId.toString());
+        assertThat(membershipCaptor.getAllValues())
+            .extracting(BookCollectionPersistenceService.BestsellerMembershipDto::providerIsbn13)
+            .containsExactly(initialIsbn13, changedIsbn13);
+        verify(bookLookupService, times(1)).resolveCanonicalBookId(initialIsbn13, null);
+        verify(bookLookupService, never()).resolveCanonicalBookId(changedIsbn13, null);
+        verifyNoInteractions(bookUpsertService);
     }
 
     @Test
@@ -431,7 +633,7 @@ class NewYorkTimesBestsellerSchedulerTest {
             org.mockito.ArgumentMatchers.contains("INSERT INTO book_external_ids"),
             any(),
             eq(existingBookId),
-            eq("9780316769488"),
+            eq("nyt://book/mapped"),
             eq("9780316769488"),
             eq("0316769487"),
             eq("https://nytimes.example/review"),
