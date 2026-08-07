@@ -20,6 +20,7 @@ import net.findmybook.model.Book;
 import net.findmybook.service.BackfillCoordinator;
 import net.findmybook.service.BookDataOrchestrator;
 import net.findmybook.service.ExternalBookIdResolver;
+import net.findmybook.support.seo.CanonicalUrlResolver;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
@@ -29,7 +30,7 @@ import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -55,15 +56,18 @@ public class ResolveController {
     private final ExternalBookIdResolver resolver;
     private final BookDataOrchestrator bookDataOrchestrator;
     private final BackfillCoordinator backfillCoordinator;
+    private final CanonicalUrlResolver canonicalUrlResolver;
 
     public ResolveController(
         ExternalBookIdResolver resolver,
         BookDataOrchestrator bookDataOrchestrator,
-        ObjectProvider<BackfillCoordinator> backfillCoordinatorProvider
+        ObjectProvider<BackfillCoordinator> backfillCoordinatorProvider,
+        CanonicalUrlResolver canonicalUrlResolver
     ) {
         this.resolver = resolver;
         this.bookDataOrchestrator = bookDataOrchestrator;
         this.backfillCoordinator = backfillCoordinatorProvider.getIfAvailable();
+        this.canonicalUrlResolver = canonicalUrlResolver;
     }
 
     /**
@@ -107,7 +111,8 @@ public class ResolveController {
                 // 301 Permanent Redirect to canonical URL
                 return ResponseEntity
                     .status(HttpStatus.MOVED_PERMANENTLY)
-                    .location(encodedLocation(UriComponentsBuilder.fromPath("/book").pathSegment(slug)))
+                    .location(canonicalUrlResolver.encodedLocation(UriComponentsBuilder.fromPath("/book").pathSegment("{slug}"),
+                        Map.of("slug", slug)))
                     .build();
             } else {
                 log.warn("Book {} found but has no slug, falling through to backfill", bookId);
@@ -123,9 +128,10 @@ public class ResolveController {
         }
 
         // Option A: Redirect to holding page with polling/WebSocket
-        URI holdingLocation = encodedLocation(UriComponentsBuilder.fromPath("/book/pending")
-            .queryParam("src", source)
-            .queryParam("id", externalId));
+        URI holdingLocation = canonicalUrlResolver.encodedLocation(UriComponentsBuilder.fromPath("/book/pending")
+            .queryParam("src", "{source}")
+            .queryParam("id", "{externalId}"),
+            Map.of("source", source, "externalId", externalId));
 
         log.info("Redirecting to holding page: {}", holdingLocation);
 
@@ -134,10 +140,6 @@ public class ResolveController {
             .status(HttpStatus.FOUND)
             .location(holdingLocation)
             .build();
-    }
-
-    private static URI encodedLocation(UriComponentsBuilder builder) {
-        return URI.create(builder.build().encode(StandardCharsets.UTF_8).toUriString());
     }
 
     /**
