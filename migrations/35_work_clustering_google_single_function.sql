@@ -38,8 +38,12 @@ begin
     return;
   end if;
 
+  perform pg_advisory_xact_lock(
+    hashtextextended('findmybook.work-cluster:google:' || canonical_id, 0)
+  );
+
   select
-    array_agg(book_id order by has_high_res desc, cover_area desc, published_date desc nulls last, lower(title)) as ordered_ids,
+    array_agg(book_id order by has_high_res desc, cover_area desc, published_date desc nulls last, lower(title), book_id) as ordered_ids,
     count(*) as total_books
   into book_ids, book_count
   from (
@@ -99,7 +103,8 @@ begin
 
   select id into cluster_uuid
   from work_clusters
-  where google_canonical_id = canonical_id;
+  where google_canonical_id = canonical_id
+  for update;
 
   if cluster_uuid is null then
     insert into work_clusters (google_canonical_id, canonical_title, confidence_score, cluster_method, member_count)
@@ -112,6 +117,12 @@ begin
         updated_at = now()
     where id = cluster_uuid;
   end if;
+
+  update work_cluster_members
+  set is_primary = false
+  where cluster_id = cluster_uuid
+    and is_primary is true
+    and book_id <> book_ids[1];
 
   for i in 1..array_length(book_ids, 1) loop
     current_book := book_ids[i];
