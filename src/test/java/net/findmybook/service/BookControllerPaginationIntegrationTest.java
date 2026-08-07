@@ -161,7 +161,10 @@ class BookControllerPaginationIntegrationTest {
         assertThat(secondIds).doesNotContainAnyElementsOf(firstIds);
         assertThat(new HashSet<>(secondIds)).hasSize(secondIds.size());
         assertThat(extractTotalResults(secondPage)).isEqualTo(extractTotalResults(firstPage));
-        verify(bookSearchService, times(1)).searchBooks("multi-pages", 24);
+        verify(bookSearchService, times(1)).searchBooks(
+            "multi-pages",
+            SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP
+        );
     }
 
     private List<String> extractIds(MvcResult result) throws Exception {
