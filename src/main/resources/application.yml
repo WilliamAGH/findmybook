@@ -77,6 +77,12 @@ spring:
     codecs:
       max-in-memory-size: 10MB # Configure global max buffer size for WebClient
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+
 app:
   features:
     external-fallback:

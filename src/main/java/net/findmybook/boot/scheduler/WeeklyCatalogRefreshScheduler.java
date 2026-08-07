@@ -95,10 +95,18 @@ public class WeeklyCatalogRefreshScheduler {
 
         if (nytPhaseEnabled) {
             try {
-                newYorkTimesBestsellerScheduler.forceProcessNewYorkTimesBestsellers();
+                NewYorkTimesBestsellerScheduler.NytIngestSummary nytSummary =
+                    newYorkTimesBestsellerScheduler.forceProcessNewYorkTimesBestsellers();
+                if (nytSummary == null || !nytSummary.hasValidatedIngestion()) {
+                    throw new IllegalStateException("NYT ingest did not persist any bestseller memberships.");
+                }
                 nytTriggered = true;
                 nytPhaseSuccessCounter.increment();
-                log.info("Weekly catalog refresh completed NYT phase successfully.");
+                log.info(
+                    "Weekly catalog refresh completed NYT phase successfully (usableLists={}, persistedMemberships={}).",
+                    nytSummary.usableLists(),
+                    nytSummary.persistedMemberships()
+                );
             } catch (RuntimeException exception) {
                 nytPhaseFailureCounter.increment();
                 log.error("Weekly catalog refresh NYT phase failed.", exception);

@@ -24,6 +24,8 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.WebApplicationContext;
 import org.springframework.aop.support.AopUtils;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
@@ -43,6 +45,10 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
+import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 
 /**
  * Basic application context load test for findmybook
@@ -104,6 +110,9 @@ class FindmybookApplicationTests {
     @Autowired
     private OpenLibraryBookDataService openLibraryBookDataService;
 
+    @Autowired
+    private WebApplicationContext webApplicationContext;
+
     // No-op: cached repository removed
 
     /**
@@ -112,6 +121,28 @@ class FindmybookApplicationTests {
     @Test
     void contextLoads() {
         // Test will pass if the context loads with the mocked repository
+    }
+
+    @Test
+    void should_ExportWeeklyRefreshCounter_When_PrometheusEndpointIsScraped() throws Exception {
+        var mockMvc = MockMvcBuilders.webAppContextSetup(webApplicationContext)
+            .apply(springSecurity())
+            .build();
+        mockMvc.perform(get("/actuator/prometheus"))
+            .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/actuator/prometheus")
+                .with(httpBasic("user", "test-password")))
+            .andExpect(status().isForbidden());
+
+        String scrape = mockMvc.perform(get("/actuator/prometheus")
+                .with(httpBasic("admin", "test-password")))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+        assertTrue(scrape.contains("findmybook_weekly_refresh_phase_total"));
+        assertTrue(scrape.contains("phase=\"nyt\""));
     }
 
     @Test
@@ -127,11 +158,13 @@ class FindmybookApplicationTests {
                 .block()
         );
         requestFailure.addSuppressed(new IllegalStateException(
-            "Reactor checkpoint details:token=suppressed-secret-sentinel checkpoint-marker"
+            "Reactor checkpoint details:token=suppressed-secret-sentinel "
+                + "url=https://covers.example/object?X-Amz-Signature=signed-url-secret-sentinel checkpoint-marker"
         ));
 
         LOGGER.error(
-            "API_KEY=message-secret-sentinel NYT refresh failed request-marker",
+            "API_KEY=message-secret-sentinel NYT refresh failed "
+                + "bucket=covers key=images/books/cover.jpg request-marker",
             requestFailure
         );
 
@@ -139,9 +172,12 @@ class FindmybookApplicationTests {
         assertFalse(renderedOutput.contains("message-secret-sentinel"));
         assertFalse(renderedOutput.contains("throwable-secret-sentinel"));
         assertFalse(renderedOutput.contains("suppressed-secret-sentinel"));
+        assertFalse(renderedOutput.contains("signed-url-secret-sentinel"));
         assertTrue(renderedOutput.contains("API_KEY=********"));
         assertTrue(renderedOutput.contains("api-key=********"));
         assertTrue(renderedOutput.contains("token=********"));
+        assertTrue(renderedOutput.contains("X-Amz-Signature=********"));
+        assertTrue(renderedOutput.contains("key=images/books/cover.jpg"));
         assertTrue(renderedOutput.contains("request-marker"));
         assertTrue(renderedOutput.contains("checkpoint-marker"));
         assertTrue(renderedOutput.contains("DataBufferLimitException"));

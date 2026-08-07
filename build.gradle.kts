@@ -86,6 +86,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-webclient")
     implementation("org.springframework.boot:spring-boot-starter-websocket")
 
+    runtimeOnly("io.micrometer:micrometer-registry-prometheus")
     runtimeOnly("io.netty:netty-resolver-dns-native-macos::osx-aarch_64")
 
     implementation("org.postgresql:postgresql")

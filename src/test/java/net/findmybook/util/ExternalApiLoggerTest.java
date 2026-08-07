@@ -223,4 +223,98 @@ public class ExternalApiLoggerTest {
             context.stop();
         }
     }
+
+    @Test
+    void should_RedactSignedUrlCredentials_When_CompleteEventIsRendered() {
+        String renderedEvent = renderCompleteEvent(
+            "AWS signed URL https://covers.example/object?AWSAccessKeyId=aws-access-secret"
+                + "&X-Amz-Credential=aws-credential-secret"
+                + "&X-Amz-Signature=aws-signature-secret"
+                + "&X-Amz-Security-Token=aws-token-secret "
+                + "Google signed URL https://storage.example/object?GoogleAccessId=google-access-secret"
+                + "&Signature=google-signature-secret"
+                + "&X-Goog-Credential=google-credential-secret"
+                + "&X-Goog-Signature=google-x-signature-secret"
+                + "&X-Goog-Security-Token=google-token-secret "
+                + "access_token=oauth-secret client_secret=client-secret "
+                + "wrapped(api-key='quoted-secret')",
+            null
+        );
+
+        assertFalse(renderedEvent.contains("aws-access-secret"));
+        assertFalse(renderedEvent.contains("aws-credential-secret"));
+        assertFalse(renderedEvent.contains("aws-signature-secret"));
+        assertFalse(renderedEvent.contains("aws-token-secret"));
+        assertFalse(renderedEvent.contains("google-access-secret"));
+        assertFalse(renderedEvent.contains("google-signature-secret"));
+        assertFalse(renderedEvent.contains("google-credential-secret"));
+        assertFalse(renderedEvent.contains("google-x-signature-secret"));
+        assertFalse(renderedEvent.contains("google-token-secret"));
+        assertFalse(renderedEvent.contains("oauth-secret"));
+        assertFalse(renderedEvent.contains("client-secret"));
+        assertFalse(renderedEvent.contains("quoted-secret"));
+        assertTrue(renderedEvent.contains("AWSAccessKeyId=********"));
+        assertTrue(renderedEvent.contains("X-Amz-Credential=********"));
+        assertTrue(renderedEvent.contains("X-Amz-Signature=********"));
+        assertTrue(renderedEvent.contains("X-Amz-Security-Token=********"));
+        assertTrue(renderedEvent.contains("GoogleAccessId=********"));
+        assertTrue(renderedEvent.contains("Signature=********"));
+        assertTrue(renderedEvent.contains("X-Goog-Credential=********"));
+        assertTrue(renderedEvent.contains("X-Goog-Signature=********"));
+        assertTrue(renderedEvent.contains("X-Goog-Security-Token=********"));
+        assertTrue(renderedEvent.contains("access_token=********"));
+        assertTrue(renderedEvent.contains("client_secret=********"));
+        assertTrue(renderedEvent.contains("wrapped(api-key='********')"));
+    }
+
+    @Test
+    void should_PreserveDomainObjectKey_When_BareKeyIsNotAQueryParameter() {
+        String renderedEvent = renderCompleteEvent(
+            "S3 cover lookup failed bucket=covers key=images/books/9780316769488.jpg correlation=cover-refresh",
+            null
+        );
+
+        assertTrue(renderedEvent.contains("key=images/books/9780316769488.jpg"));
+        assertTrue(renderedEvent.contains("correlation=cover-refresh"));
+    }
+
+    @Test
+    void should_RedactCompleteCredential_When_QueryValueContainsUriSubDelimiters() {
+        String renderedEvent = renderCompleteEvent(
+            "https://api.example/data?api-key=prefix,suffix;tail)end&query=books",
+            null
+        );
+
+        assertFalse(renderedEvent.contains("prefix"));
+        assertFalse(renderedEvent.contains("suffix"));
+        assertFalse(renderedEvent.contains("tail"));
+        assertFalse(renderedEvent.contains(")end"));
+        assertTrue(renderedEvent.contains("api-key=********&query=books"));
+    }
+
+    private static String renderCompleteEvent(String message, Throwable throwable) {
+        LoggerContext context = new LoggerContext();
+        PatternLayout layout = new PatternLayout();
+        layout.setContext(context);
+        layout.getInstanceConverterMap().put(
+            "maskSensitiveQueryParameters",
+            ExternalApiLogger.SensitiveQueryParameterConverter::new
+        );
+        layout.setPattern("%maskSensitiveQueryParameters(%msg%n%ex)");
+        layout.start();
+        try {
+            LoggingEvent event = new LoggingEvent(
+                ExternalApiLoggerTest.class.getName(),
+                context.getLogger("credential-redaction-test"),
+                Level.ERROR,
+                message,
+                throwable,
+                null
+            );
+            return layout.doLayout(event);
+        } finally {
+            layout.stop();
+            context.stop();
+        }
+    }
 }

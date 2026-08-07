@@ -18,18 +18,39 @@ import java.util.regex.Pattern;
 public class ExternalApiLogger {
 
     private static final String PREFIX = "[EXTERNAL-API]";
-    private static final Pattern SENSITIVE_ASSIGNMENT = Pattern.compile(
-        "(^|[?&\\s:])((?:key|api[-_]key|token)\\s*=\\s*)[^&#\\s]*?"
-            + "(?=[&#\\s]|[,;\\)\\]\\}](?:\\s|$)|$)",
+    private static final String REDACTED_CREDENTIAL = "********";
+    private static final String NAMED_CREDENTIAL_PARAMETER_NAMES =
+        "api[-_]key|token|access_token|signature|x-amz-signature|x-amz-credential|"
+            + "x-amz-security-token|x-goog-signature|x-goog-credential|x-goog-security-token|"
+            + "awsaccesskeyid|googleaccessid|client_secret";
+    private static final Pattern QUERY_CREDENTIAL_ASSIGNMENT = Pattern.compile(
+        "([?&](?:key|" + NAMED_CREDENTIAL_PARAMETER_NAMES + ")\\s*=\\s*)[^&#\\s]*",
+        Pattern.CASE_INSENSITIVE
+    );
+    private static final Pattern QUOTED_CREDENTIAL_ASSIGNMENT = Pattern.compile(
+        "(?<![?&A-Za-z0-9_-])((?:" + NAMED_CREDENTIAL_PARAMETER_NAMES
+            + ")\\s*=\\s*)(['\"])[^'\"\\r\\n]*\\2",
+        Pattern.CASE_INSENSITIVE
+    );
+    private static final Pattern CREDENTIAL_ASSIGNMENT = Pattern.compile(
+        "(?<![?&A-Za-z0-9_-])((?:" + NAMED_CREDENTIAL_PARAMETER_NAMES
+            + ")\\s*=\\s*)(?!['\"])[^\\s]*",
         Pattern.CASE_INSENSITIVE
     );
 
     /**
-     * Masks sensitive query parameters (like 'key') in a URL or query string.
+     * Masks credentials while preserving non-query domain fields such as S3 object {@code key=} values.
      */
     private static String sanitize(String input) {
-        if (input == null) return null;
-        return SENSITIVE_ASSIGNMENT.matcher(input).replaceAll("$1$2********");
+        if (input == null) {
+            return null;
+        }
+        String withoutQueryCredentials = QUERY_CREDENTIAL_ASSIGNMENT.matcher(input)
+            .replaceAll("$1" + REDACTED_CREDENTIAL);
+        String withoutQuotedCredentials = QUOTED_CREDENTIAL_ASSIGNMENT.matcher(withoutQueryCredentials)
+            .replaceAll("$1$2" + REDACTED_CREDENTIAL + "$2");
+        return CREDENTIAL_ASSIGNMENT.matcher(withoutQuotedCredentials)
+            .replaceAll("$1" + REDACTED_CREDENTIAL);
     }
 
     /**

@@ -35,6 +35,8 @@ class WeeklyCatalogRefreshSchedulerTest {
         );
         RecommendationCacheRefreshUseCase.RefreshSummary refreshSummary =
             new RecommendationCacheRefreshUseCase.RefreshSummary(20L, 0L, 20, 20L, 30);
+        when(newYorkTimesBestsellerScheduler.forceProcessNewYorkTimesBestsellers())
+            .thenReturn(new NewYorkTimesBestsellerScheduler.NytIngestSummary(true, 2, 2, 30, 30));
         when(recommendationCacheRefreshUseCase.refreshAllRecommendations()).thenReturn(refreshSummary);
 
         WeeklyCatalogRefreshScheduler.WeeklyRefreshSummary summary = scheduler.forceRunWeeklyRefreshCycle();
@@ -64,9 +66,8 @@ class WeeklyCatalogRefreshSchedulerTest {
         );
         when(recommendationCacheRefreshUseCase.refreshAllRecommendations())
             .thenReturn(new RecommendationCacheRefreshUseCase.RefreshSummary(10L, 1L, 9, 10L, 30));
-        org.mockito.Mockito.doThrow(new IllegalStateException("nyt failure"))
-            .when(newYorkTimesBestsellerScheduler)
-            .forceProcessNewYorkTimesBestsellers();
+        when(newYorkTimesBestsellerScheduler.forceProcessNewYorkTimesBestsellers())
+            .thenThrow(new IllegalStateException("nyt failure"));
 
         assertThatThrownBy(scheduler::forceRunWeeklyRefreshCycle)
             .isInstanceOf(IllegalStateException.class)
@@ -78,6 +79,40 @@ class WeeklyCatalogRefreshSchedulerTest {
             .tag("outcome", "failure")
             .counter()
             .count()).isEqualTo(1.0d);
+    }
+
+    @Test
+    void should_CountNytFailureAndContinueRecommendations_When_IngestPersistsNoMemberships() {
+        WeeklyCatalogRefreshScheduler.SchedulerConfiguration config =
+            new WeeklyCatalogRefreshScheduler.SchedulerConfiguration(true, true, true);
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+        WeeklyCatalogRefreshScheduler scheduler = new WeeklyCatalogRefreshScheduler(
+            newYorkTimesBestsellerScheduler,
+            recommendationCacheRefreshUseCase,
+            config,
+            meterRegistry
+        );
+        when(newYorkTimesBestsellerScheduler.forceProcessNewYorkTimesBestsellers())
+            .thenReturn(new NewYorkTimesBestsellerScheduler.NytIngestSummary(true, 1, 1, 12, 0));
+        when(recommendationCacheRefreshUseCase.refreshAllRecommendations())
+            .thenReturn(new RecommendationCacheRefreshUseCase.RefreshSummary(10L, 1L, 9, 10L, 30));
+
+        assertThatThrownBy(scheduler::forceRunWeeklyRefreshCycle)
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("NYT phase failed")
+            .hasMessageContaining("did not persist any bestseller memberships");
+
+        verify(recommendationCacheRefreshUseCase).refreshAllRecommendations();
+        assertThat(meterRegistry.get("findmybook.weekly.refresh.phase")
+            .tag("phase", "nyt")
+            .tag("outcome", "failure")
+            .counter()
+            .count()).isEqualTo(1.0d);
+        assertThat(meterRegistry.get("findmybook.weekly.refresh.phase")
+            .tag("phase", "nyt")
+            .tag("outcome", "success")
+            .counter()
+            .count()).isZero();
     }
 
     @Test
