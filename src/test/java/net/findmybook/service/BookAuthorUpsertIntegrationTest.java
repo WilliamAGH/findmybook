@@ -362,7 +362,8 @@ class BookAuthorUpsertIntegrationTest {
             """
             INSERT INTO authors (id, name, normalized_name, biography, nationality, created_at, updated_at)
             VALUES
-                ('legacy-one', 'JANE DOE', 'jane doe', 'Biography', NULL, now() - interval '1 day', now()),
+                ('legacy-one', 'JANE' || chr(146) || ' DOE', 'jane doe',
+                    'Biography', NULL, now() - interval '1 day', now()),
                 ('legacy-two', 'Jane Doe', 'jane doe', NULL, 'US', now(), now())
             """
         );
