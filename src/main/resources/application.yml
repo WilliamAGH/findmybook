@@ -74,9 +74,14 @@ spring:
       connect-timeout: 5s
       read-timeout: 5s
       redirects: follow
+    codecs:
+      max-in-memory-size: 10MB # Configure global max buffer size for WebClient
 
-  codec: # Correctly nested under spring
-    max-in-memory-size: 10MB # Configure global max buffer size for WebClient
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
 
 app:
   features:
@@ -197,6 +202,11 @@ affiliate:
 # Note: BackfillCoordinator uses these settings to prevent API overload.
 # Rate limiter and bulkhead work together with circuit breaker in GoogleApiFetcher.
 resilience4j:
+  circuitbreaker:
+    instances:
+      openLibraryDataService:
+        ignoreExceptions:
+          - io.github.resilience4j.ratelimiter.RequestNotPermitted
   ratelimiter:
     instances:
       googleBooksServiceRateLimiter:
@@ -204,9 +214,9 @@ resilience4j:
         limitRefreshPeriod: 1m      # Period duration
         timeoutDuration: 0ms        # Don't wait if limit exceeded (fail fast)
       openLibraryDataService:
-        limitForPeriod: 30          # 30 requests per minute
-        limitRefreshPeriod: 1m
-        timeoutDuration: 0ms
+        limitForPeriod: 1           # One shared permit per physical Open Library HTTP exchange
+        limitRefreshPeriod: 2s
+        timeoutDuration: 2s         # Sequential fan-out may reserve the next period; excess callers fail locally
       openLibraryServiceRateLimiter:
         limitForPeriod: 12          # 12 requests per minute (1 every 5 seconds)
         limitRefreshPeriod: 1m
@@ -228,14 +238,6 @@ resilience4j:
       googleBooksServiceBulkhead:
         maxConcurrentCalls: 5       # Max concurrent API calls
         maxWaitDuration: 100ms      # Max wait for permit
-  retry:
-    instances:
-      googleBooksServiceRetry:
-        maxAttempts: 3              # Retry up to 3 times
-        waitDuration: 1s            # Wait 1s between retries
-        retryExceptions:
-          - org.springframework.web.client.HttpServerErrorException
-          - java.io.IOException
 
 # Common Logging - Production-safe defaults (minimal verbosity)
 logging:

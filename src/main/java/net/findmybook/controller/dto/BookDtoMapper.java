@@ -16,7 +16,6 @@ import net.findmybook.model.Book;
 import net.findmybook.model.image.CoverImages;
 import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.util.ApplicationConstants;
-import net.findmybook.util.SlugGenerator;
 import net.findmybook.util.cover.CoverUrlValidator;
 import net.findmybook.util.cover.CoverUrlResolver;
 import net.findmybook.util.cover.UrlSourceDetector;
@@ -149,7 +148,7 @@ public final class BookDtoMapper {
 
         return new BookDto(
             detail.id(),
-            detail.slug(),
+            persistedSlugOrNull(detail.slug()),
             detail.title(),
             detail.description(),
             publication,
@@ -202,7 +201,7 @@ public final class BookDtoMapper {
 
         return new BookDto(
             card.id(),
-            card.slug(),
+            persistedSlugOrNull(card.slug()),
             card.title(),
             null,
             publication,
@@ -237,7 +236,7 @@ public final class BookDtoMapper {
 
         return new BookDto(
             item.id(),
-            item.slug(),
+            persistedSlugOrNull(item.slug()),
             item.title(),
             item.description(),
             publication,
@@ -514,10 +513,11 @@ public final class BookDtoMapper {
     }
 
     private static String resolveSlug(Book book) {
-        if (book.getSlug() != null && !book.getSlug().isBlank()) {
-            return book.getSlug();
-        }
-        return SlugGenerator.generateBookSlug(book.getTitle(), book.getAuthors());
+        return persistedSlugOrNull(book.getSlug());
+    }
+
+    private static String persistedSlugOrNull(String slug) {
+        return StringUtils.hasText(slug) ? slug : null;
     }
 
     private static CoverDto buildCover(Book book) {

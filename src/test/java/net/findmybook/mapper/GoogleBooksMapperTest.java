@@ -33,7 +33,6 @@ class GoogleBooksMapperTest {
         assertThat(aggregate.getSubtitle()).isEqualTo("Inside the Hottest Business, Media, and Technology Success of Our Time");
         assertThat(aggregate.getPublisher()).isEqualTo("Random House Publishing Group");
         assertThat(aggregate.getPageCount()).isEqualTo(384);
-        assertThat(aggregate.getSlugBase()).contains("google-story");
     }
 
     @Test
@@ -57,6 +56,22 @@ class GoogleBooksMapperTest {
                 "20th Century",
                 "General"
             );
+    }
+
+    @Test
+    void should_PreserveProviderAuthorLabel_When_MappingGoogleBooksVolume() {
+        var volume = objectMapper.createObjectNode();
+        volume.put("id", "raw-author-fixture");
+        var volumeInfo = volume.putObject("volumeInfo");
+        volumeInfo.put("title", "Raw Author Fixture");
+        volumeInfo.putArray("authors")
+            .add("\"JANE DOE\",")
+            .add("   ");
+
+        BookAggregate aggregate = mapper.map(volume);
+
+        assertThat(aggregate).isNotNull();
+        assertThat(aggregate.getAuthors()).containsExactly("\"JANE DOE\",");
     }
 
     @Test
@@ -95,36 +110,6 @@ class GoogleBooksMapperTest {
         BookAggregate aggregate = mapper.map(invalid);
 
         assertThat(aggregate).isNull();
-    }
-
-    @Test
-    void map_usesFallbackSlugBase_When_TitleCannotBeLatinSlugified() {
-        var volume = objectMapper.createObjectNode();
-        volume.put("id", "non-latin-fixture");
-        var volumeInfo = volume.putObject("volumeInfo");
-        volumeInfo.put("title", "你好");
-        var authors = volumeInfo.putArray("authors");
-        authors.add("Jane Writer");
-
-        BookAggregate aggregate = mapper.map(volume);
-
-        assertThat(aggregate).isNotNull();
-        assertThat(aggregate.getSlugBase())
-            .startsWith("book-")
-            .endsWith("-jane-writer")
-            .isNotEqualTo("book-jane-writer");
-
-        var secondVolume = objectMapper.createObjectNode();
-        secondVolume.put("id", "second-non-latin-fixture");
-        var secondVolumeInfo = secondVolume.putObject("volumeInfo");
-        secondVolumeInfo.put("title", "再见");
-        var secondAuthors = secondVolumeInfo.putArray("authors");
-        secondAuthors.add("Jane Writer");
-
-        BookAggregate secondAggregate = mapper.map(secondVolume);
-
-        assertThat(secondAggregate).isNotNull();
-        assertThat(secondAggregate.getSlugBase()).isNotEqualTo(aggregate.getSlugBase());
     }
 
     private JsonNode loadFixture(String path) {

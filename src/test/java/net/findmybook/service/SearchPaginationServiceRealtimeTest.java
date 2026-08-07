@@ -1,10 +1,16 @@
 package net.findmybook.service;
 
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.ratelimiter.RateLimiter;
+import io.github.resilience4j.ratelimiter.RequestNotPermitted;
 import net.findmybook.dto.BookAggregate;
+import net.findmybook.service.event.SearchProgressEvent;
 import net.findmybook.service.event.SearchResultsUpdatedEvent;
 import net.findmybook.util.SearchQueryUtils;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 import reactor.core.publisher.Flux;
 
 import java.time.LocalDate;
@@ -27,41 +33,120 @@ import static org.mockito.Mockito.when;
 class SearchPaginationServiceRealtimeTest extends AbstractSearchPaginationServiceTest {
 
     @Test
+    void should_ClassifyLocalResilienceDenialsSeparately_When_ProviderErrorIsWrapped() {
+        RequestNotPermitted rateLimiterDenial = RequestNotPermitted.createRequestNotPermitted(
+            RateLimiter.ofDefaults("open-library-test")
+        );
+        CallNotPermittedException circuitDenial = CallNotPermittedException.createCallNotPermittedException(
+            CircuitBreaker.ofDefaults("open-library-test")
+        );
+
+        SearchProgressEvent.SearchStatus rateLimiterStatus = ReflectionTestUtils.invokeMethod(
+            SearchRealtimeCoordinator.class,
+            "classifyProviderError",
+            new IllegalStateException("wrapped", rateLimiterDenial)
+        );
+        SearchProgressEvent.SearchStatus circuitStatus = ReflectionTestUtils.invokeMethod(
+            SearchRealtimeCoordinator.class,
+            "classifyProviderError",
+            new IllegalStateException("wrapped", circuitDenial)
+        );
+
+        assertThat(rateLimiterStatus).isEqualTo(SearchProgressEvent.SearchStatus.LOCAL_RATE_LIMITED);
+        assertThat(circuitStatus).isEqualTo(SearchProgressEvent.SearchStatus.LOCAL_CIRCUIT_OPEN);
+    }
+
+    @Test
+    void should_PublishDeniedLocalRateLimitStatus_When_OpenLibraryRejectsRealtimeRequest() {
+        stubCompletePostgresSnapshot("distributed systems", null);
+        RequestNotPermitted denial = RequestNotPermitted.createRequestNotPermitted(
+            RateLimiter.ofDefaults("open-library-realtime-test")
+        );
+        when(openLibraryBookDataService.queryBooksByEverything("distributed systems", "author"))
+            .thenReturn(Flux.error(denial));
+
+        SearchPaginationService.SearchPage page = fallbackEnabledService()
+            .search(searchRequest("distributed systems", 0, 12, "author"))
+            .block();
+
+        assertThat(page).isNotNull();
+        verify(eventPublisher, timeout(2000).atLeastOnce()).publishEvent((Object) argThat(event ->
+            event instanceof SearchProgressEvent progressEvent
+                && progressEvent.getStatus() == SearchProgressEvent.SearchStatus.LOCAL_RATE_LIMITED
+                && "OPEN_LIBRARY".equals(progressEvent.getSource())
+                && progressEvent.getMessage().contains("request denied by local rate limiting")
+                && !progressEvent.getMessage().contains("deferred")
+        ));
+    }
+
+    @Test
     @DisplayName("search() publishes realtime external candidates when Postgres has baseline results")
     void searchPublishesRealtimeExternalCandidates() {
-        stubCompletePostgresPage("distributed systems", 24, 12, null);
+        stubCompletePostgresSnapshot("distributed systems", null);
 
         when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
         when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(false);
         when(googleApiFetcher.streamSearchItems("distributed systems", 12, "relevance", null, true))
-            .thenReturn(Flux.just(googleVolumeNode("google-vol-realtime", "Realtime Systems")));
-        when(googleBooksMapper.map(argThat(node -> "google-vol-realtime".equals(node.path("id").asString("")))))
+            .thenReturn(Flux.just(
+                googleVolumeNode("google-vol-realtime", "Realtime Systems"),
+                googleVolumeNode("google-vol-realtime-2", "Realtime Systems Two")
+            ));
+        when(googleBooksMapper.map(argThat(node -> node != null
+            && "google-vol-realtime".equals(node.path("id").asString("")))))
             .thenReturn(googleAggregate("google-vol-realtime", "Realtime Systems", "https://example.test/realtime.jpg"));
-        when(openLibraryBookDataService.queryBooksByEverything(eq("distributed systems"), anyString(), eq(0), eq(24)))
+        when(googleBooksMapper.map(argThat(node -> node != null
+            && "google-vol-realtime-2".equals(node.path("id").asString("")))))
+            .thenReturn(googleAggregate(
+                "google-vol-realtime-2",
+                "Realtime Systems Two",
+                "https://example.test/realtime-2.jpg"
+            ));
+        when(openLibraryBookDataService.queryBooksByEverything(
+            eq("distributed systems"),
+            anyString(),
+            eq(0),
+            eq(SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP)
+        ))
             .thenReturn(Flux.empty());
 
         SearchPaginationService realtimeService = fallbackEnabledService();
         SearchPaginationService.SearchPage page = realtimeService.search(searchRequest("distributed systems", 0, 12, "author")).block();
+        SearchPaginationService.SearchPage secondPage = realtimeService
+            .search(searchRequest("distributed systems", 12, 12, "author"))
+            .block();
 
         assertThat(page).isNotNull();
+        assertThat(secondPage).isNotNull();
         verify(googleApiFetcher, times(1))
             .streamSearchItems("distributed systems", 12, "relevance", null, true);
-        verify(openLibraryBookDataService, timeout(2000).atLeastOnce())
+        verify(openLibraryBookDataService, timeout(2000).times(1))
             .queryBooksByEverything("distributed systems", "author");
         verify(eventPublisher, timeout(2000).atLeastOnce()).publishEvent((Object) argThat(AbstractSearchPaginationServiceTest::isGoogleRealtimeEvent));
+        verify(bookDataOrchestrator, timeout(2000).times(1)).persistBooksAsync(
+            argThat(books -> books.size() == 2),
+            eq("SEARCH")
+        );
     }
 
     @Test
     @DisplayName("search() skips realtime updates when fallback already merged external results")
     void should_SkipRealtime_When_FallbackAlreadyProvidedExternalResults() {
         UUID postgresId = UUID.randomUUID();
-        when(bookSearchService.searchBooks("distributed systems", 24)).thenReturn(List.of(
+        when(bookSearchService.searchBooks(
+            "distributed systems",
+            SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP
+        )).thenReturn(List.of(
             new BookSearchService.SearchResult(postgresId, 0.96, "FULLTEXT")
         ));
         when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(List.of(
             buildListItem(postgresId, "Designing Data-Intensive Applications")
         ));
-        when(openLibraryBookDataService.queryBooksByEverything(eq("distributed systems"), anyString(), eq(0), eq(24)))
+        when(openLibraryBookDataService.queryBooksByEverything(
+            eq("distributed systems"),
+            anyString(),
+            eq(0),
+            eq(SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP)
+        ))
             .thenReturn(Flux.just(buildOpenLibraryCandidate("OL-REALTIME-1", "Open Realtime Result")));
 
         SearchPaginationService realtimeService = fallbackEnabledService();
@@ -74,7 +159,7 @@ class SearchPaginationServiceRealtimeTest extends AbstractSearchPaginationServic
     @Test
     @DisplayName("search() publishes realtime events on filter-scoped query hash")
     void should_PublishRealtimeEventsOnFilterScopedTopic_When_FiltersArePresent() {
-        stubCompletePostgresPage("distributed systems", 24, 12, LocalDate.of(2024, 1, 1));
+        stubCompletePostgresSnapshot("distributed systems", LocalDate.of(2024, 1, 1));
 
         when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
         when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(false);
@@ -85,7 +170,6 @@ class SearchPaginationServiceRealtimeTest extends AbstractSearchPaginationServic
                 .title("Filtered Systems")
                 .authors(List.of("Google Author"))
                 .publishedDate(LocalDate.of(2024, 1, 1))
-                .slugBase("filtered-systems")
                 .identifiers(BookAggregate.ExternalIdentifiers.builder()
                     .source("GOOGLE_BOOKS")
                     .externalId("google-vol-filtered")
@@ -123,7 +207,7 @@ class SearchPaginationServiceRealtimeTest extends AbstractSearchPaginationServic
     @Test
     @DisplayName("search() publishes realtime events on clamped page-size query hash")
     void should_PublishRealtimeEventsOnClampedTopic_When_MaxResultsExceedsLimit() {
-        stubCompletePostgresPage("distributed systems", 200, 100, null);
+        stubCompletePostgresSnapshot("distributed systems", null);
 
         when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
         when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(false);
@@ -160,10 +244,8 @@ class SearchPaginationServiceRealtimeTest extends AbstractSearchPaginationServic
         ));
     }
 
-    private void stubCompletePostgresPage(String query,
-                                          int searchWindow,
-                                          int resultCount,
-                                          LocalDate publishedDate) {
+    private void stubCompletePostgresSnapshot(String query, LocalDate publishedDate) {
+        int resultCount = SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP;
         List<UUID> bookIds = IntStream.range(0, resultCount)
             .mapToObj(ignored -> UUID.randomUUID())
             .toList();
@@ -174,7 +256,8 @@ class SearchPaginationServiceRealtimeTest extends AbstractSearchPaginationServic
                 "FULLTEXT"
             ))
             .toList();
-        when(bookSearchService.searchBooks(query, searchWindow)).thenReturn(searchResults);
+        when(bookSearchService.searchBooks(query, SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP))
+            .thenReturn(searchResults);
         when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(IntStream.range(0, resultCount)
             .mapToObj(index -> buildListItem(
                 bookIds.get(index),

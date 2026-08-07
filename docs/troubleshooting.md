@@ -94,6 +94,8 @@ If logs include `BadSqlGrammarException` during NYT ingest for `book_external_id
 
 - `NytBestsellerPersistenceCollaborator.upsertNytExternalIdentifiers(...)` must use:
   - `ON CONFLICT (source, external_id) DO UPDATE`
-- The fallback external ID must always be non-null (ISBN13 -> ISBN10 -> `book_uri` -> canonical UUID string).
+- Persist an NYT external ID only when the row has reproducible provider identity:
+  `book_uri` (preferred), then a valid ISBN-13, then a valid ISBN-10.
+- Skip rows without a nonblank `book_uri` or a valid ISBN; never use a generated canonical UUID as `external_id`.
 
 Without that, weekly refresh can fail NYT phase and return `500` from `/admin/trigger-weekly-refresh`.

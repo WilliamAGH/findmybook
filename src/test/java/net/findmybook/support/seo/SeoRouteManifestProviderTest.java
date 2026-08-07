@@ -1,6 +1,7 @@
 package net.findmybook.support.seo;
 
 import net.findmybook.domain.seo.RouteManifest;
+import net.findmybook.util.SearchExternalProviderUtils;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -17,6 +18,13 @@ class SeoRouteManifestProviderTest {
         assertEquals(1, manifest.version());
         assertTrue(manifest.publicRoutes().stream().anyMatch(route -> "book".equals(route.name())));
         assertTrue(manifest.publicRoutes().stream().anyMatch(route -> "error".equals(route.name())));
+        var searchRouteDefinitions = manifest.publicRoutes().stream()
+            .filter(route -> "exact".equals(route.matchType()))
+            .filter(route -> route.allowedQueryParams().contains("orderBy"))
+            .toList();
+        assertEquals(3, searchRouteDefinitions.size());
+        assertTrue(searchRouteDefinitions.stream()
+            .allMatch(route -> SearchExternalProviderUtils.DEFAULT_ORDER_BY.equals(route.defaults().get("orderBy"))));
         assertTrue(manifest.passthroughPrefixes().contains("/api"));
         assertEquals("/sitemap/authors/A/1", provider.defaultSitemapPath());
         assertTrue(provider.bookRoutePattern().matcher("/book/the-hobbit").matches());

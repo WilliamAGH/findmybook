@@ -4,14 +4,26 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import java.net.URI;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.Date;
+import java.util.Optional;
 import net.findmybook.config.WebConfig;
 import net.findmybook.model.Book;
 import net.findmybook.domain.seo.SeoMetadata;
 import net.findmybook.service.BookSeoMetadataService;
+import net.findmybook.service.BackfillCoordinator;
+import net.findmybook.service.BookDataOrchestrator;
+import net.findmybook.service.ExternalBookIdResolver;
+import net.findmybook.support.seo.CanonicalUrlResolver;
 import net.findmybook.service.HomePageSectionsService;
 import net.findmybook.service.image.LocalDiskCoverCacheService;
+import net.findmybook.util.SearchExternalProviderUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -21,8 +33,11 @@ import org.springframework.boot.webflux.test.autoconfigure.WebFluxTest;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.support.NoOpCacheManager;
 import org.springframework.context.annotation.Bean;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -30,9 +45,6 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.web.filter.UrlHandlerFilter;
 import reactor.core.publisher.Mono;
-
-import java.time.Instant;
-import java.util.Date;
 
 @WebFluxTest(value = {HomeController.class, BookDetailPageController.class},
     excludeAutoConfiguration = org.springframework.boot.security.autoconfigure.web.reactive.ReactiveWebSecurityAutoConfiguration.class)
@@ -69,6 +81,11 @@ class HomeControllerTest {
         }
 
         @Bean
+        CanonicalUrlResolver canonicalUrlResolver() {
+            return new CanonicalUrlResolver();
+        }
+
+        @Bean
         CacheManager cacheManager() {
             return new NoOpCacheManager();
         }
@@ -77,6 +94,7 @@ class HomeControllerTest {
     @BeforeEach
     void setUp() {
         when(homePageSectionsService.locateBook(anyString())).thenReturn(Mono.empty());
+        Mockito.clearInvocations(homePageSectionsService);
     }
 
     @Test
@@ -142,16 +160,29 @@ class HomeControllerTest {
     @Test
     void should_RedirectWithYearParameter_When_QueryContainsYearAndYearFilteringEnabled() {
         webTestClient.get()
-            .uri(uriBuilder -> uriBuilder.path("/search")
-                .queryParam("query", "dune 2020")
-                .queryParam("orderBy", "title")
-                .build())
+            .uri(URI.create("/search?query=C%2B%2B%202020&orderBy=title"))
             .exchange()
             .expectStatus().isEqualTo(HttpStatus.SEE_OTHER)
             .expectHeader().value("Location", location -> {
                 assertTrue(location.contains("year=2020"));
-                assertTrue(location.contains("query=dune"));
+                assertTrue(location.contains("query=C%2B%2B"));
+                assertTrue(location.contains("orderBy=title"));
             });
+    }
+
+    @Test
+    void should_DefaultRedirectOrderToRelevance_When_YearQueryOmitsOrderBy() {
+        webTestClient.get()
+            .uri(uriBuilder -> uriBuilder.path("/search")
+                .queryParam("query", "dune 2020")
+                .build())
+            .exchange()
+            .expectStatus().isEqualTo(HttpStatus.SEE_OTHER)
+            .expectHeader().valueEquals(
+                "Location",
+                "/search?query=dune&year=2020&orderBy=" + SearchExternalProviderUtils.DEFAULT_ORDER_BY
+                    + "&coverSource=ANY&resolution=ANY"
+            );
     }
 
     @Test
@@ -195,6 +226,90 @@ class HomeControllerTest {
             .exchange()
             .expectStatus().isEqualTo(HttpStatus.SEE_OTHER)
             .expectHeader().valueEquals("Location", "/book/canonical-book?query=foo&page=2&orderBy=newest&view=list");
+    }
+
+    @Test
+    void should_EncodeSearchContext_When_RedirectingToCanonicalBookSlug() {
+        Book canonical = new Book();
+        canonical.setId("book-id");
+        canonical.setSlug("canonical-book");
+        when(homePageSectionsService.locateBook("book-id")).thenReturn(Mono.just(canonical));
+
+        webTestClient.get().uri(uriBuilder -> uriBuilder.path("/book/book-id")
+                .queryParam("query", "naïve art")
+                .build())
+            .exchange()
+            .expectStatus().isEqualTo(HttpStatus.SEE_OTHER)
+            .expectHeader().valueEquals(
+                "Location",
+                "/book/canonical-book?query=na%C3%AFve%20art&orderBy=relevance&view=grid"
+            );
+    }
+
+    @Test
+    void should_EncodeQuotesOnce_When_RedirectingToCanonicalBookSlug() {
+        Book canonical = new Book();
+        canonical.setId("book-id");
+        canonical.setSlug("canonical-book");
+        when(homePageSectionsService.locateBook("book-id")).thenReturn(Mono.just(canonical));
+
+        webTestClient.get().uri(uriBuilder -> uriBuilder.path("/book/book-id")
+                .queryParam("query", "say \"hello\"")
+                .build())
+            .exchange()
+            .expectStatus().isEqualTo(HttpStatus.SEE_OTHER)
+            .expectHeader().valueEquals(
+                "Location",
+                "/book/canonical-book?query=say%20%22hello%22&orderBy=relevance&view=grid"
+            );
+    }
+
+    @Test
+    void should_PreserveEncodedPlus_When_RedirectingToCanonicalBookSlug() {
+        Book canonical = new Book();
+        canonical.setId("book-id");
+        canonical.setSlug("canonical-book");
+        when(homePageSectionsService.locateBook("book-id")).thenReturn(Mono.just(canonical));
+
+        webTestClient.get().uri(URI.create("/book/book-id?query=C%2B%2B"))
+            .exchange()
+            .expectStatus().isEqualTo(HttpStatus.SEE_OTHER)
+            .expectHeader().value("Location", location -> {
+                assertEquals("/book/canonical-book?query=C%2B%2B&orderBy=relevance&view=grid", location);
+                String redirectQuery = URI.create(location).getRawQuery();
+                assertEquals(
+                    "C++",
+                    URLDecoder.decode(
+                        redirectQuery.substring("query=".length(), redirectQuery.indexOf('&')),
+                        StandardCharsets.UTF_8
+                    )
+                );
+            });
+    }
+
+    @Test
+    void should_ReturnBadRequest_When_SearchPageIsNotAnInteger() {
+        webTestClient.get().uri("/book/book-id?page=not-an-integer")
+            .exchange()
+            .expectStatus().isBadRequest();
+
+        verifyNoInteractions(homePageSectionsService);
+    }
+
+    @Test
+    void should_DefaultRedirectOrderToRelevance_When_BookContextOmitsOrderBy() {
+        Book canonical = new Book();
+        canonical.setId("book-id");
+        canonical.setSlug("canonical-book");
+        when(homePageSectionsService.locateBook("book-id")).thenReturn(Mono.just(canonical));
+
+        webTestClient.get().uri("/book/book-id?query=foo")
+            .exchange()
+            .expectStatus().isEqualTo(HttpStatus.SEE_OTHER)
+            .expectHeader().valueEquals(
+                "Location",
+                "/book/canonical-book?query=foo&orderBy=" + SearchExternalProviderUtils.DEFAULT_ORDER_BY + "&view=grid"
+            );
     }
 
     @Test
@@ -306,6 +421,44 @@ class HomeControllerTest {
             .exchange()
             .expectStatus().isEqualTo(HttpStatus.SEE_OTHER)
             .expectHeader().valueEquals("Location", "/book/canonical-slug");
+    }
+
+    @Test
+    void should_EncodeOriginalIsbn_When_InvalidIsbnRedirectsHome() {
+        webTestClient.get().uri(uriBuilder -> uriBuilder.pathSegment("book", "isbn", "not valid+C++").build())
+            .exchange()
+            .expectStatus().isEqualTo(HttpStatus.SEE_OTHER)
+            .expectHeader().valueEquals(
+                "Location",
+                "/?error=invalidIsbn&originalIsbn=not%20valid%2BC%2B%2B"
+            );
+    }
+
+    @Test
+    void should_EncodeExternalId_When_ResolveRedirectsToPendingBook() {
+        ExternalBookIdResolver resolver = Mockito.mock(ExternalBookIdResolver.class);
+        BookDataOrchestrator orchestrator = Mockito.mock(BookDataOrchestrator.class);
+        ObjectProvider<BackfillCoordinator> coordinatorProvider = new StaticListableBeanFactory()
+            .getBeanProvider(BackfillCoordinator.class);
+        when(resolver.resolve("GOOGLE_BOOKS", "C++")).thenReturn(Optional.empty());
+        ResolveController controller = new ResolveController(
+            resolver,
+            orchestrator,
+            coordinatorProvider,
+            new CanonicalUrlResolver()
+        );
+
+        ResponseEntity<Void> response = controller.resolve("gbooks", "C++");
+
+        assertEquals(HttpStatus.FOUND, response.getStatusCode());
+        assertEquals("/book/pending?src=gbooks&id=C%2B%2B", response.getHeaders().getLocation().toString());
+        assertEquals(
+            "C++",
+            URLDecoder.decode(
+                response.getHeaders().getLocation().getRawQuery().substring("src=gbooks&id=".length()),
+                StandardCharsets.UTF_8
+            )
+        );
     }
 
     @Test

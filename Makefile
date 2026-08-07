@@ -13,8 +13,14 @@ S3_ACL_SCOPE ?= all
 S3_ACL_PREFIX ?=
 S3_ACL_DRY_RUN ?= false
 S3_ACL_VERBOSE ?= false
+AUTHOR_WRITERS_DRAINED ?= false
+AUTHOR_WRITES_QUIESCED ?= false
+AUTHOR_CALLERS_DEPLOYED ?= false
 
-.PHONY: run build test lint lint-ast kill-port hooks migrate-books cluster-books check-s3-in-db fix-s3-acl-public-all db-verify-author-constraints db-verify-book-title-constraints
+.PHONY: run build test lint lint-ast kill-port hooks migrate-books cluster-books \
+  check-s3-in-db fix-s3-acl-public-all db-reset db-migrate \
+  db-contract-author-identity db-verify-author-constraints \
+  db-verify-book-title-constraints
 
 # Kill any process currently listening on $(PORT)
 kill-port:
@@ -80,29 +86,64 @@ db-reset:
 	@echo "Resetting database schema..."
 	@if [ -f .env ]; then \
 		set -a && source .env && set +a && \
-		if [ -z "$$SPRING_DATASOURCE_URL" ]; then \
-			echo "❌ Error: SPRING_DATASOURCE_URL not found in .env"; \
-			exit 1; \
-		fi && \
-		psql "$$SPRING_DATASOURCE_URL" -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;" && \
-			psql "$$SPRING_DATASOURCE_URL" -v ON_ERROR_STOP=1 -f src/main/resources/schema.sql && \
+		node frontend/scripts/postgres-connection-config.js -X -v ON_ERROR_STOP=1 \
+			-c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;" && \
+		node frontend/scripts/postgres-connection-config.js -X -v ON_ERROR_STOP=1 \
+			-f src/main/resources/schema.sql && \
 		echo "✅ Database schema reset complete"; \
 	else \
 		echo "❌ Error: .env file not found"; \
 		exit 1; \
 	fi
 
-# Apply schema without dropping (safe for existing data)
+# Apply additive schema changes without dropping existing data. The canonical
+# author identity contract remains a separate post-deploy/drain operation.
 db-migrate:
 	@echo "Applying schema changes (safe mode)..."
 	@if [ -f .env ]; then \
 		set -a && source .env && set +a && \
-		if [ -z "$$SPRING_DATASOURCE_URL" ]; then \
-			echo "❌ Error: SPRING_DATASOURCE_URL not found in .env"; \
+		node frontend/scripts/postgres-connection-config.js -X -v ON_ERROR_STOP=1 \
+			-f src/main/resources/schema.sql && \
+		echo "✅ Additive schema migration complete (migration 53 remains gated)" && \
+		echo "Do not trigger caller auto-deploy until author writes are quiesced and all prior writers are drained."; \
+	else \
+		echo "❌ Error: .env file not found"; \
+		exit 1; \
+	fi
+
+# Contract canonical author identity only after writes are quiesced, every prior
+# writer is drained, and new callers are deployed while writes remain quiesced.
+db-contract-author-identity:
+	@if [ "$(origin AUTHOR_WRITERS_DRAINED)" != "command line" ] || [ "$(AUTHOR_WRITERS_DRAINED)" != "confirmed" ]; then \
+		echo "❌ Refusing migration 53: quiesce writes and drain every prior author writer before caller deployment, then rerun with AUTHOR_WRITERS_DRAINED=confirmed"; \
+		exit 1; \
+	fi
+	@if [ "$(origin AUTHOR_WRITES_QUIESCED)" != "command line" ] || [ "$(AUTHOR_WRITES_QUIESCED)" != "confirmed" ]; then \
+		echo "❌ Refusing migration 53: keep every author write quiesced from old-writer drain through contract commit, then rerun with AUTHOR_WRITES_QUIESCED=confirmed"; \
+		exit 1; \
+	fi
+	@if [ "$(origin AUTHOR_CALLERS_DEPLOYED)" != "command line" ] || [ "$(AUTHOR_CALLERS_DEPLOYED)" != "confirmed" ]; then \
+		echo "❌ Refusing migration 53: deploy all canonical callers while writes remain quiesced, then rerun with AUTHOR_CALLERS_DEPLOYED=confirmed"; \
+		exit 1; \
+	fi
+	@echo "Applying the canonical author identity contract..."
+	@if [ -f .env ]; then \
+		set -a && source .env && set +a && \
+		expansion_ready=$$(node frontend/scripts/postgres-connection-config.js -X -At \
+			-v ON_ERROR_STOP=1 -c "SELECT to_regprocedure('public.upsert_book_authors(uuid,text[])') IS NOT NULL;") && \
+		if [ "$$expansion_ready" != "t" ]; then \
+			echo "❌ Refusing migration 53: migration 52 is not installed"; \
 			exit 1; \
 		fi && \
-			psql "$$SPRING_DATASOURCE_URL" -v ON_ERROR_STOP=1 -f src/main/resources/schema.sql && \
-		echo "✅ Schema migration complete"; \
+		node frontend/scripts/postgres-connection-config.js -X -v ON_ERROR_STOP=1 \
+			-f migrations/53_contract_canonical_author_identity.sql && \
+		contract_ready=$$(node frontend/scripts/postgres-connection-config.js -X -At \
+			-v ON_ERROR_STOP=1 -c "SELECT public.canonical_author_contract_is_applied() AND to_regprocedure('public.normalize_author_name(text)') IS NULL AND to_regprocedure('public.merge_duplicate_authors()') IS NULL AND to_regprocedure('public.ensure_unique_slug(text)') IS NULL AND to_regprocedure('public.generate_slug(text,text)') IS NULL;") && \
+		if [ "$$contract_ready" != "t" ]; then \
+			echo "❌ Migration 53 completed without the required canonical author contract"; \
+			exit 1; \
+		fi && \
+		echo "✅ Canonical author identity and slug contracts applied and verified"; \
 	else \
 		echo "❌ Error: .env file not found"; \
 		exit 1; \
@@ -113,20 +154,19 @@ db-verify-author-constraints:
 	@echo "Verifying author schema constraints..."
 	@if [ -f .env ]; then \
 		set -a && source .env && set +a && \
-		if [ -z "$$SPRING_DATASOURCE_URL" ]; then \
-			echo "❌ Error: SPRING_DATASOURCE_URL not found in .env"; \
-			exit 1; \
-		fi && \
-		missing=$$(psql "$$SPRING_DATASOURCE_URL" -At -c "SELECT string_agg(expected, ',') FROM (VALUES ('authors_name_non_blank_check'), ('authors_name_leading_character_check')) AS expected_constraints(expected) LEFT JOIN pg_constraint c ON c.conname = expected_constraints.expected AND c.conrelid = 'authors'::regclass WHERE c.oid IS NULL;") && \
+		missing=$$(node frontend/scripts/postgres-connection-config.js -X -At \
+			-v ON_ERROR_STOP=1 -c "SELECT string_agg(expected, ',') FROM (VALUES ('authors_name_non_blank_check'), ('authors_name_leading_character_check')) AS expected_constraints(expected) LEFT JOIN pg_constraint c ON c.conname = expected_constraints.expected AND c.conrelid = 'authors'::regclass WHERE c.oid IS NULL;") && \
 		if [ -n "$$missing" ]; then \
 			echo "❌ Missing author constraints: $$missing"; \
 			exit 1; \
 		fi && \
-		non_blank_def=$$(psql "$$SPRING_DATASOURCE_URL" -At -c "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'authors'::regclass AND conname = 'authors_name_non_blank_check';") && \
-		leading_def=$$(psql "$$SPRING_DATASOURCE_URL" -At -c "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'authors'::regclass AND conname = 'authors_name_leading_character_check';") && \
+		non_blank_def=$$(node frontend/scripts/postgres-connection-config.js -X -At \
+			-v ON_ERROR_STOP=1 -c "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'authors'::regclass AND conname = 'authors_name_non_blank_check';") && \
+		leading_def=$$(node frontend/scripts/postgres-connection-config.js -X -At \
+			-v ON_ERROR_STOP=1 -c "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'authors'::regclass AND conname = 'authors_name_leading_character_check';") && \
 		echo "$$non_blank_def" | grep -F "btrim(name) <> ''" >/dev/null || { echo "❌ authors_name_non_blank_check has unexpected definition: $$non_blank_def"; exit 1; } && \
-		echo "$$leading_def" | grep -F "regexp_replace(" >/dev/null || { echo "❌ authors_name_leading_character_check missing regexp_replace: $$leading_def"; exit 1; } && \
-		echo "$$leading_def" | grep -F "^[[:alpha:][:digit:]]" >/dev/null || { echo "❌ authors_name_leading_character_check missing alpha/digit guard: $$leading_def"; exit 1; } && \
+		echo "$$leading_def" | grep -F "left(btrim(name), 1)" >/dev/null || { echo "❌ authors_name_leading_character_check missing first-character projection: $$leading_def"; exit 1; } && \
+		echo "$$leading_def" | grep -F "^[[:alnum:]]$$" >/dev/null || { echo "❌ authors_name_leading_character_check missing Unicode alphanumeric guard: $$leading_def"; exit 1; } && \
 			echo "✅ Author constraints match migration-defined guardrails"; \
 		else \
 			echo "❌ Error: .env file not found"; \
@@ -138,17 +178,16 @@ db-verify-book-title-constraints:
 	@echo "Verifying book title schema constraints..."
 	@if [ -f .env ]; then \
 		set -a && source .env && set +a && \
-		if [ -z "$$SPRING_DATASOURCE_URL" ]; then \
-			echo "❌ Error: SPRING_DATASOURCE_URL not found in .env"; \
-			exit 1; \
-		fi && \
-		missing=$$(psql "$$SPRING_DATASOURCE_URL" -At -c "SELECT string_agg(expected, ',') FROM (VALUES ('books_title_non_blank_check'), ('books_title_leading_character_check')) AS expected_constraints(expected) LEFT JOIN pg_constraint c ON c.conname = expected_constraints.expected AND c.conrelid = 'books'::regclass WHERE c.oid IS NULL;") && \
+		missing=$$(node frontend/scripts/postgres-connection-config.js -X -At \
+			-v ON_ERROR_STOP=1 -c "SELECT string_agg(expected, ',') FROM (VALUES ('books_title_non_blank_check'), ('books_title_leading_character_check')) AS expected_constraints(expected) LEFT JOIN pg_constraint c ON c.conname = expected_constraints.expected AND c.conrelid = 'books'::regclass WHERE c.oid IS NULL;") && \
 		if [ -n "$$missing" ]; then \
 			echo "❌ Missing book title constraints: $$missing"; \
 			exit 1; \
 		fi && \
-		non_blank_def=$$(psql "$$SPRING_DATASOURCE_URL" -At -c "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'books'::regclass AND conname = 'books_title_non_blank_check';") && \
-		leading_def=$$(psql "$$SPRING_DATASOURCE_URL" -At -c "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'books'::regclass AND conname = 'books_title_leading_character_check';") && \
+		non_blank_def=$$(node frontend/scripts/postgres-connection-config.js -X -At \
+			-v ON_ERROR_STOP=1 -c "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'books'::regclass AND conname = 'books_title_non_blank_check';") && \
+		leading_def=$$(node frontend/scripts/postgres-connection-config.js -X -At \
+			-v ON_ERROR_STOP=1 -c "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'books'::regclass AND conname = 'books_title_leading_character_check';") && \
 		echo "$$non_blank_def" | grep -F "btrim(title) <> ''" >/dev/null || { echo "❌ books_title_non_blank_check has unexpected definition: $$non_blank_def"; exit 1; } && \
 		echo "$$leading_def" | grep -F "regexp_replace(title" >/dev/null || { echo "❌ books_title_leading_character_check missing regexp_replace: $$leading_def"; exit 1; } && \
 		echo "$$leading_def" | grep -F "^[[:alpha:][:digit:]]" >/dev/null || { echo "❌ books_title_leading_character_check missing alpha/digit guard: $$leading_def"; exit 1; } && \
@@ -163,11 +202,8 @@ db-refresh-search:
 	@echo "Refreshing search view..."
 	@if [ -f .env ]; then \
 		set -a && source .env && set +a && \
-		if [ -z "$$SPRING_DATASOURCE_URL" ]; then \
-			echo "❌ Error: SPRING_DATASOURCE_URL not found in .env"; \
-			exit 1; \
-		fi && \
-		psql "$$SPRING_DATASOURCE_URL" -c "SELECT refresh_book_search_view_after_bulk_load();" && \
+		node frontend/scripts/postgres-connection-config.js -X -v ON_ERROR_STOP=1 \
+			-c "SELECT refresh_book_search_view_after_bulk_load();" && \
 		echo "✅ Search view refreshed"; \
 	else \
 		echo "❌ Error: .env file not found"; \
@@ -179,11 +215,8 @@ db-generate-slugs:
 	@echo "Generating SEO slugs for all books..."
 	@if [ -f .env ]; then \
 		set -a && source .env && set +a && \
-		if [ -z "$$SPRING_DATASOURCE_URL" ]; then \
-			echo "❌ Error: SPRING_DATASOURCE_URL not found in .env"; \
-			exit 1; \
-		fi && \
-		psql "$$SPRING_DATASOURCE_URL" -c "SELECT generate_all_book_slugs();" && \
+		node frontend/scripts/postgres-connection-config.js -X -v ON_ERROR_STOP=1 \
+			-c "SELECT generate_all_book_slugs();" && \
 		echo "✅ Slugs generated for all books"; \
 	else \
 		echo "❌ Error: .env file not found"; \
@@ -195,16 +228,15 @@ cluster-books:
 	@echo "Clustering books into edition families..."
 	@if [ -f .env ]; then \
 		set -a && source .env && set +a && \
-		if [ -z "$$SPRING_DATASOURCE_URL" ]; then \
-			echo "❌ Error: SPRING_DATASOURCE_URL not found in .env"; \
-			exit 1; \
-		fi && \
 		echo "Clustering by ISBN prefix..." && \
-		psql "$$SPRING_DATASOURCE_URL" -c "SELECT * FROM cluster_books_by_isbn();" && \
+		node frontend/scripts/postgres-connection-config.js -X -v ON_ERROR_STOP=1 \
+			-c "SELECT * FROM cluster_books_by_isbn();" && \
 		echo "Clustering by Google canonical ID..." && \
-		psql "$$SPRING_DATASOURCE_URL" -c "SELECT * FROM cluster_books_by_google_canonical();" && \
+		node frontend/scripts/postgres-connection-config.js -X -v ON_ERROR_STOP=1 \
+			-c "SELECT * FROM cluster_books_by_google_canonical();" && \
 		echo "Getting statistics..." && \
-		psql "$$SPRING_DATASOURCE_URL" -c "SELECT * FROM get_clustering_stats();" && \
+		node frontend/scripts/postgres-connection-config.js -X -v ON_ERROR_STOP=1 \
+			-c "SELECT * FROM get_clustering_stats();" && \
 		echo "✅ Book clustering complete"; \
 	else \
 		echo "❌ Error: .env file not found"; \
@@ -216,10 +248,6 @@ check-s3-in-db:
 	@echo "Checking book_image_links.s3_image_path against object storage..."
 	@if [ -f .env ]; then \
 		set -a && . ./.env && set +a; \
-		if [ -z "$$SPRING_DATASOURCE_URL" ]; then \
-			echo "❌ Error: SPRING_DATASOURCE_URL not found in .env"; \
-			exit 1; \
-		fi; \
 		if [ -z "$$S3_BUCKET" ]; then \
 			echo "❌ Error: S3_BUCKET not found in .env"; \
 			exit 1; \
@@ -228,14 +256,16 @@ check-s3-in-db:
 			echo "❌ Error: aws CLI not found. Install AWS CLI to run this check."; \
 			exit 1; \
 		fi; \
-		total=$$(psql "$$SPRING_DATASOURCE_URL" -At -c "SELECT count(*) FROM book_image_links WHERE s3_image_path IS NOT NULL AND btrim(s3_image_path) <> ''"); \
+		total=$$(node frontend/scripts/postgres-connection-config.js -X -At \
+			-v ON_ERROR_STOP=1 -c "SELECT count(*) FROM book_image_links WHERE s3_image_path IS NOT NULL AND btrim(s3_image_path) <> ''") || exit 1; \
 		if [ "$$total" -eq 0 ] 2>/dev/null; then \
 			echo "✅ No non-empty s3_image_path values found."; \
 			exit 0; \
 		fi; \
 		tmp_rows=$$(mktemp); \
 		trap 'rm -f "$$tmp_rows"' EXIT INT TERM; \
-		psql "$$SPRING_DATASOURCE_URL" -At -F "|" -c "SELECT id, s3_image_path FROM book_image_links WHERE s3_image_path IS NOT NULL AND btrim(s3_image_path) <> '' ORDER BY id" > "$$tmp_rows"; \
+		node frontend/scripts/postgres-connection-config.js -X -At -F "|" \
+			-v ON_ERROR_STOP=1 -c "SELECT id, s3_image_path FROM book_image_links WHERE s3_image_path IS NOT NULL AND btrim(s3_image_path) <> '' ORDER BY id" > "$$tmp_rows" || exit 1; \
 		checked=0; \
 		found=0; \
 		missing=0; \
@@ -255,7 +285,8 @@ check-s3-in-db:
 				echo "MISSING -> clearing DB value"; \
 				escaped_row_id=$$(printf "%s" "$$row_id" | sed "s/'/''/g"); \
 				escaped_s3_key=$$(printf "%s" "$$s3_key" | sed "s/'/''/g"); \
-				if ! psql "$$SPRING_DATASOURCE_URL" -v ON_ERROR_STOP=1 -c "UPDATE book_image_links SET s3_image_path = NULL WHERE id = '$$escaped_row_id' AND s3_image_path = '$$escaped_s3_key'" >/dev/null; then \
+				if ! node frontend/scripts/postgres-connection-config.js -X -v ON_ERROR_STOP=1 \
+				-c "UPDATE book_image_links SET s3_image_path = NULL WHERE id = '$$escaped_row_id' AND s3_image_path = '$$escaped_s3_key'" >/dev/null; then \
 					update_errors=$$((update_errors + 1)); \
 					echo "   ❌ Failed DB update for row $$row_id"; \
 				fi; \

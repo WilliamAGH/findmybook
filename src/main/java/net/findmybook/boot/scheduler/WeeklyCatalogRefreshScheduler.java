@@ -1,5 +1,7 @@
 package net.findmybook.boot.scheduler;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -22,21 +24,28 @@ import org.springframework.stereotype.Component;
 public class WeeklyCatalogRefreshScheduler {
 
     private static final Logger log = LoggerFactory.getLogger(WeeklyCatalogRefreshScheduler.class);
+    private static final String PHASE_OUTCOME_METRIC = "findmybook.weekly.refresh.phase";
+    private static final String NYT_PHASE = "nyt";
 
     private final NewYorkTimesBestsellerScheduler newYorkTimesBestsellerScheduler;
     private final RecommendationCacheRefreshUseCase recommendationCacheRefreshUseCase;
     private final boolean schedulerEnabled;
     private final boolean nytPhaseEnabled;
     private final boolean recommendationPhaseEnabled;
+    private final Counter nytPhaseSuccessCounter;
+    private final Counter nytPhaseFailureCounter;
 
     public WeeklyCatalogRefreshScheduler(NewYorkTimesBestsellerScheduler newYorkTimesBestsellerScheduler,
                                          RecommendationCacheRefreshUseCase recommendationCacheRefreshUseCase,
-                                         SchedulerConfiguration config) {
+                                         SchedulerConfiguration config,
+                                         MeterRegistry meterRegistry) {
         this.newYorkTimesBestsellerScheduler = newYorkTimesBestsellerScheduler;
         this.recommendationCacheRefreshUseCase = recommendationCacheRefreshUseCase;
         this.schedulerEnabled = config.schedulerEnabled();
         this.nytPhaseEnabled = config.nytPhaseEnabled();
         this.recommendationPhaseEnabled = config.recommendationPhaseEnabled();
+        this.nytPhaseSuccessCounter = phaseOutcomeCounter(meterRegistry, NYT_PHASE, "success");
+        this.nytPhaseFailureCounter = phaseOutcomeCounter(meterRegistry, NYT_PHASE, "failure");
     }
 
     @Component
@@ -86,10 +95,20 @@ public class WeeklyCatalogRefreshScheduler {
 
         if (nytPhaseEnabled) {
             try {
-                newYorkTimesBestsellerScheduler.forceProcessNewYorkTimesBestsellers();
+                NewYorkTimesBestsellerScheduler.NytIngestSummary nytSummary =
+                    newYorkTimesBestsellerScheduler.forceProcessNewYorkTimesBestsellers();
+                if (nytSummary == null || !nytSummary.hasValidatedIngestion()) {
+                    throw new IllegalStateException("NYT ingest did not persist any bestseller memberships.");
+                }
                 nytTriggered = true;
-                log.info("Weekly catalog refresh completed NYT phase successfully.");
+                nytPhaseSuccessCounter.increment();
+                log.info(
+                    "Weekly catalog refresh completed NYT phase successfully (usableLists={}, persistedMemberships={}).",
+                    nytSummary.usableLists(),
+                    nytSummary.persistedMemberships()
+                );
             } catch (RuntimeException exception) {
+                nytPhaseFailureCounter.increment();
                 log.error("Weekly catalog refresh NYT phase failed.", exception);
                 failures.add("NYT phase failed: " + resolveFailureMessage(exception));
             }
@@ -133,6 +152,14 @@ public class WeeklyCatalogRefreshScheduler {
             return exception.getClass().getSimpleName();
         }
         return message;
+    }
+
+    private static Counter phaseOutcomeCounter(MeterRegistry meterRegistry, String phase, String outcome) {
+        return Counter.builder(PHASE_OUTCOME_METRIC)
+            .description("Weekly catalog refresh phase outcomes")
+            .tag("phase", phase)
+            .tag("outcome", outcome)
+            .register(meterRegistry);
     }
 
     /**

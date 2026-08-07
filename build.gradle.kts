@@ -86,6 +86,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-webclient")
     implementation("org.springframework.boot:spring-boot-starter-websocket")
 
+    runtimeOnly("io.micrometer:micrometer-registry-prometheus")
     runtimeOnly("io.netty:netty-resolver-dns-native-macos::osx-aarch_64")
 
     implementation("org.postgresql:postgresql")
@@ -102,6 +103,7 @@ dependencies {
     implementation("io.github.resilience4j:resilience4j-spring-boot3:${property("resilience4jVersion")}")
     implementation("io.github.resilience4j:resilience4j-bulkhead:${property("resilience4jVersion")}")
     implementation("io.github.resilience4j:resilience4j-micrometer:${property("resilience4jVersion")}")
+    implementation("io.github.resilience4j:resilience4j-reactor:${property("resilience4jVersion")}")
 
     implementation("com.google.errorprone:error_prone_annotations:2.36.0")
     implementation("org.jsoup:jsoup:1.22.1")

@@ -2,12 +2,8 @@ package net.findmybook.scheduler;
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.ArrayNode;
-import net.findmybook.dto.BookAggregate;
 import net.findmybook.service.BookCollectionPersistenceService;
-import net.findmybook.service.BookLookupService;
-import net.findmybook.service.BookUpsertService;
 import net.findmybook.service.NewYorkTimesService;
-import net.findmybook.support.retry.AdvisoryLockRetrySupport;
 import net.findmybook.util.DateParsingUtils;
 import net.findmybook.util.LoggingUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -27,7 +23,7 @@ import java.util.List;
 /**
  * Orchestrates NYT bestseller ingestion from API payload to canonical persistence services.
  *
- * @implNote LOC1 split plan (458 lines): extract {@code NytListProcessor}
+ * @implNote LOC1 split plan: extract {@code NytListProcessor}
  *     (per-list and per-entry processing logic).
  */
 @Component
@@ -35,10 +31,8 @@ import java.util.List;
 public class NewYorkTimesBestsellerScheduler {
 
     private final NewYorkTimesService newYorkTimesService;
-    private final BookLookupService bookLookupService;
     private final JdbcTemplate jdbcTemplate;
     private final BookCollectionPersistenceService collectionPersistenceService;
-    private final BookUpsertService bookUpsertService;
     private final NytBestsellerPayloadMapper payloadMapper;
     private final NytBestsellerPersistenceCollaborator persistenceCollaborator;
     private final boolean schedulerEnabled;
@@ -48,10 +42,8 @@ public class NewYorkTimesBestsellerScheduler {
     public NewYorkTimesBestsellerScheduler(NytIngestServices services,
                                            SchedulerConfig config) {
         this.newYorkTimesService = services.newYorkTimesService();
-        this.bookLookupService = services.bookLookupService();
         this.jdbcTemplate = services.jdbcTemplate();
         this.collectionPersistenceService = services.collectionPersistenceService();
-        this.bookUpsertService = services.bookUpsertService();
         this.payloadMapper = services.payloadMapper();
         this.persistenceCollaborator = services.persistenceCollaborator();
         this.schedulerEnabled = config.schedulerEnabled();
@@ -73,19 +65,15 @@ public class NewYorkTimesBestsellerScheduler {
         @Bean
         public NytIngestServices nytIngestServices(
             NewYorkTimesService newYorkTimesService,
-            BookLookupService bookLookupService,
             JdbcTemplate jdbcTemplate,
             BookCollectionPersistenceService collectionPersistenceService,
-            BookUpsertService bookUpsertService,
             NytBestsellerPayloadMapper payloadMapper,
             NytBestsellerPersistenceCollaborator persistenceCollaborator
         ) {
             return new NytIngestServices(
                 newYorkTimesService,
-                bookLookupService,
                 jdbcTemplate,
                 collectionPersistenceService,
-                bookUpsertService,
                 payloadMapper,
                 persistenceCollaborator
             );
@@ -96,10 +84,8 @@ public class NewYorkTimesBestsellerScheduler {
 
     public record NytIngestServices(
         NewYorkTimesService newYorkTimesService,
-        BookLookupService bookLookupService,
         JdbcTemplate jdbcTemplate,
         BookCollectionPersistenceService collectionPersistenceService,
-        BookUpsertService bookUpsertService,
         NytBestsellerPayloadMapper payloadMapper,
         NytBestsellerPersistenceCollaborator persistenceCollaborator
     ) {}
@@ -113,16 +99,33 @@ public class NewYorkTimesBestsellerScheduler {
         processNewYorkTimesBestsellers(null, false);
     }
 
-    public void processNewYorkTimesBestsellers(@Nullable LocalDate requestedDate) {
-        processNewYorkTimesBestsellers(requestedDate, false);
+    /**
+     * Processes one NYT overview using normal scheduler enablement rules.
+     *
+     * @param requestedDate optional historical publication date
+     * @return typed outcome used by callers to distinguish ingestion from a disabled skip
+     */
+    public NytIngestSummary processNewYorkTimesBestsellers(@Nullable LocalDate requestedDate) {
+        return processNewYorkTimesBestsellers(requestedDate, false);
     }
 
-    public void forceProcessNewYorkTimesBestsellers() {
-        processNewYorkTimesBestsellers(null, true);
+    /**
+     * Forces the latest NYT overview to run regardless of scheduler enablement.
+     *
+     * @return validated nonempty ingestion summary
+     */
+    public NytIngestSummary forceProcessNewYorkTimesBestsellers() {
+        return processNewYorkTimesBestsellers(null, true);
     }
 
-    public void forceProcessNewYorkTimesBestsellers(@Nullable LocalDate requestedDate) {
-        processNewYorkTimesBestsellers(requestedDate, true);
+    /**
+     * Forces one NYT overview to run regardless of scheduler enablement.
+     *
+     * @param requestedDate optional historical publication date
+     * @return validated nonempty ingestion summary
+     */
+    public NytIngestSummary forceProcessNewYorkTimesBestsellers(@Nullable LocalDate requestedDate) {
+        return processNewYorkTimesBestsellers(requestedDate, true);
     }
 
     /**
@@ -168,15 +171,14 @@ public class NewYorkTimesBestsellerScheduler {
         );
     }
 
-    private void processNewYorkTimesBestsellers(@Nullable LocalDate requestedDate, boolean forceExecution) {
+    private NytIngestSummary processNewYorkTimesBestsellers(@Nullable LocalDate requestedDate, boolean forceExecution) {
         if (!forceExecution && !schedulerEnabled) {
             log.info("NYT bestseller scheduler disabled via configuration.");
-            return;
+            return NytIngestSummary.skipped();
         }
         assertNytOnly();
         if (jdbcTemplate == null) {
-            log.warn("JdbcTemplate unavailable; NYT bestseller ingest skipped.");
-            return;
+            throw new IllegalStateException("JdbcTemplate unavailable; NYT bestseller ingest cannot run.");
         }
 
         log.info("Starting NYT bestseller ingest{}.", requestedDate != null ? " for " + requestedDate : "");
@@ -188,8 +190,7 @@ public class NewYorkTimesBestsellerScheduler {
             .block(Duration.ofMinutes(2));
 
         if (overview == null || overview.isEmpty()) {
-            log.info("NYT overview returned no data. Job complete.");
-            return;
+            throw new IllegalStateException("NYT overview returned no data.");
         }
 
         JsonNode results = overview.path("results");
@@ -200,15 +201,22 @@ public class NewYorkTimesBestsellerScheduler {
         ArrayNode lists = results.has("lists") && results.get("lists").isArray() ? (ArrayNode) results.get("lists") : null;
 
         if (lists == null || lists.isEmpty()) {
-            log.info("NYT overview contained no lists. Job complete.");
-            return;
+            throw new IllegalStateException("NYT overview contained no usable lists.");
         }
 
         int failedLists = 0;
         int totalLists = lists.size();
+        int usableLists = 0;
+        int processedEntries = 0;
+        int persistedMemberships = 0;
         for (JsonNode listNode : lists) {
             try {
-                persistList(listNode, bestsellersDate, publishedDate);
+                ListIngestOutcome listOutcome = persistList(listNode, bestsellersDate, publishedDate);
+                if (listOutcome.usableList()) {
+                    usableLists++;
+                }
+                processedEntries += listOutcome.processedEntries();
+                persistedMemberships += listOutcome.persistedMemberships();
             } catch (RuntimeException exception) {
                 failedLists++;
                 String listCode = payloadMapper.firstNonEmptyText(listNode, "list_name_encoded");
@@ -223,14 +231,39 @@ public class NewYorkTimesBestsellerScheduler {
                     .formatted(failedLists, totalLists));
         }
 
-        log.info("NYT bestseller ingest completed successfully{}.", requestedDate != null ? " for " + requestedDate : "");
+        NytIngestSummary summary = new NytIngestSummary(
+            true,
+            totalLists,
+            usableLists,
+            processedEntries,
+            persistedMemberships
+        );
+        if (usableLists == 0) {
+            throw new IllegalStateException("NYT overview contained no usable lists.");
+        }
+        if (!summary.hasValidatedIngestion()) {
+            throw new IllegalStateException(
+                "NYT ingest persisted zero bestseller memberships from %d processed entries."
+                    .formatted(processedEntries)
+            );
+        }
+
+        log.info(
+            "NYT bestseller ingest completed successfully{} (usableLists={}, persistedMemberships={}).",
+            requestedDate != null ? " for " + requestedDate : "",
+            usableLists,
+            persistedMemberships
+        );
+        return summary;
     }
 
-    private void persistList(JsonNode listNode, @Nullable LocalDate bestsellersDate, @Nullable LocalDate publishedDate) {
+    private ListIngestOutcome persistList(JsonNode listNode,
+                                         @Nullable LocalDate bestsellersDate,
+                                         @Nullable LocalDate publishedDate) {
         String listCode = payloadMapper.firstNonEmptyText(listNode, "list_name_encoded");
         if (!StringUtils.hasText(listCode)) {
             log.warn("Skipping NYT list without list_name_encoded.");
-            return;
+            return ListIngestOutcome.unusable();
         }
 
         String displayName = payloadMapper.firstNonEmptyText(listNode, "display_name");
@@ -263,7 +296,7 @@ public class NewYorkTimesBestsellerScheduler {
         ArrayNode booksNode = listNode.has("books") && listNode.get("books").isArray() ? (ArrayNode) listNode.get("books") : null;
         if (booksNode == null || booksNode.isEmpty()) {
             log.info("NYT list '{}' contained no books.", listCode);
-            return;
+            return ListIngestOutcome.unusable();
         }
 
         NytListContext listContext = new NytListContext(
@@ -279,9 +312,12 @@ public class NewYorkTimesBestsellerScheduler {
 
         int failedEntries = 0;
         int totalEntries = booksNode.size();
+        int persistedMemberships = 0;
         for (JsonNode bookNode : booksNode) {
             try {
-                persistListEntry(listContext, bookNode);
+                if (persistListEntry(listContext, bookNode)) {
+                    persistedMemberships++;
+                }
             } catch (RuntimeException exception) {
                 failedEntries++;
                 String title = payloadMapper.firstNonEmptyText(bookNode, "title", "book_title");
@@ -296,20 +332,27 @@ public class NewYorkTimesBestsellerScheduler {
                 "NYT list '%s' completed with %d of %d failed entr%s."
                     .formatted(listCode, failedEntries, totalEntries, failedEntries == 1 ? "y" : "ies"));
         }
+        return new ListIngestOutcome(true, totalEntries, persistedMemberships);
     }
 
-    private void persistListEntry(NytListContext listContext, JsonNode bookNode) {
+    private boolean persistListEntry(NytListContext listContext, JsonNode bookNode) {
         String isbn13 = payloadMapper.resolveNytIsbn13(bookNode);
         String isbn10 = payloadMapper.resolveNytIsbn10(bookNode);
 
-        if (isbn13 == null && isbn10 == null) {
-            log.warn("Skipping NYT list entry without valid ISBNs for list '{}'.", listContext.listCode());
-            return;
+        if (payloadMapper.resolveNytExternalId(bookNode, isbn13, isbn10) == null) {
+            log.warn("Skipping NYT list entry without reproducible provider identity for list '{}'.",
+                listContext.listCode());
+            return false;
         }
 
-        String canonicalId = resolveOrCreateCanonicalBook(bookNode, listContext, isbn13, isbn10);
+        String canonicalId = persistenceCollaborator.resolveOrCreateCanonicalBook(
+            bookNode,
+            listContext,
+            isbn13,
+            isbn10
+        );
         if (canonicalId == null) {
-            return;
+            return false;
         }
 
         Integer rank = bookNode.path("rank").isInt() ? bookNode.get("rank").asInt() : null;
@@ -343,62 +386,7 @@ public class NewYorkTimesBestsellerScheduler {
                 peakPosition
             )
         );
-    }
-
-    @Nullable
-    private String resolveOrCreateCanonicalBook(JsonNode bookNode,
-                                                NytListContext listContext,
-                                                String isbn13,
-                                                String isbn10) {
-        String canonicalId = bookLookupService.resolveCanonicalBookId(isbn13, isbn10);
-        boolean isNewBook = (canonicalId == null);
-
-        if (canonicalId == null) {
-            canonicalId = createCanonicalFromNyt(bookNode, listContext, isbn13, isbn10);
-        } else {
-            persistenceCollaborator.enrichExistingCanonicalBookMetadata(canonicalId, bookNode);
-        }
-
-        String title = payloadMapper.firstNonEmptyText(bookNode, "title");
-        if (canonicalId == null) {
-            log.warn("Unable to locate or create canonical book for NYT list entry (ISBN13: {}, ISBN10: {}, title: {}).",
-                isbn13,
-                isbn10,
-                title != null ? title : "unknown");
-            return null;
-        }
-
-        persistenceCollaborator.upsertNytExternalIdentifiers(canonicalId, bookNode, isbn13, isbn10);
-
-        log.info("Processing NYT book: canonicalId='{}', isNew={}, listCode='{}', isbn13='{}', title='{}'",
-            canonicalId,
-            isNewBook,
-            listContext.listCode(),
-            isbn13,
-            title != null ? title : "unknown");
-        return canonicalId;
-    }
-
-    @Nullable
-    private String createCanonicalFromNyt(JsonNode bookNode, NytListContext listContext, String isbn13, String isbn10) {
-        BookAggregate aggregate = payloadMapper.buildBookAggregateFromNyt(bookNode, listContext, isbn13, isbn10);
-        if (aggregate == null) {
-            return null;
-        }
-
-        try {
-            BookUpsertService.UpsertResult result = AdvisoryLockRetrySupport.execute(
-                AdvisoryLockRetrySupport.RetryConfig.forBookUpsert(log),
-                "NYT upsert isbn13=" + isbn13 + ",isbn10=" + isbn10,
-                () -> bookUpsertService.upsert(aggregate)
-            );
-            return result.getBookId().toString();
-        } catch (RuntimeException exception) {
-            throw new IllegalStateException(
-                "Failed to create canonical book from NYT data (isbn13=" + isbn13 + ", isbn10=" + isbn10 + ")",
-                exception
-            );
-        }
+        return true;
     }
 
     private List<LocalDate> loadHistoricalPublishedDates() {
@@ -439,6 +427,44 @@ public class NewYorkTimesBestsellerScheduler {
             log.warn("Failed to parse date from non-blank input: '{}'", dateText);
         }
         return parsed;
+    }
+
+    /**
+     * Outcome of one NYT overview ingestion attempt.
+     *
+     * @param executed whether provider ingestion ran instead of an intentional disabled skip
+     * @param totalLists number of provider list nodes received
+     * @param usableLists number of lists with a stable code and at least one entry
+     * @param processedEntries number of book entries inspected across usable lists
+     * @param persistedMemberships number of bestseller memberships persisted successfully
+     */
+    public record NytIngestSummary(
+        boolean executed,
+        int totalLists,
+        int usableLists,
+        int processedEntries,
+        int persistedMemberships
+    ) {
+
+        private static NytIngestSummary skipped() {
+            return new NytIngestSummary(false, 0, 0, 0, 0);
+        }
+
+        /**
+         * Indicates that the provider response produced observable catalog membership data.
+         *
+         * @return true only for executed, nonempty ingestion
+         */
+        public boolean hasValidatedIngestion() {
+            return executed && usableLists > 0 && processedEntries > 0 && persistedMemberships > 0;
+        }
+    }
+
+    private record ListIngestOutcome(boolean usableList, int processedEntries, int persistedMemberships) {
+
+        private static ListIngestOutcome unusable() {
+            return new ListIngestOutcome(false, 0, 0);
+        }
     }
 
     /**

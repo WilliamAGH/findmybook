@@ -4,11 +4,14 @@
  * Cleaner, flatter logic while handling all corruption patterns
  */
 
-const { Client } = require('pg');
-const { S3Client, ListObjectsV2Command, GetObjectCommand } = require('@aws-sdk/client-s3');
-const fs = require('node:fs');
-const crypto = require('node:crypto');
-const zlib = require('node:zlib');
+import { GetObjectCommand, ListObjectsV2Command, S3Client } from '@aws-sdk/client-s3';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import { pathToFileURL } from 'node:url';
+import zlib from 'node:zlib';
+import { Client } from 'pg';
+import { parsePostgresUrl } from './postgres-connection-config.js';
+import { upsertBookAuthors } from './upsert-book-authors.js';
 
 // ============================================================================
 // CONFIGURATION
@@ -425,7 +428,7 @@ class JsonParser {
   }
 
   /**
-   * Deduplicate books based on ISBN or title+author
+   * Deduplicate books by provider ID, then ISBN, then title+author fallback.
    */
   deduplicateBooks(books) {
     if (books.length <= 1) return books;
@@ -451,6 +454,12 @@ class JsonParser {
    */
   getBookKey(book) {
     const volumeInfo = book.volumeInfo || book;
+
+    // Preserve every distinct provider record for the canonical database upsert.
+    // Title and author are only a fallback when the provider omitted its ID.
+    if (typeof book.id === 'string' && book.id.trim() !== '') {
+      return `google-books:${book.id}`;
+    }
 
     // Try ISBN first
     if (volumeInfo.industryIdentifiers) {
@@ -519,7 +528,7 @@ class BookMigrator {
     ]);
 
     // Insert join table data (must be sequential for foreign keys)
-    await this.insertAuthors(bookId, fields.authors);
+    await upsertBookAuthors(this.client, bookId, fields.authors);
     await this.insertCategories(bookId, fields.categories);
     await this.insertQualifierCollections(bookId, fields.qualifiers);
 
@@ -689,7 +698,7 @@ class BookMigrator {
 
     // Create new book
     const bookId = generateUUIDv7();
-    const slug = await this.generateUniqueSlug(fields.title, fields.authors[0]);
+    const slug = await this.allocatePersistedSlug(fields.title, bookId);
 
     await this.client.query(
       `INSERT INTO books (
@@ -711,43 +720,22 @@ class BookMigrator {
   }
 
   /**
-   * Generate unique slug
+   * Delegates persisted slug allocation to PostgreSQL's canonical function.
    */
-  async generateUniqueSlug(title, firstAuthor) {
-    if (!title) return 'book';
-
-    let slug = title.toLowerCase()
-      .replace(/&/g, 'and')
-      .replace(/[^a-z0-9\s-]/g, '')
-      .replace(/[\s_]+/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-+|-+$/g, '');
-
-    if (slug.length > 60) {
-      slug = slug.substring(0, 60);
-      const lastDash = slug.lastIndexOf('-');
-      if (lastDash > 30) slug = slug.substring(0, lastDash);
+  async allocatePersistedSlug(title, bookId) {
+    if (!bookId) {
+      throw new Error('bookId is required before generating a book slug');
     }
 
-    if (firstAuthor) {
-      let authorSlug = firstAuthor.toLowerCase()
-        .replace(/[^a-z0-9\s-]/g, '')
-        .replace(/[\s_]+/g, '-')
-        .substring(0, 30);
-      slug = `${slug}-${authorSlug}`;
-    }
-
-    if (slug.length > 100) {
-      slug = slug.substring(0, 100);
-    }
-
-    // Ensure uniqueness
     const result = await this.client.query(
-      'SELECT ensure_unique_slug($1) as unique_slug',
-      [slug]
+      'SELECT public.generate_slug($1, $2::uuid) AS slug',
+      [title, bookId]
     );
-
-    return result.rows[0].unique_slug;
+    const slug = result.rows[0]?.slug;
+    if (typeof slug !== 'string' || slug.trim() === '') {
+      throw new Error(`PostgreSQL returned a blank slug for book ${bookId}`);
+    }
+    return slug;
   }
 
   /**
@@ -966,52 +954,6 @@ class BookMigrator {
     } else {
       this.log(`✨ Added book_dimensions row for book ${bookId}`);
     }
-  }
-
-  /**
-   * Insert authors
-   */
-  async insertAuthors(bookId, authors) {
-    if (!authors || authors.length === 0) return;
-
-    for (let i = 0; i < authors.length; i++) {
-      const authorName = authors[i];
-      if (!authorName?.trim()) continue;
-
-      const normalizedName = this.normalizeAuthorName(authorName);
-      // Insert or get author
-      const authorResult = await this.client.query(
-        `INSERT INTO authors (id, name, normalized_name, created_at, updated_at)
-         VALUES ($1, $2, $3, NOW(), NOW())
-         ON CONFLICT (name) DO UPDATE SET updated_at = NOW()
-         RETURNING id`,
-        [generateNanoId(10), authorName, normalizedName]
-      );
-
-      const authorId = authorResult.rows[0].id;
-      this.log(`↻ Upserted author ${authorId} (${authorName})`);
-
-      // Link book to author
-      await this.client.query(
-        `INSERT INTO book_authors_join (id, book_id, author_id, position, created_at)
-         VALUES ($1, $2::uuid, $3, $4, NOW())
-         ON CONFLICT (book_id, author_id) DO UPDATE SET position = EXCLUDED.position`,
-        [generateNanoId(12), bookId, authorId, i]
-      );
-      this.log(`↻ Upserted author→book link (${authorId} → ${bookId})`);
-    }
-  }
-
-  /**
-   * Normalize author name for deduplication
-   */
-  normalizeAuthorName(name) {
-    return name.toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9\s]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
   }
 
   /**
@@ -1489,62 +1431,6 @@ function loadEnvFile() {
   }
 }
 
-function parsePostgresUrl(pgUrl) {
-  if (!pgUrl) throw new Error('SPRING_DATASOURCE_URL not set');
-
-  const parsed = new URL(pgUrl);
-  const sslMode = (parsed.searchParams.get('sslmode') || '').toLowerCase();
-  const requireVerify = process.env.PGSSL_REQUIRE_VERIFY === 'true';
-
-  const buildSecureSslConfig = () => {
-    const sslConfig = { rejectUnauthorized: true };
-    const rootCertPath = process.env.PGSSLROOTCERT;
-    if (rootCertPath) {
-      try {
-        sslConfig.ca = fs.readFileSync(rootCertPath);
-      } catch (err) {
-        console.warn(`[DB] Failed to load PGSSLROOTCERT from ${rootCertPath}: ${err.message}`);
-      }
-    }
-    return sslConfig;
-  };
-
-  let ssl;
-  // Strict verification modes: always verify certificates
-  if (['require', 'verify-full', 'verify-ca'].includes(sslMode)) {
-    ssl = buildSecureSslConfig();
-    console.log(`[DB] TLS mode: strict verification (sslmode=${sslMode})`);
-  }
-  // Explicit disable: honor it (typically for local dev)
-  else if (sslMode === 'disable') {
-    ssl = false;
-    console.log('[DB] TLS mode: disabled (sslmode=disable)');
-  }
-  // Permissive modes (prefer/allow) or no sslmode: relax by default, but allow opt-in to strict
-  else {
-    if (requireVerify) {
-      ssl = buildSecureSslConfig();
-      console.log(`[DB] TLS mode: strict verification (PGSSL_REQUIRE_VERIFY=true, sslmode=${sslMode || 'unset'})`);
-    } else {
-      // Use an object with rejectUnauthorized: false to enable TLS but not verify certs
-      // However, for prefer/allow modes when server doesn't support SSL, we need to disable it entirely
-      // The pg client doesn't support automatic fallback with ssl: { rejectUnauthorized: false }
-      // So for prefer/allow without PGSSL_REQUIRE_VERIFY, disable SSL to avoid connection failures
-      ssl = false;
-      console.log(`[DB] TLS mode: disabled for compatibility (sslmode=${sslMode || 'unset'}). Set PGSSL_REQUIRE_VERIFY=true to enable relaxed TLS.`);
-    }
-  }
-
-  return {
-    host: parsed.hostname,
-    port: parsed.port ? Number(parsed.port) : 5432,
-    database: parsed.pathname.slice(1) || 'postgres',
-    user: parsed.username,
-    password: parsed.password,
-    ssl
-  };
-}
-
 /**
  * Main migration function
  */
@@ -1695,12 +1581,13 @@ async function migrate() {
   console.log('='.repeat(60));
 }
 
-// Run migration
-if (require.main === module) {
+// Run migration only when this module is the process entrypoint.
+const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isDirectRun) {
   migrate().catch(e => {
     console.error('💥 Migration failed:', e);
     process.exit(1);
   });
 }
 
-module.exports = { JsonParser, BookMigrator };
+export { BookMigrator, JsonParser };

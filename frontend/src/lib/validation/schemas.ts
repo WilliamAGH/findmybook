@@ -269,9 +269,16 @@ export const ThemePreferenceSchema = z.object({
 
 export const AffiliateLinksSchema = z.record(z.string(), z.string()).default({});
 
+export const SearchProgressStatusSchema = z.string().min(1);
+
+export type SearchProgressStatus = z.infer<typeof SearchProgressStatusSchema>;
+
 export const SearchProgressEventSchema = z.object({
+  status: SearchProgressStatusSchema,
   message: z.string().optional(),
 });
+
+export type SearchProgressEvent = z.infer<typeof SearchProgressEventSchema>;
 
 export const SearchResultsEventSchema = z.object({
   newResults: z.array(z.unknown()).default([]),
@@ -330,19 +337,7 @@ export const BookAiContentMessageDoneSchema = z.object({
   message: z.string(),
 });
 
-export const BookAiErrorCodeSchema = z.enum([
-  "identifier_required",
-  "book_not_found",
-  "service_unavailable",
-  "queue_busy",
-  "stream_timeout",
-  "empty_generation",
-  "degenerate_content",
-  "cache_serialization_failed",
-  "description_too_short",
-  "enrichment_failed",
-  "generation_failed",
-]);
+export const BookAiErrorCodeSchema = z.string().min(1);
 
 export const BookAiContentStreamErrorSchema = z.object({
   error: z.string(),

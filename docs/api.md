@@ -54,7 +54,7 @@
   - `query` (required)
   - `startIndex` (default `0`; **zero-based absolute offset**, not a one-based page number)
   - `maxResults` (default `12`)
-  - `orderBy` (`relevance`, `newest`, `title`, `author`)
+  - `orderBy` (default `relevance`; supported values: `relevance`, `newest`, `title`, `author`)
   - `publishedYear` (optional integer year filter)
   - `coverSource` (default `ANY`)
   - `resolution` (default `ANY`)
@@ -177,18 +177,11 @@
       - Cancellation and persistence share one atomic commitment boundary. Cancellation that claims
         first prevents a new AI-content version; persistence that claims first completes its insert,
         while the closed stream suppresses any later delivery.
-      - `code` values include:
-        - `identifier_required`
-        - `book_not_found`
-        - `service_unavailable`
-        - `stream_timeout`
-        - `empty_generation`
-        - `degenerate_content`
-        - `cache_serialization_failed`
-        - `queue_busy`
-        - `description_too_short` (emitted only after canonical description enrichment attempts from Open Library and Google Books still fail to satisfy minimum content requirements)
-        - `enrichment_failed` (emitted when book description enrichment providers are unavailable)
-        - `generation_failed`
+      - `code` is a non-empty machine-readable token owned by the backend SSE contract. Clients
+        preserve unknown future values instead of replacing them with a generic failure.
+      - Description enrichment distinguishes insufficient source content (`description_too_short`),
+        provider failure (`enrichment_failed`), local admission denial (`local_rate_limited`), and
+        an open local provider circuit (`local_circuit_open`).
 - `POST /api/books/ai/content/requests/{requestId}/cancel`
   - Sends no request body and returns `204 No Content`.
   - Cancels pending or running generation through the same terminal owner used by SSE disconnects,
@@ -203,7 +196,10 @@
   - `page = floor(startIndex / maxResults) + 1`
 - The backend search API itself is offset-based and does not use Spring Data `Pageable`/`PageRequest`.
 - Returns cursor metadata: `hasMore`, `nextStartIndex`, `prefetchedCount`.
-- Prefetches an additional page window to keep pagination deterministic.
+- Each canonical query/filter/page-size combination builds one bounded, immutable ordered candidate snapshot from offset zero.
+- Later offsets slice that same snapshot, so totals and ordering remain stable for the snapshot's two-minute TTL even when realtime persistence changes Postgres.
+- The snapshot loads one bounded candidate universe before slicing pages: Postgres and Open Library may contribute up to 200 candidates, while Google secondary supplementation is limited to one 40-result provider page.
+- Cold snapshot admission allows at most four concurrent loads and thirty new query snapshots per minute; excess unique-query bursts return HTTP `429` instead of consuming unbounded database or provider capacity.
 - Web UI caches up to six prefetched pages in-memory.
 
 ## SPA Page Payload Contracts
@@ -292,7 +288,8 @@
 - Provider priority for opportunistic enrichment:
   - Open Library is the primary external provider.
   - Google Books runs in parallel for realtime enrichment and contributes additional candidates when available.
-  - Provider failures are isolated; one provider failure does not terminate the other provider stream.
+- Provider failures are isolated; one provider failure does not terminate the other provider stream.
+- Progress status distinguishes local admission from provider failure: `LOCAL_RATE_LIMITED` means the local Open Library limiter denied the call, `LOCAL_CIRCUIT_OPEN` means the local provider circuit rejected it, `RATE_LIMITED` means the provider returned HTTP 429, and `PROVIDER_UNAVAILABLE` covers other provider failures.
 
 ## External Book Provider Contracts (Top 4 Public APIs)
 - **Google Books Volumes Search API**

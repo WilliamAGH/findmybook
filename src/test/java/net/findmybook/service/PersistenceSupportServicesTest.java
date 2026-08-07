@@ -10,7 +10,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataAccessResourceFailureException;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.PreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -35,10 +34,8 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -114,7 +111,6 @@ class PersistenceSupportServicesTest {
 
         BookAggregate aggregate = BookAggregate.builder()
             .title("Lock Candidate")
-            .slugBase("lock-candidate")
             .identifiers(BookAggregate.ExternalIdentifiers.builder()
                 .source("OPEN_LIBRARY")
                 .externalId("OL-LOCK-1")
@@ -132,56 +128,57 @@ class PersistenceSupportServicesTest {
     }
 
     @Test
-    void bookUpsertService_shouldRetryWithNewSlug_When_SlugConstraintCollides() {
-        JdbcTemplate lockJdbcTemplate = mock(JdbcTemplate.class);
-        BookUpsertTransactionService transactionService = mock(BookUpsertTransactionService.class);
-        BookImageLinkPersistenceService imageLinkPersistenceService = mock(BookImageLinkPersistenceService.class);
-        BookOutboxEventService outboxEventService = mock(BookOutboxEventService.class);
-        stubAdvisoryLock(lockJdbcTemplate);
-        stubExternalIdLookup(lockJdbcTemplate, "OL-SLUG-1", null);
-
-        when(transactionService.ensureUniqueSlug(eq("john-grisham"), any(UUID.class), eq(true)))
-            .thenReturn("john-grisham", "john-grisham-1");
-        doThrow(new DuplicateKeyException("duplicate key value violates unique constraint \"books_slug_key\""))
-            .doNothing()
-            .when(transactionService)
-            .upsertBookRecord(any(UUID.class), any(BookAggregate.class), anyString());
-        when(imageLinkPersistenceService.persistImageLinks(any(UUID.class), any()))
-            .thenReturn(BookImageLinkPersistenceService.ImageLinkPersistenceResult.empty());
-
-        BookUpsertService upsertService = new BookUpsertService(
-            lockJdbcTemplate,
-            transactionService,
-            imageLinkPersistenceService,
-            outboxEventService
+    void bookUpsertTransactionService_shouldDelegateNewSlugsToPostgres_When_TitlesMatch() {
+        JdbcTemplate slugJdbcTemplate = mock(JdbcTemplate.class);
+        BookUpsertTransactionService transactionService = new BookUpsertTransactionService(
+            slugJdbcTemplate,
+            mock(BookCollectionPersistenceService.class)
         );
+        UUID firstBookId = UUID.fromString("01989d24-0000-7000-8000-000000000001");
+        UUID secondBookId = UUID.fromString("01989d24-0000-7000-8000-000000000002");
+        String firstPersistedSlug = "database-owned-" + firstBookId;
+        String secondPersistedSlug = "database-owned-" + secondBookId;
+        when(slugJdbcTemplate.query(
+            eq("SELECT public.generate_slug(?, ?)"),
+            org.mockito.ArgumentMatchers.<ResultSetExtractor<String>>any(),
+            eq("Shared & Title"),
+            eq(firstBookId)
+        )).thenReturn(firstPersistedSlug);
+        when(slugJdbcTemplate.query(
+            eq("SELECT public.generate_slug(?, ?)"),
+            org.mockito.ArgumentMatchers.<ResultSetExtractor<String>>any(),
+            eq("Shared & Title"),
+            eq(secondBookId)
+        )).thenReturn(secondPersistedSlug);
 
-        BookAggregate aggregate = BookAggregate.builder()
-            .title("John Grisham")
-            .slugBase("john-grisham")
-            .identifiers(BookAggregate.ExternalIdentifiers.builder()
-                .source("OPEN_LIBRARY")
-                .externalId("OL-SLUG-1")
-                .build())
-            .build();
+        String firstSlug = transactionService.resolvePersistedSlug("Shared & Title", firstBookId, true);
+        String secondSlug = transactionService.resolvePersistedSlug("Shared & Title", secondBookId, true);
 
-        BookUpsertService.UpsertResult result = upsertService.upsert(aggregate);
-
-        assertThat(result.getSlug()).isEqualTo("john-grisham-1");
-        verify(transactionService, times(2)).ensureUniqueSlug(eq("john-grisham"), any(UUID.class), eq(true));
-        verify(transactionService, times(2)).upsertBookRecord(any(UUID.class), any(BookAggregate.class), anyString());
+        assertThat(firstSlug).isEqualTo(firstPersistedSlug);
+        assertThat(secondSlug).isEqualTo(secondPersistedSlug);
+        assertThat(firstSlug).isNotEqualTo(secondSlug);
+        verify(slugJdbcTemplate).query(
+            eq("SELECT public.generate_slug(?, ?)"),
+            org.mockito.ArgumentMatchers.<ResultSetExtractor<String>>any(),
+            eq("Shared & Title"),
+            eq(firstBookId)
+        );
+        verify(slugJdbcTemplate).query(
+            eq("SELECT public.generate_slug(?, ?)"),
+            org.mockito.ArgumentMatchers.<ResultSetExtractor<String>>any(),
+            eq("Shared & Title"),
+            eq(secondBookId)
+        );
     }
 
     @Test
-    void bookUpsertService_findExistingBookId_matchesByExactSlug_When_IdentifiersDoNotResolve() {
+    void bookUpsertService_findExistingBookId_shouldNotMatchTitleSlug_When_ProviderIdentityDoesNotResolve() {
         JdbcTemplate lockJdbcTemplate = mock(JdbcTemplate.class);
         BookUpsertTransactionService transactionService = mock(BookUpsertTransactionService.class);
         BookImageLinkPersistenceService imageLinkPersistenceService = mock(BookImageLinkPersistenceService.class);
         BookOutboxEventService outboxEventService = mock(BookOutboxEventService.class);
-        UUID existingBookId = UUID.randomUUID();
         stubAdvisoryLock(lockJdbcTemplate);
         stubExternalIdLookup(lockJdbcTemplate, "OL-SLUG-MATCH-1", null);
-        stubSlugLookup(lockJdbcTemplate, "the-partner-john-grisham", existingBookId);
 
         BookUpsertService upsertService = new BookUpsertService(
             lockJdbcTemplate,
@@ -191,8 +188,8 @@ class PersistenceSupportServicesTest {
         );
 
         BookAggregate aggregate = BookAggregate.builder()
-            .title("The Partner")
-            .slugBase("the-partner-john-grisham")
+            .title("Shared Title")
+            .authors(List.of("First Author"))
             .identifiers(BookAggregate.ExternalIdentifiers.builder()
                 .source("OPEN_LIBRARY")
                 .externalId("OL-SLUG-MATCH-1")
@@ -201,12 +198,79 @@ class PersistenceSupportServicesTest {
 
         Optional<UUID> existing = ReflectionTestUtils.invokeMethod(upsertService, "findExistingBookId", aggregate);
 
-        assertThat(existing).contains(existingBookId);
-        verify(lockJdbcTemplate).query(
+        assertThat(existing).isEmpty();
+        verify(lockJdbcTemplate, never()).query(
             eq("SELECT id FROM books WHERE slug = ? LIMIT 1"),
             org.mockito.ArgumentMatchers.<org.springframework.jdbc.core.ResultSetExtractor<UUID>>any(),
-            eq("the-partner-john-grisham")
+            eq("shared-title")
         );
+    }
+
+    @Test
+    void bookUpsertService_findExistingBookId_shouldPreferStableProviderIdentity_When_IsbnPointsElsewhere() {
+        JdbcTemplate lockJdbcTemplate = mock(JdbcTemplate.class);
+        UUID providerBookId = UUID.randomUUID();
+        stubAdvisoryLock(lockJdbcTemplate);
+        stubExternalIdLookup(lockJdbcTemplate, "OL-STABLE-1", providerBookId);
+        BookUpsertService upsertService = new BookUpsertService(
+            lockJdbcTemplate,
+            mock(BookUpsertTransactionService.class),
+            mock(BookImageLinkPersistenceService.class),
+            mock(BookOutboxEventService.class)
+        );
+        BookAggregate aggregate = BookAggregate.builder()
+            .title("Provider Identity")
+            .isbn13("9780132350884")
+            .identifiers(BookAggregate.ExternalIdentifiers.builder()
+                .source("OPEN_LIBRARY")
+                .externalId("OL-STABLE-1")
+                .build())
+            .build();
+
+        Optional<UUID> existing = ReflectionTestUtils.invokeMethod(upsertService, "findExistingBookId", aggregate);
+
+        assertThat(existing).contains(providerBookId);
+        verify(lockJdbcTemplate, never()).query(
+            eq("SELECT id FROM books WHERE isbn13 = ? LIMIT 1"),
+            org.mockito.ArgumentMatchers.<org.springframework.jdbc.core.ResultSetExtractor<UUID>>any(),
+            anyString()
+        );
+    }
+
+    @Test
+    void bookUpsertTransactionService_shouldRefuseExternalIdentifierReassignment_When_ProviderRowOwnsAnotherBook() {
+        JdbcTemplate persistenceJdbcTemplate = mock(JdbcTemplate.class);
+        BookUpsertTransactionService transactionService = new BookUpsertTransactionService(
+            persistenceJdbcTemplate,
+            mock(BookCollectionPersistenceService.class)
+        );
+        BookAggregate.ExternalIdentifiers identifiers = BookAggregate.ExternalIdentifiers.builder()
+            .source("GOOGLE_BOOKS")
+            .externalId("provider-stable-1")
+            .build();
+
+        assertThatThrownBy(() -> transactionService.upsertExternalIds(UUID.randomUUID(), identifiers))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("refusing reassignment");
+    }
+
+    @Test
+    void bookUpsertTransactionService_shouldPreserveExistingSlug_When_UpdatingBook() {
+        JdbcTemplate slugJdbcTemplate = mock(JdbcTemplate.class);
+        UUID bookId = UUID.fromString("01989d24-0000-7000-8000-000000000003");
+        when(slugJdbcTemplate.query(
+            eq("SELECT slug FROM books WHERE id = ?"),
+            org.mockito.ArgumentMatchers.<org.springframework.jdbc.core.ResultSetExtractor<String>>any(),
+            eq(bookId)
+        )).thenReturn("legacy-stable-slug");
+        BookUpsertTransactionService transactionService = new BookUpsertTransactionService(
+            slugJdbcTemplate,
+            mock(BookCollectionPersistenceService.class)
+        );
+
+        String slug = transactionService.resolvePersistedSlug("Renamed Title", bookId, false);
+
+        assertThat(slug).isEqualTo("legacy-stable-slug");
     }
 
     @Test
@@ -238,7 +302,6 @@ class PersistenceSupportServicesTest {
         BookAggregate aggregate = BookAggregate.builder()
             .title("Equivalent ISBN")
             .isbn10("0-306-40615-2")
-            .slugBase("equivalent-isbn")
             .build();
 
         Optional<UUID> existing = ReflectionTestUtils.invokeMethod(upsertService, "findExistingBookId", aggregate);
@@ -247,7 +310,7 @@ class PersistenceSupportServicesTest {
     }
 
     @Test
-    void bookUpsertService_computeBookLockKey_usesSameIdentityForEquivalentIsbnFormats() {
+    void bookUpsertService_computeBookLockKeys_usesSameIdentityForEquivalentIsbnFormats() {
         JdbcTemplate lockJdbcTemplate = mock(JdbcTemplate.class);
         BookUpsertService upsertService = new BookUpsertService(
             lockJdbcTemplate,
@@ -258,18 +321,57 @@ class PersistenceSupportServicesTest {
         BookAggregate isbn10Aggregate = BookAggregate.builder()
             .title("ISBN10")
             .isbn10("0-306-40615-2")
-            .slugBase("isbn10")
             .build();
         BookAggregate isbn13Aggregate = BookAggregate.builder()
             .title("ISBN13")
             .isbn13("978-0-306-40615-7")
-            .slugBase("isbn13")
             .build();
 
-        Long isbn10Lock = ReflectionTestUtils.invokeMethod(upsertService, "computeBookLockKey", isbn10Aggregate);
-        Long isbn13Lock = ReflectionTestUtils.invokeMethod(upsertService, "computeBookLockKey", isbn13Aggregate);
+        List<Long> isbn10Locks = ReflectionTestUtils.invokeMethod(upsertService, "computeBookLockKeys", isbn10Aggregate);
+        List<Long> isbn13Locks = ReflectionTestUtils.invokeMethod(upsertService, "computeBookLockKeys", isbn13Aggregate);
 
-        assertThat(isbn10Lock).isEqualTo(isbn13Lock);
+        assertThat(isbn10Locks).isEqualTo(isbn13Locks);
+    }
+
+    @Test
+    void bookUpsertService_computeBookLockKeys_sharesProviderLock_When_IsbnsDisagree() {
+        BookUpsertService upsertService = new BookUpsertService(
+            mock(JdbcTemplate.class),
+            mock(BookUpsertTransactionService.class),
+            mock(BookImageLinkPersistenceService.class),
+            mock(BookOutboxEventService.class)
+        );
+        BookAggregate firstObservation = BookAggregate.builder()
+            .title("First observation")
+            .isbn13("978-0-306-40615-7")
+            .identifiers(BookAggregate.ExternalIdentifiers.builder()
+                .source("OPEN_LIBRARY")
+                .externalId("OL-SHARED")
+                .build())
+            .build();
+        BookAggregate secondObservation = BookAggregate.builder()
+            .title("Second observation")
+            .isbn13("978-0-545-01022-1")
+            .identifiers(BookAggregate.ExternalIdentifiers.builder()
+                .source("OPEN_LIBRARY")
+                .externalId("OL-SHARED")
+                .build())
+            .build();
+
+        List<Long> firstLocks = ReflectionTestUtils.invokeMethod(
+            upsertService,
+            "computeBookLockKeys",
+            firstObservation
+        );
+        List<Long> secondLocks = ReflectionTestUtils.invokeMethod(
+            upsertService,
+            "computeBookLockKeys",
+            secondObservation
+        );
+
+        assertThat(firstLocks).containsAnyElementsOf(secondLocks);
+        assertThat(firstLocks).isSorted();
+        assertThat(secondLocks).isSorted();
     }
 
     @Test
@@ -441,14 +543,6 @@ class PersistenceSupportServicesTest {
             org.mockito.ArgumentMatchers.<org.springframework.jdbc.core.ResultSetExtractor<UUID>>any(),
             eq("OPEN_LIBRARY"),
             eq(externalId)
-        )).thenReturn(resultBookId);
-    }
-
-    private void stubSlugLookup(JdbcTemplate lockJdbcTemplate, String slug, UUID resultBookId) {
-        when(lockJdbcTemplate.query(
-            eq("SELECT id FROM books WHERE slug = ? LIMIT 1"),
-            org.mockito.ArgumentMatchers.<org.springframework.jdbc.core.ResultSetExtractor<UUID>>any(),
-            eq(slug)
         )).thenReturn(resultBookId);
     }
 

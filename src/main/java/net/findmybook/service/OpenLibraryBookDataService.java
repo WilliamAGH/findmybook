@@ -19,7 +19,11 @@ import net.findmybook.util.TextUtils;
 import net.findmybook.util.ApplicationConstants;
 import net.findmybook.util.DateParsingUtils;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
-import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.ratelimiter.RateLimiter;
+import io.github.resilience4j.ratelimiter.RateLimiterRegistry;
+import io.github.resilience4j.ratelimiter.RequestNotPermitted;
+import io.github.resilience4j.reactor.ratelimiter.operator.RateLimiterOperator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -44,10 +48,10 @@ import java.util.Set;
 @Slf4j
 public class OpenLibraryBookDataService {
 
+    static final String RATE_LIMITER_NAME = "openLibraryDataService";
     private static final int DEFAULT_SEARCH_LIMIT = 40;
     private static final int OPEN_LIBRARY_PAGE_SIZE = 100;
-    private static final int WORK_DETAILS_CONCURRENCY = 6;
-    private static final int WORK_DETAILS_MAX_ENRICHMENTS = 12;
+    private static final int WORK_DETAILS_MAX_ENRICHMENTS = 2;
     private static final Duration WORK_DETAILS_TIMEOUT = Duration.ofSeconds(3);
     private static final Duration ISBN_EDITION_DETAILS_TIMEOUT = Duration.ofSeconds(3);
     private static final String SEARCH_FIELDS =
@@ -55,12 +59,16 @@ public class OpenLibraryBookDataService {
 
     private final WebClient webClient;
     private final boolean externalFallbackEnabled;
+    private final RateLimiter requestRateLimiter;
 
     public OpenLibraryBookDataService(WebClient.Builder webClientBuilder,
                                    @Value("${openlibrary.data.api.url:https://openlibrary.org}") String openLibraryApiUrl,
-                                   @Value("${app.features.external-fallback.enabled:${app.features.google-fallback.enabled:true}}") boolean externalFallbackEnabled) {
+                                   @Value("${app.features.external-fallback.enabled:${app.features.google-fallback.enabled:true}}") boolean externalFallbackEnabled,
+                                   RateLimiterRegistry rateLimiterRegistry) {
         this.webClient = webClientBuilder.baseUrl(openLibraryApiUrl).build();
         this.externalFallbackEnabled = externalFallbackEnabled;
+        this.requestRateLimiter = rateLimiterRegistry.find(RATE_LIMITER_NAME)
+            .orElseThrow(() -> new IllegalStateException("Missing configured rate limiter: " + RATE_LIMITER_NAME));
     }
 
     /**
@@ -69,8 +77,7 @@ public class OpenLibraryBookDataService {
      * @param title the book title to search for
      * @return a Flux of matching books, or empty if disabled or no results found
      */
-    @RateLimiter(name = "openLibraryDataService")
-    @CircuitBreaker(name = "openLibraryDataService", fallbackMethod = "searchBooksFallback")
+    @CircuitBreaker(name = RATE_LIMITER_NAME, fallbackMethod = "searchBooksFallback")
     public Flux<Book> queryBooksByTitle(String title) {
         return queryBooks("title", title, "SEARCH_TITLE", false, null, 0, DEFAULT_SEARCH_LIMIT);
     }
@@ -81,8 +88,7 @@ public class OpenLibraryBookDataService {
      * @param author the author name to search for
      * @return a Flux of matching books, or empty if disabled or no results found
      */
-    @RateLimiter(name = "openLibraryDataService")
-    @CircuitBreaker(name = "openLibraryDataService", fallbackMethod = "searchBooksFallback")
+    @CircuitBreaker(name = RATE_LIMITER_NAME, fallbackMethod = "searchBooksFallback")
     public Flux<Book> queryBooksByAuthor(String author) {
         return queryBooks("author", author, "SEARCH_AUTHOR", false, null, 0, DEFAULT_SEARCH_LIMIT);
     }
@@ -96,8 +102,7 @@ public class OpenLibraryBookDataService {
      * @param query the free-text query to search
      * @return a Flux of matching books, or empty if disabled or no results found
      */
-    @RateLimiter(name = "openLibraryDataService")
-    @CircuitBreaker(name = "openLibraryDataService", fallbackMethod = "searchBooksFallback")
+    @CircuitBreaker(name = RATE_LIMITER_NAME, fallbackMethod = "searchBooksFallback")
     public Flux<Book> queryBooksByEverything(String query) {
         return queryBooksByEverything(query, null);
     }
@@ -109,8 +114,7 @@ public class OpenLibraryBookDataService {
      * @param orderBy requested findmybook orderBy value
      * @return a Flux of matching books, or empty if disabled or no results found
      */
-    @RateLimiter(name = "openLibraryDataService")
-    @CircuitBreaker(name = "openLibraryDataService", fallbackMethod = "searchBooksFallback")
+    @CircuitBreaker(name = RATE_LIMITER_NAME, fallbackMethod = "searchBooksFallback")
     public Flux<Book> queryBooksByEverything(String query, String orderBy) {
         return queryBooksByEverything(query, orderBy, 0, DEFAULT_SEARCH_LIMIT);
     }
@@ -128,8 +132,7 @@ public class OpenLibraryBookDataService {
      * @param maxResults number of provider rows to retrieve from startIndex
      * @return a Flux of matching books, or empty if disabled or no results found
      */
-    @RateLimiter(name = "openLibraryDataService")
-    @CircuitBreaker(name = "openLibraryDataService", fallbackMethod = "searchBooksFallback")
+    @CircuitBreaker(name = RATE_LIMITER_NAME, fallbackMethod = "searchBooksFallback")
     public Flux<Book> queryBooksByEverything(String query, String orderBy, int startIndex, int maxResults) {
         return queryBooks(
             "q",
@@ -206,7 +209,7 @@ public class OpenLibraryBookDataService {
             response = enrichWithWorkDetails(response, queryValue);
         }
 
-        return response.onErrorMap(e -> new IllegalStateException(
+        return response.onErrorMap(e -> !(e instanceof RequestNotPermitted), e -> new IllegalStateException(
             "OpenLibrary " + queryParamName + " search failed for '" + queryValue + "'", e));
     }
 
@@ -221,7 +224,7 @@ public class OpenLibraryBookDataService {
             return Flux.empty();
         }
         String requestContext = queryValue + " start=" + offset + " limit=" + limit;
-        return webClient.get()
+        return exchangeOpenLibraryJson(webClient.get()
             .uri(uriBuilder -> {
                 var requestBuilder = uriBuilder
                     .path("/search.json")
@@ -237,9 +240,7 @@ public class OpenLibraryBookDataService {
                     }
                 }
                 return requestBuilder.build();
-            })
-            .retrieve()
-            .bodyToMono(JsonNode.class)
+            }))
             .onErrorMap(PrematureCloseException.class, e -> {
                 log.debug("OpenLibrary {} search connection closed early for '{}': {}", queryParamName, queryValue, e.toString());
                 return new IllegalStateException("OpenLibrary " + queryParamName + " search connection closed early for '" + queryValue + "'", e);
@@ -257,6 +258,12 @@ public class OpenLibraryBookDataService {
             });
     }
 
+    private Mono<JsonNode> exchangeOpenLibraryJson(WebClient.RequestHeadersSpec<?> request) {
+        return request.retrieve()
+            .bodyToMono(JsonNode.class)
+            .transformDeferred(RateLimiterOperator.of(requestRateLimiter));
+    }
+
     /**
      * Circuit-breaker fallback for title and author search methods.
      *
@@ -268,6 +275,16 @@ public class OpenLibraryBookDataService {
      * @return a Flux.error wrapping the circuit breaker cause
      */
     public Flux<Book> searchBooksFallback(String query, Throwable cause) {
+        if (cause instanceof RequestNotPermitted || cause instanceof CallNotPermittedException) {
+            ExternalApiLogger.logApiCallFailure(
+                log,
+                "OpenLibrary",
+                "LOCAL_ADMISSION",
+                query,
+                cause.getClass().getSimpleName()
+            );
+            return Flux.error(cause);
+        }
         log.warn(
             "OpenLibrary search fallback triggered for query '{}': {}: {}",
             query,
@@ -287,10 +304,6 @@ public class OpenLibraryBookDataService {
                                           int maxResults,
                                           Throwable cause) {
         return searchBooksFallback(query, cause);
-    }
-
-    private Book parseOpenLibrarySearchDoc(JsonNode docNode) {
-        return parseOpenLibrarySearchDoc(docNode, null);
     }
 
     private Book parseOpenLibrarySearchDoc(JsonNode docNode, String queryValue) {
@@ -328,26 +341,28 @@ public class OpenLibraryBookDataService {
             return books;
         }
         String isbnLookupKey = isbnLookupKey(queryValue, queryIsbn13Identity);
-        return books.flatMapSequential(book -> {
+        return books.concatMap(book -> {
             if (!bookMatchesIsbnIdentity(book, queryIsbn13Identity)) {
                 return Mono.just(book);
             }
             return fetchIsbnEditionDetails(book, isbnLookupKey, queryIsbn13Identity);
-        }, WORK_DETAILS_CONCURRENCY);
+        });
     }
 
     private Mono<Book> fetchIsbnEditionDetails(Book book, String isbnLookupKey, String queryIsbn13Identity) {
         String bibKey = "ISBN:" + isbnLookupKey;
-        return webClient.get()
+        return exchangeOpenLibraryJson(webClient.get()
             .uri(uriBuilder -> uriBuilder.path("/api/books")
                 .queryParam("bibkeys", bibKey)
                 .queryParam("format", "json")
                 .queryParam("jscmd", "details")
-                .build())
-            .retrieve()
-            .bodyToMono(JsonNode.class)
+                .build()))
             .timeout(ISBN_EDITION_DETAILS_TIMEOUT)
             .map(responseNode -> mergeIsbnEditionDetails(book, responseNode, bibKey, queryIsbn13Identity))
+            .onErrorResume(RequestNotPermitted.class, ignoredDenial -> retainAfterAdmissionDenial(
+                book,
+                "ISBN edition lookup for " + isbnLookupKey + " work " + book.getId()
+            ))
             .onErrorResume(ex -> {
                 LoggingUtils.warn(
                     log,
@@ -385,14 +400,14 @@ public class OpenLibraryBookDataService {
     private Flux<Book> enrichWithWorkDetails(Flux<Book> books, String queryValue) {
         return books
             .index()
-            .flatMapSequential(indexedBook -> {
+            .concatMap(indexedBook -> {
                 long resultIndex = indexedBook.getT1();
                 Book book = indexedBook.getT2();
                 if (resultIndex >= WORK_DETAILS_MAX_ENRICHMENTS) {
                     return Mono.just(book);
                 }
                 return fetchWorkDetails(book, queryValue);
-            }, WORK_DETAILS_CONCURRENCY);
+            });
     }
 
     private Mono<Book> fetchWorkDetails(Book book, String queryValue) {
@@ -400,12 +415,14 @@ public class OpenLibraryBookDataService {
             return Mono.justOrEmpty(book);
         }
 
-        return webClient.get()
-            .uri(uriBuilder -> uriBuilder.path("/works/{workId}.json").build(book.getId()))
-            .retrieve()
-            .bodyToMono(JsonNode.class)
+        return exchangeOpenLibraryJson(webClient.get()
+            .uri(uriBuilder -> uriBuilder.path("/works/{workId}.json").build(book.getId())))
             .timeout(WORK_DETAILS_TIMEOUT)
             .map(workNode -> mergeWorkDetails(book, workNode))
+            .onErrorResume(RequestNotPermitted.class, ignoredDenial -> retainAfterAdmissionDenial(
+                book,
+                "work detail lookup for " + book.getId() + " search " + queryValue
+            ))
             .onErrorResume(ex -> {
                 LoggingUtils.warn(
                     log,
@@ -416,6 +433,11 @@ public class OpenLibraryBookDataService {
                 );
                 return Mono.just(book);
             });
+    }
+
+    private Mono<Book> retainAfterAdmissionDenial(Book book, String requestDescription) {
+        log.info("OpenLibrary {} denied locally; retaining parsed search book", requestDescription);
+        return Mono.just(book);
     }
 
     private Book mergeWorkDetails(Book book, JsonNode workNode) {
@@ -445,9 +467,9 @@ public class OpenLibraryBookDataService {
         }
         List<String> authors = new ArrayList<>();
         for (JsonNode authorNameNode : docNode.get("author_name")) {
-            String normalized = TextUtils.normalizeAuthorName(emptyToNull(authorNameNode.asString()));
-            if (StringUtils.hasText(normalized)) {
-                authors.add(normalized);
+            String authorName = authorNameNode.asString(null);
+            if (StringUtils.hasText(authorName)) {
+                authors.add(authorName);
             }
         }
         return authors.isEmpty() ? List.of() : authors;
@@ -474,9 +496,6 @@ public class OpenLibraryBookDataService {
         for (String sanitized : sanitizedIsbns) {
             classifyIsbn(sanitized, book);
         }
-        if (book.getIsbn13() == null && book.getIsbn10() == null) {
-            assignFirstMatchingIsbns(sanitizedIsbns, book);
-        }
     }
 
     private static void classifyIsbn(String sanitized, Book book) {
@@ -484,15 +503,6 @@ public class OpenLibraryBookDataService {
             book.setIsbn13(sanitized);
         } else if (sanitized.length() == IsbnUtils.ISBN_10_LENGTH && book.getIsbn10() == null) {
             book.setIsbn10(sanitized);
-        }
-    }
-
-    private static void assignFirstMatchingIsbns(List<String> isbns, Book book) {
-        for (String isbn : isbns) {
-            if (isbn.length() == IsbnUtils.ISBN_13_LENGTH) { book.setIsbn13(isbn); break; }
-        }
-        for (String isbn : isbns) {
-            if (isbn.length() == IsbnUtils.ISBN_10_LENGTH) { book.setIsbn10(isbn); break; }
         }
     }
 

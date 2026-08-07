@@ -37,7 +37,7 @@ begin
   for rec in
     select
       prefix,
-      array_agg(book_id order by has_high_res desc, cover_area desc, published_date desc nulls last, lower(title)) as book_ids,
+      array_agg(book_id order by has_high_res desc, cover_area desc, published_date desc nulls last, lower(title), book_id) as book_ids,
       count(*) as book_count
     from (
       select
@@ -75,10 +75,15 @@ begin
     where prefix is not null
     group by prefix
     having count(*) > 1
+    order by prefix
   loop
     if rec.book_ids is null or array_length(rec.book_ids, 1) = 0 then
       continue;
     end if;
+
+    perform pg_advisory_xact_lock(
+      hashtextextended('findmybook.work-cluster:isbn:' || rec.prefix, 0)
+    );
 
     -- Get the primary title from the first (best) book with fallback for NULL/empty
     select coalesce(nullif(title, ''), 'Untitled Book') into primary_title
@@ -92,7 +97,8 @@ begin
 
     select id into cluster_uuid
     from work_clusters
-    where isbn_prefix = rec.prefix;
+    where isbn_prefix = rec.prefix
+    for update;
 
     if cluster_uuid is null then
       insert into work_clusters (isbn_prefix, canonical_title, confidence_score, cluster_method, member_count)
@@ -106,6 +112,12 @@ begin
           updated_at = now()
       where id = cluster_uuid;
     end if;
+
+    update work_cluster_members
+    set is_primary = false
+    where cluster_id = cluster_uuid
+      and is_primary is true
+      and book_id <> rec.book_ids[1];
 
     for i in 1..array_length(rec.book_ids, 1) loop
       book_uuid := rec.book_ids[i];
@@ -145,8 +157,12 @@ begin
     return;
   end if;
 
+  perform pg_advisory_xact_lock(
+    hashtextextended('findmybook.work-cluster:isbn:' || prefix, 0)
+  );
+
   select
-    array_agg(book_id order by has_high_res desc, cover_area desc, published_date desc nulls last, lower(title)) as ordered_ids,
+    array_agg(book_id order by has_high_res desc, cover_area desc, published_date desc nulls last, lower(title), book_id) as ordered_ids,
     count(*) as total_books
   into book_ids, book_count
   from (
@@ -198,7 +214,8 @@ begin
 
   select id into cluster_uuid
   from work_clusters
-  where isbn_prefix = prefix;
+  where isbn_prefix = prefix
+  for update;
 
   if cluster_uuid is null then
     insert into work_clusters (isbn_prefix, canonical_title, confidence_score, cluster_method, member_count)
@@ -211,6 +228,12 @@ begin
         updated_at = now()
     where id = cluster_uuid;
   end if;
+
+  update work_cluster_members
+  set is_primary = false
+  where cluster_id = cluster_uuid
+    and is_primary is true
+    and book_id <> book_ids[1];
 
   for i in 1..array_length(book_ids, 1) loop
     current_book := book_ids[i];
@@ -225,4 +248,3 @@ begin
   end loop;
 end;
 $$ language plpgsql;
-

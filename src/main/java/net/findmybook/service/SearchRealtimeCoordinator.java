@@ -2,6 +2,8 @@ package net.findmybook.service;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.ratelimiter.RequestNotPermitted;
 import net.findmybook.mapper.GoogleBooksMapper;
 import net.findmybook.model.Book;
 import net.findmybook.support.search.CandidateKeyResolver;
@@ -12,7 +14,6 @@ import net.findmybook.service.event.SearchResultsUpdatedEvent;
 import net.findmybook.util.SearchExternalProviderUtils;
 import net.findmybook.util.SearchQueryUtils;
 import org.springframework.util.StringUtils;
-import java.io.Serializable;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -33,9 +34,6 @@ import reactor.core.publisher.Flux;
 @Slf4j
 final class SearchRealtimeCoordinator {
 
-    private static final String SEARCH_SOURCE_QUALIFIER = "search.source";
-    private static final String EXTERNAL_FALLBACK_SOURCE = "EXTERNAL_FALLBACK";
-
     private final Optional<OpenLibraryBookDataService> openLibraryBookDataService;
     private final Optional<ApplicationEventPublisher> eventPublisher;
     private final GoogleExternalSearchFlow googleExternalSearchFlow;
@@ -49,12 +47,13 @@ final class SearchRealtimeCoordinator {
         .build();
 
     SearchRealtimeCoordinator(Optional<GoogleApiFetcher> googleApiFetcher, Optional<GoogleBooksMapper> googleBooksMapper,
-                              Optional<OpenLibraryBookDataService> openLibraryBookDataService, Optional<BookDataOrchestrator> bookDataOrchestrator,
-                              Optional<ApplicationEventPublisher> eventPublisher, boolean persistSearchResultsEnabled) {
+                              Optional<OpenLibraryBookDataService> openLibraryBookDataService,
+                              Optional<ApplicationEventPublisher> eventPublisher,
+                              SearchCandidatePersistence searchCandidatePersistence) {
         this.openLibraryBookDataService = openLibraryBookDataService != null ? openLibraryBookDataService : Optional.empty();
         this.eventPublisher = eventPublisher != null ? eventPublisher : Optional.empty();
         this.googleExternalSearchFlow = new GoogleExternalSearchFlow(googleApiFetcher, googleBooksMapper);
-        this.searchCandidatePersistence = new SearchCandidatePersistence(bookDataOrchestrator, persistSearchResultsEnabled);
+        this.searchCandidatePersistence = Objects.requireNonNull(searchCandidatePersistence, "searchCandidatePersistence");
     }
 
     void trigger(SearchPaginationService.SearchRequest request, SearchPaginationService.SearchPage page) {
@@ -103,11 +102,13 @@ final class SearchRealtimeCoordinator {
             .filter(candidate -> StringUtils.hasText(candidate.book().getId()))
             .filter(candidate -> state.registerCandidate(candidate.book()))
             .doOnNext(candidate -> {
-                searchCandidatePersistence.persist(List.of(candidate.book()), "SEARCH");
                 int totalNow = state.incrementTotalAndGet();
                 publishResults(request.query(), List.of(candidate.book()), candidate.source(), totalNow, queryHash, false);
             })
-            .doOnComplete(() -> {
+            .map(RealtimeCandidate::book)
+            .collectList()
+            .doOnNext(books -> searchCandidatePersistence.persist(books, "SEARCH"))
+            .doOnSuccess(ignored -> {
                 publishProgress(request.query(), SearchProgressEvent.SearchStatus.COMPLETE,
                     "External search complete", queryHash, "EXTERNAL");
             })
@@ -143,7 +144,7 @@ final class SearchRealtimeCoordinator {
             .onErrorResume(ex -> {
                 SearchProgressEvent.SearchStatus errorStatus = classifyProviderError(ex);
                 log.warn("Realtime Google search failed for '{}' (status={}): {}", query, errorStatus, ex.getMessage());
-                publishProgress(query, errorStatus, "Google Books unavailable, continuing with other providers",
+                publishProgress(query, errorStatus, providerFailureMessage("Google Books", errorStatus),
                     queryHash, "GOOGLE_BOOKS");
                 return Flux.empty();
             });
@@ -176,7 +177,7 @@ final class SearchRealtimeCoordinator {
             .onErrorResume(ex -> {
                 SearchProgressEvent.SearchStatus errorStatus = classifyProviderError(ex);
                 log.warn("Realtime Open Library search failed for '{}' (status={}): {}", request.query(), errorStatus, ex.getMessage());
-                publishProgress(request.query(), errorStatus, "Open Library unavailable, continuing with other providers",
+                publishProgress(request.query(), errorStatus, providerFailureMessage("Open Library", errorStatus),
                     queryHash, "OPEN_LIBRARY");
                 return Flux.empty();
             });
@@ -206,27 +207,35 @@ final class SearchRealtimeCoordinator {
     }
 
     private static SearchProgressEvent.SearchStatus classifyProviderError(Throwable ex) {
-        if (ex instanceof WebClientResponseException webEx
-            && webEx.getStatusCode().value() == HttpStatus.TOO_MANY_REQUESTS.value()) {
-            return SearchProgressEvent.SearchStatus.RATE_LIMITED;
+        Throwable current = ex;
+        while (current != null) {
+            if (current instanceof RequestNotPermitted) {
+                return SearchProgressEvent.SearchStatus.LOCAL_RATE_LIMITED;
+            }
+            if (current instanceof CallNotPermittedException) {
+                return SearchProgressEvent.SearchStatus.LOCAL_CIRCUIT_OPEN;
+            }
+            if (current instanceof WebClientResponseException webEx
+                && webEx.getStatusCode().value() == HttpStatus.TOO_MANY_REQUESTS.value()) {
+                return SearchProgressEvent.SearchStatus.RATE_LIMITED;
+            }
+            current = current.getCause();
         }
         return SearchProgressEvent.SearchStatus.PROVIDER_UNAVAILABLE;
     }
 
+    private static String providerFailureMessage(String provider,
+                                                  SearchProgressEvent.SearchStatus status) {
+        return switch (status) {
+            case LOCAL_RATE_LIMITED -> provider + " request denied by local rate limiting; continuing with other providers";
+            case LOCAL_CIRCUIT_OPEN -> provider + " circuit is open locally; continuing with other providers";
+            case RATE_LIMITED -> provider + " returned a rate-limit response; continuing with other providers";
+            default -> provider + " unavailable, continuing with other providers";
+        };
+    }
+
     private boolean hasExternalFallbackResults(List<Book> results) {
-        if (results == null || results.isEmpty()) {
-            return false;
-        }
-        for (Book book : results) {
-            if (book == null || book.getQualifiers() == null) {
-                continue;
-            }
-            Serializable qualifierValue = book.getQualifiers().get(SEARCH_SOURCE_QUALIFIER);
-            if (qualifierValue != null && EXTERNAL_FALLBACK_SOURCE.equalsIgnoreCase(qualifierValue.toString())) {
-                return true;
-            }
-        }
-        return false;
+        return results != null && results.stream().anyMatch(SearchExternalProviderUtils::isExternalFallback);
     }
 
     private record RealtimeCandidate(String source, Book book) {}

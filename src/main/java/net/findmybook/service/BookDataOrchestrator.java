@@ -13,7 +13,6 @@ import net.findmybook.support.search.GoogleExternalSearchFlow;
 import net.findmybook.util.IsbnUtils;
 import net.findmybook.util.SearchExternalProviderUtils;
 import net.findmybook.util.SearchQueryUtils;
-import net.findmybook.util.SlugGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import jakarta.annotation.Nullable;
@@ -133,11 +132,14 @@ public class BookDataOrchestrator {
     }
 
     private List<Book> fetchDescriptionEnrichmentCandidates(UUID bookId, String query) {
+        long enrichmentDeadlineNanos = System.nanoTime() + DESCRIPTION_ENRICHMENT_TIMEOUT.toNanos();
         List<Book> candidates = new ArrayList<>();
         RuntimeException firstProviderFailure = null;
+        boolean providerSucceeded = false;
         if (openLibraryBookDataService.isPresent()) {
             try {
-                candidates.addAll(fetchOpenLibraryCandidates(query));
+                candidates.addAll(fetchOpenLibraryCandidates(query, enrichmentDeadlineNanos));
+                providerSucceeded = true;
             } catch (RuntimeException openLibraryFailure) {
                 firstProviderFailure = openLibraryFailure;
                 logger.warn("Open Library description enrichment failed for bookId={} (continuing with Google Books): {}",
@@ -146,7 +148,8 @@ public class BookDataOrchestrator {
         }
         if (googleExternalSearchFlow.isAvailable()) {
             try {
-                candidates.addAll(fetchGoogleCandidates(query));
+                candidates.addAll(fetchGoogleCandidates(query, enrichmentDeadlineNanos));
+                providerSucceeded = true;
             } catch (RuntimeException googleFailure) {
                 if (firstProviderFailure != null) {
                     firstProviderFailure.addSuppressed(googleFailure);
@@ -155,13 +158,13 @@ public class BookDataOrchestrator {
                 }
             }
         }
-        if (candidates.isEmpty() && firstProviderFailure != null) {
+        if (!providerSucceeded && firstProviderFailure != null) {
             throw firstProviderFailure;
         }
         return candidates;
     }
 
-    private List<Book> fetchOpenLibraryCandidates(String query) {
+    private List<Book> fetchOpenLibraryCandidates(String query, long enrichmentDeadlineNanos) {
         String openLibraryQuery = SearchExternalProviderUtils.normalizeExternalQuery(query);
         if (openLibraryBookDataService.isEmpty()
             || !StringUtils.hasText(openLibraryQuery)
@@ -170,16 +173,16 @@ public class BookDataOrchestrator {
         }
         Flux<Book> candidates = openLibraryBookDataService.get()
             .queryBooksByEverything(openLibraryQuery, DESCRIPTION_ENRICHMENT_SORT, 0, DESCRIPTION_ENRICHMENT_LIMIT);
-        return collectOpenLibraryCandidates(candidates);
+        return collectOpenLibraryCandidates(candidates, enrichmentDeadlineNanos);
     }
 
-    private List<Book> fetchGoogleCandidates(String query) {
+    private List<Book> fetchGoogleCandidates(String query, long enrichmentDeadlineNanos) {
         Flux<Book> candidates = googleExternalSearchFlow
             .streamCandidates(query, DESCRIPTION_ENRICHMENT_SORT, null, DESCRIPTION_ENRICHMENT_LIMIT);
-        return collectGoogleCandidates(candidates);
+        return collectGoogleCandidates(candidates, enrichmentDeadlineNanos);
     }
 
-    private List<Book> collectOpenLibraryCandidates(Flux<Book> candidates) {
+    private List<Book> collectOpenLibraryCandidates(Flux<Book> candidates, long enrichmentDeadlineNanos) {
         Mono<List<Book>> retriedCandidates = candidates.collectList()
             .retryWhen(Retry.max(OPEN_LIBRARY_TRANSIENT_RETRY_LIMIT)
                 .filter(this::isTransientProviderFailure)
@@ -189,19 +192,30 @@ public class BookDataOrchestrator {
                     retrySignal.totalRetries() + 1
                 ))
                 .onRetryExhaustedThrow((retrySpec, retrySignal) -> retrySignal.failure()));
-        return collectWithDescriptionEnrichmentDeadline(OPEN_LIBRARY_PROVIDER, retriedCandidates);
+        return collectWithDescriptionEnrichmentDeadline(
+            OPEN_LIBRARY_PROVIDER,
+            retriedCandidates,
+            enrichmentDeadlineNanos
+        );
     }
 
-    private List<Book> collectGoogleCandidates(Flux<Book> candidates) {
-        return collectWithDescriptionEnrichmentDeadline(GOOGLE_BOOKS_PROVIDER, candidates.collectList());
+    private List<Book> collectGoogleCandidates(Flux<Book> candidates, long enrichmentDeadlineNanos) {
+        return collectWithDescriptionEnrichmentDeadline(
+            GOOGLE_BOOKS_PROVIDER,
+            candidates.collectList(),
+            enrichmentDeadlineNanos
+        );
     }
 
-    private List<Book> collectWithDescriptionEnrichmentDeadline(String providerName, Mono<List<Book>> candidates) {
+    private List<Book> collectWithDescriptionEnrichmentDeadline(String providerName,
+                                                                 Mono<List<Book>> candidates,
+                                                                 long enrichmentDeadlineNanos) {
+        Duration remainingDuration = Duration.ofNanos(Math.max(0L, enrichmentDeadlineNanos - System.nanoTime()));
         return candidates
-            .timeout(DESCRIPTION_ENRICHMENT_TIMEOUT)
+            .timeout(remainingDuration)
             .onErrorMap(TimeoutException.class, timeoutFailure -> new IllegalStateException(
-                providerName + " description enrichment exceeded its "
-                    + DESCRIPTION_ENRICHMENT_TIMEOUT.toSeconds() + "s total deadline",
+                providerName + " description enrichment exceeded the "
+                    + DESCRIPTION_ENRICHMENT_TIMEOUT.toSeconds() + "s request-wide deadline",
                 timeoutFailure
             ))
             .block();
@@ -252,7 +266,6 @@ public class BookDataOrchestrator {
             .pageCount(detail.pageCount())
             .authors(detail.authors())
             .categories(detail.categories())
-            .slugBase(SlugGenerator.generateBookSlug(title, detail.authors()))
             .build();
 
         BookUpsertService.UpsertResult upsertResult = bookUpsertService.upsert(aggregate);

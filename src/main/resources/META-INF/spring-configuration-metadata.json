@@ -167,18 +167,6 @@
       "defaultValue": 40
     },
     {
-      "name": "google.books.api.connect-timeout",
-      "type": "java.lang.Integer",
-      "description": "Connection timeout in milliseconds",
-      "defaultValue": 5000
-    },
-    {
-      "name": "google.books.api.read-timeout",
-      "type": "java.lang.Integer",
-      "description": "Read timeout in milliseconds",
-      "defaultValue": 5000
-    },
-    {
       "name": "google.books.api.request-limit-per-minute",
       "type": "java.lang.Integer",
       "description": "Maximum requests allowed per minute",

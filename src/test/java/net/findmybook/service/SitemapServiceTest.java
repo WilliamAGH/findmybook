@@ -3,24 +3,35 @@ package net.findmybook.service;
 import net.findmybook.config.CacheComponentsConfig;
 import net.findmybook.config.SitemapProperties;
 import net.findmybook.repository.SitemapRepository;
+import net.findmybook.repository.SitemapRepository.AuthorListingMetadata;
 import net.findmybook.repository.SitemapRepository.BookRow;
 import net.findmybook.repository.SitemapRepository.DatasetFingerprint;
 import net.findmybook.repository.SitemapRepository.PageMetadata;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.support.SimpleCacheManager;
 import org.springframework.jdbc.CannotGetJdbcConnectionException;
+import org.springframework.transaction.CannotCreateTransactionException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionStatus;
 
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -32,19 +43,35 @@ class SitemapServiceTest {
     @Mock
     private SitemapRepository sitemapRepository;
 
+    @Mock
+    private PlatformTransactionManager transactionManager;
+
+    @Mock
+    private ObjectProvider<PlatformTransactionManager> transactionManagerProvider;
+
+    @Mock
+    private TransactionStatus transactionStatus;
+
     private SitemapProperties sitemapProperties;
 
     private SitemapService sitemapService;
 
     @BeforeEach
     void setUp() {
+        lenient().when(transactionManagerProvider.getObject()).thenReturn(transactionManager);
+        lenient().when(transactionManager.getTransaction(any(TransactionDefinition.class))).thenReturn(transactionStatus);
         sitemapProperties = new SitemapProperties();
         CacheComponentsConfig cacheConfig = new CacheComponentsConfig();
         CacheManager cacheManager = cacheConfig.sitemapCacheManager(sitemapProperties);
         if (cacheManager instanceof SimpleCacheManager simpleCacheManager) {
             simpleCacheManager.initializeCaches();
         }
-        sitemapService = new SitemapService(sitemapRepository, sitemapProperties, cacheManager);
+        sitemapService = new SitemapService(
+                sitemapRepository,
+                sitemapProperties,
+                cacheManager,
+                transactionManagerProvider
+        );
     }
 
     @Test
@@ -61,6 +88,24 @@ class SitemapServiceTest {
         assertThat(first).isEqualTo(second);
         assertThat(first).isSortedAccordingTo((left, right) -> left.updatedAt().compareTo(right.updatedAt()));
         verify(sitemapRepository, times(1)).fetchBooksForXml(5000, 0);
+        assertReadOnlyTransactionsStarted(1);
+    }
+
+    @Test
+    void should_UseReadOnlyTransaction_When_AuthorBooksAreLoaded() {
+        SitemapRepository.AuthorRow author = new SitemapRepository.AuthorRow(
+                "author-1",
+                "Octavia Butler",
+                Instant.parse("2024-01-01T00:00:00Z")
+        );
+        when(sitemapRepository.countAuthorsByBucket()).thenReturn(Map.of("B", 1));
+        when(sitemapRepository.fetchAuthorsForBucket("B", 100, 0)).thenReturn(List.of(author));
+        when(sitemapRepository.fetchBooksForAuthors(java.util.Set.of("author-1"))).thenReturn(Map.of());
+
+        assertThat(sitemapService.getAuthorsByLetter("B", 1).items()).hasSize(1);
+
+        verify(sitemapRepository).fetchBooksForAuthors(java.util.Set.of("author-1"));
+        assertReadOnlyTransactionsStarted(2);
     }
 
     @Test
@@ -75,27 +120,130 @@ class SitemapServiceTest {
         List<SitemapService.SitemapPageMetadata> secondCall = sitemapService.getBookSitemapPageMetadata();
         assertThat(secondCall).isEqualTo(metadata);
         verify(sitemapRepository, times(1)).fetchBookPageMetadata(5000);
+        assertReadOnlyTransactionsStarted(1);
     }
 
     @Test
-    void should_ReturnBulkAuthorMetadata_When_RepositoryProvidesAuthorPageMetadata() {
-        List<PageMetadata> expected = List.of(
-                new PageMetadata(1, Instant.parse("2024-02-01T00:00:00Z")),
-                new PageMetadata(2, Instant.parse("2024-02-02T00:00:00Z"))
+    void should_StartReadOnlyTransactionsOnlyOnCacheMiss_When_OverviewIsRequested() {
+        when(sitemapRepository.countBooksByBucket()).thenReturn(Map.of("A", 2));
+        when(sitemapRepository.countAuthorsByBucket()).thenReturn(Map.of("B", 3));
+
+        SitemapService.SitemapOverview first = sitemapService.getOverview();
+        SitemapService.SitemapOverview cached = sitemapService.getOverview();
+
+        assertThat(cached).isEqualTo(first);
+        assertThat(first.bookLetterCounts()).containsEntry("A", 2);
+        assertThat(first.authorLetterCounts()).containsEntry("B", 3);
+        verify(sitemapRepository, times(1)).countBooksByBucket();
+        verify(sitemapRepository, times(1)).countAuthorsByBucket();
+        assertReadOnlyTransactionsStarted(2);
+    }
+
+    @Test
+    void should_StartReadOnlyTransactionOnlyOnFingerprintCacheMiss_When_BookFingerprintIsRequested() {
+        DatasetFingerprint fingerprint = new DatasetFingerprint(
+                4,
+                Instant.parse("2026-08-05T00:00:00Z")
         );
-        when(sitemapRepository.fetchAuthorPageMetadata(100, 5000)).thenReturn(expected);
+        when(sitemapRepository.fetchBookFingerprint()).thenReturn(fingerprint);
+
+        assertThat(sitemapService.currentBookFingerprint()).isEqualTo(fingerprint);
+        assertThat(sitemapService.currentBookFingerprint()).isEqualTo(fingerprint);
+
+        verify(sitemapRepository, times(1)).fetchBookFingerprint();
+        assertReadOnlyTransactionsStarted(1);
+    }
+
+    @Test
+    void should_SliceAndCacheCanonicalAuthorListings_When_XmlPagesAreRequested() {
+        sitemapProperties.setXmlPageSize(2);
+        CacheManager cacheManager = new CacheComponentsConfig().sitemapCacheManager(sitemapProperties);
+        if (cacheManager instanceof SimpleCacheManager simpleCacheManager) {
+            simpleCacheManager.initializeCaches();
+        }
+        sitemapService = new SitemapService(
+                sitemapRepository,
+                sitemapProperties,
+                cacheManager,
+                transactionManagerProvider
+        );
+        List<AuthorListingMetadata> expected = List.of(
+                new AuthorListingMetadata("A", 1, Optional.of(Instant.parse("2024-02-01T00:00:00Z"))),
+                new AuthorListingMetadata("A", 2, Optional.of(Instant.parse("2024-02-03T00:00:00Z"))),
+                new AuthorListingMetadata("B", 1, Optional.of(Instant.parse("2024-02-02T00:00:00Z")))
+        );
+        when(sitemapRepository.fetchAuthorListingMetadata(100)).thenReturn(expected);
+
+        List<SitemapService.AuthorListingXmlItem> firstPage = sitemapService.getAuthorListingsForXmlPage(1);
+        List<SitemapService.AuthorListingXmlItem> cachedFirstPage = sitemapService.getAuthorListingsForXmlPage(1);
+        List<SitemapService.AuthorListingXmlItem> secondPage = sitemapService.getAuthorListingsForXmlPage(2);
+
+        assertThat(firstPage).containsExactly(
+                new SitemapService.AuthorListingXmlItem("A", 1, Instant.parse("2024-02-01T00:00:00Z")),
+                new SitemapService.AuthorListingXmlItem("A", 2, Instant.parse("2024-02-03T00:00:00Z"))
+        );
+        assertThat(cachedFirstPage).isEqualTo(firstPage);
+        assertThat(secondPage).containsExactly(
+                new SitemapService.AuthorListingXmlItem("B", 1, Instant.parse("2024-02-02T00:00:00Z"))
+        );
+        assertThat(sitemapService.getAuthorXmlPageCount()).isEqualTo(2);
+        assertThat(sitemapService.listAuthorListingDescriptors()).containsExactly(
+                new SitemapService.AuthorListingDescriptor("A", 1),
+                new SitemapService.AuthorListingDescriptor("A", 2),
+                new SitemapService.AuthorListingDescriptor("B", 1)
+        );
+        verify(sitemapRepository, times(1)).fetchAuthorListingMetadata(100);
+        verify(sitemapRepository, never()).fetchAuthorsForBucket(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt());
+        verify(sitemapRepository, never()).fetchBooksForAuthors(org.mockito.ArgumentMatchers.anySet());
+        verify(sitemapRepository, never()).fetchAuthorFingerprint();
+    }
+
+    @Test
+    void should_DeriveAuthorXmlMetadataFromCanonicalListings_When_ListingsSpanShards() {
+        sitemapProperties.setXmlPageSize(2);
+        CacheManager cacheManager = new CacheComponentsConfig().sitemapCacheManager(sitemapProperties);
+        if (cacheManager instanceof SimpleCacheManager simpleCacheManager) {
+            simpleCacheManager.initializeCaches();
+        }
+        sitemapService = new SitemapService(
+                sitemapRepository,
+                sitemapProperties,
+                cacheManager,
+                transactionManagerProvider
+        );
+        when(sitemapRepository.fetchAuthorListingMetadata(100)).thenReturn(List.of(
+                new AuthorListingMetadata("A", 1, Optional.of(Instant.parse("2024-02-01T00:00:00Z"))),
+                new AuthorListingMetadata("A", 2, Optional.of(Instant.parse("2024-02-03T00:00:00Z"))),
+                new AuthorListingMetadata("B", 1, Optional.of(Instant.parse("2024-02-02T00:00:00Z")))
+        ));
 
         List<SitemapService.SitemapPageMetadata> metadata = sitemapService.getAuthorSitemapPageMetadata();
 
         assertThat(metadata).containsExactly(
-                new SitemapService.SitemapPageMetadata(1, Instant.parse("2024-02-01T00:00:00Z")),
+                new SitemapService.SitemapPageMetadata(1, Instant.parse("2024-02-03T00:00:00Z")),
                 new SitemapService.SitemapPageMetadata(2, Instant.parse("2024-02-02T00:00:00Z"))
         );
         assertThat(sitemapService.getAuthorSitemapPageMetadata()).isEqualTo(metadata);
-        verify(sitemapRepository, times(1)).fetchAuthorPageMetadata(100, 5000);
+        verify(sitemapRepository, times(1)).fetchAuthorListingMetadata(100);
         verify(sitemapRepository, never()).fetchAuthorsForBucket(org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt());
         verify(sitemapRepository, never()).fetchBooksForAuthors(org.mockito.ArgumentMatchers.anySet());
+    }
+
+    @Test
+    void should_FetchAuthorFingerprintLazily_When_ListingTimestampIsAbsent() {
+        Instant fallback = Instant.parse("2024-04-01T00:00:00Z");
+        when(sitemapRepository.fetchAuthorListingMetadata(100)).thenReturn(List.of(
+                new AuthorListingMetadata("A", 1, Optional.empty())
+        ));
+        when(sitemapRepository.fetchAuthorFingerprint()).thenReturn(new DatasetFingerprint(1, fallback));
+
+        assertThat(sitemapService.getAuthorListingsForXmlPage(1)).containsExactly(
+                new SitemapService.AuthorListingXmlItem("A", 1, fallback)
+        );
+
+        verify(sitemapRepository, times(1)).fetchAuthorFingerprint();
     }
 
     @Test
@@ -178,6 +326,7 @@ class SitemapServiceTest {
         when(sitemapRepository.countAllBooks()).thenReturn(12500);
         int pageCount = sitemapService.getBooksXmlPageCount();
         assertThat(pageCount).isEqualTo(3); // 12500 / 5000 = 2.5, rounds up to 3
+        assertReadOnlyTransactionsStarted(1);
     }
 
     @Test
@@ -224,6 +373,23 @@ class SitemapServiceTest {
     }
 
     @Test
+    void should_PreserveSitemapContext_When_TransactionAcquisitionFails() {
+        CannotCreateTransactionException transactionFailure =
+                new CannotCreateTransactionException("connection unavailable");
+        when(transactionManager.getTransaction(any(TransactionDefinition.class))).thenThrow(transactionFailure);
+
+        assertThatThrownBy(sitemapService::getBooksXmlPageCount)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("book XML page count")
+                .hasCause(transactionFailure);
+
+        assertThatThrownBy(sitemapService::getAuthorSitemapPageMetadata)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("author sitemap metadata")
+                .hasCause(transactionFailure);
+    }
+
+    @Test
     void getBooksForXmlPage_throwsWhenDataAccessFails() {
         when(sitemapRepository.fetchBooksForXml(5000, 0))
                 .thenThrow(new CannotGetJdbcConnectionException("db down", new SQLException("auth")));
@@ -245,11 +411,19 @@ class SitemapServiceTest {
 
     @Test
     void should_ThrowIllegalStateException_When_AuthorMetadataRepositoryIsUnavailable() {
-        when(sitemapRepository.fetchAuthorPageMetadata(100, 5000))
+        when(sitemapRepository.fetchAuthorListingMetadata(100))
                 .thenThrow(new CannotGetJdbcConnectionException("db down", new SQLException("auth")));
 
         assertThatThrownBy(() -> sitemapService.getAuthorSitemapPageMetadata())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("author sitemap metadata");
+    }
+
+    private void assertReadOnlyTransactionsStarted(int expectedCount) {
+        ArgumentCaptor<TransactionDefinition> transactionDefinitionCaptor =
+                ArgumentCaptor.forClass(TransactionDefinition.class);
+        verify(transactionManager, times(expectedCount)).getTransaction(transactionDefinitionCaptor.capture());
+        assertThat(transactionDefinitionCaptor.getAllValues())
+                .allMatch(TransactionDefinition::isReadOnly);
     }
 }

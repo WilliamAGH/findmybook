@@ -1,4 +1,12 @@
 -- Cluster books by Google canonical links
+begin;
+set local lock_timeout = '60s';
+set local statement_timeout = '15min';
+
+-- Keep legacy clustering writers out while the final safe definitions,
+-- duplicate repair, and unique invariant become visible atomically.
+lock table work_cluster_members in share row exclusive mode;
+
 drop function if exists cluster_books_by_google_canonical();
 create or replace function cluster_books_by_google_canonical()
 returns table (clusters_created integer, books_clustered integer) as $$
@@ -7,14 +15,12 @@ declare
   cluster_uuid uuid;
   clusters_count integer := 0;
   books_count integer := 0;
-  google_id text;
-  existing_cluster uuid;
   primary_title text;
 begin
   for rec in
     select
       canonical_id,
-      array_agg(book_id order by has_high_res desc, cover_area desc, published_date desc nulls last, lower(title)) as book_ids,
+      array_agg(book_id order by has_high_res desc, cover_area desc, published_date desc nulls last, lower(title), book_id) as book_ids,
       count(*) as book_count
     from (
       select distinct
@@ -62,10 +68,15 @@ begin
       and canonical_id !~ '[[:cntrl:]]'
     group by canonical_id
     having count(*) > 1
+    order by canonical_id
   loop
     if rec.book_ids is null or array_length(rec.book_ids, 1) = 0 then
       continue;
     end if;
+
+    perform pg_advisory_xact_lock(
+      hashtextextended('findmybook.work-cluster:google:' || rec.canonical_id, 0)
+    );
 
     -- Get the primary title from the first (best) book with fallback for NULL/empty
     select coalesce(nullif(title, ''), 'Untitled Book') into primary_title
@@ -79,7 +90,8 @@ begin
 
     select id into cluster_uuid
     from work_clusters
-    where google_canonical_id = rec.canonical_id;
+    where google_canonical_id = rec.canonical_id
+    for update;
 
     if cluster_uuid is null then
       insert into work_clusters (google_canonical_id, canonical_title, confidence_score, cluster_method, member_count)
@@ -94,6 +106,12 @@ begin
           updated_at = now()
       where id = cluster_uuid;
     end if;
+
+    update work_cluster_members
+    set is_primary = false
+    where cluster_id = cluster_uuid
+      and is_primary is true
+      and book_id <> rec.book_ids[1];
 
     for i in 1..array_length(rec.book_ids, 1) loop
       insert into work_cluster_members (cluster_id, book_id, is_primary, confidence, join_reason)
@@ -150,9 +168,34 @@ begin
 end;
 $$ language plpgsql;
 
+-- A writer from before migrations 34/35/37 may have selected a new primary
+-- after migration 16 repaired historical duplicates. Converge once more while
+-- writes remain locked, then install the invariant beside the safe writers.
+with ranked_primary_members as (
+  select
+    cluster_id,
+    book_id,
+    row_number() over (
+      partition by cluster_id
+      order by joined_at desc nulls last, confidence desc nulls last, book_id asc
+    ) as primary_preference_rank
+  from work_cluster_members
+  where is_primary is true
+)
+update work_cluster_members as members
+set is_primary = false
+from ranked_primary_members
+where ranked_primary_members.cluster_id = members.cluster_id
+  and ranked_primary_members.book_id = members.book_id
+  and ranked_primary_members.primary_preference_rank > 1;
+
+create unique index if not exists ux_work_cluster_members_primary
+  on work_cluster_members(cluster_id) where is_primary = true;
+
 comment on function extract_isbn_work_prefix is 'Extracts work identifier from ISBN-13 (first 11 digits)';
 comment on function cluster_books_by_isbn is 'Groups books by ISBN prefix to find editions of the same work';
 comment on function cluster_books_by_google_canonical is 'Groups books by Google canonical volume link to find editions';
 comment on function get_book_editions is 'Returns all editions of a book from its work cluster';
 comment on function get_clustering_stats is 'Returns statistics about work clustering';
 
+commit;

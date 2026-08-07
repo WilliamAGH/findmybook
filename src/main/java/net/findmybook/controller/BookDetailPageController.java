@@ -1,12 +1,15 @@
 package net.findmybook.controller;
 
-import java.net.URI;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.function.Predicate;
 import net.findmybook.model.Book;
 import net.findmybook.domain.seo.SeoMetadata;
 import net.findmybook.service.BookSeoMetadataService;
 import net.findmybook.service.HomePageSectionsService;
+import net.findmybook.support.seo.CanonicalUrlResolver;
 import net.findmybook.util.IsbnUtils;
+import net.findmybook.util.SearchExternalProviderUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -37,13 +40,16 @@ public class BookDetailPageController extends SpaShellController {
         "public, max-age=86400, s-maxage=86400, stale-while-revalidate=3600";
 
     private final HomePageSectionsService homePageSectionsService;
+    private final CanonicalUrlResolver canonicalUrlResolver;
     private final int maxDescriptionLength;
 
     public BookDetailPageController(HomePageSectionsService homePageSectionsService,
                                     BookSeoMetadataService bookSeoMetadataService,
+                                    CanonicalUrlResolver canonicalUrlResolver,
                                     @Value("${app.seo.max-description-length:160}") int maxDescriptionLength) {
         super(bookSeoMetadataService);
         this.homePageSectionsService = homePageSectionsService;
+        this.canonicalUrlResolver = canonicalUrlResolver;
         this.maxDescriptionLength = maxDescriptionLength;
     }
 
@@ -54,7 +60,7 @@ public class BookDetailPageController extends SpaShellController {
         }
 
         String effectiveOrderBy() {
-            return orderBy != null && !orderBy.isBlank() ? orderBy : "newest";
+            return SearchExternalProviderUtils.normalizeOrderBy(orderBy);
         }
 
         String effectiveView() {
@@ -78,22 +84,27 @@ public class BookDetailPageController extends SpaShellController {
                     return Mono.empty();
                 }
 
-                UriComponentsBuilder builder = UriComponentsBuilder.fromPath("/book/" + canonical);
+                UriComponentsBuilder builder = UriComponentsBuilder.fromPath("/book").pathSegment("{canonical}");
+                Map<String, String> redirectVariables = new LinkedHashMap<>();
+                redirectVariables.put("canonical", canonical);
                 if (StringUtils.hasText(search.query())) {
-                    builder.queryParam("query", search.query());
+                    builder.queryParam("query", "{query}");
+                    redirectVariables.put("query", search.query());
                 }
                 if (search.effectivePage() > 0) {
-                    builder.queryParam("page", search.effectivePage());
+                    builder.queryParam("page", "{page}");
+                    redirectVariables.put("page", Integer.toString(search.effectivePage()));
                 }
                 if (StringUtils.hasText(search.effectiveOrderBy())) {
-                    builder.queryParam("orderBy", search.effectiveOrderBy());
+                    builder.queryParam("orderBy", "{orderBy}");
+                    redirectVariables.put("orderBy", search.effectiveOrderBy());
                 }
                 if (StringUtils.hasText(search.effectiveView())) {
-                    builder.queryParam("view", search.effectiveView());
+                    builder.queryParam("view", "{view}");
+                    redirectVariables.put("view", search.effectiveView());
                 }
-                String redirectPath = builder.build().toUriString();
                 return Mono.just(ResponseEntity.status(HttpStatus.SEE_OTHER)
-                    .location(URI.create(redirectPath))
+                    .location(canonicalUrlResolver.encodedLocation(builder, redirectVariables))
                     .build());
             });
 
@@ -170,15 +181,22 @@ public class BookDetailPageController extends SpaShellController {
         String sanitized = IsbnUtils.sanitize(rawIsbn);
         if (!StringUtils.hasText(sanitized) || !validator.test(sanitized)) {
             log.warn("Invalid ISBN format: {}", rawIsbn);
-            return Mono.just(redirectTo(String.format("/?error=%s&originalIsbn=%s", errorCode, rawIsbn)));
+            return Mono.just(redirectTo(UriComponentsBuilder.fromPath("/")
+                .queryParam("error", errorCode)
+                .queryParam("originalIsbn", "{originalIsbn}"),
+                Map.of("originalIsbn", rawIsbn)));
         }
         Mono<Book> lookupMono = homePageSectionsService.locateBook(sanitized);
 
         return lookupMono
             .map(book -> book == null ? null : canonicalIdentifier(book))
             .filter(StringUtils::hasText)
-            .map(target -> redirectTo("/book/" + target))
-            .switchIfEmpty(Mono.fromSupplier(() -> redirectTo("/?info=bookNotFound&isbn=" + sanitized)))
+            .map(target -> redirectTo(UriComponentsBuilder.fromPath("/book").pathSegment("{canonical}"),
+                Map.of("canonical", target)))
+            .switchIfEmpty(Mono.fromSupplier(() -> redirectTo(UriComponentsBuilder.fromPath("/")
+                .queryParam("info", "bookNotFound")
+                .queryParam("isbn", "{isbn}"),
+                Map.of("isbn", sanitized))))
             .onErrorMap(e -> {
                 log.error("Error during ISBN lookup for {}: {}", rawIsbn, e.getMessage(), e);
                 return new ResponseStatusException(
@@ -193,9 +211,14 @@ public class BookDetailPageController extends SpaShellController {
         return StringUtils.hasText(book.getSlug()) ? book.getSlug() : book.getId();
     }
 
-    private ResponseEntity<Void> redirectTo(String path) {
+    private ResponseEntity<Void> redirectTo(UriComponentsBuilder redirectBuilder) {
+        return redirectTo(redirectBuilder, Map.of());
+    }
+
+    private ResponseEntity<Void> redirectTo(UriComponentsBuilder redirectBuilder,
+                                            Map<String, String> redirectVariables) {
         return ResponseEntity.status(HttpStatus.SEE_OTHER)
-            .location(URI.create(path))
+            .location(canonicalUrlResolver.encodedLocation(redirectBuilder, redirectVariables))
             .build();
     }
 

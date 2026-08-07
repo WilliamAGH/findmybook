@@ -6,11 +6,9 @@ import org.slf4j.LoggerFactory;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
- * Centralized text normalization utilities for book data consistency.
- * Converts API data (often ALL CAPS) to proper title/name case at ingestion time.
+ * Centralizes book-title cleanup so provider title formatting is consistent at ingestion.
  *
  * @author William Callahan
  * @since 1.0.0
@@ -18,9 +16,6 @@ import java.util.stream.Collectors;
 public class TextUtils {
 
     private static final Logger logger = LoggerFactory.getLogger(TextUtils.class);
-    private static final int MC_PREFIX_LENGTH = 2;
-    private static final int MAC_PREFIX_LENGTH = 3;
-    private static final int IRISH_PREFIX_LENGTH = 2;
 
     // Words that should remain lowercase in title case (unless they're the first word)
     private static final Set<String> LOWERCASE_WORDS = new HashSet<>(Arrays.asList(
@@ -241,81 +236,6 @@ public class TextUtils {
     }
 
     /**
-     * Converts author names to proper case with prefix handling.
-     *
-     * <p><strong>Examples:</strong>
-     * <ul>
-     * <li>"STEPHEN KING" → "Stephen King"</li>
-     * <li>"PATRICK MCDONALD" → "Patrick McDonald"</li>
-     * <li>"LUDWIG VON BEETHOVEN" → "Ludwig von Beethoven"</li>
-     * <li>"CONNOR O'BRIEN" → "Connor O'Brien"</li>
-     * </ul>
-     *
-     * <p><strong>Special handling:</strong> Mc/Mac/O' prefixes, nobility particles (von, van, de).
-     * Preserves intentional mixed case.
-     *
-     * @param name raw author name from external API (may be ALL CAPS)
-     * @return normalized name in proper case, or null if input is null
-     */
-    public static String normalizeAuthorName(String name) {
-        if (name == null) {
-            return null;
-        }
-
-        String cleaned = stripExtraneousAuthorPunctuation(name);
-        if (cleaned.isBlank()) {
-            return "";
-        }
-
-        // Preserve intentional mixed case; normalize ALL-UPPER and all-lower
-        if (!isUniformCase(cleaned)) {
-            return cleaned;
-        }
-
-        // Split by spaces and capitalize each part
-        String[] parts = cleaned.split("\\s+");
-        return Arrays.stream(parts)
-            .map(TextUtils::capitalizeNamePart)
-            .collect(Collectors.joining(" "));
-    }
-
-    private static String stripExtraneousAuthorPunctuation(String raw) {
-        String result = raw == null ? "" : raw.trim();
-        if (result.isEmpty()) {
-            return result;
-        }
-
-        // Remove wrapping quotes and other leading quote characters
-        while (!result.isEmpty() && isQuoteCharacter(result.charAt(0))) {
-            result = result.substring(1).trim();
-        }
-        result = stripLeadingAuthorNonAlphanumeric(result);
-        while (!result.isEmpty() && isQuoteCharacter(result.charAt(result.length() - 1))) {
-            result = result.substring(0, result.length() - 1).trim();
-        }
-
-        // Normalize trailing bracket-dot sequences left by some catalog feeds (e.g. "[Author Unknown].").
-        while (result.endsWith("].")) {
-            result = result.substring(0, result.length() - 1).trim();
-        }
-
-        // Remove trailing delimiter characters like commas or semicolons left by upstream feeds
-        while (!result.isEmpty() && isTrailingAuthorDelimiter(result.charAt(result.length() - 1))) {
-            result = result.substring(0, result.length() - 1).trim();
-        }
-
-        return result;
-    }
-
-    private static String stripLeadingAuthorNonAlphanumeric(String authorText) {
-        String result = authorText;
-        while (!result.isEmpty() && !Character.isLetterOrDigit(result.charAt(0))) {
-            result = result.substring(1).trim();
-        }
-        return result;
-    }
-
-    /**
      * Returns {@code true} when the text is entirely uppercase or entirely lowercase,
      * indicating it needs case normalization rather than preserving intentional mixed case.
      */
@@ -330,43 +250,4 @@ public class TextUtils {
             || c == '\u201A' || c == '\u201B' || c == '\u00AB' || c == '\u00BB' || c == '\u2039' || c == '\u203A';
     }
 
-    private static boolean isTrailingAuthorDelimiter(char c) {
-        return c == ',' || c == ';' || c == ':' || c == '\u00B7' || c == ']';
-    }
-
-    /**
-     * Capitalizes name part with prefix-specific rules.
-     * Handles Mc/Mac/O' (Irish/Scottish), von/van/de (nobility particles).
-     *
-     * @param part single name component (e.g., "mcdonald", "von")
-     * @return properly capitalized part following naming conventions
-     */
-    private static String capitalizeNamePart(String part) {
-        if (part == null || part.isEmpty()) {
-            return part;
-        }
-
-        String lower = part.toLowerCase();
-
-        // Handle common name prefixes
-        if (lower.startsWith("mc") && part.length() > MC_PREFIX_LENGTH) {
-            return "Mc" + Character.toUpperCase(part.charAt(2)) + part.substring(3).toLowerCase();
-        }
-        if (lower.startsWith("mac") && part.length() > MAC_PREFIX_LENGTH) {
-            return "Mac" + Character.toUpperCase(part.charAt(3)) + part.substring(4).toLowerCase();
-        }
-        if (lower.startsWith("o'") && part.length() > IRISH_PREFIX_LENGTH) {
-            return "O'" + Character.toUpperCase(part.charAt(2)) + part.substring(3).toLowerCase();
-        }
-
-        // Lowercase prefixes (von, van, de, etc.)
-        // Note: 'da' is excluded as it's less commonly lowercase in practice (e.g., "Da Vinci")
-        if (lower.equals("von") || lower.equals("van") || lower.equals("de") ||
-            lower.equals("del") || lower.equals("della") || lower.equals("di")) {
-            return lower;
-        }
-
-        // Default capitalization
-        return capitalize(part);
-    }
 }

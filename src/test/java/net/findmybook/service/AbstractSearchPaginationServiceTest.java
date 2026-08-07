@@ -205,7 +205,6 @@ abstract class AbstractSearchPaginationServiceTest {
         return BookAggregate.builder()
             .title(title)
             .authors(List.of("Google Author"))
-            .slugBase(title.toLowerCase().replace(' ', '-'))
             .identifiers(BookAggregate.ExternalIdentifiers.builder()
                 .source("GOOGLE_BOOKS")
                 .externalId(externalId)

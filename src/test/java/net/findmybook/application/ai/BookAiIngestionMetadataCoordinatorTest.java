@@ -1,13 +1,13 @@
 package net.findmybook.application.ai;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -22,6 +22,13 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
 import net.findmybook.application.seo.BookSeoGenerationException;
 import net.findmybook.application.seo.BookSeoMetadataGenerationService;
@@ -125,22 +132,132 @@ class BookAiIngestionMetadataCoordinatorTest {
     }
 
     @Test
-    void should_SkipEnqueue_When_BackgroundQueueIsAtCapacity() {
+    void should_ReleaseBookForRetry_When_BackgroundQueueIsAtCapacity() {
         UUID bookId = UUID.randomUUID();
         BookAiIngestionMetadataCoordinator coordinator = newCoordinator();
         BookUpsertEvent event = bookUpsertEvent(bookId);
 
         when(bookAiContentService.isAvailable()).thenReturn(true);
-        doThrow(new BookAiQueueCapacityExceededException(100_000, 100_000))
-            .when(requestQueue).enqueueBackground(anyInt(), any());
+        when(requestQueue.<Void>enqueueBackground(anyInt(), any()))
+            .thenThrow(new BookAiQueueCapacityExceededException(100_000, 100_000))
+            .thenReturn(pendingTask("capacity-retry", new CompletableFuture<>()));
 
         coordinator.handleBookUpsert(event);
+        coordinator.handleBookUpsert(event);
 
-        verify(requestQueue).enqueueBackground(eq(0), any());
+        verify(requestQueue, times(2)).enqueueBackground(eq(0), any());
     }
 
     @Test
-    void should_ClassifyBackgroundCompletionFailures_When_TaskFinishesExceptionally() {
+    void should_ReleaseBookForRetry_When_BackgroundEnqueueThrows() {
+        UUID bookId = UUID.randomUUID();
+        BookAiIngestionMetadataCoordinator coordinator = newCoordinator();
+        BookUpsertEvent event = bookUpsertEvent(bookId);
+
+        when(bookAiContentService.isAvailable()).thenReturn(true);
+        when(requestQueue.<Void>enqueueBackground(anyInt(), any()))
+            .thenThrow(new IllegalStateException("background queue unavailable"))
+            .thenReturn(pendingTask("enqueue-retry", new CompletableFuture<>()));
+
+        assertThatThrownBy(() -> coordinator.handleBookUpsert(event))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessage("background queue unavailable");
+
+        coordinator.handleBookUpsert(event);
+
+        verify(requestQueue, times(2)).enqueueBackground(eq(0), any());
+    }
+
+    @Test
+    void should_CoalesceConcurrentEnqueuesAndAllowRetry_When_SameBookTaskCompletes()
+        throws InterruptedException, ExecutionException, TimeoutException {
+        UUID bookId = UUID.randomUUID();
+        BookAiIngestionMetadataCoordinator coordinator = newCoordinator();
+        BookUpsertEvent event = bookUpsertEvent(bookId);
+        CompletableFuture<Void> firstResult = new CompletableFuture<>();
+        CountDownLatch firstEnqueueEntered = new CountDownLatch(1);
+        CountDownLatch allowFirstEnqueueReturn = new CountDownLatch(1);
+        Logger coordinatorLogger = (Logger) LoggerFactory.getLogger(BookAiIngestionMetadataCoordinator.class);
+        ListAppender<ILoggingEvent> logEvents = new ListAppender<>();
+        boolean originalAdditivity = coordinatorLogger.isAdditive();
+        Level originalLevel = coordinatorLogger.getLevel();
+
+        when(bookAiContentService.isAvailable()).thenReturn(true);
+        when(requestQueue.<Void>enqueueBackground(anyInt(), any()))
+            .thenAnswer(invocation -> {
+                firstEnqueueEntered.countDown();
+                assertThat(allowFirstEnqueueReturn.await(5, TimeUnit.SECONDS)).isTrue();
+                return pendingTask("coalesced-task", firstResult);
+            })
+            .thenReturn(pendingTask("retry-task", new CompletableFuture<>()));
+        coordinatorLogger.setAdditive(false);
+        coordinatorLogger.setLevel(Level.DEBUG);
+        logEvents.start();
+        coordinatorLogger.addAppender(logEvents);
+
+        try (ExecutorService executorService = Executors.newVirtualThreadPerTaskExecutor()) {
+            try {
+                Future<?> firstUpsert = executorService.submit(() -> coordinator.handleBookUpsert(event));
+                assertThat(firstEnqueueEntered.await(5, TimeUnit.SECONDS)).isTrue();
+
+                Future<?> duplicateUpsert = executorService.submit(() -> coordinator.handleBookUpsert(event));
+                duplicateUpsert.get(5, TimeUnit.SECONDS);
+                verify(requestQueue).enqueueBackground(eq(0), any());
+
+                allowFirstEnqueueReturn.countDown();
+                firstUpsert.get(5, TimeUnit.SECONDS);
+                firstResult.complete(null);
+                coordinator.handleBookUpsert(event);
+
+                verify(requestQueue, times(2)).enqueueBackground(eq(0), any());
+                assertThat(logEvents.list).hasSize(1);
+                assertThat(logEvents.list.get(0).getLevel()).isEqualTo(Level.DEBUG);
+                assertThat(logEvents.list.get(0).getFormattedMessage())
+                    .contains(bookId.toString(), "already pending or running");
+            } finally {
+                allowFirstEnqueueReturn.countDown();
+            }
+        } finally {
+            coordinatorLogger.detachAppender(logEvents);
+            logEvents.stop();
+            coordinatorLogger.setAdditive(originalAdditivity);
+            coordinatorLogger.setLevel(originalLevel);
+        }
+    }
+
+    @Test
+    void should_KeepBookActiveUntilExecutionFinishes_When_RunningTaskIsCancelled() {
+        UUID bookId = UUID.randomUUID();
+        BookAiIngestionMetadataCoordinator coordinator = newCoordinator();
+        BookUpsertEvent event = bookUpsertEvent(bookId);
+        CompletableFuture<Void> cancelledResult = new CompletableFuture<>();
+        CompletableFuture<Void> executionFinished = new CompletableFuture<>();
+        BookAiContentRequestQueue.EnqueuedTask<Void> cancelledTask = new BookAiContentRequestQueue.EnqueuedTask<>(
+            "cancelled-running-task",
+            CompletableFuture.completedFuture(null),
+            cancelledResult,
+            executionFinished
+        );
+
+        when(bookAiContentService.isAvailable()).thenReturn(true);
+        when(requestQueue.<Void>enqueueBackground(anyInt(), any()))
+            .thenReturn(cancelledTask)
+            .thenReturn(pendingTask("post-cancellation-retry", new CompletableFuture<>()));
+
+        coordinator.handleBookUpsert(event);
+        cancelledResult.completeExceptionally(new CancellationException("Task cancelled during execution"));
+        coordinator.handleBookUpsert(event);
+
+        verify(requestQueue).enqueueBackground(eq(0), any());
+
+        executionFinished.complete(null);
+        coordinator.handleBookUpsert(event);
+
+        verify(requestQueue, times(2)).enqueueBackground(eq(0), any());
+    }
+
+    @Test
+    void should_ClassifyBackgroundCompletionFailuresAndReleaseBookForRetry_When_TaskFinishesExceptionally() {
         UUID bookId = UUID.randomUUID();
         Logger coordinatorLogger = (Logger) LoggerFactory.getLogger(BookAiIngestionMetadataCoordinator.class);
         ListAppender<ILoggingEvent> logEvents = new ListAppender<>();
@@ -165,7 +282,15 @@ class BookAiIngestionMetadataCoordinatorTest {
                 .thenReturn(failedTask("seo-invalid", new BookSeoGenerationException(
                     BookSeoGenerationException.ErrorCode.INVALID_RESPONSE, "invalid SEO JSON")))
                 .thenReturn(failedTask("seo-api", new BookSeoGenerationException(
-                    BookSeoGenerationException.ErrorCode.API_CALL_FAILED, "SEO upstream unavailable")));
+                    BookSeoGenerationException.ErrorCode.API_CALL_FAILED, "SEO upstream unavailable")))
+                .thenReturn(failedTask("enrichment-failure", new BookAiGenerationException(
+                    BookAiGenerationException.ErrorCode.ENRICHMENT_FAILED,
+                    "Description enrichment failed for book: " + bookId
+                )))
+                .thenReturn(failedTask("all-provider-failure", new BookAiGenerationException(
+                    BookAiGenerationException.ErrorCode.GENERATION_FAILED,
+                    "All configured AI providers failed"
+                )));
             when(bookAiContentService.generateAndPersistIfPromptChanged(eq(bookId), any(), any()))
                 .thenThrow(new BookAiGenerationException(
                     BookAiGenerationException.ErrorCode.INVALID_RESPONSE,
@@ -179,15 +304,20 @@ class BookAiIngestionMetadataCoordinatorTest {
             coordinator.handleBookUpsert(bookUpsertEvent(bookId));
             coordinator.handleBookUpsert(bookUpsertEvent(bookId));
             coordinator.handleBookUpsert(bookUpsertEvent(bookId));
+            coordinator.handleBookUpsert(bookUpsertEvent(bookId));
+            coordinator.handleBookUpsert(bookUpsertEvent(bookId));
 
             assertThat(logEvents.list).extracting(ILoggingEvent::getLevel)
-                .containsExactly(Level.WARN, Level.ERROR, Level.DEBUG, Level.WARN, Level.ERROR);
+                .containsExactly(Level.WARN, Level.ERROR, Level.DEBUG, Level.WARN, Level.ERROR, Level.WARN, Level.ERROR);
             assertThat(logEvents.list.get(0).getFormattedMessage()).contains(bookId.toString(), "did not complete");
             assertThat(logEvents.list.get(1).getThrowableProxy().getClassName())
                 .contains("DataAccessResourceFailureException");
             assertThat(logEvents.list.get(1).getThrowableProxy().getSuppressed()).hasSize(1);
             assertThat(logEvents.list.get(3).getFormattedMessage()).contains("invalid SEO JSON");
             assertThat(logEvents.list.get(4).getThrowableProxy().getClassName()).contains("BookSeoGenerationException");
+            assertThat(logEvents.list.get(5).getFormattedMessage()).contains("Description enrichment failed");
+            assertThat(logEvents.list.get(6).getThrowableProxy().getClassName()).contains("BookAiGenerationException");
+            verify(requestQueue, times(7)).enqueueBackground(eq(0), any());
         } finally {
             coordinatorLogger.detachAppender(logEvents);
             logEvents.stop();
@@ -290,6 +420,10 @@ class BookAiIngestionMetadataCoordinatorTest {
         CompletableFuture<Void> failedResult = new CompletableFuture<>();
         failedResult.completeExceptionally(failure);
         return new BookAiContentRequestQueue.EnqueuedTask<>(taskId, CompletableFuture.completedFuture(null), failedResult);
+    }
+
+    private BookAiContentRequestQueue.EnqueuedTask<Void> pendingTask(String taskId, CompletableFuture<Void> result) {
+        return new BookAiContentRequestQueue.EnqueuedTask<>(taskId, CompletableFuture.completedFuture(null), result);
     }
 
     private BookAiContentRequestQueue.EnqueuedTask<Void> executeTask(String taskId, Supplier<Void> supplier) {

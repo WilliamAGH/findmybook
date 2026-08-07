@@ -41,7 +41,6 @@ import net.findmybook.service.BookSearchService;
 import net.findmybook.util.HashUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import tools.jackson.databind.ObjectMapper;
@@ -476,7 +475,7 @@ public class BookAiContentService {
         return switch (generationFailure.errorCode()) {
             case DEGENERATE_CONTENT, INCOMPLETE_RESPONSE, INVALID_RESPONSE -> true;
             case GENERATION_FAILED -> isRetryableOpenAiFailure(generationFailure.getCause(), tier);
-            case DESCRIPTION_TOO_SHORT, ENRICHMENT_FAILED -> false;
+            case DESCRIPTION_TOO_SHORT, ENRICHMENT_FAILED, LOCAL_RATE_LIMITED, LOCAL_CIRCUIT_OPEN -> false;
         };
     }
 
@@ -526,10 +525,12 @@ public class BookAiContentService {
         String description = detail.description() == null ? null : detail.description().trim();
         try {
             description = bookDataOrchestrator.enrichDescriptionForAiIfNeeded(bookId, detail, description, MIN_DESCRIPTION_LENGTH);
-        } catch (IllegalStateException | DataAccessException ex) {
-            log.error("Description enrichment failed for bookId={}", bookId, ex);
-            throw new BookAiGenerationException(BookAiGenerationException.ErrorCode.ENRICHMENT_FAILED,
-                "Description enrichment failed for book: " + bookId, ex);
+        } catch (RuntimeException enrichmentFailure) {
+            BookAiGenerationException.ErrorCode errorCode =
+                BookAiGenerationException.classifyDescriptionEnrichmentFailure(enrichmentFailure);
+            log.error("Description enrichment failed for bookId={} errorCode={}", bookId, errorCode, enrichmentFailure);
+            throw new BookAiGenerationException(errorCode,
+                "Description enrichment failed for book: " + bookId, enrichmentFailure);
         }
         int descriptionLength = descriptionLength(description);
         if (isDescriptionTooShort(description)) {

@@ -4,7 +4,14 @@
 
 This guide covers records emitted by active `ExternalApiLogger` call sites. Every record described here begins with `[EXTERNAL-API]`.
 
-Provider ordering is owned by each calling search flow, so this guide does not prescribe a universal provider sequence. URL parameters named `key`, `api_key`, or `token` are masked in formatter output.
+Provider ordering is owned by each calling search flow, so this guide does not prescribe a universal provider sequence. Credential query parameters recognized by the canonical `ExternalApiLogger` sanitizer are masked in complete rendered log events, including failure causes and framework checkpoints.
+
+The sink masks `api-key`, `api_key`, `token`, `access_token`, `client_secret`, and
+signed-URL credential fields (`Signature`, `X-Amz-Signature`, `X-Amz-Credential`,
+`X-Amz-Security-Token`, their `X-Goog` equivalents, `AWSAccessKeyId`, and
+`GoogleAccessId`). A bare `key=` is masked only when it is a URL query parameter
+introduced by `?` or `&`; domain diagnostics such as
+`bucket=covers key=images/books/cover.jpg` remain available for correlation.
 
 ## Active Record Formats
 
@@ -131,4 +138,5 @@ Look for an Open Library `SEARCH_AUTHOR` attempt. The application does not emit 
 1. **ExternalApiLogger.java** — canonical formatter and sensitive-parameter masking.
 2. **GoogleApiFetcher.java** — Google search-page, volume-failure, HTTP, and circuit-breaker records.
 3. **OpenLibraryBookDataService.java** — Open Library search attempt and success records.
-4. **BookExternalBatchPersistenceService.java** — hydration start and success records.
+4. **NewYorkTimesService.java** — credential-safe NYT overview attempt and failure records; causes remain available for diagnostics while rendered sinks redact credentials.
+5. **BookExternalBatchPersistenceService.java** — hydration start and success records.

@@ -27,6 +27,34 @@
 - `authors` - Thousands of unique authors
 - `categories` - Hundreds of categories
 
+Canonical author writes are the exception to application-side generation:
+`upsert_book_authors` generates the same 10-character Base62 author IDs in
+PostgreSQL so every runtime and migration caller shares one persistence owner.
+The rollout is expand/contract:
+
+1. Run `make db-migrate` on an existing database. The schema orchestrator
+   applies migration 52 and deliberately defers migration 53.
+2. Quiesce every author write, drain every prior author writer, then deploy all
+   callers that use `upsert_book_authors` while writes remain quiesced through
+   the blocking maintenance window. A push that triggers automatic deployment
+   must wait for this quiescence-and-drain gate. Mixed old/new author traffic is
+   prohibited because old direct writers do not acquire the procedure's locks.
+3. Run `make db-contract-author-identity AUTHOR_WRITERS_DRAINED=confirmed
+   AUTHOR_WRITES_QUIESCED=confirmed AUTHOR_CALLERS_DEPLOYED=confirmed`.
+   The command-line-only confirmation gate applies migration 53, verifies
+   normalized-key uniqueness, and verifies that the superseded migration-32
+   functions remain retired before writes resume. The same drained-caller gate
+   retires `ensure_unique_slug(text)` and the old `generate_slug(text, text)`
+   signature only after every deployed caller uses the UUID-owned slug path.
+
+A fresh `make db-reset` or direct `schema.sql` bootstrap still applies both
+migrations because no prior writer or legacy identity can exist. A durable
+empty-bootstrap marker resumes interrupted bootstraps and refuses automatic
+contraction if author data appears. Existing databases never replay destructive
+migration 14. Subsequent `make db-migrate` runs validate the exact normalized
+name index contract before skipping migration 32, so its retired functions are
+not recreated after contraction.
+
 `book_image_links` additionally carries mutation audit columns (`created_at`, `updated_at`, `s3_uploaded_at`) so cover-link provenance remains traceable over time.
 
 **12 chars (high volume)** - `IdGenerator.generateLong()`
@@ -34,6 +62,9 @@
 - `book_authors` - Many-to-many, very high volume
 - `book_categories` - Many-to-many, high volume
 - `book_lists_join` - Many-to-many for lists
+
+The same database procedure generates 12-character Base62
+`book_authors_join` IDs while it holds the canonical author lock order.
 
 **8 chars (low volume)** - `IdGenerator.generateShort()`
 

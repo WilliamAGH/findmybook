@@ -2,7 +2,6 @@ package net.findmybook.service;
 
 import java.sql.Date;
 import java.util.List;
-import java.util.Locale;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import net.findmybook.dto.BookAggregate;
@@ -14,6 +13,7 @@ import net.findmybook.util.TextUtils;
 import net.findmybook.util.UrlUtils;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.support.SqlArrayValue;
 import org.springframework.stereotype.Service;
 
 /**
@@ -22,8 +22,6 @@ import org.springframework.stereotype.Service;
 @Service
 @Slf4j
 public class BookUpsertTransactionService {
-
-    private static final String AUTHOR_NAME_NORMALIZE_PATTERN = "[^a-z0-9\\s]";
 
     private final JdbcTemplate jdbcTemplate;
     private final BookCollectionPersistenceService collectionPersistenceService;
@@ -70,8 +68,11 @@ public class BookUpsertTransactionService {
         }
     }
 
-    /** Generates or preserves a unique slug for the book row. */
-    public String ensureUniqueSlug(String slugBase, UUID bookId, boolean isNew) {
+    /**
+     * Preserves existing URLs and delegates every new persisted slug allocation
+     * to PostgreSQL's canonical {@code public.generate_slug} function.
+     */
+    public String resolvePersistedSlug(String title, UUID bookId, boolean isNew) {
         if (!isNew) {
             try {
                 String existing = jdbcTemplate.query(
@@ -88,20 +89,16 @@ public class BookUpsertTransactionService {
             }
         }
 
-        if (slugBase == null || slugBase.isBlank()) {
-            return null;
+        String generatedSlug = jdbcTemplate.query(
+            "SELECT public.generate_slug(?, ?)",
+            resultSet -> resultSet.next() ? resultSet.getString(1) : null,
+            title,
+            bookId
+        );
+        if (generatedSlug == null || generatedSlug.isBlank()) {
+            throw new IllegalStateException("PostgreSQL returned a blank slug for book " + bookId);
         }
-
-        try {
-            return jdbcTemplate.queryForObject(
-                "SELECT ensure_unique_slug(?)",
-                String.class,
-                slugBase
-            );
-        } catch (DataAccessException exception) {
-            log.error("Error generating unique slug for base '{}': {}", slugBase, exception.getMessage(), exception);
-            throw exception;
-        }
+        return generatedSlug;
     }
 
     /** Upserts the canonical books record. */
@@ -153,36 +150,13 @@ public class BookUpsertTransactionService {
         );
     }
 
-    /** Upserts normalized author rows and join relations in positional order. */
+    /** Delegates author canonicalization, deduplication, and ordered persistence to PostgreSQL. */
     public void upsertAuthors(UUID bookId, List<String> authors) {
-        int position = 0;
-        for (String authorName : authors) {
-            if (authorName == null || authorName.isBlank()) {
-                continue;
-            }
-
-            String canonicalAuthorName = TextUtils.normalizeAuthorName(authorName);
-            if (canonicalAuthorName == null || canonicalAuthorName.isBlank()) {
-                continue;
-            }
-
-            String normalized = nullIfBlank(normalizeAuthorKey(canonicalAuthorName));
-            String authorId = upsertAuthor(canonicalAuthorName, normalized);
-
-            jdbcTemplate.update(
-                """
-                INSERT INTO book_authors_join (id, book_id, author_id, position, created_at, updated_at)
-                VALUES (?, ?, ?, ?, NOW(), NOW())
-                ON CONFLICT (book_id, author_id) DO UPDATE SET
-                    position = EXCLUDED.position,
-                    updated_at = NOW()
-                """,
-                IdGenerator.generateLong(),
-                bookId,
-                authorId,
-                position++
-            );
-        }
+        jdbcTemplate.update(
+            "CALL public.upsert_book_authors(?, ?)",
+            bookId,
+            new SqlArrayValue("text", authors.toArray())
+        );
     }
 
     /** Upserts provider identifiers and related metadata into book_external_ids. */
@@ -198,7 +172,7 @@ public class BookUpsertTransactionService {
         String providerIsbn10 = nullIfBlank(IsbnUtils.sanitize(identifiers.getProviderIsbn10()));
         String providerIsbn13 = nullIfBlank(IsbnUtils.sanitize(identifiers.getProviderIsbn13()));
 
-        jdbcTemplate.update(
+        int updatedRows = jdbcTemplate.update(
             """
             INSERT INTO book_external_ids (
                 id, book_id, source, external_id,
@@ -249,6 +223,7 @@ public class BookUpsertTransactionService {
                 goodreads_work_id = COALESCE(EXCLUDED.goodreads_work_id, book_external_ids.goodreads_work_id),
                 google_canonical_id = COALESCE(EXCLUDED.google_canonical_id, book_external_ids.google_canonical_id),
                 last_updated = NOW()
+            WHERE book_external_ids.book_id = EXCLUDED.book_id
             """,
             IdGenerator.generate(),
             bookId,
@@ -287,6 +262,11 @@ public class BookUpsertTransactionService {
             identifiers.getGoodreadsWorkId(),
             identifiers.getGoogleCanonicalId()
         );
+        if (updatedRows != 1) {
+            throw new IllegalStateException(
+                "External identifier already belongs to a different canonical book; refusing reassignment"
+            );
+        }
     }
 
     /** Upserts physical dimensions, or removes stale rows when dimensions are absent. */
@@ -327,32 +307,6 @@ public class BookUpsertTransactionService {
             collectionPersistenceService.upsertCategory(category)
                 .ifPresent(collectionId -> collectionPersistenceService.addBookToCategory(collectionId, bookId.toString()));
         }
-    }
-
-    private String upsertAuthor(String name, String normalized) {
-        try {
-            return jdbcTemplate.queryForObject(
-                """
-                INSERT INTO authors (id, name, normalized_name, created_at, updated_at)
-                VALUES (?, ?, ?, NOW(), NOW())
-                ON CONFLICT (name) DO UPDATE SET updated_at = NOW()
-                RETURNING id
-                """,
-                (rs, rowNum) -> rs.getString("id"),
-                IdGenerator.generate(),
-                name,
-                normalized
-            );
-        } catch (DataAccessException exception) {
-            log.error("Error upserting author '{}': {}", name, exception.getMessage(), exception);
-            throw exception;
-        }
-    }
-
-    private String normalizeAuthorKey(String authorName) {
-        return authorName.toLowerCase(Locale.ROOT)
-            .replaceAll(AUTHOR_NAME_NORMALIZE_PATTERN, "")
-            .trim();
     }
 
     private String nullIfBlank(String value) {

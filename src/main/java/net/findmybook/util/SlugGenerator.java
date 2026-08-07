@@ -2,12 +2,11 @@ package net.findmybook.util;
 
 import java.text.Normalizer;
 import java.util.Locale;
-import java.util.List;
 import java.util.regex.Pattern;
 
 /**
- * Utility for generating SEO-friendly URL slugs from book titles and authors.
- * Slugs are generated once at creation time and remain stable.
+ * Utility for generating non-persisted title-derived slug bases.
+ * Persisted book slugs are allocated by PostgreSQL's {@code public.generate_slug}.
  */
 public final class SlugGenerator {
     private static final Pattern NON_LATIN = Pattern.compile("[^\\w\\s-]");
@@ -16,80 +15,28 @@ public final class SlugGenerator {
     private static final Pattern MULTIPLE_DASHES = Pattern.compile("-{2,}");
     private static final String FALLBACK_BOOK_SLUG = "book";
 
-    private static final int MAX_SLUG_LENGTH = 100;
-    private static final int MAX_TITLE_LENGTH = 60;
-    private static final int MAX_AUTHOR_LENGTH = 30;
+    private static final int MAX_BASE_SLUG_LENGTH = 60;
 
     private SlugGenerator() {}
 
     /**
-     * Generate a slug from book title and optional authors.
-     * Format: title-author1-author2
-     * Example: "Harry Potter and the Philosopher's Stone" by "J.K. Rowling"
-     *          becomes "harry-potter-and-the-philosophers-stone-j-k-rowling"
+     * Generates a stable slug from a book title.
+     * Author identity is intentionally excluded because PostgreSQL owns author
+     * canonicalization after the book slug is allocated.
      *
      * @param title The book title
-     * @param authors List of author names (can be null or empty)
      * @return SEO-friendly slug
      */
-    public static String generateBookSlug(String title, List<String> authors) {
-        if (title == null || title.trim().isEmpty()) {
+    public static String generateBookSlug(String title) {
+        if (title == null || title.isBlank()) {
             return null;
         }
 
-        StringBuilder slugBuilder = new StringBuilder();
-
-        // Process title
         String titleSlug = slugify(title);
         if (titleSlug.isBlank()) {
-            titleSlug = fallbackBookSlug(title, authors);
+            titleSlug = fallbackBookSlug(title);
         }
-        if (titleSlug.length() > MAX_TITLE_LENGTH) {
-            // Truncate at word boundary
-            titleSlug = truncateAtWordBoundary(titleSlug, MAX_TITLE_LENGTH);
-        }
-        slugBuilder.append(titleSlug);
-
-        // Add first author if available
-        if (authors != null && !authors.isEmpty()) {
-            String firstAuthor = authors.get(0);
-            if (firstAuthor != null && !firstAuthor.trim().isEmpty()) {
-                String authorSlug = slugify(firstAuthor);
-                if (!authorSlug.isBlank() && authorSlug.length() > MAX_AUTHOR_LENGTH) {
-                    authorSlug = truncateAtWordBoundary(authorSlug, MAX_AUTHOR_LENGTH);
-                }
-                if (!authorSlug.isBlank()) {
-                    slugBuilder.append("-").append(authorSlug);
-                }
-            }
-        }
-
-        String finalSlug = slugBuilder.toString();
-
-        // Ensure final slug doesn't exceed max length
-        if (finalSlug.length() > MAX_SLUG_LENGTH) {
-            finalSlug = truncateAtWordBoundary(finalSlug, MAX_SLUG_LENGTH);
-        }
-
-        if (finalSlug.isBlank()) {
-            return fallbackBookSlug(title, authors);
-        }
-
-        return finalSlug;
-    }
-
-    /**
-     * Generate a slug from book title and single author.
-     */
-    public static String generateBookSlug(String title, String author) {
-        return generateBookSlug(title, author != null ? List.of(author) : null);
-    }
-
-    /**
-     * Generate a slug from title only.
-     */
-    public static String generateBookSlug(String title) {
-        return generateBookSlug(title, (List<String>) null);
+        return boundBaseSlug(titleSlug);
     }
 
     /**
@@ -130,17 +77,16 @@ public final class SlugGenerator {
         return slug;
     }
 
-    private static String fallbackBookSlug(String title, List<String> authors) {
-        StringBuilder source = new StringBuilder(title == null ? "" : title.trim());
-        if (authors != null) {
-            for (String author : authors) {
-                if (author != null && !author.trim().isEmpty()) {
-                    source.append('|').append(author.trim());
-                }
-            }
-        }
-        String hash = Integer.toUnsignedString(source.toString().hashCode(), Character.MAX_RADIX);
+    private static String fallbackBookSlug(String title) {
+        String source = title == null ? "" : title.trim();
+        String hash = Integer.toUnsignedString(source.hashCode(), Character.MAX_RADIX);
         return FALLBACK_BOOK_SLUG + "-" + hash;
+    }
+
+    private static String boundBaseSlug(String slugBase) {
+        return slugBase.length() > MAX_BASE_SLUG_LENGTH
+            ? truncateAtWordBoundary(slugBase, MAX_BASE_SLUG_LENGTH)
+            : slugBase;
     }
 
     /**
@@ -162,32 +108,4 @@ public final class SlugGenerator {
         return slug.substring(0, lastDash);
     }
 
-    /**
-     * Make a slug unique by appending a counter.
-     * Used when a slug already exists in the database.
-     *
-     * @param baseSlug The original slug
-     * @param counter The counter to append
-     * @return Unique slug with counter (e.g., "harry-potter-2")
-     */
-    public static String makeSlugUnique(String baseSlug, int counter) {
-        if (baseSlug == null || baseSlug.isEmpty()) {
-            return String.valueOf(counter);
-        }
-        return baseSlug + "-" + counter;
-    }
-
-    /**
-     * Validate that a slug is well-formed.
-     */
-    public static boolean isValidSlug(String slug) {
-        if (slug == null || slug.isEmpty()) {
-            return false;
-        }
-
-        // Should only contain lowercase letters, numbers, and hyphens
-        // Should not start or end with hyphen
-        // Should not have consecutive hyphens
-        return slug.matches("^[a-z0-9]+(-[a-z0-9]+)*$");
-    }
 }

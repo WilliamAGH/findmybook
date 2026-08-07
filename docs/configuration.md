@@ -47,6 +47,11 @@ Deployment readiness intentionally uses Spring's `readinessState` group rather t
 
 Keep Coolify's UI-generated health check disabled for this Dockerfile deployment. Coolify detects the image-owned `HEALTHCHECK`, waits for Docker to report the replacement healthy, and only then removes the previous container. The probe reads `SERVER_PORT` at runtime so the same image works with the repository default (`8095`) and Coolify's configured container port (`8080`).
 
+Spring Boot exposes the Prometheus scrape endpoint at `GET /actuator/prometheus`. The
+application includes a Prometheus registry, and web exposure is limited to the `health`
+and `prometheus` actuator endpoints. The Prometheus endpoint requires the existing
+`admin` HTTP Basic credentials; availability probes remain public.
+
 ## User Accounts
 
 | Username | Role(s) | Access | Password Env Variable |
@@ -78,7 +83,7 @@ The base Hikari pool validates idle JDBC connections every 60 seconds while reta
 - Spring Boot owns prototype `WebClient.Builder` instances so per-service base URLs and request settings cannot leak across clients.
 - Shared connector policy follows redirects and limits both connection establishment and stalled response reads to 5 seconds through `spring.http.clients`.
 - Services may apply shorter request deadlines when their user-facing latency budget requires faster failure.
-- WebClient buffering follows `spring.codec.max-in-memory-size` (10 MB); narrower consumers such as the OpenGraph cover loader enforce their own smaller streaming limit.
+- WebClient buffering follows `spring.http.codecs.max-in-memory-size` (10 MB); narrower consumers such as the OpenGraph cover loader enforce their own smaller streaming limit.
 
 ## SPA Shell Delivery
 
@@ -115,6 +120,8 @@ The base Hikari pool validates idle JDBC connections every 60 seconds while reta
 
 - Weekly orchestration is driven by `app.weekly-refresh.*`.
 - Default behavior runs both phases in one cron cycle:
-  - NYT ingest (`NewYorkTimesBestsellerScheduler.forceProcessNewYorkTimesBestsellers(null)`).
+  - NYT ingest (`NewYorkTimesBestsellerScheduler.forceProcessNewYorkTimesBestsellers()`).
   - Recommendation expiry refresh (`RecommendationCacheRefreshUseCase.refreshAllRecommendations()`).
 - `app.nyt.scheduler.standalone-enabled` defaults to `false` so NYT ingest is not scheduled twice when weekly orchestration is enabled.
+- The NYT phase reports success only after at least one usable list produces at least one
+  persisted bestseller membership. Empty or unusable provider responses fail the phase.

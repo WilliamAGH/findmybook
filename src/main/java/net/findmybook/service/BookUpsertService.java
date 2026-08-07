@@ -8,13 +8,15 @@ import lombok.Builder;
 import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataAccessException;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.TreeSet;
 import java.util.UUID;
 
 /**
@@ -33,9 +35,6 @@ public class BookUpsertService {
 
     private static final long FNV_64_OFFSET_BASIS = 0xcbf29ce484222325L;
     private static final long FNV_64_PRIME = 0x100000001b3L;
-    private static final int MAX_SLUG_UPSERT_ATTEMPTS = 3;
-    private static final String BOOKS_SLUG_KEY_CONSTRAINT = "books_slug_key";
-    private static final String SLUG_COLUMN_TOKEN = "Key (slug)=";
 
     private final JdbcTemplate jdbcTemplate;
     private final BookUpsertTransactionService bookUpsertTransactionService;
@@ -80,7 +79,7 @@ public class BookUpsertService {
         } else {
             log.info("Updating existing book: id={}, title='{}'", bookId, aggregate.getTitle());
         }
-        String slug = upsertBookRecordWithSlugRetry(bookId, aggregate, isNew);
+        String slug = upsertBookRecord(bookId, aggregate, isNew);
         if (aggregate.getAuthors() != null && !aggregate.getAuthors().isEmpty()) {
             bookUpsertTransactionService.upsertAuthors(bookId, aggregate.getAuthors());
         }
@@ -123,66 +122,43 @@ public class BookUpsertService {
     }
 
     private Optional<UUID> findExistingBookId(BookAggregate aggregate) {
-        Long lockKey = computeBookLockKey(aggregate);
-        if (lockKey == null) {
+        List<Long> lockKeys = computeBookLockKeys(aggregate);
+        if (lockKeys.isEmpty()) {
             log.warn("Book has no identifiers (ISBN/externalId) - cannot use advisory lock. Race condition possible.");
             return lookupByIdentifiers(aggregate);
         }
-        try {
-            jdbcTemplate.query("SELECT pg_advisory_xact_lock(?)", rs -> null, lockKey);
-            log.debug("Acquired advisory lock {} for book lookup", lockKey);
-        } catch (DataAccessException e) {
-            log.error("Failed to acquire advisory lock {} during book lookup: {}", lockKey, e.getMessage(), e);
-            throw new AdvisoryLockAcquisitionException(lockKey, e);
+        for (Long lockKey : lockKeys) {
+            try {
+                jdbcTemplate.query("SELECT pg_advisory_xact_lock(?)", rs -> null, lockKey);
+                log.debug("Acquired advisory lock {} for book lookup", lockKey);
+            } catch (DataAccessException e) {
+                log.error("Failed to acquire advisory lock {} during book lookup: {}", lockKey, e.getMessage(), e);
+                throw new AdvisoryLockAcquisitionException(lockKey, e);
+            }
         }
         return lookupByIdentifiers(aggregate);
     }
 
-    private String upsertBookRecordWithSlugRetry(UUID bookId, BookAggregate aggregate, boolean isNew) {
-        String slug = bookUpsertTransactionService.ensureUniqueSlug(aggregate.getSlugBase(), bookId, isNew);
-        for (int attempt = 1; attempt <= MAX_SLUG_UPSERT_ATTEMPTS; attempt++) {
-            try {
-                bookUpsertTransactionService.upsertBookRecord(bookId, aggregate, slug);
-                return slug;
-            } catch (DuplicateKeyException duplicateKeyException) {
-                boolean shouldRetrySlug = isNew
-                    && isSlugConstraintViolation(duplicateKeyException)
-                    && attempt < MAX_SLUG_UPSERT_ATTEMPTS;
-                if (!shouldRetrySlug) {
-                    throw duplicateKeyException;
-                }
-
-                String nextSlug = bookUpsertTransactionService.ensureUniqueSlug(aggregate.getSlugBase(), bookId, true);
-                if (nextSlug == null || nextSlug.isBlank() || nextSlug.equals(slug)) {
-                    throw duplicateKeyException;
-                }
-                log.warn(
-                    "Slug collision detected for book {} during upsert (attempt {}/{}). Retrying with slug '{}'",
-                    bookId,
-                    attempt,
-                    MAX_SLUG_UPSERT_ATTEMPTS,
-                    nextSlug
-                );
-                slug = nextSlug;
-            }
-        }
-        throw new IllegalStateException("Failed to upsert book record after slug conflict retries for " + bookId);
-    }
-
-    private boolean isSlugConstraintViolation(DuplicateKeyException duplicateKeyException) {
-        Throwable current = duplicateKeyException;
-        while (current != null) {
-            String message = current.getMessage();
-            if (message != null
-                && (message.contains(BOOKS_SLUG_KEY_CONSTRAINT) || message.contains(SLUG_COLUMN_TOKEN))) {
-                return true;
-            }
-            current = current.getCause();
-        }
-        return false;
+    private String upsertBookRecord(UUID bookId, BookAggregate aggregate, boolean isNew) {
+        String slug = bookUpsertTransactionService.resolvePersistedSlug(aggregate.getTitle(), bookId, isNew);
+        bookUpsertTransactionService.upsertBookRecord(bookId, aggregate, slug);
+        return slug;
     }
 
     private Optional<UUID> lookupByIdentifiers(BookAggregate aggregate) {
+        if (aggregate.getIdentifiers() != null) {
+            String source = aggregate.getIdentifiers().getSource();
+            String externalId = aggregate.getIdentifiers().getExternalId();
+
+            if (source != null && externalId != null) {
+                Optional<UUID> existing = findBookByExternalId(source, externalId);
+                if (existing.isPresent()) {
+                    log.debug("Found existing book {} by external identifier {}/{}", existing.get(), source, externalId);
+                    return existing;
+                }
+            }
+        }
+
         String sanitizedIsbn13 = IsbnUtils.sanitize(aggregate.getIsbn13());
         if (sanitizedIsbn13 != null) {
             Optional<UUID> existing = findBookByIsbn13(sanitizedIsbn13);
@@ -201,29 +177,10 @@ public class BookUpsertService {
             }
         }
 
-        if (aggregate.getIdentifiers() != null) {
-            String source = aggregate.getIdentifiers().getSource();
-            String externalId = aggregate.getIdentifiers().getExternalId();
-
-            if (source != null && externalId != null) {
-                Optional<UUID> existing = findBookByExternalId(source, externalId);
-                if (existing.isPresent()) {
-                    log.debug("Found existing book {} by external identifier {}/{}", existing.get(), source, externalId);
-                    return existing;
-                }
-            }
-        }
-
         Optional<UUID> clusteredMatch = findBookByWorkCluster(isbn13IdentityForLookup(aggregate));
         if (clusteredMatch.isPresent()) {
             log.debug("Found existing book {} via work cluster lookup", clusteredMatch.get());
             return clusteredMatch;
-        }
-
-        Optional<UUID> slugMatch = findBookBySlug(aggregate.getSlugBase());
-        if (slugMatch.isPresent()) {
-            log.debug("Found existing book {} by slug '{}'", slugMatch.get(), aggregate.getSlugBase());
-            return slugMatch;
         }
 
         return Optional.empty();
@@ -290,19 +247,6 @@ public class BookUpsertService {
         return Optional.ofNullable(id);
     }
 
-    private Optional<UUID> findBookBySlug(String slug) {
-        if (slug == null || slug.isBlank()) {
-            return Optional.empty();
-        }
-
-        UUID id = jdbcTemplate.query(
-            "SELECT id FROM books WHERE slug = ? LIMIT 1",
-            rs -> rs.next() ? (UUID) rs.getObject("id") : null,
-            slug
-        );
-        return Optional.ofNullable(id);
-    }
-
     private Optional<UUID> findBookByWorkCluster(String sanitizedIsbn13) {
         if (sanitizedIsbn13 == null) {
             return Optional.empty();
@@ -328,24 +272,22 @@ public class BookUpsertService {
         return Optional.ofNullable(id);
     }
 
-    private Long computeBookLockKey(BookAggregate aggregate) {
-        String lockString = null;
-        String isbn13Identity = isbn13IdentityForLookup(aggregate);
-        if (isbn13Identity != null) {
-            lockString = "ISBN:" + isbn13Identity;
-        }
-        if (lockString == null && aggregate.getIdentifiers() != null) {
+    private List<Long> computeBookLockKeys(BookAggregate aggregate) {
+        TreeSet<Long> orderedLockKeys = new TreeSet<>();
+        if (aggregate.getIdentifiers() != null) {
             String source = aggregate.getIdentifiers().getSource();
             String externalId = aggregate.getIdentifiers().getExternalId();
             if (source != null && externalId != null && !externalId.isBlank()) {
-                lockString = source + ":" + externalId.trim();
+                orderedLockKeys.add(fnv1a64("EXTERNAL:" + source + ":" + externalId.trim()));
             }
         }
 
-        if (lockString == null) {
-            return null; // No identifiers available
+        String isbn13Identity = isbn13IdentityForLookup(aggregate);
+        if (isbn13Identity != null) {
+            orderedLockKeys.add(fnv1a64("ISBN:" + isbn13Identity));
         }
-        return fnv1a64(lockString);
+
+        return new ArrayList<>(orderedLockKeys);
     }
 
     private String isbn13IdentityForLookup(BookAggregate aggregate) {

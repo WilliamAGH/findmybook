@@ -37,6 +37,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -107,7 +109,7 @@ class BookControllerPaginationIntegrationTest {
     @DisplayName("Page 1 honors Postgres-first ordering and exposes prefetch metadata")
     void firstPageMaintainsOrderingAndPrefetch() throws Exception {
         MvcResult result = performAsync(get("/api/books/search")
-                .param("query", "multi")
+                .param("query", "multi-first")
                 .param("maxResults", "12"))
             .andExpect(status().isOk())
             .andExpect(content().contentType(MediaType.APPLICATION_JSON))
@@ -127,13 +129,19 @@ class BookControllerPaginationIntegrationTest {
     @DisplayName("Page 2 advances cursor without duplicating page 1 results")
     void secondPageAdvancesCursorWithoutDupes() throws Exception {
         MvcResult firstPage = performAsync(get("/api/books/search")
-                .param("query", "multi")
+                .param("query", "multi-pages")
                 .param("maxResults", "12"))
             .andExpect(status().isOk())
             .andReturn();
 
+        searchResults.clear();
+        listItems.clear();
+        UUID replacementId = UUID.fromString("00000000-0000-0000-0000-000000000199");
+        searchResults.add(new BookSearchService.SearchResult(replacementId, 1.0, "TSVECTOR"));
+        listItems.add(buildListItem(replacementId, "Repository Mutation"));
+
         MvcResult secondPage = performAsync(get("/api/books/search")
-                .param("query", "multi")
+                .param("query", "multi-pages")
                 .param("startIndex", "12")
                 .param("maxResults", "12"))
             .andExpect(status().isOk())
@@ -152,6 +160,11 @@ class BookControllerPaginationIntegrationTest {
 
         assertThat(secondIds).doesNotContainAnyElementsOf(firstIds);
         assertThat(new HashSet<>(secondIds)).hasSize(secondIds.size());
+        assertThat(extractTotalResults(secondPage)).isEqualTo(extractTotalResults(firstPage));
+        verify(bookSearchService, times(1)).searchBooks(
+            "multi-pages",
+            SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP
+        );
     }
 
     private List<String> extractIds(MvcResult result) throws Exception {
@@ -159,6 +172,10 @@ class BookControllerPaginationIntegrationTest {
         List<String> ids = new ArrayList<>();
         root.path("results").forEach(node -> ids.add(node.path("id").asString()));
         return ids;
+    }
+
+    private int extractTotalResults(MvcResult result) throws Exception {
+        return objectMapper.readTree(result.getResponse().getContentAsString()).path("totalResults").asInt();
     }
 
     private ResultActions performAsync(MockHttpServletRequestBuilder builder) throws Exception {

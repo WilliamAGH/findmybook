@@ -3,15 +3,20 @@ package net.findmybook.service;
 import net.findmybook.config.SitemapProperties;
 import net.findmybook.repository.SitemapRepository;
 import net.findmybook.repository.SitemapRepository.AuthorRow;
+import net.findmybook.repository.SitemapRepository.AuthorListingMetadata;
 import net.findmybook.repository.SitemapRepository.BookRow;
 import net.findmybook.repository.SitemapRepository.DatasetFingerprint;
 import net.findmybook.repository.SitemapRepository.PageMetadata;
 import net.findmybook.util.PagingUtils;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionException;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
 import java.time.Instant;
@@ -47,12 +52,13 @@ public class SitemapService {
 
     private final SitemapRepository sitemapRepository;
     private final SitemapProperties properties;
+    private final ObjectProvider<PlatformTransactionManager> transactionManagerProvider;
     private final Cache booksXmlPageCountCache;
     private final Cache booksXmlPageCache;
     private final Cache overviewCache;
     private final Cache bookBucketCountsCache;
     private final Cache authorBucketCountsCache;
-    private final Cache authorListingDescriptorsCache;
+    private final Cache authorListingMetadataCache;
     private final Cache authorXmlPageCountCache;
     private final Cache authorXmlPageCache;
     private final Cache bookPageMetadataCache;
@@ -62,15 +68,17 @@ public class SitemapService {
 
     public SitemapService(SitemapRepository sitemapRepository,
                           SitemapProperties properties,
-                          @Qualifier("sitemapCacheManager") CacheManager cacheManager) {
+                          @Qualifier("sitemapCacheManager") CacheManager cacheManager,
+                          ObjectProvider<PlatformTransactionManager> transactionManagerProvider) {
         this.sitemapRepository = sitemapRepository;
         this.properties = properties;
+        this.transactionManagerProvider = transactionManagerProvider;
         this.booksXmlPageCountCache = requireCache(cacheManager, CacheNames.BOOK_XML_PAGE_COUNT);
         this.booksXmlPageCache = requireCache(cacheManager, CacheNames.BOOK_XML_PAGE);
         this.overviewCache = requireCache(cacheManager, CacheNames.BOOK_OVERVIEW);
         this.bookBucketCountsCache = requireCache(cacheManager, CacheNames.BOOK_BUCKET_COUNTS);
         this.authorBucketCountsCache = requireCache(cacheManager, CacheNames.AUTHOR_BUCKET_COUNTS);
-        this.authorListingDescriptorsCache = requireCache(cacheManager, CacheNames.AUTHOR_LISTING_DESCRIPTORS);
+        this.authorListingMetadataCache = requireCache(cacheManager, CacheNames.AUTHOR_LISTING_METADATA);
         this.authorXmlPageCountCache = requireCache(cacheManager, CacheNames.AUTHOR_XML_PAGE_COUNT);
         this.authorXmlPageCache = requireCache(cacheManager, CacheNames.AUTHOR_XML_PAGE);
         this.bookPageMetadataCache = requireCache(cacheManager, CacheNames.BOOK_PAGE_METADATA);
@@ -123,7 +131,9 @@ public class SitemapService {
         }
         Set<String> authorIds = authorRows.stream().map(AuthorRow::id)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
-        Map<String, List<BookRow>> booksByAuthor = sitemapRepository.fetchBooksForAuthors(authorIds);
+        Map<String, List<BookRow>> booksByAuthor = inReadOnlyTransaction(
+                () -> sitemapRepository.fetchBooksForAuthors(authorIds)
+        );
         List<AuthorSection> sections = authorRows.stream()
                 .map(row -> new AuthorSection(
                         row.id(),
@@ -147,12 +157,14 @@ public class SitemapService {
     }
 
     public List<AuthorListingDescriptor> listAuthorListingDescriptors() {
-        return getAuthorListingDescriptors();
+        return getAuthorListingMetadata().stream()
+                .map(entry -> new AuthorListingDescriptor(entry.bucket(), entry.htmlPage()))
+                .toList();
     }
 
     public int getAuthorXmlPageCount() {
         return cached(authorXmlPageCountCache, "pageCount", () -> {
-            int totalListingPages = getAuthorListingDescriptors().size();
+            int totalListingPages = getAuthorListingMetadata().size();
             if (totalListingPages == 0) {
                 return 0;
             }
@@ -175,17 +187,17 @@ public class SitemapService {
     }
 
     public DatasetFingerprint currentBookFingerprint() {
-        return bookFingerprintRef.updateAndGet(existing -> existing != null ? existing : sitemapRepository.fetchBookFingerprint());
+        return bookFingerprintRef.updateAndGet(existing -> existing != null ? existing : loadBookFingerprint());
     }
 
     public DatasetFingerprint currentAuthorFingerprint() {
-        return authorFingerprintRef.updateAndGet(existing -> existing != null ? existing : sitemapRepository.fetchAuthorFingerprint());
+        return authorFingerprintRef.updateAndGet(existing -> existing != null ? existing : loadAuthorFingerprint());
     }
 
     public boolean refreshSitemapCachesIfDatasetChanged() {
         // Fetch latest fingerprints from database
-        DatasetFingerprint latestBook = sitemapRepository.fetchBookFingerprint();
-        DatasetFingerprint latestAuthor = sitemapRepository.fetchAuthorFingerprint();
+        DatasetFingerprint latestBook = loadBookFingerprint();
+        DatasetFingerprint latestAuthor = loadAuthorFingerprint();
 
         // Thread-safe comparison and update using compareAndSet pattern
         DatasetFingerprint previousBook = bookFingerprintRef.get();
@@ -215,7 +227,7 @@ public class SitemapService {
         clearCache(overviewCache);
         clearCache(bookBucketCountsCache);
         clearCache(authorBucketCountsCache);
-        clearCache(authorListingDescriptorsCache);
+        clearCache(authorListingMetadataCache);
         clearCache(authorXmlPageCountCache);
         clearCache(authorXmlPageCache);
         clearCache(bookPageMetadataCache);
@@ -241,16 +253,16 @@ public class SitemapService {
         return cached(authorBucketCountsCache, "counts", this::loadAuthorLetterCounts);
     }
 
-    private List<AuthorListingDescriptor> getAuthorListingDescriptors() {
-        return cached(authorListingDescriptorsCache, "descriptors", this::loadAuthorListingDescriptors);
+    private List<AuthorListingMetadata> getAuthorListingMetadata() {
+        return cached(authorListingMetadataCache, "metadata", this::loadAuthorListingMetadata);
     }
 
     private int calculateBooksXmlPageCount() {
         try {
-            int total = sitemapRepository.countAllBooks();
+            int total = inReadOnlyTransaction(sitemapRepository::countAllBooks);
             int pageSize = properties.getXmlPageSize();
             return total == 0 ? 0 : (int) Math.ceil((double) total / pageSize);
-        } catch (DataAccessException ex) {
+        } catch (DataAccessException | TransactionException ex) {
             throw new IllegalStateException("Failed to compute book XML page count", ex);
         }
     }
@@ -259,7 +271,7 @@ public class SitemapService {
         int pageSize = properties.getXmlPageSize();
         int offset = (page - 1) * pageSize;
         try {
-            return sitemapRepository.fetchBooksForXml(pageSize, offset)
+            return inReadOnlyTransaction(() -> sitemapRepository.fetchBooksForXml(pageSize, offset))
                     .stream()
                     .map(row -> new BookSitemapItem(row.bookId(), row.slug(), row.title(), row.updatedAt()))
                     .toList();
@@ -270,40 +282,24 @@ public class SitemapService {
 
     private List<AuthorListingXmlItem> loadAuthorListingsForXmlPage(int page) {
         try {
-            List<AuthorListingDescriptor> descriptors = getAuthorListingDescriptors();
-            if (descriptors.isEmpty()) {
+            List<AuthorListingMetadata> listingMetadata = getAuthorListingMetadata();
+            if (listingMetadata.isEmpty()) {
                 return List.of();
             }
             int xmlPageSize = properties.getXmlPageSize();
             int startIndex = (page - 1) * xmlPageSize;
-            if (startIndex >= descriptors.size()) {
+            if (startIndex >= listingMetadata.size()) {
                 return List.of();
             }
-            int endIndex = Math.min(startIndex + xmlPageSize, descriptors.size());
-            List<AuthorListingDescriptor> slice = descriptors.subList(startIndex, endIndex);
-            List<AuthorListingXmlItem> results = new ArrayList<>(slice.size());
-            for (AuthorListingDescriptor descriptor : slice) {
-                PagedResult<AuthorSection> authorPage = getAuthorsByLetter(descriptor.bucket(), descriptor.page());
-                Instant lastModified = authorPage.items().stream()
-                        .flatMap(author -> {
-                            List<Instant> instants = new ArrayList<>();
-                            if (author.updatedAt() != null) {
-                                instants.add(author.updatedAt());
-                            }
-                            if (author.books() != null) {
-                                author.books().stream()
-                                        .map(BookSitemapItem::updatedAt)
-                                        .filter(Objects::nonNull)
-                                        .forEach(instants::add);
-                            }
-                            return instants.stream();
-                        })
-                        .max(Instant::compareTo)
-                        .orElseGet(() -> currentAuthorFingerprint().lastModified());
-                results.add(new AuthorListingXmlItem(descriptor.bucket(), descriptor.page(), lastModified));
-            }
-            return List.copyOf(results);
-        } catch (DataAccessException ex) {
+            int endIndex = Math.min(startIndex + xmlPageSize, listingMetadata.size());
+            return listingMetadata.subList(startIndex, endIndex).stream()
+                    .map(entry -> new AuthorListingXmlItem(
+                            entry.bucket(),
+                            entry.htmlPage(),
+                            resolveAuthorListingLastModified(entry)
+                    ))
+                    .toList();
+        } catch (DataAccessException | TransactionException ex) {
             throw new IllegalStateException("Failed to load author listings for sitemap page " + page, ex);
         }
     }
@@ -311,71 +307,84 @@ public class SitemapService {
     private List<SitemapPageMetadata> loadBookPageMetadata() {
         int pageSize = properties.getXmlPageSize();
         try {
-            return sitemapRepository.fetchBookPageMetadata(pageSize).stream()
+            return inReadOnlyTransaction(() -> sitemapRepository.fetchBookPageMetadata(pageSize)).stream()
                     .map(entry -> new SitemapPageMetadata(entry.pageNumber(), entry.lastModified()))
                     .toList();
-        } catch (DataAccessException ex) {
+        } catch (DataAccessException | TransactionException ex) {
             throw new IllegalStateException("Failed to load book sitemap metadata", ex);
         }
     }
 
     private List<SitemapPageMetadata> loadAuthorPageMetadata() {
         try {
-            return sitemapRepository.fetchAuthorPageMetadata(
-                            properties.getHtmlPageSize(),
-                            properties.getXmlPageSize()
-                    ).stream()
-                    .map(entry -> new SitemapPageMetadata(entry.pageNumber(), entry.lastModified()))
-                    .toList();
-        } catch (DataAccessException ex) {
+            List<AuthorListingMetadata> listingMetadata = getAuthorListingMetadata();
+            int xmlPageSize = properties.getXmlPageSize();
+            List<SitemapPageMetadata> pageMetadata = new ArrayList<>();
+            for (int startIndex = 0; startIndex < listingMetadata.size(); startIndex += xmlPageSize) {
+                int endIndex = Math.min(startIndex + xmlPageSize, listingMetadata.size());
+                Instant lastModified = listingMetadata.subList(startIndex, endIndex).stream()
+                        .map(this::resolveAuthorListingLastModified)
+                        .max(Instant::compareTo)
+                        .orElseThrow();
+                pageMetadata.add(new SitemapPageMetadata((startIndex / xmlPageSize) + 1, lastModified));
+            }
+            return List.copyOf(pageMetadata);
+        } catch (DataAccessException | TransactionException ex) {
             throw new IllegalStateException("Failed to load author sitemap metadata", ex);
         }
     }
 
+    private Instant resolveAuthorListingLastModified(AuthorListingMetadata listingMetadata) {
+        return listingMetadata.lastModified()
+                .orElseGet(() -> currentAuthorFingerprint().lastModified());
+    }
+
     private Map<String, Integer> loadBookLetterCounts() {
         try {
-            Map<String, Integer> raw = sitemapRepository.countBooksByBucket();
+            Map<String, Integer> raw = inReadOnlyTransaction(sitemapRepository::countBooksByBucket);
             Map<String, Integer> counts = new LinkedHashMap<>();
             for (String bucket : LETTER_BUCKETS) {
                 counts.put(bucket, raw.getOrDefault(bucket, 0));
             }
             return Map.copyOf(counts);
-        } catch (DataAccessException ex) {
+        } catch (DataAccessException | TransactionException ex) {
             throw new IllegalStateException("Failed to load book letter counts", ex);
         }
     }
 
     private Map<String, Integer> loadAuthorLetterCounts() {
         try {
-            Map<String, Integer> raw = sitemapRepository.countAuthorsByBucket();
+            Map<String, Integer> raw = inReadOnlyTransaction(sitemapRepository::countAuthorsByBucket);
             Map<String, Integer> counts = new LinkedHashMap<>();
             for (String bucket : LETTER_BUCKETS) {
                 counts.put(bucket, raw.getOrDefault(bucket, 0));
             }
             return Map.copyOf(counts);
-        } catch (DataAccessException ex) {
+        } catch (DataAccessException | TransactionException ex) {
             throw new IllegalStateException("Failed to load author letter counts", ex);
         }
     }
 
-    private List<AuthorListingDescriptor> loadAuthorListingDescriptors() {
-        Map<String, Integer> counts = getAuthorLetterCounts();
-        if (counts.isEmpty()) {
-            return List.of();
-        }
-        int pageSize = properties.getHtmlPageSize();
-        List<AuthorListingDescriptor> descriptors = new ArrayList<>();
-        for (String bucket : LETTER_BUCKETS) {
-            int total = counts.getOrDefault(bucket, 0);
-            if (total == 0) {
-                continue;
-            }
-            int totalPages = (int) Math.ceil((double) total / pageSize);
-            for (int page = 1; page <= totalPages; page++) {
-                descriptors.add(new AuthorListingDescriptor(bucket, page));
-            }
-        }
-        return List.copyOf(descriptors);
+    private List<AuthorListingMetadata> loadAuthorListingMetadata() {
+        return List.copyOf(inReadOnlyTransaction(
+                () -> sitemapRepository.fetchAuthorListingMetadata(properties.getHtmlPageSize())));
+    }
+
+    private DatasetFingerprint loadBookFingerprint() {
+        return inReadOnlyTransaction(sitemapRepository::fetchBookFingerprint);
+    }
+
+    private DatasetFingerprint loadAuthorFingerprint() {
+        return inReadOnlyTransaction(sitemapRepository::fetchAuthorFingerprint);
+    }
+
+    private <T> T inReadOnlyTransaction(Supplier<T> query) {
+        TransactionTemplate readOnlyTransaction = new TransactionTemplate(transactionManagerProvider.getObject());
+        readOnlyTransaction.setReadOnly(true);
+        return Objects.requireNonNull(
+                readOnlyTransaction.execute(status -> query.get()),
+                "Read-only sitemap transaction returned null"
+        );
     }
 
     private <T> T cached(Cache cache, Object key, Supplier<T> loader) {
@@ -418,7 +427,7 @@ public class SitemapService {
         private static final String BOOK_OVERVIEW = "sitemapOverview";
         private static final String BOOK_BUCKET_COUNTS = "sitemapBookBucketCounts";
         private static final String AUTHOR_BUCKET_COUNTS = "sitemapAuthorBucketCounts";
-        private static final String AUTHOR_LISTING_DESCRIPTORS = "sitemapAuthorListingDescriptors";
+        private static final String AUTHOR_LISTING_METADATA = "sitemapAuthorListingMetadata";
         private static final String AUTHOR_XML_PAGE_COUNT = "sitemapAuthorXmlPageCount";
         private static final String AUTHOR_XML_PAGE = "sitemapAuthorXmlPage";
         private static final String BOOK_PAGE_METADATA = "sitemapBookPageMetadata";

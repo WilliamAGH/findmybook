@@ -3,7 +3,15 @@ package net.findmybook.application.ai;
 import com.openai.errors.OpenAIException;
 import com.openai.errors.OpenAIIoException;
 import com.openai.errors.OpenAIServiceException;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.ratelimiter.RequestNotPermitted;
+import java.util.ArrayDeque;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.Objects;
+import java.util.Set;
+import org.springframework.dao.DataAccessException;
+import org.springframework.web.reactive.function.client.WebClientException;
 
 /**
  * Thrown when AI content generation fails during streaming, parsing,
@@ -23,7 +31,9 @@ public class BookAiGenerationException extends RuntimeException {
         INVALID_RESPONSE,
         DEGENERATE_CONTENT,
         DESCRIPTION_TOO_SHORT,
-        ENRICHMENT_FAILED
+        ENRICHMENT_FAILED,
+        LOCAL_RATE_LIMITED,
+        LOCAL_CIRCUIT_OPEN
     }
 
     private final ErrorCode errorCode;
@@ -50,6 +60,44 @@ public class BookAiGenerationException extends RuntimeException {
      */
     public ErrorCode errorCode() {
         return errorCode;
+    }
+
+    static ErrorCode classifyDescriptionEnrichmentFailure(RuntimeException failure) {
+        ArrayDeque<Throwable> remaining = new ArrayDeque<>();
+        Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+        remaining.add(Objects.requireNonNull(failure, "failure must not be null"));
+        boolean localCircuitOpen = false;
+        boolean providerFailure = false;
+        while (!remaining.isEmpty()) {
+            Throwable current = remaining.removeFirst();
+            if (!visited.add(current)) {
+                continue;
+            }
+            if (current instanceof RequestNotPermitted) {
+                return ErrorCode.LOCAL_RATE_LIMITED;
+            }
+            if (current instanceof CallNotPermittedException) {
+                localCircuitOpen = true;
+            }
+            if (current instanceof IllegalStateException
+                || current instanceof DataAccessException
+                || current instanceof WebClientException) {
+                providerFailure = true;
+            }
+            if (current.getCause() != null) {
+                remaining.addLast(current.getCause());
+            }
+            for (Throwable suppressed : current.getSuppressed()) {
+                remaining.addLast(suppressed);
+            }
+        }
+        if (localCircuitOpen) {
+            return ErrorCode.LOCAL_CIRCUIT_OPEN;
+        }
+        if (providerFailure) {
+            return ErrorCode.ENRICHMENT_FAILED;
+        }
+        throw failure;
     }
 
     /**

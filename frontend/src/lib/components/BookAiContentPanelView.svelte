@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ChevronDown, RefreshCw } from "@lucide/svelte";
   import type { Book } from "$lib/validation/schemas";
+  import type { BookAiContentStreamError } from "$lib/services/bookAiContentStream";
   import { hasRenderableAiContent } from "$lib/services/bookAiContentPanelState";
 
   interface Props {
@@ -8,6 +9,7 @@
     collapsed: boolean;
     aiServiceAvailable: boolean;
     aiLoading: boolean;
+    aiTerminalFailure: BookAiContentStreamError | null;
     aiErrorMessage: string | null;
     aiQueueMessage: string | null;
     aiLoadingMessage: string;
@@ -22,6 +24,7 @@
     collapsed,
     aiServiceAvailable,
     aiLoading,
+    aiTerminalFailure,
     aiErrorMessage,
     aiQueueMessage,
     aiLoadingMessage,
@@ -49,7 +52,7 @@
         />
         {collapsed ? "Expand" : "Collapse"}
       </button>
-      {#if aiServiceAvailable}
+      {#if aiServiceAvailable && (aiTerminalFailure === null || aiTerminalFailure.retryable)}
         <button
           type="button"
           class="inline-flex items-center justify-center rounded-md p-1 text-anthracite-500 transition hover:bg-linen-100 hover:text-anthracite-700 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
@@ -67,7 +70,9 @@
   {#if !collapsed}
     <div class="border-t border-linen-200 px-4 pb-4 pt-3 dark:border-slate-700">
       {#if book.aiContent && hasRenderableAiContent(book)}
-        {#if aiErrorMessage}
+        {#if aiTerminalFailure}
+          <p role="status" class="mb-2 text-xs text-red-700 dark:text-red-300">{aiTerminalFailure.message}</p>
+        {:else if aiErrorMessage}
           <p class="mb-2 text-xs text-red-700 dark:text-red-300">{aiErrorMessage}</p>
         {/if}
         <p class="break-words text-sm leading-relaxed text-anthracite-800 dark:text-slate-200">
@@ -125,6 +130,8 @@
         {#if aiQueueMessage}
           <p class="mt-1.5 text-xs text-anthracite-500 dark:text-slate-400">{aiQueueMessage}</p>
         {/if}
+      {:else if aiTerminalFailure}
+        <p role="status" class="text-xs text-red-700 dark:text-red-300">{aiTerminalFailure.message}</p>
       {:else if aiAutoTriggerDeferred}
         <p class="text-xs text-anthracite-500 dark:text-slate-400">
           Generation paused while the queue is busy.

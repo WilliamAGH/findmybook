@@ -70,7 +70,7 @@ public class CacheComponentsConfig {
                 buildSitemapCache("sitemapOverview", ttl, jitter),
                 buildSitemapCache("sitemapBookBucketCounts", ttl, jitter),
                 buildSitemapCache("sitemapAuthorBucketCounts", ttl, jitter),
-                buildSitemapCache("sitemapAuthorListingDescriptors", ttl, jitter),
+                buildSitemapCache("sitemapAuthorListingMetadata", ttl, jitter),
                 buildSitemapCache("sitemapAuthorXmlPageCount", ttl, jitter),
                 buildSitemapCache("sitemapAuthorXmlPage", ttl, jitter),
                 buildSitemapCache("sitemapBookPageMetadata", ttl, jitter),

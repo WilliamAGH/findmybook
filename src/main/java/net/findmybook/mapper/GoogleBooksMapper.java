@@ -5,8 +5,6 @@ import net.findmybook.dto.BookAggregate;
 import net.findmybook.util.CategoryNormalizer;
 import net.findmybook.util.DateParsingUtils;
 import net.findmybook.util.IsbnUtils;
-import net.findmybook.util.SlugGenerator;
-import net.findmybook.util.TextUtils;
 import org.springframework.util.StringUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -75,7 +73,6 @@ public class GoogleBooksMapper implements ExternalBookMapper {
         LocalDate publishedDate = parsePublishedDate(volumeInfo);
 
         // Generate slug base
-        String slugBase = SlugGenerator.generateBookSlug(title, authors);
 
         // Extract dimensions
         BookAggregate.Dimensions dimensions = extractDimensions(volumeInfo);
@@ -93,7 +90,6 @@ public class GoogleBooksMapper implements ExternalBookMapper {
             .authors(authors)
             .categories(categories)
             .identifiers(identifiers)
-            .slugBase(slugBase)
             .dimensions(dimensions)
             .editionNumber(null)  // TODO: Derive from title/subtitle/contentVersion
             // Task #6: editionGroupKey removed - replaced by work_clusters system
@@ -132,7 +128,7 @@ public class GoogleBooksMapper implements ExternalBookMapper {
     }
 
     /**
-     * Extract authors from volumeInfo.authors array with name normalization.
+     * Extracts nonblank provider author labels without applying persistence policy.
      */
     private List<String> extractAuthors(JsonNode volumeInfo) {
         List<String> authors = new ArrayList<>();
@@ -143,9 +139,9 @@ public class GoogleBooksMapper implements ExternalBookMapper {
 
         JsonNode authorsNode = volumeInfo.get("authors");
         for (JsonNode authorNode : authorsNode) {
-            String normalized = TextUtils.normalizeAuthorName(authorNode.asString(null));
-            if (StringUtils.hasText(normalized)) {
-                authors.add(normalized);
+            String authorName = authorNode.asString(null);
+            if (StringUtils.hasText(authorName)) {
+                authors.add(authorName);
             }
         }
 

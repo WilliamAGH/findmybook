@@ -14,6 +14,7 @@ import {
   navigate,
   previousSpaPath,
   searchBasePathForRoute,
+  searchRouteDefaultsForRoute,
 } from "$lib/router/router";
 import { pageFromStartIndex, startIndexFromPage } from "$lib/services/searchConfig";
 
@@ -76,6 +77,15 @@ describe("searchBasePathForRoute", () => {
 
   it("shouldReturnCategoriesPathWhenRouteIsCategories", () => {
     expect(searchBasePathForRoute("categories")).toBe("/categories");
+  });
+});
+
+describe("searchRouteDefaultsForRoute", () => {
+  it("shouldProjectTheManifestSearchDefaultAcrossSearchRoutes", () => {
+    const searchDefaults = searchRouteDefaultsForRoute("search");
+
+    expect(searchRouteDefaultsForRoute("explore")).toEqual(searchDefaults);
+    expect(searchRouteDefaultsForRoute("categories")).toEqual(searchDefaults);
   });
 });
 

@@ -2,6 +2,7 @@ package net.findmybook.service;
 
 import net.findmybook.dto.BookListItem;
 import net.findmybook.model.Book;
+import net.findmybook.util.SearchExternalProviderUtils;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -17,12 +18,38 @@ import static org.mockito.Mockito.when;
 class SearchPaginationServiceOrderingTest extends AbstractSearchPaginationServiceTest {
 
     @Test
+    @DisplayName("search() defaults omitted orderBy to relevance")
+    void should_OrderByRelevance_When_OrderByIsOmitted() {
+        UUID higherRelevanceId = UUID.randomUUID();
+        UUID lowerRelevanceId = UUID.randomUUID();
+
+        when(bookSearchService.searchBooks("default-relevance", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP)).thenReturn(List.of(
+            new BookSearchService.SearchResult(higherRelevanceId, 0.95d, "TSVECTOR"),
+            new BookSearchService.SearchResult(lowerRelevanceId, 0.65d, "TSVECTOR")
+        ));
+        when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(List.of(
+            buildListItem(lowerRelevanceId, "Lower Relevance", 600, 900, true, "https://cdn.test/lower.jpg"),
+            buildListItem(higherRelevanceId, "Higher Relevance", 600, 900, true, "https://cdn.test/higher.jpg")
+        ));
+
+        SearchPaginationService.SearchPage page = service.search(
+            searchRequest("default-relevance", 0, 12, null)
+        ).block();
+
+        assertThat(page).isNotNull();
+        assertThat(page.orderBy()).isEqualTo(SearchExternalProviderUtils.DEFAULT_ORDER_BY);
+        assertThat(page.pageItems())
+            .extracting(Book::getId)
+            .containsExactly(higherRelevanceId.toString(), lowerRelevanceId.toString());
+    }
+
+    @Test
     @DisplayName("search() keeps non-color results behind color covers even when orderBy=newest")
     void searchNewestOrderingStillDemotesNonColorCovers() {
         UUID newerLowQualityId = UUID.randomUUID();
         UUID olderHighQualityId = UUID.randomUUID();
 
-        when(bookSearchService.searchBooks("cover-newest", 24)).thenReturn(List.of(
+        when(bookSearchService.searchBooks("cover-newest", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP)).thenReturn(List.of(
             new BookSearchService.SearchResult(newerLowQualityId, 0.80, "TSVECTOR"),
             new BookSearchService.SearchResult(olderHighQualityId, 0.60, "TSVECTOR")
         ));
@@ -61,7 +88,7 @@ class SearchPaginationServiceOrderingTest extends AbstractSearchPaginationServic
         UUID validCoverId = UUID.randomUUID();
         UUID suppressedCoverId = UUID.randomUUID();
 
-        when(bookSearchService.searchBooks("suppressed", 24)).thenReturn(List.of(
+        when(bookSearchService.searchBooks("suppressed", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP)).thenReturn(List.of(
             new BookSearchService.SearchResult(validCoverId, 0.95, "TSVECTOR"),
             new BookSearchService.SearchResult(suppressedCoverId, 0.90, "TSVECTOR")
         ));
@@ -87,7 +114,7 @@ class SearchPaginationServiceOrderingTest extends AbstractSearchPaginationServic
         UUID nullEquivalentCoverId = UUID.randomUUID();
         UUID validCoverId = UUID.randomUUID();
 
-        when(bookSearchService.searchBooks("cover-null-values", 24)).thenReturn(List.of(
+        when(bookSearchService.searchBooks("cover-null-values", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP)).thenReturn(List.of(
             new BookSearchService.SearchResult(nullEquivalentCoverId, 0.99, "TSVECTOR"),
             new BookSearchService.SearchResult(validCoverId, 0.70, "TSVECTOR")
         ));
@@ -110,7 +137,7 @@ class SearchPaginationServiceOrderingTest extends AbstractSearchPaginationServic
         UUID grayscaleId = UUID.randomUUID();
         UUID colorId = UUID.randomUUID();
 
-        when(bookSearchService.searchBooks("grayscale-priority", 24)).thenReturn(List.of(
+        when(bookSearchService.searchBooks("grayscale-priority", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP)).thenReturn(List.of(
             new BookSearchService.SearchResult(grayscaleId, 0.99, "TSVECTOR"),
             new BookSearchService.SearchResult(colorId, 0.70, "TSVECTOR")
         ));
@@ -158,7 +185,7 @@ class SearchPaginationServiceOrderingTest extends AbstractSearchPaginationServic
         UUID noisyExactTitleId = UUID.randomUUID();
         UUID authoredWorkId = UUID.randomUUID();
 
-        when(bookSearchService.searchBooks("john grisham", 4)).thenReturn(List.of(
+        when(bookSearchService.searchBooks("john grisham", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP)).thenReturn(List.of(
             new BookSearchService.SearchResult(noisyExactTitleId, 1.0d, "EXACT_TITLE"),
             new BookSearchService.SearchResult(authoredWorkId, 0.99d, "FULLTEXT")
         ));

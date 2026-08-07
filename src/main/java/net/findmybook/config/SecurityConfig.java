@@ -119,6 +119,7 @@ public class SecurityConfig {
             .authorizeHttpRequests(authorizeRequests ->
                 authorizeRequests
                     .requestMatchers("/admin/**").hasRole("ADMIN")
+                    .requestMatchers("/actuator/prometheus").hasRole("ADMIN")
                     .requestMatchers("/robots.txt").permitAll() // Explicitly permit robots.txt
                     .anyRequest().permitAll() // Default to permit all for non-admin routes
             )

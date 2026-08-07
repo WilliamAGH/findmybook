@@ -10,6 +10,7 @@ import net.findmybook.support.search.PostgresSearchResultHydrator;
 import net.findmybook.support.search.CandidateKeyResolver;
 import net.findmybook.support.search.SearchCandidatePersistence;
 import net.findmybook.support.search.SearchPageAssembler;
+import net.findmybook.support.search.SearchQuerySnapshotStore;
 import net.findmybook.util.ApplicationConstants;
 import net.findmybook.util.PagingUtils;
 import net.findmybook.util.SearchExternalProviderUtils;
@@ -42,10 +43,13 @@ import java.util.Optional;
 @Slf4j
 public class SearchPaginationService {
 
-    private static final int EXTERNAL_PROVIDER_WINDOW_CAP = ApplicationConstants.Paging.MAX_TIERED_LIMIT;
+    static final int SEARCH_SNAPSHOT_WINDOW_CAP = ApplicationConstants.Paging.MAX_TIERED_LIMIT;
+    static final int GOOGLE_SNAPSHOT_SUPPLEMENT_CAP =
+        ApplicationConstants.ExternalServices.GOOGLE_BOOKS_MAX_RESULTS_PER_REQUEST;
     private final BookSearchService bookSearchService;
     private final PostgresSearchResultHydrator postgresSearchResultHydrator;
     private final SearchPageAssembler searchPageAssembler;
+    private final SearchQuerySnapshotStore searchQuerySnapshotStore;
     private final Optional<OpenLibraryBookDataService> openLibraryBookDataService;
     private final GoogleExternalSearchFlow googleExternalSearchFlow;
     private final SearchCandidatePersistence searchCandidatePersistence;
@@ -79,6 +83,7 @@ public class SearchPaginationService {
         this.bookSearchService = Objects.requireNonNull(bookSearchService, "bookSearchService");
         this.postgresSearchResultHydrator = new PostgresSearchResultHydrator(bookQueryRepository);
         this.searchPageAssembler = new SearchPageAssembler();
+        this.searchQuerySnapshotStore = new SearchQuerySnapshotStore();
         this.openLibraryBookDataService = openLibraryBookDataService != null ? openLibraryBookDataService : Optional.empty();
         this.googleExternalSearchFlow = new GoogleExternalSearchFlow(googleApiFetcher, googleBooksMapper);
         this.searchCandidatePersistence = new SearchCandidatePersistence(bookDataOrchestrator, persistSearchResultsEnabled);
@@ -86,9 +91,8 @@ public class SearchPaginationService {
             googleApiFetcher,
             googleBooksMapper,
             openLibraryBookDataService,
-            bookDataOrchestrator,
             eventPublisher,
-            persistSearchResultsEnabled
+            searchCandidatePersistence
         );
     }
 
@@ -100,7 +104,7 @@ public class SearchPaginationService {
      * @return page payload containing ordered items and pagination metadata
      */
     public Mono<SearchPage> search(SearchRequest request) {
-        PagingUtils.Window window = PagingUtils.window(
+        PagingUtils.Window requestedWindow = PagingUtils.window(
             request.startIndex(),
             request.maxResults(),
             ApplicationConstants.Paging.DEFAULT_SEARCH_LIMIT,
@@ -108,13 +112,25 @@ public class SearchPaginationService {
             ApplicationConstants.Paging.MAX_SEARCH_LIMIT,
             0
         );
+        long startNanos = System.nanoTime();
+        SearchRequest snapshotRequest = request.atStartIndex(0);
 
-        return performSearch(request, window, System.nanoTime());
+        return searchQuerySnapshotStore.getOrLoad(snapshotRequest, canonicalRequest -> {
+            PagingUtils.Window snapshotWindow = new PagingUtils.Window(
+                0,
+                requestedWindow.limit(),
+                SEARCH_SNAPSHOT_WINDOW_CAP
+            );
+            return performSearch(canonicalRequest, snapshotWindow)
+                .doOnNext(snapshot -> searchRealtimeCoordinator.trigger(canonicalRequest, snapshot));
+        })
+            .map(snapshot -> searchPageAssembler.slicePage(snapshot, requestedWindow))
+            .doOnNext(this::persistVisibleExternalCandidates)
+            .doOnNext(page -> logPageMetrics(request, requestedWindow, page, startNanos));
     }
 
     private Mono<SearchPage> performSearch(SearchRequest request,
-                                           PagingUtils.Window window,
-                                           long startNanos) {
+                                           PagingUtils.Window window) {
         return Mono.fromCallable(() -> bookSearchService.searchBooks(request.query(), window.totalRequested()))
             .subscribeOn(Schedulers.boundedElastic())
             .map(results -> postgresSearchResultHydrator.filterByPublishedYear(results, request.publishedYear()))
@@ -128,9 +144,7 @@ public class SearchPaginationService {
                 list,
                 window
             ))
-            .flatMap(page -> maybeFallback(request, window, page))
-            .doOnNext(page -> searchRealtimeCoordinator.trigger(request, page))
-            .doOnNext(page -> logPageMetrics(request, window, page, startNanos));
+            .flatMap(page -> maybeFallback(request, window, page));
     }
 
     /**
@@ -152,9 +166,8 @@ public class SearchPaginationService {
             return Mono.just(currentPage);
         }
 
-        boolean shouldSupplementCurrentPage = currentPage.totalUnique() == 0
-            || currentPage.pageItems().size() < window.limit();
-        if (!shouldSupplementCurrentPage) {
+        boolean shouldSupplementSnapshot = currentPage.totalUnique() < requestedWindow;
+        if (!shouldSupplementSnapshot) {
             return Mono.just(currentPage);
         }
 
@@ -162,19 +175,23 @@ public class SearchPaginationService {
         return streamOpenLibraryCandidates(request, 0, requestedWindow)
             .collectList()
             .flatMap(primaryCandidates -> {
-                if (!shouldFetchGoogleSecondary(
+                int googleSupplementLimit = googleSupplementLimit(
                     requestedWindow,
                     currentPage.uniqueResults(),
                     primaryCandidates,
                     googleAvailable,
-                    shouldSupplementCurrentPage
-                )) {
+                    shouldSupplementSnapshot
+                );
+                if (googleSupplementLimit <= 0) {
                     return Mono.just(mergeFallbackResults(primaryCandidates, currentPage, window, request));
                 }
 
                 return googleExternalSearchFlow
-                    .streamCandidates(request.query(), request.orderBy(), request.publishedYear(), requestedWindow)
+                    .streamCandidates(request.query(), request.orderBy(), request.publishedYear(), googleSupplementLimit)
                     .onErrorResume(ex -> {
+                        if (SearchExternalProviderUtils.isLocalAdmissionDenied(ex)) {
+                            return Flux.error(ex);
+                        }
                         log.warn("Google fallback failed for '{}': {}", request.query(), ex.getMessage());
                         return Flux.empty();
                     })
@@ -191,22 +208,23 @@ public class SearchPaginationService {
     private int requestedExternalWindow(PagingUtils.Window window) {
         int minimumWindow = Math.max(1, window.limit());
         int desiredWindow = Math.max(minimumWindow, window.totalRequested());
-        return Math.min(desiredWindow, EXTERNAL_PROVIDER_WINDOW_CAP);
+        return Math.min(desiredWindow, SEARCH_SNAPSHOT_WINDOW_CAP);
     }
 
-    private boolean shouldFetchGoogleSecondary(int requestedWindow,
-                                               List<Book> existingResults,
-                                               List<Book> openLibraryCandidates,
-                                               boolean googleAvailable,
-                                               boolean shouldSupplementResultWindow) {
-        if (!googleAvailable || !shouldSupplementResultWindow) {
-            return false;
+    private int googleSupplementLimit(int requestedWindow,
+                                      List<Book> existingResults,
+                                      List<Book> openLibraryCandidates,
+                                      boolean googleAvailable,
+                                      boolean shouldSupplementSnapshot) {
+        if (!googleAvailable || !shouldSupplementSnapshot) {
+            return 0;
         }
         if (openLibraryBookDataService.isEmpty()) {
-            return true;
+            return Math.min(requestedWindow, GOOGLE_SNAPSHOT_SUPPLEMENT_CAP);
         }
         int projectedUnique = projectedUniqueCount(existingResults, openLibraryCandidates);
-        return projectedUnique < requestedWindow;
+        int missingCandidates = Math.max(0, requestedWindow - projectedUnique);
+        return Math.min(missingCandidates, GOOGLE_SNAPSHOT_SUPPLEMENT_CAP);
     }
 
     private int projectedUniqueCount(List<Book> existingResults, List<Book> fallbackCandidates) {
@@ -242,6 +260,9 @@ public class SearchPaginationService {
         List<Book> seenCandidates = new ArrayList<>();
         return service.queryBooksByEverything(query, request.orderBy(), startIndex, maxResults)
             .onErrorResume(ex -> {
+                if (SearchExternalProviderUtils.isLocalAdmissionDenied(ex)) {
+                    return Flux.error(ex);
+                }
                 log.warn("Open Library fallback failed for '{}': {}", request.query(), ex.getMessage());
                 return Flux.empty();
             })
@@ -261,17 +282,9 @@ public class SearchPaginationService {
             return currentPage;
         }
 
-        List<Book> netNewCandidates = filterNetNewCandidates(deduplicatedCandidates, currentPage.uniqueResults());
         List<Book> metadataRefreshCandidates = filterMetadataRefreshCandidates(deduplicatedCandidates, currentPage.uniqueResults());
         if (!metadataRefreshCandidates.isEmpty()) {
             searchCandidatePersistence.persist(metadataRefreshCandidates, "SEARCH_METADATA_REFRESH");
-        }
-
-        netNewCandidates = netNewCandidates.stream()
-            .filter(candidate -> !metadataRefreshCandidates.contains(candidate))
-            .toList();
-        if (!netNewCandidates.isEmpty()) {
-            searchCandidatePersistence.persist(netNewCandidates, "SEARCH");
         }
 
         List<Book> mergedCandidates = new ArrayList<>(currentPage.uniqueResults().size() + deduplicatedCandidates.size());
@@ -307,26 +320,6 @@ public class SearchPaginationService {
         return List.copyOf(uniqueCandidates.values());
     }
 
-    private List<Book> filterNetNewCandidates(List<Book> candidates, List<Book> existingResults) {
-        if (candidates == null || candidates.isEmpty()) {
-            return List.of();
-        }
-        List<Book> seenCandidates = new ArrayList<>();
-        if (existingResults != null) {
-            for (Book existing : existingResults) {
-                registerCandidateIdentity(seenCandidates, existing);
-            }
-        }
-
-        List<Book> netNew = new ArrayList<>();
-        for (Book candidate : candidates) {
-            if (registerCandidateIdentity(seenCandidates, candidate)) {
-                netNew.add(candidate);
-            }
-        }
-        return List.copyOf(netNew);
-    }
-
     private boolean registerCandidateIdentity(List<Book> seenCandidates, Book candidate) {
         Optional<String> candidateKey = CandidateKeyResolver.resolve(candidate);
         if (candidateKey.isEmpty() || CandidateKeyResolver.overlapsAny(seenCandidates, candidate)) {
@@ -334,6 +327,13 @@ public class SearchPaginationService {
         }
         seenCandidates.add(candidate);
         return true;
+    }
+
+    private void persistVisibleExternalCandidates(SearchPage page) {
+        List<Book> externalPageItems = page.pageItems().stream()
+            .filter(SearchExternalProviderUtils::isExternalFallback)
+            .toList();
+        searchCandidatePersistence.persist(externalPageItems, "SEARCH");
     }
 
     private List<Book> filterMetadataRefreshCandidates(List<Book> candidates, List<Book> existingResults) {
@@ -479,6 +479,24 @@ public class SearchPaginationService {
             resolutionPreference = Optional.ofNullable(resolutionPreference).orElse(ImageResolutionPreference.ANY);
             publishedYear = publishedYear != null && publishedYear > 0 ? publishedYear : null;
         }
+
+        /**
+         * Returns the same canonical search request at a different absolute offset.
+         *
+         * @param requestedStartIndex zero-based absolute offset
+         * @return request preserving every search filter with the requested offset
+         */
+        public SearchRequest atStartIndex(int requestedStartIndex) {
+            return new SearchRequest(
+                query,
+                requestedStartIndex,
+                maxResults,
+                orderBy,
+                coverSource,
+                resolutionPreference,
+                publishedYear
+            );
+        }
     }
 
     /**
@@ -513,6 +531,11 @@ public class SearchPaginationService {
                              CoverImageSource coverSource,
                              ImageResolutionPreference resolutionPreference,
                              Integer publishedYear) {
+        public SearchPage {
+            pageItems = List.copyOf(Objects.requireNonNull(pageItems, "pageItems"));
+            uniqueResults = List.copyOf(Objects.requireNonNull(uniqueResults, "uniqueResults"));
+        }
+
         public SearchPage(String query,
                           int startIndex,
                           int maxResults,

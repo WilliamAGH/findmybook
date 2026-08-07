@@ -7,10 +7,15 @@
  */
 package net.findmybook.service;
 
+import io.github.resilience4j.ratelimiter.RateLimiter;
+import io.github.resilience4j.ratelimiter.RequestNotPermitted;
+import io.github.resilience4j.reactor.ratelimiter.operator.RateLimiterOperator;
 import tools.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
 import net.findmybook.util.LoggingUtils;
 import net.findmybook.util.ExternalApiLogger;
+import net.findmybook.util.ApplicationConstants;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -30,11 +35,10 @@ import java.time.Duration;
 @Service
 @Slf4j
 public class GoogleApiFetcher {
-
-
     private final WebClient webClient;
     private final ApiRequestMonitor apiRequestMonitor;
     private final ApiCircuitBreakerService circuitBreakerService;
+    private final RateLimiter googleBooksRateLimiter;
 
     @Value("${google.books.api.base-url}")
     private String googleBooksApiUrl;
@@ -51,13 +55,16 @@ public class GoogleApiFetcher {
      * @param webClientBuilder WebClient builder
      * @param apiRequestMonitor API request tracking service
      * @param circuitBreakerService Circuit breaker for API rate limiting
+     * @param googleBooksRateLimiter application-wide Google Books request admission guard
      */
     public GoogleApiFetcher(WebClient.Builder webClientBuilder,
                            ApiRequestMonitor apiRequestMonitor,
-                           ApiCircuitBreakerService circuitBreakerService) {
+                           ApiCircuitBreakerService circuitBreakerService,
+                           @Qualifier("googleBooksRateLimiter") RateLimiter googleBooksRateLimiter) {
         this.webClient = webClientBuilder.build();
         this.apiRequestMonitor = apiRequestMonitor;
         this.circuitBreakerService = circuitBreakerService;
+        this.googleBooksRateLimiter = googleBooksRateLimiter;
     }
 
     /**
@@ -120,6 +127,7 @@ public class GoogleApiFetcher {
                 .uri(url)
                 .retrieve()
                 .toEntity(JsonNode.class)
+                .transformDeferred(RateLimiterOperator.of(googleBooksRateLimiter))
                 .doOnSubscribe(s -> log.debug("Fetching from Google API: {}", url))
                 .retryWhen(authenticated
                     ? Retry.max(0)
@@ -160,7 +168,7 @@ public class GoogleApiFetcher {
                     }
                 })
                 .map(responseEntity -> responseEntity != null ? responseEntity.getBody() : null)
-                .onErrorMap(e -> {
+                .onErrorMap(e -> !(e instanceof RequestNotPermitted), e -> {
                     if (e instanceof PrematureCloseException) {
                         LoggingUtils.warn(log, e, "Connection prematurely closed during Google API call: {}", url);
                         apiRequestMonitor.recordFailedRequest(endpoint, "Premature close: " + e.getMessage());
@@ -208,7 +216,8 @@ public class GoogleApiFetcher {
      * @return JsonNode containing search results
      */
     public Mono<JsonNode> searchVolumesAuthenticated(String query, int startIndex, String orderBy, String langCode) {
-        return searchVolumesAuthenticated(query, startIndex, orderBy, langCode, 40);
+        return searchVolumesAuthenticated(query, startIndex, orderBy, langCode,
+            ApplicationConstants.ExternalServices.GOOGLE_BOOKS_MAX_RESULTS_PER_REQUEST);
     }
 
     public Mono<JsonNode> searchVolumesAuthenticated(String query, int startIndex, String orderBy, String langCode, int pageSize) {
@@ -235,7 +244,8 @@ public class GoogleApiFetcher {
      * @return JsonNode containing search results
      */
     public Mono<JsonNode> searchVolumesUnauthenticated(String query, int startIndex, String orderBy, String langCode) {
-        return searchVolumesUnauthenticated(query, startIndex, orderBy, langCode, 40);
+        return searchVolumesUnauthenticated(query, startIndex, orderBy, langCode,
+            ApplicationConstants.ExternalServices.GOOGLE_BOOKS_MAX_RESULTS_PER_REQUEST);
     }
 
     public Mono<JsonNode> searchVolumesUnauthenticated(String query, int startIndex, String orderBy, String langCode, int pageSize) {
@@ -256,7 +266,7 @@ public class GoogleApiFetcher {
      * without re-implementing the paging mechanics.
      *
      * @param query Search terms to execute
-     * @param maxResultsToFetch Maximum number of results to retrieve (<= 0 treated as 40)
+     * @param maxResultsToFetch maximum number of results to retrieve; non-positive values use one provider page
      * @param orderBy Sort order ("relevance", "newest")
      * @param langCode Optional language restriction
      * @param authenticated Whether to use authenticated calls
@@ -267,7 +277,7 @@ public class GoogleApiFetcher {
                                             String orderBy,
                                             String langCode,
                                             boolean authenticated) {
-        final int maxResultsPerPage = 40;
+        final int maxResultsPerPage = ApplicationConstants.ExternalServices.GOOGLE_BOOKS_MAX_RESULTS_PER_REQUEST;
         final int effectiveMax = maxResultsToFetch > 0 ? maxResultsToFetch : maxResultsPerPage;
         final int pageCount = (effectiveMax + maxResultsPerPage - 1) / maxResultsPerPage;
 
@@ -311,7 +321,7 @@ public class GoogleApiFetcher {
                                 authenticated ? "Authenticated" : "Unauthenticated", query, startIndex);
                         return Flux.empty();
                     }))
-                    .onErrorMap(e -> {
+                    .onErrorMap(e -> !(e instanceof RequestNotPermitted), e -> {
                         ExternalApiLogger.logApiCallFailure(log, "GoogleBooks", "SEARCH_PAGE", String.format("%s start=%d", query, startIndex), e.getMessage());
                         return new IllegalStateException(
                             "Google API search page failed for query '" + query + "' at startIndex " + startIndex,
@@ -342,7 +352,8 @@ public class GoogleApiFetcher {
                 .pathSegment("volumes")
                 .queryParam("q", query)
                 .queryParam("startIndex", startIndex)
-                .queryParam("maxResults", Math.max(1, Math.min(40, pageSize)));
+                .queryParam("maxResults", Math.max(1,
+                    Math.min(ApplicationConstants.ExternalServices.GOOGLE_BOOKS_MAX_RESULTS_PER_REQUEST, pageSize)));
 
         if (authenticated && googleBooksApiKey != null && !googleBooksApiKey.isEmpty()) {
             builder.queryParam("key", googleBooksApiKey);
@@ -367,6 +378,7 @@ public class GoogleApiFetcher {
                 .uri(url)
                 .retrieve()
                 .toEntity(JsonNode.class)
+                .transformDeferred(RateLimiterOperator.of(googleBooksRateLimiter))
                 .doOnSubscribe(s -> log.debug("Making Google Books API search call ({}) for query: {}, startIndex: {}", authStatus, query, startIndex))
                 .retryWhen(authenticated
                     ? Retry.max(0)
@@ -407,7 +419,7 @@ public class GoogleApiFetcher {
                     }
                 })
                 .map(responseEntity -> responseEntity != null ? responseEntity.getBody() : null)
-                .onErrorMap(e -> {
+                .onErrorMap(e -> !(e instanceof RequestNotPermitted), e -> {
                     if (e instanceof PrematureCloseException) {
                         apiRequestMonitor.recordFailedRequest(endpoint, "Premature close: " + e.getMessage());
                         return new IllegalStateException(

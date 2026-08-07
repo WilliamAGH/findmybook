@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.regex.Pattern;
 import net.findmybook.domain.seo.RouteDefinition;
 import net.findmybook.domain.seo.RouteManifest;
+import net.findmybook.util.SearchExternalProviderUtils;
 import org.springframework.stereotype.Component;
 
 /**
@@ -39,7 +40,7 @@ public class SeoRouteManifestProvider {
                 "exact",
                 "/search",
                 List.of(),
-                Map.of(),
+                Map.of("orderBy", SearchExternalProviderUtils.DEFAULT_ORDER_BY),
                 List.of("query", "year", "page", "orderBy", "source", "coverSource", "resolution", "genre", "view"),
                 "/search"
             ),
@@ -48,7 +49,7 @@ public class SeoRouteManifestProvider {
                 "exact",
                 "/explore",
                 List.of(),
-                Map.of(),
+                Map.of("orderBy", SearchExternalProviderUtils.DEFAULT_ORDER_BY),
                 List.of("query", "year", "page", "orderBy", "source", "coverSource", "resolution", "genre", "view"),
                 "/explore"
             ),
@@ -57,7 +58,7 @@ public class SeoRouteManifestProvider {
                 "exact",
                 "/categories",
                 List.of(),
-                Map.of(),
+                Map.of("orderBy", SearchExternalProviderUtils.DEFAULT_ORDER_BY),
                 List.of("query", "year", "page", "orderBy", "source", "coverSource", "resolution", "genre", "view"),
                 "/categories"
             ),

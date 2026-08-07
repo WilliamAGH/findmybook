@@ -13,25 +13,28 @@
 package net.findmybook.service.event;
 
 public class SearchProgressEvent {
-    
+
+    /** Distinguishes search lifecycle, local admission, and upstream provider outcomes. */
     public enum SearchStatus {
         STARTING,           // Search is beginning
         SEARCHING_CACHE,    // Checking cache layers
         SEARCHING_GOOGLE,   // Searching Google Books API
         SEARCHING_OPENLIBRARY, // Searching OpenLibrary API
-        RATE_LIMITED,       // Hit rate limit, trying alternative
+        LOCAL_RATE_LIMITED, // Local admission control denied the provider call
+        LOCAL_CIRCUIT_OPEN, // Local provider circuit rejected the call
+        RATE_LIMITED,       // Provider returned HTTP 429
         PROVIDER_UNAVAILABLE, // Provider error other than rate limiting
         DEDUPLICATING,      // Processing and deduplicating results
         COMPLETE,           // All searches finished
         ERROR               // Error occurred
     }
-    
+
     private final String searchQuery;
     private final SearchStatus status;
     private final String message;
     private final String queryHash; // For WebSocket topic routing
     private final String source; // Which API source this status refers to
-    
+
     /**
      * Constructs a SearchProgressEvent
      *
@@ -41,7 +44,7 @@ public class SearchProgressEvent {
      * @param queryHash Hash of the query for WebSocket routing
      * @param source The API source this status refers to (optional)
      */
-    public SearchProgressEvent(String searchQuery, SearchStatus status, String message, 
+    public SearchProgressEvent(String searchQuery, SearchStatus status, String message,
                              String queryHash, String source) {
         this.searchQuery = searchQuery;
         this.status = status;
@@ -49,30 +52,30 @@ public class SearchProgressEvent {
         this.queryHash = queryHash;
         this.source = source;
     }
-    
+
     /**
      * Convenience constructor without source
      */
     public SearchProgressEvent(String searchQuery, SearchStatus status, String message, String queryHash) {
         this(searchQuery, status, message, queryHash, null);
     }
-    
+
     public String getSearchQuery() {
         return searchQuery;
     }
-    
+
     public SearchStatus getStatus() {
         return status;
     }
-    
+
     public String getMessage() {
         return message;
     }
-    
+
     public String getQueryHash() {
         return queryHash;
     }
-    
+
     public String getSource() {
         return source;
     }

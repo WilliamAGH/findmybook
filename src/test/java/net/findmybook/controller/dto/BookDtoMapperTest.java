@@ -1,5 +1,6 @@
 package net.findmybook.controller.dto;
 
+import net.findmybook.dto.BookCard;
 import net.findmybook.model.Book;
 import net.findmybook.model.Book.Edition;
 import net.findmybook.model.image.CoverImageSource;
@@ -8,6 +9,7 @@ import net.findmybook.util.ApplicationConstants;
 import net.findmybook.util.cover.CoverUrlResolver;
 import org.junit.jupiter.api.Test;
 
+import java.io.Serializable;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -58,6 +60,52 @@ class BookDtoMapperTest {
         assertThat(dto.descriptionContent().format()).isEqualTo(BookDto.DescriptionFormat.PLAIN_TEXT);
         assertThat(dto.descriptionContent().html()).isEqualTo("<p>Fixture Description</p>");
         assertThat(dto.descriptionContent().text()).isEqualTo("Fixture Description");
+    }
+
+    @Test
+    void should_ReturnNullSlug_When_BookHasNoPersistedSlug() {
+        Book providerBook = new Book();
+        providerBook.setId("nyt:book-uri:shared-title");
+        providerBook.setTitle("Shared Title");
+        providerBook.setAuthors(List.of("Provider Author"));
+
+        BookDto dto = BookDtoMapper.toDto(providerBook);
+
+        assertThat(dto.id()).isEqualTo("nyt:book-uri:shared-title");
+        assertThat(dto.slug()).isNull();
+    }
+
+    @Test
+    void should_ReturnNullSlug_When_BookCardSlugIsBlank() {
+        BookCard providerCard = new BookCard(
+            "google:volume-id",
+            " ",
+            "Shared Title",
+            List.of("Provider Author"),
+            "https://covers.openlibrary.org/b/id/12345-L.jpg",
+            null,
+            "https://covers.openlibrary.org/b/id/12345-M.jpg",
+            null,
+            null,
+            Map.<String, Serializable>of()
+        );
+
+        BookDto dto = BookDtoMapper.fromCard(providerCard);
+
+        assertThat(dto.id()).isEqualTo("google:volume-id");
+        assertThat(dto.slug()).isNull();
+    }
+
+    @Test
+    void should_PreservePersistedSlug_When_BookHasNonBlankSlug() {
+        Book persistedBook = new Book();
+        persistedBook.setId("persisted-book-id");
+        persistedBook.setSlug("shared-title-persisted-book-id");
+        persistedBook.setTitle("Shared Title");
+
+        BookDto dto = BookDtoMapper.toDto(persistedBook);
+
+        assertThat(dto.slug()).isEqualTo("shared-title-persisted-book-id");
     }
 
     @Test

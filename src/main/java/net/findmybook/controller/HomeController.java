@@ -1,6 +1,8 @@
 package net.findmybook.controller;
 
 import net.findmybook.service.BookSeoMetadataService;
+import net.findmybook.support.seo.CanonicalUrlResolver;
+import net.findmybook.util.SearchExternalProviderUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -13,8 +15,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
-import java.nio.charset.StandardCharsets;
-import java.util.Optional;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.springframework.http.HttpStatus;
@@ -34,11 +36,14 @@ public class HomeController extends SpaShellController {
         "public, max-age=86400, s-maxage=86400, stale-while-revalidate=3600";
 
     private final boolean isYearFilteringEnabled;
+    private final CanonicalUrlResolver canonicalUrlResolver;
     private static final Pattern YEAR_PATTERN = Pattern.compile("\\b(19\\d{2}|20\\d{2})\\b");
 
     public HomeController(BookSeoMetadataService bookSeoMetadataService,
+                          CanonicalUrlResolver canonicalUrlResolver,
                           @Value("${app.feature.year-filtering.enabled:false}") boolean isYearFilteringEnabled) {
         super(bookSeoMetadataService);
+        this.canonicalUrlResolver = canonicalUrlResolver;
         this.isYearFilteringEnabled = isYearFilteringEnabled;
     }
 
@@ -52,7 +57,8 @@ public class HomeController extends SpaShellController {
     public Mono<ResponseEntity<String>> search(@RequestParam(required = false) String query,
                                                @RequestParam(required = false) Integer year,
                                                @RequestParam(required = false, defaultValue = "0") int page,
-                                               @RequestParam(required = false, defaultValue = "newest") String orderBy,
+                                               @RequestParam(required = false,
+                                                   defaultValue = SearchExternalProviderUtils.DEFAULT_ORDER_BY) String orderBy,
                                                @RequestParam(required = false) String source,
                                                @RequestParam(required = false, defaultValue = "ANY") String coverSource,
                                                @RequestParam(required = false, defaultValue = "ANY") String resolution) {
@@ -66,26 +72,34 @@ public class HomeController extends SpaShellController {
                     .trim()
                     .replaceAll("\\s+", " ");
 
-                UriComponentsBuilder redirectBuilder = UriComponentsBuilder.fromPath("/search")
-                    .queryParamIfPresent("query", StringUtils.hasText(processedQuery) ? Optional.of(processedQuery) : Optional.empty())
-                    .queryParam("year", extractedYear);
+                UriComponentsBuilder redirectBuilder = UriComponentsBuilder.fromPath("/search");
+                Map<String, String> redirectVariables = new LinkedHashMap<>();
+
+                if (StringUtils.hasText(processedQuery)) {
+                    redirectBuilder.queryParam("query", "{query}");
+                    redirectVariables.put("query", processedQuery);
+                }
+                redirectBuilder.queryParam("year", extractedYear);
 
                 if (StringUtils.hasText(orderBy)) {
-                    redirectBuilder.queryParam("orderBy", orderBy);
+                    redirectBuilder.queryParam("orderBy", "{orderBy}");
+                    redirectVariables.put("orderBy", orderBy);
                 }
                 if (StringUtils.hasText(source)) {
-                    redirectBuilder.queryParam("source", source);
+                    redirectBuilder.queryParam("source", "{source}");
+                    redirectVariables.put("source", source);
                 }
                 if (StringUtils.hasText(coverSource)) {
-                    redirectBuilder.queryParam("coverSource", coverSource);
+                    redirectBuilder.queryParam("coverSource", "{coverSource}");
+                    redirectVariables.put("coverSource", coverSource);
                 }
                 if (StringUtils.hasText(resolution)) {
-                    redirectBuilder.queryParam("resolution", resolution);
+                    redirectBuilder.queryParam("resolution", "{resolution}");
+                    redirectVariables.put("resolution", resolution);
                 }
 
-                String redirectPath = redirectBuilder.build().encode(StandardCharsets.UTF_8).toUriString();
                 return Mono.just(ResponseEntity.status(HttpStatus.SEE_OTHER)
-                    .location(java.net.URI.create(redirectPath))
+                    .location(canonicalUrlResolver.encodedLocation(redirectBuilder, redirectVariables))
                     .build());
             }
         }

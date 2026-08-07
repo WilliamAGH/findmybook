@@ -1,5 +1,7 @@
 package net.findmybook.dto;
 
+import net.findmybook.controller.dto.BookDto;
+import net.findmybook.controller.dto.BookDtoMapper;
 import net.findmybook.model.Book;
 import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.util.BookDomainMapper;
@@ -35,6 +37,7 @@ class BookDomainMapperCoverSourceTest {
         Book book = BookDomainMapper.fromCard(card);
 
         assertThat(book).isNotNull();
+        assertThat(book.getSlug()).isEqualTo("card-slug");
         assertThat(book.getCoverImages()).isNotNull();
         assertThat(book.getCoverImages().getSource()).isEqualTo(CoverImageSource.GOOGLE_BOOKS);
     }
@@ -168,7 +171,6 @@ class BookDomainMapperCoverSourceTest {
         BookAggregate aggregate = BookAggregate.builder()
             .title("Agg Title")
             .authors(List.of("Author"))
-            .slugBase("agg-title")
             .identifiers(BookAggregate.ExternalIdentifiers.builder()
                 .source("GOOGLE_BOOKS")
                 .externalId("agg-id")
@@ -186,6 +188,33 @@ class BookDomainMapperCoverSourceTest {
         assertThat(book.getExternalImageUrl()).isNull();
         assertThat(book.getQualifiers())
             .containsEntry("cover.suppressed", true);
+    }
+
+    @Test
+    void should_LeaveSlugNull_When_ExternalAggregateHasTitleDerivedSlugBase() {
+        BookAggregate aggregate = BookAggregate.builder()
+            .title("Shared Title")
+            .authors(List.of("Provider Author"))
+            .identifiers(BookAggregate.ExternalIdentifiers.builder()
+                .source("GOOGLE_BOOKS")
+                .externalId("google:volume-id")
+                .imageLinks(Map.of(
+                    "thumbnail",
+                    "https://covers.openlibrary.org/b/id/12345-L.jpg"
+                ))
+                .build())
+            .build();
+
+        Book book = BookDomainMapper.fromAggregate(aggregate);
+
+        assertThat(book.getId()).isEqualTo("google:volume-id");
+        assertThat(book.getSlug()).isNull();
+        assertThat(book.getInPostgres()).isFalse();
+
+        BookDto dto = BookDtoMapper.toDto(book);
+
+        assertThat(dto.id()).isEqualTo("google:volume-id");
+        assertThat(dto.slug()).isNull();
     }
 
     private static BookDetail buildDetail(String coverUrl,

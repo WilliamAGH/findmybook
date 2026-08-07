@@ -173,7 +173,8 @@ public final class BookDomainMapper {
 
         Book book = base(
             identifiers != null ? identifiers.getExternalId() : null,
-            aggregate.getSlugBase(),
+            // A slug base becomes canonical only after persistence allocates it.
+            null,
             aggregate.getTitle(),
             aggregate.getAuthors()
         );
@@ -226,7 +227,7 @@ public final class BookDomainMapper {
                              List<String> authors) {
         Book book = new Book();
         book.setId(id);
-        book.setSlug(StringUtils.hasText(slug) ? slug : id);
+        book.setSlug(StringUtils.hasText(slug) ? slug : null);
         book.setTitle(title);
         book.setAuthors(authors);
         return book;

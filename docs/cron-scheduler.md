@@ -27,6 +27,12 @@ Jobs are enabled by `@EnableScheduling` on the Spring Boot application entrypoin
   - `app.weekly-refresh.recommendation-phase-enabled`
 - Standalone NYT scheduler can be disabled while keeping admin/manual NYT triggers available:
   - `app.nyt.scheduler.standalone-enabled` (default `false`)
+- Authenticated `GET /actuator/prometheus` exports the weekly NYT counter as
+  `findmybook_weekly_refresh_phase_total{phase="nyt",outcome="success|failure"}`.
+  Use the existing `admin` HTTP Basic credentials. The application emits the counter;
+  alert evaluation is owned by the external monitoring system.
+- A weekly NYT success requires at least one usable provider list and one persisted
+  bestseller membership. Empty/no-op responses increment the failure outcome instead.
 
 ## Recommendation Cache Semantics
 

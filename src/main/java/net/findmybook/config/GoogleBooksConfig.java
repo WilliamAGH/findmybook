@@ -13,7 +13,7 @@ import org.springframework.web.reactive.function.client.WebClient;
  *
  * Features:
  * - Configures WebClient for Google Books API integration
- * - Provides centralized timeout and buffer size settings
+ * - Provides provider base URL and buffer size settings
  * - Supports property-based configuration for API parameters
  * - Exposes getter methods for service layer access to settings
  * - Handles large response payloads with increased buffer size
@@ -23,23 +23,24 @@ public class GoogleBooksConfig {
 
     private final String googleBooksApiBaseUrl;
     private final int maxResults;
-    private final int connectTimeout;
-    private final int readTimeout;
 
+    /**
+     * Binds Google Books endpoint settings while shared HTTP timeouts remain owned by Spring Boot.
+     *
+     * @param googleBooksApiBaseUrl provider API base URL
+     * @param maxResults default provider result limit
+     */
     public GoogleBooksConfig(
             @Value("${google.books.api.base-url:https://www.googleapis.com/books/v1}") String googleBooksApiBaseUrl,
-            @Value("${google.books.api.max-results:40}") int maxResults,
-            @Value("${google.books.api.connect-timeout:5000}") int connectTimeout,
-            @Value("${google.books.api.read-timeout:5000}") int readTimeout) {
+            @Value("${google.books.api.max-results:40}") int maxResults) {
         this.googleBooksApiBaseUrl = googleBooksApiBaseUrl;
         this.maxResults = maxResults;
-        this.connectTimeout = connectTimeout;
-        this.readTimeout = readTimeout;
     }
 
     /**
      * Creates and configures the WebClient for Google Books API
      *
+     * @param webClientBuilder Boot-managed builder carrying shared HTTP client policy
      * @return Configured WebClient instance for making Google Books API calls
      *
      * Features:
@@ -48,19 +49,19 @@ public class GoogleBooksConfig {
      * - Optimized for Google Books API response format
      */
     @Bean
-    public WebClient googleBooksWebClient() {
+    public WebClient googleBooksWebClient(WebClient.Builder webClientBuilder) {
         final int size = 16 * 1024 * 1024; // 16MB buffer size to handle large responses
-        
+
         final ExchangeStrategies strategies = ExchangeStrategies.builder()
                 .codecs(codecs -> codecs.defaultCodecs().maxInMemorySize(size))
                 .build();
-        
-        return WebClient.builder()
+
+        return webClientBuilder
                 .baseUrl(googleBooksApiBaseUrl)
                 .exchangeStrategies(strategies)
                 .build();
     }
-    
+
     /**
      * Gets the configured Google Books API base URL
      *
@@ -69,7 +70,7 @@ public class GoogleBooksConfig {
     public String getGoogleBooksApiBaseUrl() {
         return googleBooksApiBaseUrl;
     }
-    
+
     /**
      * Gets the maximum number of results to request from Google Books API
      *
@@ -78,22 +79,5 @@ public class GoogleBooksConfig {
     public int getMaxResults() {
         return maxResults;
     }
-    
-    /**
-     * Gets the connection timeout for Google Books API requests
-     *
-     * @return Connection timeout in milliseconds
-     */
-    public int getConnectTimeout() {
-        return connectTimeout;
-    }
-    
-    /**
-     * Gets the read timeout for Google Books API requests
-     *
-     * @return Read timeout in milliseconds
-     */
-    public int getReadTimeout() {
-        return readTimeout;
-    }
+
 }

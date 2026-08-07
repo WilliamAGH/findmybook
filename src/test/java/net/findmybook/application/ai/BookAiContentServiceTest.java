@@ -6,6 +6,10 @@ import com.openai.errors.OpenAIRetryableException;
 import com.openai.errors.OpenAIException;
 import com.openai.errors.OpenAIServiceException;
 import com.openai.errors.SseException;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.ratelimiter.RateLimiter;
+import io.github.resilience4j.ratelimiter.RequestNotPermitted;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -16,6 +20,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -24,6 +29,7 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import net.findmybook.adapters.persistence.BookAiContentRepository;
@@ -36,8 +42,13 @@ import net.findmybook.service.BookSearchService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import tools.jackson.databind.ObjectMapper;
 
 class BookAiContentServiceTest {
@@ -73,21 +84,42 @@ class BookAiContentServiceTest {
             });
     }
 
-    @Test
-    void should_ThrowEnrichmentFailed_When_AllEnrichmentProvidersFail() {
+    @ParameterizedTest
+    @MethodSource("descriptionEnrichmentFailures")
+    void should_ClassifyDescriptionEnrichmentFailure_When_ProviderOperationFails(
+        RuntimeException providerFailure,
+        BookAiGenerationException.ErrorCode expectedErrorCode
+    ) {
         BookAiContentService service = newService();
         UUID bookId = UUID.randomUUID();
         BookDetail detail = bookDetailWithDescription("short");
         when(bookSearchService.fetchBookDetail(bookId)).thenReturn(java.util.Optional.of(detail));
         when(bookDataOrchestrator.enrichDescriptionForAiIfNeeded(bookId, detail, "short", 50))
-            .thenThrow(new IllegalStateException("All description enrichment providers failed"));
+            .thenThrow(providerFailure);
 
         assertThatThrownBy(() -> service.generateAndPersist(bookId, delta -> {}, net.findmybook.support.llm.LlmGatewayTier.LIVE_RENDER))
             .isInstanceOfSatisfying(BookAiGenerationException.class, exception -> {
-                assertThat(exception.errorCode()).isEqualTo(BookAiGenerationException.ErrorCode.ENRICHMENT_FAILED);
+                assertThat(exception.errorCode()).isEqualTo(expectedErrorCode);
                 assertThat(exception.getMessage()).contains("enrichment failed");
-                assertThat(exception.getCause()).isInstanceOf(IllegalStateException.class);
+                assertThat(exception.getCause()).isSameAs(providerFailure);
             });
+    }
+
+    @Test
+    void should_PropagateProgrammingFailure_When_DescriptionEnrichmentThrowsUnexpectedRuntimeException() {
+        BookAiContentService service = newService();
+        UUID bookId = UUID.randomUUID();
+        BookDetail detail = bookDetailWithDescription("short");
+        NullPointerException programmingFailure = new NullPointerException("unexpected defect");
+        when(bookSearchService.fetchBookDetail(bookId)).thenReturn(java.util.Optional.of(detail));
+        when(bookDataOrchestrator.enrichDescriptionForAiIfNeeded(bookId, detail, "short", 50))
+            .thenThrow(programmingFailure);
+
+        assertThatThrownBy(() -> service.generateAndPersist(
+            bookId,
+            delta -> {},
+            net.findmybook.support.llm.LlmGatewayTier.LIVE_RENDER
+        )).isSameAs(programmingFailure);
     }
 
     @Test
@@ -564,6 +596,64 @@ class BookAiContentServiceTest {
         return Stream.of(
             new OpenAIIoException("peer closed incomplete stream", new IOException("connection closed")),
             new OpenAIRetryableException("stream transport retryable failure", new IOException("connection reset"))
+        );
+    }
+
+    private static Stream<Arguments> descriptionEnrichmentFailures() {
+        RequestNotPermitted rateLimiterDenial = RequestNotPermitted.createRequestNotPermitted(
+            RateLimiter.ofDefaults("reader-guide-enrichment")
+        );
+        CallNotPermittedException circuitDenial = CallNotPermittedException.createCallNotPermittedException(
+            CircuitBreaker.ofDefaults("reader-guide-enrichment")
+        );
+        IllegalStateException suppressedRateLimiterDenial = new IllegalStateException(
+            "Open Library provider unavailable"
+        );
+        suppressedRateLimiterDenial.addSuppressed(RequestNotPermitted.createRequestNotPermitted(
+            RateLimiter.ofDefaults("reader-guide-enrichment-google")
+        ));
+        IllegalStateException suppressedCircuitDenial = new IllegalStateException(
+            "Open Library provider unavailable"
+        );
+        suppressedCircuitDenial.addSuppressed(CallNotPermittedException.createCallNotPermittedException(
+            CircuitBreaker.ofDefaults("reader-guide-enrichment-google")
+        ));
+        return Stream.of(
+            Arguments.of(rateLimiterDenial, BookAiGenerationException.ErrorCode.LOCAL_RATE_LIMITED),
+            Arguments.of(
+                new IllegalStateException("Open Library admission was denied", rateLimiterDenial),
+                BookAiGenerationException.ErrorCode.LOCAL_RATE_LIMITED
+            ),
+            Arguments.of(circuitDenial, BookAiGenerationException.ErrorCode.LOCAL_CIRCUIT_OPEN),
+            Arguments.of(
+                new IllegalStateException("Open Library circuit rejected the call", circuitDenial),
+                BookAiGenerationException.ErrorCode.LOCAL_CIRCUIT_OPEN
+            ),
+            Arguments.of(
+                suppressedRateLimiterDenial,
+                BookAiGenerationException.ErrorCode.LOCAL_RATE_LIMITED
+            ),
+            Arguments.of(
+                suppressedCircuitDenial,
+                BookAiGenerationException.ErrorCode.LOCAL_CIRCUIT_OPEN
+            ),
+            Arguments.of(
+                new IllegalStateException(
+                    "Open Library description enrichment exceeded its deadline",
+                    new TimeoutException("enrichment deadline elapsed")
+                ),
+                BookAiGenerationException.ErrorCode.ENRICHMENT_FAILED
+            ),
+            Arguments.of(
+                WebClientResponseException.create(
+                    HttpStatus.SERVICE_UNAVAILABLE.value(),
+                    "provider unavailable",
+                    HttpHeaders.EMPTY,
+                    new byte[0],
+                    StandardCharsets.UTF_8
+                ),
+                BookAiGenerationException.ErrorCode.ENRICHMENT_FAILED
+            )
         );
     }
 

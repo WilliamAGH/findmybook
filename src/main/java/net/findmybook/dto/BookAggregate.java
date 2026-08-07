@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Normalized book data from external sources, ready for UPSERT to database.
+ * Provider book data at the persistence boundary, ready for canonical UPSERT.
  * <p>
  * This DTO represents a book with all necessary data to persist to the following tables:
  * - books
@@ -17,7 +17,7 @@ import java.util.Map;
  * - book_external_ids
  * - book_collections_join (categories)
  * <p>
- * Mappers (e.g., GoogleBooksMapper) transform provider-specific JSON into this normalized format.
+ * Mappers preserve provider-owned labels while persistence canonicalizes governed identities.
  */
 @Value
 @Builder
@@ -32,26 +32,25 @@ public class BookAggregate {
     String language;
     String publisher;
     Integer pageCount;
-    
-    // Authors (will be deduplicated during persistence)
+
+    // Raw provider author labels; persistence owns canonicalization and deduplication.
     List<String> authors;
-    
+
     // Categories/genres
     List<String> categories;
-    
+
     // External identifiers and provider-specific metadata
     ExternalIdentifiers identifiers;
-    
-    // Slug base for URL generation (title + first author)
-    String slugBase;
-    
+
+    // Title-only slug base; persistence allocates the canonical slug with stable book identity.
+
     // Physical dimensions (from Google Books API volumeInfo.dimensions)
     Dimensions dimensions;
-    
+
     // Edition information (derived from various sources)
     Integer editionNumber;
     // Task #6: editionGroupKey removed - replaced by work_clusters system in PostgreSQL
-    
+
     /**
      * External provider identifiers and metadata.
      * Maps to book_external_ids table.
@@ -62,23 +61,23 @@ public class BookAggregate {
         // Primary identifiers
         String source;              // 'GOOGLE_BOOKS', 'OPEN_LIBRARY', 'AMAZON', etc.
         String externalId;          // Provider's primary ID
-        
+
         // Provider ISBNs (may differ from canonical)
         String providerIsbn10;
         String providerIsbn13;
-        
+
         // Links
         String infoLink;
         String previewLink;
         String webReaderLink;
         String purchaseLink;
         String canonicalVolumeLink;
-        
+
         // Ratings and reviews
         Double averageRating;
         Integer ratingsCount;
         Integer reviewCount;
-        
+
         // Availability
         Boolean isEbook;
         Boolean pdfAvailable;
@@ -88,13 +87,13 @@ public class BookAggregate {
         String viewability;         // 'FULL', 'PARTIAL', 'NO_PAGES', 'ALL_PAGES'
         Boolean textReadable;
         Boolean imageReadable;
-        
+
         // Content metadata
         String printType;           // 'BOOK', 'MAGAZINE'
         String maturityRating;      // 'NOT_MATURE', 'MATURE'
         String contentVersion;
         String textToSpeechPermission;
-        
+
         // Sale information
         String saleability;         // 'FOR_SALE', 'NOT_FOR_SALE', 'FREE'
         String countryCode;
@@ -102,17 +101,17 @@ public class BookAggregate {
         Double listPrice;
         Double retailPrice;
         String currencyCode;
-        
+
         // Work identifiers (for clustering editions)
         String oclcWorkId;
         String openlibraryWorkId;
         String goodreadsWorkId;
         String googleCanonicalId;
-        
+
         // Image URLs
         Map<String, String> imageLinks; // Key: imageType, Value: URL
     }
-    
+
     /**
      * Physical dimensions of the book.
      * Maps to book_dimensions table.

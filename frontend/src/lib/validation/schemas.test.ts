@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cancelBookAiContentRequest, streamBookAiContent } from "$lib/services/bookAiContentStream";
 import {
+  BookAiContentStreamErrorSchema,
   BookAiContentQueuedUpdateSchema,
   BookAiContentQueueUpdateSchema,
   CoverSchema,
+  SearchProgressEventSchema,
   buildCover,
   resolveCoverDisplayUrl,
 } from "$lib/validation/schemas";
@@ -110,6 +112,53 @@ describe("BookAiContentQueueUpdateSchema", () => {
     });
 
     expect(result.success).toBe(true);
+  });
+});
+
+describe("BookAiContentStreamErrorSchema", () => {
+  it("should_PreserveOpaqueCode_When_BackendAddsErrorClassification", () => {
+    const result = BookAiContentStreamErrorSchema.parse({
+      error: "Book description enrichment is temporarily unavailable",
+      code: "backend_owned_code",
+      retryable: true,
+    });
+
+    expect(result.code).toBe("backend_owned_code");
+  });
+
+  it("should_RejectEmptyCode_When_ParsingStreamError", () => {
+    const result = BookAiContentStreamErrorSchema.safeParse({ error: "Generation failed", code: "" });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("should_DefaultMissingCode_When_ParsingLegacyStreamError", () => {
+    const result = BookAiContentStreamErrorSchema.parse({ error: "Generation failed" });
+
+    expect(result.code).toBe("generation_failed");
+  });
+});
+
+describe("SearchProgressEventSchema", () => {
+  it("should_PreserveOpaqueStatus_When_ParsingProgressEvent", () => {
+    const progressEvent = SearchProgressEventSchema.parse({
+      status: "LOCAL_RATE_LIMITED",
+      message: "Provider state updated",
+    });
+
+    expect(progressEvent.status).toBe("LOCAL_RATE_LIMITED");
+  });
+
+  it("should_RejectEmptyStatus_When_ParsingProgressEvent", () => {
+    const result = SearchProgressEventSchema.safeParse({ status: "" });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("should_RejectMissingStatus_When_ParsingProgressEvent", () => {
+    const result = SearchProgressEventSchema.safeParse({});
+
+    expect(result.success).toBe(false);
   });
 });
 

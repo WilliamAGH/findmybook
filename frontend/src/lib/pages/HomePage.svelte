@@ -6,6 +6,7 @@
   import { Search, Info } from "@lucide/svelte";
 
   let loading = $state(true);
+  let hasCompletedInitialHomeLoad = $state(false);
   let errorMessage = $state<string | null>(null);
   let bestsellers = $state<BookCardDisplay[]>([]);
   let recentBooks = $state<BookCardDisplay[]>([]);
@@ -60,12 +61,10 @@
     } catch (error) {
       if (requestId !== loadRequestId) return;
       errorMessage = error instanceof Error ? error.message : "Unable to load homepage content";
-      bestsellers = [];
-      recentBooks = [];
-      popularBooks = [];
     } finally {
       if (requestId === loadRequestId) {
         loading = false;
+        hasCompletedInitialHomeLoad = true;
       }
     }
   }
@@ -98,6 +97,22 @@
     void loadHome();
   });
 </script>
+
+{#snippet homeSectionLoadingSkeleton()}
+  <div
+    aria-hidden="true"
+    class="flex flex-col overflow-hidden rounded-xl border border-linen-300 bg-white shadow-soft animate-pulse dark:border-slate-700 dark:bg-slate-800"
+  >
+    <div class="h-80 bg-linen-100 dark:bg-slate-900"></div>
+    <div class="flex grow flex-col bg-white p-4 dark:bg-slate-800">
+      <div class="h-10 rounded bg-linen-100 dark:bg-slate-700"></div>
+      <div class="mb-3 mt-1.5 h-4 w-2/3 rounded bg-linen-100 dark:bg-slate-700"></div>
+    </div>
+    <div class="bg-white px-4 pb-4 dark:bg-slate-800">
+      <div class="h-10 rounded-lg bg-linen-100 dark:bg-slate-700"></div>
+    </div>
+  </div>
+{/snippet}
 
 <!-- Hero Section -->
 <section class="bg-gradient-to-b from-linen-50 to-white py-16 transition-colors duration-300 dark:from-slate-900 dark:to-slate-900 md:py-24">
@@ -154,7 +169,7 @@
 <!-- Content Sections -->
 <section class="mx-auto max-w-6xl px-4 py-12 md:px-6 md:py-16">
   {#if loading}
-    <p class="text-sm text-anthracite-600 dark:text-slate-300">Loading homepage sections...</p>
+    <p role="status" class="sr-only">Loading homepage sections...</p>
   {:else if errorMessage}
     <div class="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/40 dark:text-red-200">
       <Info size={16} />
@@ -175,16 +190,20 @@
         View All
       </a>
     </div>
-    {#if !loading && bestsellers.length === 0}
+    {#if bestsellers.length === 0 && (!loading || hasCompletedInitialHomeLoad)}
       <div class="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/40 dark:text-blue-200">
         <Info size={16} />
         No current bestsellers to display. Check back soon!
       </div>
     {:else}
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {#each bestsellers as book (book.id)}
-          <BookCard book={book} href={`/book/${encodeURIComponent(book.slug ?? book.id)}`} />
-        {/each}
+        {#if loading && !hasCompletedInitialHomeLoad}
+          {@render homeSectionLoadingSkeleton()}
+        {:else}
+          {#each bestsellers as book (book.id)}
+            <BookCard book={book} href={`/book/${encodeURIComponent(book.slug ?? book.id)}`} />
+          {/each}
+        {/if}
       </div>
     {/if}
   </div>
@@ -212,16 +231,20 @@
         {/each}
       </div>
     </div>
-    {#if !loading && popularBooks.length === 0}
+    {#if popularBooks.length === 0 && (!loading || hasCompletedInitialHomeLoad)}
       <div class="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/40 dark:text-blue-200">
         <Info size={16} />
         No popular books yet for this window.
       </div>
     {:else}
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {#each popularBooks as book (book.id)}
-          <BookCard book={book} href={`/book/${encodeURIComponent(book.slug ?? book.id)}`} showStats={true} />
-        {/each}
+        {#if loading && !hasCompletedInitialHomeLoad}
+          {@render homeSectionLoadingSkeleton()}
+        {:else}
+          {#each popularBooks as book (book.id)}
+            <BookCard book={book} href={`/book/${encodeURIComponent(book.slug ?? book.id)}`} showStats={true} />
+          {/each}
+        {/if}
       </div>
     {/if}
   </div>
@@ -239,16 +262,20 @@
         Explore More
       </a>
     </div>
-    {#if !loading && recentBooks.length === 0}
+    {#if recentBooks.length === 0 && (!loading || hasCompletedInitialHomeLoad)}
       <div class="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/40 dark:text-blue-200">
         <Info size={16} />
         No recent books to display. Start exploring to see recommendations!
       </div>
     {:else}
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {#each recentBooks as book (book.id)}
-          <BookCard book={book} href={`/book/${encodeURIComponent(book.slug ?? book.id)}`} showStats={true} />
-        {/each}
+        {#if loading && !hasCompletedInitialHomeLoad}
+          {@render homeSectionLoadingSkeleton()}
+        {:else}
+          {#each recentBooks as book (book.id)}
+            <BookCard book={book} href={`/book/${encodeURIComponent(book.slug ?? book.id)}`} showStats={true} />
+          {/each}
+        {/if}
       </div>
     {/if}
   </div>
