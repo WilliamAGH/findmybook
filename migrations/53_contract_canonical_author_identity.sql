@@ -14,7 +14,7 @@
 BEGIN;
 
 SET LOCAL lock_timeout = '5s';
-SET LOCAL statement_timeout = '60s';
+SET LOCAL statement_timeout = '15min';
 
 SELECT pg_advisory_xact_lock(
   hashtextextended('findmybook.author-contract-rollout', 0)
@@ -54,6 +54,14 @@ ranked_authors AS (
   FROM valid_authors
 )
 SELECT * FROM ranked_authors;
+
+CREATE UNIQUE INDEX canonical_author_upgrade_id_idx
+  ON canonical_author_upgrade (id);
+
+CREATE INDEX canonical_author_upgrade_canonical_author_id_idx
+  ON canonical_author_upgrade (canonical_author_id);
+
+ANALYZE canonical_author_upgrade;
 
 DO $$
 BEGIN

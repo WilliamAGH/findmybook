@@ -190,8 +190,17 @@ class BookAuthorUpsertIntegrationTest {
             "drop function if exists public.generate_slug(text, text)"
         );
         assertThat(callerContract).contains(
+            "SET LOCAL statement_timeout = '15min'",
             "DROP FUNCTION IF EXISTS public.ensure_unique_slug(text)",
             "DROP FUNCTION IF EXISTS public.generate_slug(text, text)"
+        );
+        assertThat(callerContract).containsSubsequence(
+            "CREATE UNIQUE INDEX canonical_author_upgrade_id_idx\n  ON canonical_author_upgrade (id);",
+            "CREATE INDEX canonical_author_upgrade_canonical_author_id_idx\n"
+                + "  ON canonical_author_upgrade (canonical_author_id);",
+            "ANALYZE canonical_author_upgrade;",
+            "FROM public.authors AS authors",
+            "LEFT JOIN canonical_author_upgrade AS upgrade ON upgrade.id = authors.id"
         );
     }
     @Test
