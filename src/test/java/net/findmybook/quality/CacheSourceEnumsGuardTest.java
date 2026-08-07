@@ -28,6 +28,10 @@ public class CacheSourceEnumsGuardTest {
 
     private static final Path SEARCH_FUNCTIONS_MIGRATION_PATH =
         Paths.get(normalize("migrations/27_search_functions.sql"));
+    private static final Path CANONICAL_SCHEMA_PATH =
+        Paths.get(normalize("src/main/resources/schema.sql"));
+    private static final Path SLUG_FUNCTIONS_MIGRATION_PATH =
+        Paths.get(normalize("migrations/28_slug_functions.sql"));
 
     private static final Set<String> ALLOWED_PATHS = Set.of(
         normalize("src/main/java/net/findmybook/model/image/CoverImageSource.java"),
@@ -81,6 +85,49 @@ public class CacheSourceEnumsGuardTest {
             "search_authors should order using qualified author_name reference");
         assertFalse(migrationSql.contains("lower(author_name),"),
             "search_authors final ordering must not use ambiguous unqualified author_name reference");
+    }
+
+    @Test
+    void should_RefuseFreshBootstrap_When_PublicSchemaContainsAnyRelation() throws IOException {
+        String schemaSql = Files.readString(CANONICAL_SCHEMA_PATH, StandardCharsets.UTF_8);
+        String existingRelationsGuard = """
+              IF NOT authors_existed_at_entry
+                AND NOT bootstrap_marker_existed_at_entry
+                AND public_schema_had_relations_at_entry
+              THEN
+                RAISE EXCEPTION 'public schema contains relations but authors is absent; refusing fresh-bootstrap classification';
+              END IF;
+            """;
+
+        assertTrue(schemaSql.contains("FROM pg_catalog.pg_class AS existing_relation"),
+            "fresh-bootstrap detection must inspect the public namespace catalog");
+        assertTrue(schemaSql.contains("WHERE existing_namespace.nspname = 'public'"),
+            "fresh-bootstrap detection must cover every public relation without a mirrored table inventory");
+        assertTrue(schemaSql.contains(existingRelationsGuard),
+            "an existing relation must fail closed unless the durable bootstrap marker already exists");
+        assertTrue(schemaSql.indexOf(existingRelationsGuard)
+                < schemaSql.indexOf("CREATE TABLE public.findmybook_schema_bootstrap_state"),
+            "the existing-relation guard must run before creating the durable bootstrap marker");
+    }
+
+    @Test
+    void should_NotRestoreLegacySlugFunction_When_CanonicalAuthorContractIsApplied() throws IOException {
+        String schemaSql = Files.readString(CANONICAL_SCHEMA_PATH, StandardCharsets.UTF_8);
+        String slugMigrationSql = Files.readString(SLUG_FUNCTIONS_MIGRATION_PATH, StandardCharsets.UTF_8);
+
+        assertTrue(slugMigrationSql.contains("BEGIN;"),
+            "legacy slug replay and retirement must remain atomic");
+        assertTrue(slugMigrationSql.contains(
+                "to_regprocedure('public.canonical_author_contract_is_applied()') IS NOT NULL"),
+            "slug replay must detect the durable canonical author contract");
+        assertTrue(slugMigrationSql.contains(
+                "DROP FUNCTION IF EXISTS public.ensure_unique_slug(text)"),
+            "contracted databases must retire the counter-probing slug owner before commit");
+        assertTrue(slugMigrationSql.indexOf("DROP FUNCTION IF EXISTS public.ensure_unique_slug(text)")
+                < slugMigrationSql.lastIndexOf("COMMIT;"),
+            "legacy slug retirement must occur before replay becomes visible");
+        assertTrue(schemaSql.contains("canonical author contract has retired slug functions present"),
+            "the schema orchestrator must fail if post-contract replay leaves a legacy slug owner");
     }
 
     private static String normalize(String p) {

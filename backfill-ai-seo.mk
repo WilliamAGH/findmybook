@@ -21,14 +21,6 @@ backfill-ai-seo:
 		exit 1; \
 	fi
 	@set -a && . ./.env && set +a; \
-	if [ -z "$$SPRING_DATASOURCE_URL" ]; then \
-		echo "Error: SPRING_DATASOURCE_URL not found in .env."; \
-		exit 1; \
-	fi; \
-	PGURL="$$SPRING_DATASOURCE_URL"; \
-	case "$$PGURL" in \
-		postgres://*) PGURL="postgresql://$${PGURL#postgres://}" ;; \
-	esac; \
 	if [ -n "$(BACKFILL_BASE_URL)" ] || [ -n "$(BACKFILL_MODEL)" ] || [ -n "$(BACKFILL_API_KEY)" ]; then \
 		echo "Applying runtime AI overrides for backfill."; \
 	fi; \
@@ -68,12 +60,12 @@ backfill-ai-seo:
 	trap 'rm -f "$$ID_FILE"' EXIT INT TERM; \
 	if [ -n "$(BACKFILL_IDENTIFIER)" ]; then \
 		ESCAPED_IDENTIFIER=$$(printf "%s" "$(BACKFILL_IDENTIFIER)" | sed "s/'/''/g"); \
-		psql "$$PGURL" -At -c "SELECT b.id FROM books b WHERE (b.id::text = '$$ESCAPED_IDENTIFIER' OR b.slug = '$$ESCAPED_IDENTIFIER' OR b.isbn10 = '$$ESCAPED_IDENTIFIER' OR b.isbn13 = '$$ESCAPED_IDENTIFIER') AND length(btrim(COALESCE(b.description, ''))) >= $(AI_MIN_DESCRIPTION_LENGTH) LIMIT 1;" > "$$ID_FILE"; \
+		node frontend/scripts/postgres-connection-config.js -X -At -v ON_ERROR_STOP=1 -c "SELECT b.id FROM books b WHERE (b.id::text = '$$ESCAPED_IDENTIFIER' OR b.slug = '$$ESCAPED_IDENTIFIER' OR b.isbn10 = '$$ESCAPED_IDENTIFIER' OR b.isbn13 = '$$ESCAPED_IDENTIFIER') AND length(btrim(COALESCE(b.description, ''))) >= $(AI_MIN_DESCRIPTION_LENGTH) LIMIT 1;" > "$$ID_FILE" || exit 1; \
 	else \
 		if [ "$(BACKFILL_MISSING_ONLY)" = "true" ]; then \
-			psql "$$PGURL" -At -c "SELECT b.id FROM books b WHERE length(btrim(COALESCE(b.description, ''))) >= $(AI_MIN_DESCRIPTION_LENGTH) AND (NOT EXISTS (SELECT 1 FROM work_cluster_members wcm WHERE wcm.book_id = b.id) OR EXISTS (SELECT 1 FROM work_cluster_members wcm WHERE wcm.book_id = b.id AND wcm.is_primary = true)) AND (NOT EXISTS (SELECT 1 FROM book_seo_metadata s WHERE s.book_id = b.id AND s.is_current = TRUE) OR EXISTS (SELECT 1 FROM book_seo_metadata s WHERE s.book_id = b.id AND s.is_current = TRUE AND s.provider = 'deterministic-fallback')) ORDER BY (SELECT s.created_at FROM book_seo_metadata s WHERE s.book_id = b.id AND s.is_current = TRUE) ASC NULLS FIRST, b.created_at ASC, b.id ASC$$LIMIT_CLAUSE;" > "$$ID_FILE"; \
+			node frontend/scripts/postgres-connection-config.js -X -At -v ON_ERROR_STOP=1 -c "SELECT b.id FROM books b WHERE length(btrim(COALESCE(b.description, ''))) >= $(AI_MIN_DESCRIPTION_LENGTH) AND (NOT EXISTS (SELECT 1 FROM work_cluster_members wcm WHERE wcm.book_id = b.id) OR EXISTS (SELECT 1 FROM work_cluster_members wcm WHERE wcm.book_id = b.id AND wcm.is_primary = true)) AND (NOT EXISTS (SELECT 1 FROM book_seo_metadata s WHERE s.book_id = b.id AND s.is_current = TRUE) OR EXISTS (SELECT 1 FROM book_seo_metadata s WHERE s.book_id = b.id AND s.is_current = TRUE AND s.provider = 'deterministic-fallback')) ORDER BY (SELECT s.created_at FROM book_seo_metadata s WHERE s.book_id = b.id AND s.is_current = TRUE) ASC NULLS FIRST, b.created_at ASC, b.id ASC$$LIMIT_CLAUSE;" > "$$ID_FILE" || exit 1; \
 		else \
-			psql "$$PGURL" -At -c "SELECT b.id FROM books b WHERE length(btrim(COALESCE(b.description, ''))) >= $(AI_MIN_DESCRIPTION_LENGTH) AND (NOT EXISTS (SELECT 1 FROM work_cluster_members wcm WHERE wcm.book_id = b.id) OR EXISTS (SELECT 1 FROM work_cluster_members wcm WHERE wcm.book_id = b.id AND wcm.is_primary = true)) ORDER BY b.created_at DESC$$LIMIT_CLAUSE;" > "$$ID_FILE"; \
+			node frontend/scripts/postgres-connection-config.js -X -At -v ON_ERROR_STOP=1 -c "SELECT b.id FROM books b WHERE length(btrim(COALESCE(b.description, ''))) >= $(AI_MIN_DESCRIPTION_LENGTH) AND (NOT EXISTS (SELECT 1 FROM work_cluster_members wcm WHERE wcm.book_id = b.id) OR EXISTS (SELECT 1 FROM work_cluster_members wcm WHERE wcm.book_id = b.id AND wcm.is_primary = true)) ORDER BY b.created_at DESC$$LIMIT_CLAUSE;" > "$$ID_FILE" || exit 1; \
 		fi; \
 	fi; \
 	echo "Eligibility filter: description length >= $(AI_MIN_DESCRIPTION_LENGTH), standalone or primary edition only"; \

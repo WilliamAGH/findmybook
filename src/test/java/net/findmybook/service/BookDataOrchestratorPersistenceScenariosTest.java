@@ -167,6 +167,33 @@ class BookDataOrchestratorPersistenceScenariosTest {
     }
 
     @Test
+    void should_PreserveDistinctProviderRecords_When_TitleAndAuthorsMatchWithoutAnIsbn() {
+        Book googleBook = providerBook("shared-title", "GOOGLE_BOOKS");
+        Book openLibraryBook = providerBook("shared-title", "OPEN_LIBRARY");
+        Book duplicateGoogleBook = providerBook("shared-title", "GOOGLE_BOOKS");
+
+        List<Book> deduplicatedBooks = batchPersistenceService.deduplicateByIdentifiers(
+            List.of(googleBook, openLibraryBook, duplicateGoogleBook)
+        );
+
+        assertThat(deduplicatedBooks).containsExactly(googleBook, openLibraryBook);
+    }
+
+    @Test
+    void should_DeduplicateEquivalentIsbnForms_When_ProvidersUseIsbn10AndIsbn13() {
+        Book isbn13Book = providerBook("google-isbn13", "GOOGLE_BOOKS");
+        isbn13Book.setIsbn13("9780306406157");
+        Book isbn10Book = providerBook("open-library-isbn10", "OPEN_LIBRARY");
+        isbn10Book.setIsbn10("0306406152");
+
+        List<Book> deduplicatedBooks = batchPersistenceService.deduplicateByIdentifiers(
+            List.of(isbn13Book, isbn10Book)
+        );
+
+        assertThat(deduplicatedBooks).containsExactly(isbn13Book);
+    }
+
+    @Test
     void should_ReturnCurrentDescription_When_BothProvidersReturnNoCandidates() {
         OpenLibraryBookDataService openLibrary = mock(OpenLibraryBookDataService.class);
         GoogleApiFetcher googleApiFetcher = mock(GoogleApiFetcher.class);
@@ -364,7 +391,6 @@ class BookDataOrchestratorPersistenceScenariosTest {
     void persistBook_returnsFalseDuringShutdown_When_SystemicDatabaseErrorOccurs() {
         when(googleBooksMapper.map(any())).thenReturn(BookAggregate.builder()
             .title("Shutdown Fixture")
-            .slugBase("shutdown-fixture")
             .identifiers(BookAggregate.ExternalIdentifiers.builder()
                 .source("OPEN_LIBRARY")
                 .externalId("OL-SHUTDOWN-1")
@@ -387,7 +413,6 @@ class BookDataOrchestratorPersistenceScenariosTest {
     void persistBook_returnsFalse_When_BookUpsertFailsWithNonSystemicException() {
         when(googleBooksMapper.map(any())).thenReturn(BookAggregate.builder()
             .title("Non Systemic Fixture")
-            .slugBase("non-systemic-fixture")
             .identifiers(BookAggregate.ExternalIdentifiers.builder()
                 .source("OPEN_LIBRARY")
                 .externalId("OL-NON-SYSTEMIC-1")
@@ -434,6 +459,15 @@ class BookDataOrchestratorPersistenceScenariosTest {
             Optional.of(googleBooksMapper),
             bookUpsertService
         );
+    }
+
+    private Book providerBook(String providerId, String providerSource) {
+        Book book = new Book();
+        book.setId(providerId);
+        book.setDataSource(providerSource);
+        book.setTitle("Shared Title");
+        book.setAuthors(List.of("Shared Author"));
+        return book;
     }
 
     private void configureGoogleFallback(GoogleApiFetcher googleApiFetcher) {

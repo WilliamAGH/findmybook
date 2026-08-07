@@ -467,9 +467,9 @@ public class OpenLibraryBookDataService {
         }
         List<String> authors = new ArrayList<>();
         for (JsonNode authorNameNode : docNode.get("author_name")) {
-            String normalized = TextUtils.normalizeAuthorName(emptyToNull(authorNameNode.asString()));
-            if (StringUtils.hasText(normalized)) {
-                authors.add(normalized);
+            String authorName = authorNameNode.asString(null);
+            if (StringUtils.hasText(authorName)) {
+                authors.add(authorName);
             }
         }
         return authors.isEmpty() ? List.of() : authors;

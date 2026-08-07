@@ -13,7 +13,6 @@ import net.findmybook.support.search.GoogleExternalSearchFlow;
 import net.findmybook.util.IsbnUtils;
 import net.findmybook.util.SearchExternalProviderUtils;
 import net.findmybook.util.SearchQueryUtils;
-import net.findmybook.util.SlugGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import jakarta.annotation.Nullable;
@@ -267,7 +266,6 @@ public class BookDataOrchestrator {
             .pageCount(detail.pageCount())
             .authors(detail.authors())
             .categories(detail.categories())
-            .slugBase(SlugGenerator.generateBookSlug(title, detail.authors()))
             .build();
 
         BookUpsertService.UpsertResult upsertResult = bookUpsertService.upsert(aggregate);

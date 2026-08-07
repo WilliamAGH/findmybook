@@ -230,6 +230,22 @@ class OpenLibraryBookDataServiceParsingTest {
     }
 
     @Test
+    void should_PreserveProviderAuthorLabel_When_ParsingOpenLibrarySearchDocument() {
+        OpenLibraryBookDataService service = openLibraryBookDataService();
+        ObjectNode doc = new ObjectMapper().createObjectNode();
+        doc.put("key", "/works/OLRAW1W");
+        doc.put("title", "Raw Author Fixture");
+        doc.putArray("author_name")
+            .add("\"JANE DOE\",")
+            .add("   ");
+
+        Book parsed = ReflectionTestUtils.invokeMethod(service, "parseOpenLibrarySearchDoc", doc, null);
+
+        assertThat(parsed).isNotNull();
+        assertThat(parsed.getAuthors()).containsExactly("\"JANE DOE\",");
+    }
+
+    @Test
     @DisplayName("parseOpenLibrarySearchDoc prefers queried ISBN and suppresses aggregate edition fields")
     void parseOpenLibrarySearchDoc_prefersQueriedIsbnAndSuppressesAggregateEditionFields() {
         OpenLibraryBookDataService service = openLibraryBookDataService();

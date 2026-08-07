@@ -8,18 +8,17 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Comprehensive test suite for {@link TextUtils} text normalization.
- * 
- * <p>Tests 40+ cases covering:
+ *
+ * <p>Tests title normalization cases covering:
  * <ul>
  * <li>Title case conversion (uppercase/lowercase → proper case)</li>
  * <li>Mixed case preservation (intentional formatting)</li>
  * <li>Articles and prepositions (a, the, of, in → lowercase)</li>
  * <li>Subtitle capitalization (after colons, dashes, em-dashes)</li>
  * <li>Roman numerals and acronyms (FBI, NASA, II, VIII)</li>
- * <li>Author name prefixes (Mc, Mac, O', von, van, de)</li>
  * <li>Edge cases (punctuation, whitespace, null handling)</li>
  * </ul>
- * 
+ *
  * @see TextUtils
  * @author William Callahan
  */
@@ -96,86 +95,6 @@ public class TextUtilsTest {
     void should_ReturnEmptyString_When_NormalizeBookTitleHasOnlyPrefixSymbols() {
         String input = " -- ";
         assertEquals("", TextUtils.normalizeBookTitle(input));
-    }
-
-    /**
-     * Tests author name normalization with special prefix handling.
-     * Covers Mc/Mac/O' prefixes and nobility particles (von, van, de).
-     */
-    @ParameterizedTest
-    @CsvSource(delimiter = '|', value = {
-        "JOHN DOE|John Doe",
-        "STEPHEN KING|Stephen King",
-        "stephen king|Stephen King",
-        "j.k. rowling|J.k. Rowling",
-        "J.K. ROWLING|J.k. Rowling",
-        "PATRICK MCDONALD|Patrick McDonald",
-        "patrick mcdonald|Patrick McDonald",
-        "SEAN MACDONALD|Sean MacDonald",
-        "CONNOR O'BRIEN|Connor O'Brien",
-        "connor o'brien|Connor O'Brien",
-        "LUDWIG VON BEETHOVEN|Ludwig von Beethoven",
-        "ludwig von beethoven|Ludwig von Beethoven",
-        "VINCENT VAN GOGH|Vincent van Gogh",
-        "vincent van gogh|Vincent van Gogh",
-        "LEONARDO DA VINCI|Leonardo Da Vinci",
-        "Stephen King|Stephen King",
-        "J.K. Rowling|J.K. Rowling"
-    })
-    void testNormalizeAuthorName(String input, String expected) {
-        assertEquals(expected, TextUtils.normalizeAuthorName(input));
-    }
-
-    /** Verifies null author name returns null without throwing exception. */
-    @Test
-    void testNormalizeAuthorName_NullInput() {
-        assertNull(TextUtils.normalizeAuthorName(null));
-    }
-
-    /** Verifies already properly cased author names are preserved unchanged. */
-    @Test
-    void testNormalizeAuthorName_PreserveMixedCase() {
-        String author1 = "Stephen King";
-        assertEquals(author1, TextUtils.normalizeAuthorName(author1));
-
-        String author2 = "J.K. Rowling";
-        assertEquals(author2, TextUtils.normalizeAuthorName(author2));
-    }
-
-    @Test
-    void testNormalizeAuthorName_StripsTrailingComma() {
-        String input = "Dr. R.K. Jain, ";
-        assertEquals("Dr. R.K. Jain", TextUtils.normalizeAuthorName(input));
-    }
-
-    @Test
-    void testNormalizeAuthorName_RemovesWrappingQuotes() {
-        String input = "\"JANE DOE\"";
-        assertEquals("Jane Doe", TextUtils.normalizeAuthorName(input));
-    }
-
-    @Test
-    void testNormalizeAuthorName_StripsSmartQuotes() {
-        String input = "\u201CJOHN SMITH\u201D";
-        assertEquals("John Smith", TextUtils.normalizeAuthorName(input));
-    }
-
-    @Test
-    void testNormalizeAuthorName_StripsLeadingPunctuation() {
-        String input = "-- Anonymous";
-        assertEquals("Anonymous", TextUtils.normalizeAuthorName(input));
-    }
-
-    @Test
-    void testNormalizeAuthorName_CleansBracketWrappedPlaceholders() {
-        String input = "[Author Unknown].";
-        assertEquals("Author Unknown", TextUtils.normalizeAuthorName(input));
-    }
-
-    @Test
-    void testNormalizeAuthorName_StripsLeadingBacktick() {
-        String input = "`Abd'ul-Bahā";
-        assertEquals("Abd'ul-Bahā", TextUtils.normalizeAuthorName(input));
     }
 
     /** Tests colon-separated subtitle capitalization. */

@@ -1,65 +1,109 @@
 package net.findmybook.service;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import net.findmybook.dto.BookAggregate;
 import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.service.event.BookUpsertEvent;
 import net.findmybook.service.image.CoverPersistenceService;
-import net.findmybook.test.annotations.DbIntegrationTest;
 import net.findmybook.util.IdGenerator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
-import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.RowMapper;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.context.ApplicationListener;
 import org.springframework.context.PayloadApplicationEvent;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
+import org.testcontainers.utility.MountableFile;
 
-import java.util.ArrayList;
-import java.util.Map;
-import java.util.List;
-import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-@DbIntegrationTest
+@SpringBootTest(properties = {
+    "openai.api.key=test",
+    "APP_ADMIN_PASSWORD=test-password",
+    "APP_USER_PASSWORD=test-password",
+    "app.security.admin.password=test-password",
+    "app.security.user.password=test-password"
+})
+@ActiveProfiles("test")
+@Testcontainers
 @Import(BookUpsertImageLinksEventTest.EventConfig.class)
 class BookUpsertImageLinksEventTest {
 
-    private static final long CONCURRENCY_TIMEOUT_SECONDS = 10;
+    private static final DockerImageName POSTGRES_IMAGE = DockerImageName.parse(
+        "pgvector/pgvector:pg17"
+    ).asCompatibleSubstituteFor("postgres");
+    private static final Path REPOSITORY_ROOT = Path.of(".").toAbsolutePath().normalize();
+    private static final Path CANONICAL_SCHEMA = REPOSITORY_ROOT.resolve("src/main/resources/schema.sql");
+    private static final Path MIGRATIONS_DIRECTORY = REPOSITORY_ROOT.resolve("migrations");
+    private static final Path CANONICAL_AUTHOR_UPSERT_MIGRATION =
+        MIGRATIONS_DIRECTORY.resolve("52_canonical_author_upsert.sql");
+    private static final Path AUTHOR_CONTRACT_TRANSITION_MIGRATION =
+        MIGRATIONS_DIRECTORY.resolve("53_contract_canonical_author_identity.sql");
+    private static final Pattern DIRECT_AUTHOR_WRITE = Pattern.compile(
+        "(?is)\\b(?:insert\\s+into|update(?:\\s+only)?|delete\\s+from(?:\\s+only)?|merge\\s+into|copy|"
+            + "truncate(?:\\s+table)?)\\s+(?:public\\.)?(?:authors|book_authors_join)\\b");
+    private static final Pattern CANONICAL_AUTHOR_PROCEDURE = Pattern.compile(
+        "(?is)\\bcreate\\s+(?:or\\s+replace\\s+)?procedure\\s+public\\.upsert_book_authors\\s*\\(");
+    private static final Pattern POST_CANONICAL_MIGRATION_FILE =
+        Pattern.compile("^(?:5[2-9]|[6-9]\\d|\\d{3,})_.*\\.sql$");
+    private static final Pattern EXECUTABLE_SOURCE_FILE =
+        Pattern.compile(".*\\.(?:java|js|cjs|mjs|ts|tsx|kt|kts|py|sh|zsh|sql)$");
+    private static final List<Path> RUNTIME_EXECUTABLE_SOURCE_ROOTS = List.of(
+        "src/main", "frontend/src", "frontend/scripts", "scripts"
+    ).stream().map(REPOSITORY_ROOT::resolve).toList();
+
+    @Container
+    private static final PostgreSQLContainer POSTGRES = postgresContainer();
+
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private BookUpsertService bookUpsertService;
-    @Autowired private BookUpsertTransactionService bookUpsertTransactionService;
-    @Autowired private PlatformTransactionManager transactionManager;
     @Autowired private CoverPersistenceService coverPersistenceService;
     @Autowired private EventCollector eventCollector;
 
     private UUID bookId;
     private String isbn13;
 
+    @DynamicPropertySource
+    static void configureIsolatedDataSource(DynamicPropertyRegistry properties) {
+        POSTGRES.start();
+        properties.add("spring.datasource.url", POSTGRES::getJdbcUrl);
+        properties.add("spring.datasource.username", POSTGRES::getUsername);
+        properties.add("spring.datasource.password", POSTGRES::getPassword);
+    }
+
     @BeforeEach
     void setUp() {
         eventCollector.clear();
         bookId = UUID.randomUUID();
         isbn13 = "9780132350884";
+        jdbcTemplate.update("DELETE FROM books WHERE isbn13 = ?", isbn13);
         insertBook(bookId, isbn13, "Existing Book");
         insertHighQualityCover();
     }
@@ -68,7 +112,6 @@ class BookUpsertImageLinksEventTest {
     void eventOmitsImageLinksWhenExistingCoverIsBetter() {
         BookAggregate aggregate = BookAggregate.builder()
             .title("Existing Book Updated")
-            .slugBase("existing-book-updated")
             .isbn13(isbn13)
             .identifiers(BookAggregate.ExternalIdentifiers.builder()
                 .source("GOOGLE_BOOKS")
@@ -91,6 +134,48 @@ class BookUpsertImageLinksEventTest {
     }
 
     @Test
+    void should_CreateDistinctBooksAndSlugs_When_SameTitleHasDistinctProviderIdentities() {
+        String fixtureToken = UUID.randomUUID().toString();
+        String firstAuthor = "First Slug Author " + fixtureToken;
+        String secondAuthor = "Second Slug Author " + fixtureToken;
+        BookAggregate firstAggregate = sameTitleAggregate(
+            "OPEN-LIBRARY-SLUG-A-" + fixtureToken,
+            firstAuthor
+        );
+        BookAggregate secondAggregate = sameTitleAggregate(
+            "OPEN-LIBRARY-SLUG-B-" + fixtureToken,
+            secondAuthor
+        );
+        List<UUID> createdBookIds = new ArrayList<>();
+
+        try {
+            BookUpsertService.UpsertResult firstResult = bookUpsertService.upsert(firstAggregate);
+            createdBookIds.add(firstResult.getBookId());
+            BookUpsertService.UpsertResult secondResult = bookUpsertService.upsert(secondAggregate);
+            createdBookIds.add(secondResult.getBookId());
+
+            assertThat(firstResult.getBookId()).isNotEqualTo(secondResult.getBookId());
+            assertThat(firstResult.getSlug()).isEqualTo("shared-title-" + firstResult.getBookId());
+            assertThat(secondResult.getSlug()).isEqualTo("shared-title-" + secondResult.getBookId());
+            assertThat(firstResult.getSlug()).hasSizeLessThanOrEqualTo(100);
+            assertThat(secondResult.getSlug()).hasSizeLessThanOrEqualTo(100);
+
+            List<String> persistedSlugs = jdbcTemplate.query(
+                "SELECT slug FROM books WHERE id IN (?, ?)",
+                (resultSet, rowNumber) -> resultSet.getString("slug"),
+                firstResult.getBookId(),
+                secondResult.getBookId()
+            );
+            assertThat(persistedSlugs)
+                .containsExactlyInAnyOrder(firstResult.getSlug(), secondResult.getSlug());
+        } finally {
+            createdBookIds.forEach(this::deleteBookFixture);
+            jdbcTemplate.update("DELETE FROM authors WHERE name IN (?, ?)", firstAuthor, secondAuthor);
+            jdbcTemplate.update("DELETE FROM books WHERE id = ?", bookId);
+        }
+    }
+
+    @Test
     void should_IgnoreInvalidImageLinks_When_IncomingPayloadContainsPlaceholderAndUnsupportedTypes() {
         UUID invalidBookId = UUID.randomUUID();
         String invalidIsbn13 = "9780132350990";
@@ -98,7 +183,6 @@ class BookUpsertImageLinksEventTest {
 
         BookAggregate aggregate = BookAggregate.builder()
             .title("Invalid Link Fixture")
-            .slugBase("invalid-link-fixture")
             .isbn13(invalidIsbn13)
             .identifiers(BookAggregate.ExternalIdentifiers.builder()
                 .source("GOOGLE_BOOKS")
@@ -125,103 +209,6 @@ class BookUpsertImageLinksEventTest {
         assertThat(events).hasSize(1);
         assertThat(events.getFirst().getImageLinks()).isEmpty();
         assertThat(events.getFirst().getCanonicalImageUrl()).isNull();
-    }
-
-    @Test
-    void should_WriteAuthorJoinsInAuthorIdOrder_When_AuthorIdsReverseCanonicalNameOrder() {
-        JdbcTemplate authorJdbcTemplate = Mockito.mock(JdbcTemplate.class);
-        List<String> authorLockOrder = new ArrayList<>();
-        List<Object[]> joinWrites = new ArrayList<>();
-        String aliceAuthorId = "author-z-alice-walker";
-        String zoraAuthorId = "author-a-zora-neale-hurston";
-        Map<String, String> authorIdsByName = Map.of(
-            "Alice Walker", aliceAuthorId,
-            "Zora Neale Hurston", zoraAuthorId
-        );
-        Mockito.when(authorJdbcTemplate.queryForObject(
-                ArgumentMatchers.anyString(), ArgumentMatchers.<RowMapper<String>>any(),
-                ArgumentMatchers.any(Object[].class)
-            ))
-            .thenAnswer(invocation -> {
-                String authorName = invocation.getArgument(3, String.class);
-                authorLockOrder.add(authorName);
-                return authorIdsByName.get(authorName);
-            });
-        Mockito.when(authorJdbcTemplate.update(
-                ArgumentMatchers.contains("INSERT INTO book_authors_join"),
-                ArgumentMatchers.any(Object[].class)
-            ))
-            .thenAnswer(invocation -> {
-                joinWrites.add(invocation.getArgument(1, Object[].class));
-                return 1;
-            });
-        BookUpsertTransactionService transactionService = new BookUpsertTransactionService(
-            authorJdbcTemplate, Mockito.mock(BookCollectionPersistenceService.class)
-        );
-        transactionService.upsertAuthors(UUID.randomUUID(), List.of("Zora Neale Hurston", "Alice Walker"));
-
-        assertThat(authorLockOrder).containsExactly("Alice Walker", "Zora Neale Hurston");
-        assertThat(joinWrites).hasSize(2);
-        assertThat(joinWrites.get(0)[2]).isEqualTo(zoraAuthorId);
-        assertThat(joinWrites.get(0)[3]).isEqualTo(0);
-        assertThat(joinWrites.get(1)[2]).isEqualTo(aliceAuthorId);
-        assertThat(joinWrites.get(1)[3]).isEqualTo(1);
-    }
-
-    @Test
-    void should_CompleteConcurrentAuthorUpserts_When_SharedAuthorsArriveInReverseOrder() throws Exception {
-        UUID firstBookId = UUID.randomUUID();
-        UUID secondBookId = UUID.randomUUID();
-        String authorSuffix = UUID.randomUUID().toString();
-        String alphaAuthor = "Alpha Author " + authorSuffix;
-        String betaAuthor = "Beta Author " + authorSuffix;
-        CountDownLatch blockerLocked = new CountDownLatch(1);
-        CountDownLatch releaseBlocker = new CountDownLatch(1);
-        CountDownLatch firstWorkerStarted = new CountDownLatch(1);
-        CountDownLatch secondWorkerStarted = new CountDownLatch(1);
-        AtomicInteger blockerPid = new AtomicInteger();
-        AtomicInteger firstWorkerPid = new AtomicInteger();
-        AtomicInteger secondWorkerPid = new AtomicInteger();
-        ExecutorService executorService = Executors.newVirtualThreadPerTaskExecutor();
-        List<Future<?>> futures = new ArrayList<>();
-        try {
-            insertBook(firstBookId, "9780000000001", "Concurrent Author Fixture One");
-            insertBook(secondBookId, "9780000000002", "Concurrent Author Fixture Two");
-            insertAuthor(alphaAuthor);
-            insertAuthor(betaAuthor);
-            futures.add(executorService.submit(() ->
-                holdAuthorLock(alphaAuthor, blockerPid, blockerLocked, releaseBlocker)));
-            awaitLatch(blockerLocked);
-            Future<?> firstUpsert = executorService.submit(
-                () -> runAuthorUpsertTransaction(firstBookId, List.of(alphaAuthor, betaAuthor),
-                    firstWorkerPid, firstWorkerStarted));
-            futures.add(firstUpsert);
-            awaitLatch(firstWorkerStarted);
-            awaitBlockedBy(firstWorkerPid.get(), blockerPid.get());
-            Future<?> secondUpsert = executorService.submit(
-                () -> runAuthorUpsertTransaction(secondBookId, List.of(betaAuthor, alphaAuthor),
-                    secondWorkerPid, secondWorkerStarted));
-            futures.add(secondUpsert);
-            awaitLatch(secondWorkerStarted);
-            awaitBlockedBy(secondWorkerPid.get(), firstWorkerPid.get());
-            releaseBlocker.countDown();
-            for (Future<?> future : futures) {
-                future.get(CONCURRENCY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-            }
-            assertThat(loadAuthorPositions(firstBookId))
-                .containsExactly(Map.entry(alphaAuthor, 0), Map.entry(betaAuthor, 1));
-            assertThat(loadAuthorPositions(secondBookId))
-                .containsExactly(Map.entry(betaAuthor, 0), Map.entry(alphaAuthor, 1));
-        } finally {
-            releaseBlocker.countDown();
-            futures.stream().filter(future -> !future.isDone()).forEach(future -> future.cancel(true));
-            executorService.shutdownNow();
-            try {
-                assertThat(executorService.awaitTermination(CONCURRENCY_TIMEOUT_SECONDS, TimeUnit.SECONDS)).isTrue();
-            } finally {
-                deleteAuthorFixtures(firstBookId, secondBookId, alphaAuthor, betaAuthor);
-            }
-        }
     }
 
     @Test
@@ -304,14 +291,15 @@ class BookUpsertImageLinksEventTest {
 
     @ParameterizedTest(name = "{0}")
     @EnumSource(CoverWriteOperation.class)
-    void should_ThrowDataAccessException_When_CoverWriteFails(CoverWriteOperation operation) {
-        JdbcTemplate failingJdbcTemplate = Mockito.mock(JdbcTemplate.class);
+    void should_ThrowIllegalStateException_When_CoverWriteFails(CoverWriteOperation operation) {
+        JdbcTemplate failingJdbcTemplate = Mockito.mock(JdbcTemplate.class, invocation -> {
+            if (invocation.getMethod().getName().equals("update")) {
+                throw new DataAccessResourceFailureException("cover write failed");
+            }
+            return Mockito.RETURNS_DEFAULTS.answer(invocation);
+        });
         CoverPersistenceService failingService = new CoverPersistenceService(failingJdbcTemplate);
         UUID failingBookId = UUID.randomUUID();
-
-        Mockito.doThrow(new DataAccessResourceFailureException("cover write failed"))
-            .when(failingJdbcTemplate)
-            .update(ArgumentMatchers.anyString(), ArgumentMatchers.<Object[]>any());
 
         assertThatThrownBy(() -> {
             switch (operation) {
@@ -339,8 +327,9 @@ class BookUpsertImageLinksEventTest {
                 );
             }
         })
-            .isInstanceOf(DataAccessResourceFailureException.class)
-            .hasMessageContaining("cover write failed");
+            .isInstanceOf(IllegalStateException.class)
+            .hasCauseInstanceOf(DataAccessResourceFailureException.class)
+            .hasRootCauseMessage("cover write failed");
     }
 
     private void insertBook(UUID targetBookId, String targetIsbn13, String title) {
@@ -351,6 +340,102 @@ class BookUpsertImageLinksEventTest {
             "existing-book-" + targetBookId,
             targetIsbn13
         );
+    }
+
+    private static PostgreSQLContainer postgresContainer() {
+        PostgreSQLContainer postgres = new PostgreSQLContainer(POSTGRES_IMAGE)
+            .withDatabaseName("findmybook")
+            .withUsername("findmybook")
+            .withPassword("findmybook");
+        postgres.withCopyToContainer(
+            MountableFile.forHostPath(CANONICAL_SCHEMA),
+            "/docker-entrypoint-initdb.d/000-schema.sql"
+        );
+        canonicalMigrationFiles().forEach(migration -> postgres.withCopyToContainer(
+            MountableFile.forHostPath(migration),
+            "/migrations/" + migration.getFileName()
+        ));
+        return postgres;
+    }
+
+    private static List<Path> canonicalMigrationFiles() {
+        try (Stream<Path> migrationFiles = Files.list(MIGRATIONS_DIRECTORY)) {
+            return migrationFiles
+                .filter(Files::isRegularFile)
+                .filter(migration -> migration.getFileName().toString().endsWith(".sql"))
+                .sorted()
+                .toList();
+        } catch (IOException exception) {
+            throw new UncheckedIOException(
+                "Unable to copy canonical SQL migrations from " + MIGRATIONS_DIRECTORY,
+                exception
+            );
+        }
+    }
+
+    @Test
+    void should_KeepProcedureAsSoleAuthorWriter_When_ScanningRuntimeSourcesAndPostCanonicalMigrations()
+        throws IOException {
+        List<Path> migrations = canonicalMigrationFiles();
+        List<Path> procedureDefinitions = sourcesContaining(migrations, CANONICAL_AUTHOR_PROCEDURE);
+        List<Path> cutoverAuthorWrites = sourcesContaining(
+            migrations.stream().filter(BookUpsertImageLinksEventTest::isPostCanonicalMigration).toList(),
+            DIRECT_AUTHOR_WRITE
+        );
+
+        assertThat(sourcesContaining(runtimeExecutableSources(), DIRECT_AUTHOR_WRITE)).isEmpty();
+        assertThat(procedureDefinitions).containsExactly(CANONICAL_AUTHOR_UPSERT_MIGRATION);
+        assertThat(cutoverAuthorWrites).containsExactlyInAnyOrder(
+            CANONICAL_AUTHOR_UPSERT_MIGRATION,
+            AUTHOR_CONTRACT_TRANSITION_MIGRATION
+        );
+        assertThat(cutoverAuthorWrites.stream().filter(path -> !procedureDefinitions.contains(path)).toList())
+            .containsExactly(AUTHOR_CONTRACT_TRANSITION_MIGRATION);
+    }
+
+    private static List<Path> runtimeExecutableSources() throws IOException {
+        List<Path> executableSources = new ArrayList<>();
+        for (Path runtimeSourceRoot : RUNTIME_EXECUTABLE_SOURCE_ROOTS) {
+            try (Stream<Path> sourcePaths = Files.walk(runtimeSourceRoot)) {
+                executableSources.addAll(sourcePaths
+                    .filter(Files::isRegularFile)
+                    .filter(path -> EXECUTABLE_SOURCE_FILE.matcher(path.getFileName().toString()).matches())
+                    .filter(path -> !path.getFileName().toString().contains(".test.")
+                        && !path.getFileName().toString().contains(".spec."))
+                    .toList());
+            }
+        }
+        return executableSources;
+    }
+
+    private static List<Path> sourcesContaining(List<Path> sourcePaths, Pattern pattern) throws IOException {
+        List<Path> matches = new ArrayList<>();
+        for (Path sourcePath : sourcePaths) {
+            if (pattern.matcher(Files.readString(sourcePath)).find()) {
+                matches.add(sourcePath);
+            }
+        }
+        return matches;
+    }
+
+    private static boolean isPostCanonicalMigration(Path sourcePath) {
+        return POST_CANONICAL_MIGRATION_FILE.matcher(sourcePath.getFileName().toString()).matches();
+    }
+
+    private BookAggregate sameTitleAggregate(String externalId, String author) {
+        return BookAggregate.builder()
+            .title("Shared Title")
+            .authors(List.of(author))
+            .identifiers(BookAggregate.ExternalIdentifiers.builder()
+                .source("OPEN_LIBRARY")
+                .externalId(externalId)
+                .build())
+            .build();
+    }
+
+    private void deleteBookFixture(UUID targetBookId) {
+        jdbcTemplate.update("DELETE FROM events_outbox WHERE topic = ?", "/topic/book." + targetBookId);
+        jdbcTemplate.update("DELETE FROM books WHERE id = ?", targetBookId);
     }
 
     private void insertHighQualityCover() {
@@ -371,85 +456,6 @@ class BookUpsertImageLinksEventTest {
             1200,
             true
         );
-    }
-
-    private void insertAuthor(String authorName) {
-        jdbcTemplate.update(
-            "INSERT INTO authors (id, name, normalized_name, created_at, updated_at) VALUES (?, ?, ?, NOW(), NOW())",
-            IdGenerator.generate(), authorName, authorName.toLowerCase(java.util.Locale.ROOT)
-        );
-    }
-
-    private void holdAuthorLock(String authorName, AtomicInteger backendPid,
-                                CountDownLatch blockerLocked, CountDownLatch releaseBlocker) {
-        TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
-        transactionTemplate.executeWithoutResult(status -> {
-            jdbcTemplate.execute("SET LOCAL statement_timeout = '5s'");
-            jdbcTemplate.queryForObject("SELECT id FROM authors WHERE name = ? FOR UPDATE", String.class, authorName);
-            backendPid.set(jdbcTemplate.queryForObject("SELECT pg_backend_pid()", Integer.class));
-            blockerLocked.countDown();
-            awaitLatch(releaseBlocker);
-        });
-    }
-
-    private void runAuthorUpsertTransaction(UUID targetBookId, List<String> authors,
-                                            AtomicInteger backendPid,
-                                            CountDownLatch workersStarted) {
-        TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
-        transactionTemplate.executeWithoutResult(status -> {
-            jdbcTemplate.execute("SET LOCAL lock_timeout = '5s'");
-            jdbcTemplate.execute("SET LOCAL statement_timeout = '5s'");
-            backendPid.set(jdbcTemplate.queryForObject("SELECT pg_backend_pid()", Integer.class));
-            workersStarted.countDown();
-            bookUpsertTransactionService.upsertAuthors(targetBookId, authors);
-        });
-    }
-
-    private void awaitBlockedBy(int workerPid, int blockerPid) {
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
-        while (System.nanoTime() < deadline) {
-            Boolean blocked = jdbcTemplate.queryForObject(
-                "SELECT ? = ANY(pg_blocking_pids(?))", Boolean.class, blockerPid, workerPid
-            );
-            if (Boolean.TRUE.equals(blocked)) {
-                return;
-            }
-            Thread.onSpinWait();
-        }
-        throw new IllegalStateException("PostgreSQL worker " + workerPid + " did not block behind " + blockerPid);
-    }
-
-    private void deleteAuthorFixtures(UUID firstBookId, UUID secondBookId,
-                                      String alphaAuthor, String betaAuthor) {
-        jdbcTemplate.update("DELETE FROM book_authors_join WHERE book_id IN (?, ?)", firstBookId, secondBookId);
-        jdbcTemplate.update("DELETE FROM authors WHERE name IN (?, ?)", alphaAuthor, betaAuthor);
-        jdbcTemplate.update("DELETE FROM books WHERE id IN (?, ?)", firstBookId, secondBookId);
-    }
-
-    private List<Map.Entry<String, Integer>> loadAuthorPositions(UUID targetBookId) {
-        return jdbcTemplate.query(
-            """
-            SELECT authors.name, book_authors_join.position
-            FROM book_authors_join
-            JOIN authors ON authors.id = book_authors_join.author_id
-            WHERE book_authors_join.book_id = ?
-            ORDER BY book_authors_join.position
-            """,
-            (resultSet, rowNumber) -> Map.entry(resultSet.getString("name"), resultSet.getInt("position")),
-            targetBookId
-        );
-    }
-
-    private static void awaitLatch(CountDownLatch latch) {
-        try {
-            if (!latch.await(CONCURRENCY_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                throw new IllegalStateException("Timed out coordinating concurrent author upserts");
-            }
-        } catch (InterruptedException interruptedException) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Interrupted while coordinating concurrent author upserts",
-                interruptedException);
-        }
     }
 
     private record ImageLinkAuditRow(String imageType, String s3ImagePath, OffsetDateTime s3UploadedAt) {}

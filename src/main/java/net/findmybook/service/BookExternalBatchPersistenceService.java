@@ -7,7 +7,6 @@ import net.findmybook.support.retry.AdvisoryLockRetrySupport;
 import net.findmybook.mapper.GoogleBooksMapper;
 import net.findmybook.util.ExternalApiLogger;
 import net.findmybook.util.IsbnUtils;
-import net.findmybook.util.SlugGenerator;
 import net.findmybook.util.UrlUtils;
 import org.springframework.util.StringUtils;
 import org.slf4j.Logger;
@@ -41,7 +40,6 @@ class BookExternalBatchPersistenceService {
 
     private static final Logger logger = LoggerFactory.getLogger(BookExternalBatchPersistenceService.class);
 
-    private static final String ALPHANUMERIC_ONLY_PATTERN = "[^a-z0-9]";
     private static final String CODE_BOOK_BATCH_BACKGROUND_FAILURE = "BOOK_BATCH_BACKGROUND_FAILURE";
     private static final String CODE_BOOK_BATCH_PARTIAL_FAILURE = "BOOK_BATCH_PARTIAL_FAILURE";
     private static final String CODE_BOOK_UPSERT_SHUTDOWN_SYSTEMIC = "BOOK_UPSERT_SHUTDOWN_SYSTEMIC_DB";
@@ -88,7 +86,7 @@ class BookExternalBatchPersistenceService {
         List<Book> uniqueBooks = filterDuplicatesById(books);
         int duplicateCount = originalSize - uniqueBooks.size();
         if (duplicateCount > 0) {
-            logger.info("[EXTERNAL-API] [{}] Filtered {} duplicate book(s) by ID, {} candidates remain", context, duplicateCount, uniqueBooks.size());
+            logger.info("[EXTERNAL-API] [{}] Filtered {} duplicate book(s) by provider identity, {} candidates remain", context, duplicateCount, uniqueBooks.size());
         }
 
         if (uniqueBooks.isEmpty()) {
@@ -99,7 +97,7 @@ class BookExternalBatchPersistenceService {
         List<Book> dedupedByIdentifiers = deduplicateByIdentifiers(uniqueBooks);
         int identifierDuplicateCount = uniqueBooks.size() - dedupedByIdentifiers.size();
         if (identifierDuplicateCount > 0) {
-            logger.info("[EXTERNAL-API] [{}] Removed {} duplicate book(s) by ISBN/title after ID filtering (final count={})",
+            logger.info("[EXTERNAL-API] [{}] Removed {} duplicate book(s) by ISBN/provider identity after ID filtering (final count={})",
                 context, identifierDuplicateCount, dedupedByIdentifiers.size());
         }
 
@@ -357,20 +355,21 @@ class BookExternalBatchPersistenceService {
         if (books == null || books.isEmpty()) {
             return List.of();
         }
-        Set<String> seenIds = java.util.HashSet.newHashSet(books.size());
+        Set<String> seenProviderIdentities = java.util.HashSet.newHashSet(books.size());
         List<Book> unique = new ArrayList<>(books.size());
         for (Book book : books) {
-            if (book == null || !StringUtils.hasText(book.getId())) {
+            String providerIdentity = resolveProviderIdentity(book);
+            if (providerIdentity == null) {
                 continue;
             }
-            if (seenIds.add(book.getId())) {
+            if (seenProviderIdentities.add(providerIdentity)) {
                 unique.add(book);
             }
         }
         return unique;
     }
 
-    private List<Book> deduplicateByIdentifiers(List<Book> books) {
+    List<Book> deduplicateByIdentifiers(List<Book> books) {
         if (books == null || books.isEmpty()) {
             return List.of();
         }
@@ -386,26 +385,31 @@ class BookExternalBatchPersistenceService {
     }
 
     private String extractDedupeKey(Book book) {
-        String isbn13 = IsbnUtils.sanitize(book.getIsbn13());
-        if (StringUtils.hasText(isbn13)) {
-            return "ISBN13:" + isbn13;
+        String isbnIdentity = IsbnUtils.isbn13Identity(book.getIsbn13());
+        if (!StringUtils.hasText(isbnIdentity)) {
+            isbnIdentity = IsbnUtils.isbn13Identity(book.getIsbn10());
         }
-        String isbn10 = IsbnUtils.sanitize(book.getIsbn10());
-        if (StringUtils.hasText(isbn10)) {
-            return "ISBN10:" + isbn10;
+        if (StringUtils.hasText(isbnIdentity)) {
+            return "ISBN:" + isbnIdentity;
         }
-        String normalizedTitle = normalizeTitleForDedupe(book.getTitle());
-        if (normalizedTitle != null) {
-            return "TITLE:" + normalizedTitle;
-        }
-        return "FALLBACK:" + book.getId();
+        return "PROVIDER:" + resolveProviderIdentity(book);
     }
 
-    private String normalizeTitleForDedupe(String title) {
-        if (!StringUtils.hasText(title)) {
+    private String resolveProviderIdentity(Book book) {
+        if (book == null || !StringUtils.hasText(book.getId())) {
             return null;
         }
-        return title.toLowerCase(Locale.ROOT).replaceAll(ALPHANUMERIC_ONLY_PATTERN, "");
+        return resolveProviderSource(book) + ':' + book.getId().trim();
+    }
+
+    private String resolveProviderSource(Book book) {
+        if (StringUtils.hasText(book.getDataSource())) {
+            return book.getDataSource().trim();
+        }
+        if (StringUtils.hasText(book.getRetrievedFrom())) {
+            return book.getRetrievedFrom().trim();
+        }
+        return "OPEN_LIBRARY";
     }
 
     private BookAggregate buildFallbackAggregate(Book book) {
@@ -430,14 +434,13 @@ class BookExternalBatchPersistenceService {
             .authors(book.getAuthors())
             .categories(book.getCategories())
             .identifiers(buildFallbackIdentifiers(book))
-            .slugBase(SlugGenerator.generateBookSlug(book.getTitle(), book.getAuthors()))
             .editionNumber(book.getEditionNumber())
             .build();
     }
 
     private BookAggregate.ExternalIdentifiers buildFallbackIdentifiers(Book book) {
         Map<String, String> imageLinks = resolveFallbackImageLinks(book);
-        String source = book.getRetrievedFrom() != null ? book.getRetrievedFrom() : "OPEN_LIBRARY";
+        String source = resolveProviderSource(book);
         return BookAggregate.ExternalIdentifiers.builder()
             .source(source)
             .externalId(book.getId())
