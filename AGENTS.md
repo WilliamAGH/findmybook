@@ -29,7 +29,7 @@
 - [DB1] Manual SQL only; no Flyway/Liquibase and no auto-migrations.
 - [API1] API contracts MUST remain explicit, strongly typed, and documented when changed.
 - [UPD1] Update all impacted usages across Java, templates, JS/TS, SQL, configs, and tests.
-- [GIT1] No destructive git operations, branch changes, commits, or pushes without explicit user approval.
+- [GIT1] Run tasks in dedicated worktrees; task authorization covers commit/merge/push on `dev`; destructive git operations require explicit user approval.
 - [LOC1] File size ceilings are mandatory; large touched legacy files require split plans.
 - [TST1] Behavior changes require tests (unit first, integration as needed).
 - [VER1] Validate changes with repository-standard build/test/runtime checks.
@@ -105,10 +105,10 @@
 ### [GIT1] Git Safety (Blocking)
 - [GIT1a] Treat all uncommitted changes as intentional user work and never revert/discard them.
 - [GIT1b] Never run destructive git commands (`reset`, `checkout`, `restore`, `clean`, `stash`, `revert`).
-- [GIT1c] Never change branches without explicit user permission.
-- [GIT1d] Never commit or push unless the user explicitly asks.
+- [GIT1c] Start every repo-file-editing task in a dedicated git worktree on a task branch unless the user declines; review-only and read-only work is exempt.
+- [GIT1d] Task authorization covers commit, merge, and push on `dev` (the integration branch); destructive git operations still require explicit user approval.
 - [GIT1e] Never skip hooks (`--no-verify`, `-n`, `--no-gpg-sign`).
-- [GIT1f] **Repository-Local Writes Only**: NEVER commit or push to this repository from a temporary clone, alternate checkout/worktree, or any other directory copy of the same repo. All git writes must be executed from this exact working tree.
+- [GIT1f] **Repository-Local Writes Only**: Execute git writes only from this working tree or the task's dedicated worktree; task commits land in the worktree. NEVER commit or push from an unrelated clone or any other directory copy of the repo.
 
 ### [LOC1] File Size Ceiling (Blocking)
 - [LOC1a] Keep new source files under 500 lines.
@@ -208,6 +208,7 @@
 - [VER1e] For UI changes, verify both desktop and mobile rendering paths for affected pages or routes.
 - [VER1f] Validate each slice: after completing an end-to-end slice ([CLN1f]), run verification checks before starting the next slice.
 - [VER1g] Contract cleanup handoff must name the canonical owner, list each duplicate owner removed, prove that tests/fixtures now bind or import the canonical owner, and explicitly call out any remaining duplicate owner as a blocker.
+- [VER1h] After any push, watch the push-triggered CI run to a terminal verdict (one watcher per SHA, polls at least 60 seconds apart); fix failures immediately, commit, and push until green; with no remote CI, a successful push completes the task.
 
 ### [ENV1] Technology & Runtime Defaults
 - [ENV1a] Backend baseline is Spring Boot 4.0.x with Java 25 idioms.
