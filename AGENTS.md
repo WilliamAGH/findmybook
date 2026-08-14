@@ -209,6 +209,7 @@
 - [VER1f] Validate each slice: after completing an end-to-end slice ([CLN1f]), run verification checks before starting the next slice.
 - [VER1g] Contract cleanup handoff must name the canonical owner, list each duplicate owner removed, prove that tests/fixtures now bind or import the canonical owner, and explicitly call out any remaining duplicate owner as a blocker.
 - [VER1h] After any push, watch the push-triggered CI run to a terminal verdict (one watcher per SHA, polls at least 60 seconds apart); fix failures immediately, commit, and push until green; with no remote CI, a successful push completes the task.
+- [VER1i] File GitHub issues only for material defects or features (behavior, correctness, security, performance, data quality, or a governed contract); fix pedantic/nitpick/style-only findings in place or drop them, never file them. Fixes and issue scope follow the minimalism bar: reuse before new code and simplify before completing, per the `ponytail` and `ce-simplify-code` skills.
 
 ### [ENV1] Technology & Runtime Defaults
 - [ENV1a] Backend baseline is Spring Boot 4.0.x with Java 25 idioms.
