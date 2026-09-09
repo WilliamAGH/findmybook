@@ -41,11 +41,11 @@ Key variables in `.env`:
 
 ## Container Health and Rolling Deployments
 
-The production image exposes Spring Boot's readiness and liveness probe groups on the main server port. Its Docker health check calls `GET /readyz`, allowing Coolify to keep the previous container routed until the replacement reports `ACCEPTING_TRAFFIC`.
+The production image exposes Spring Boot's readiness and liveness probe groups on the main server port. Its Docker health check calls `GET /readyz`. Dokploy's application owner controls update and rollback policy; native Swarm `start-first` admission keeps the previous task serving until a fresh replacement passes that health check.
 
 Deployment readiness intentionally uses Spring's `readinessState` group rather than `/actuator/health`. The aggregate endpoint includes page, search, database, and S3 diagnostics whose external failures are operational signals but must not make an otherwise ready replacement fail its rollout.
 
-Keep Coolify's UI-generated health check disabled for this Dockerfile deployment. Coolify detects the image-owned `HEALTHCHECK`, waits for Docker to report the replacement healthy, and only then removes the previous container. The probe reads `SERVER_PORT` at runtime so the same image works with the repository default (`8095`) and Coolify's configured container port (`8080`).
+Keep the image-owned `HEALTHCHECK`; the probe reads `SERVER_PORT` so it follows the actual server port. For singleton reloads, placement must allow a temporary second task and both update and rollback must permit overlap. Admit the additional memory and database connections before changing the policy. Docker's stop grace must cover Spring's graceful-shutdown deadline. This provides HTTP deployment continuity, not host failover or durable in-flight WebSocket/SSE sessions; clients reconnect after a replacement.
 
 Spring Boot exposes the Prometheus scrape endpoint at `GET /actuator/prometheus`. The
 application includes a Prometheus registry, and web exposure is limited to the `health`
@@ -71,6 +71,14 @@ export SPRING_DATASOURCE_PASSWORD="<pass>"
 Startup now fails fast with a clear error when database-required profiles are active and no datasource URL is configured. Set one of `SPRING_DATASOURCE_URL`, `DATABASE_URL`, `POSTGRES_URL`, or `JDBC_DATABASE_URL`. For explicit database-less startup, set `SPRING_PROFILES_ACTIVE=nodb`.
 
 The base Hikari pool validates idle JDBC connections every 60 seconds while retaining the 30-minute connection lifetime. PostgreSQL `tcpKeepAlive` is also enabled so the driver uses the operating system's TCP keepalive policy; no custom connection test query replaces driver validation.
+
+`HikariJdbcRecoveryTest` exercises terminated idle backends and unavailable
+replacement connections against isolated PostgreSQL using this pool configuration.
+Book reads fail within the configured acquisition budget while replacements are
+unavailable; the outbox relay records the cause and backs off. After connectivity
+returns, Hikari's connection-creation backoff can delay recovery, so a failed
+immediate retry does not by itself mean the pool is stuck. Transport failures must
+be correlated with database and host-network evidence before changing pool timing.
 
 Book card, list, and detail SQL projections are owned by
 `src/main/resources/optimized_book_queries.sql`. Apply compatible changes with

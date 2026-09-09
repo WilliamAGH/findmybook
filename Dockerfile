@@ -73,7 +73,7 @@ COPY --from=extractor --chown=appuser:appgroup /app/extracted/application/ ./
 
 USER appuser
 
-# Gate Coolify rolling updates on Spring's application-readiness lifecycle. This
+# Gate rolling updates on Spring's application-readiness lifecycle. This
 # intentionally excludes external diagnostics such as S3 from deployment health.
 HEALTHCHECK --interval=10s --timeout=5s --start-period=90s --retries=6 \
     CMD curl --fail --silent --show-error --max-time 4 "http://127.0.0.1:${SERVER_PORT}/readyz" || exit 1
