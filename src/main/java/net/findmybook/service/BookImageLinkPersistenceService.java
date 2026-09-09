@@ -66,7 +66,7 @@ public class BookImageLinkPersistenceService {
                 incomingQuality.score(),
                 incomingQuality.pixelArea()
             );
-            return new ImageLinkPersistenceResult(false, normalizedImageLinks, CoverImageUrlSelector.selectPreferredImageUrl(normalizedImageLinks));
+            return ImageLinkPersistenceResult.empty();
         }
 
         String source = identifiers.getSource() != null ? identifiers.getSource() : "GOOGLE_BOOKS";
