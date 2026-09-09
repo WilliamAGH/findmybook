@@ -3,6 +3,7 @@ SHELL := /bin/sh
 # Configurable variables
 PORT ?= 8095
 GRADLEW ?= ./gradlew
+PSQL ?= node frontend/scripts/postgres-connection-config.js -X -v ON_ERROR_STOP=1
 
 # Migration args (override via: make migrate-books MIGRATE_MAX=100 MIGRATE_SKIP=0 MIGRATE_PREFIX=books/v1/ MIGRATE_DEBUG=true)
 MIGRATE_MAX ?= 0
@@ -17,7 +18,7 @@ AUTHOR_WRITERS_DRAINED ?= false
 AUTHOR_WRITES_QUIESCED ?= false
 AUTHOR_CALLERS_DEPLOYED ?= false
 
-.PHONY: run build test lint lint-ast kill-port hooks migrate-books cluster-books \
+.PHONY: run build test lint lint-ast kill-port hooks migrate-books cluster-books db-apply-display-queries \
   check-s3-in-db fix-s3-acl-public-all db-reset db-migrate \
   db-contract-author-identity db-verify-author-constraints \
   db-verify-book-title-constraints
@@ -79,6 +80,11 @@ migrate-books:
 	@node frontend/scripts/migrate-s3-to-db-v2.js --max=$(MIGRATE_MAX) --skip=$(MIGRATE_SKIP) --prefix=$(MIGRATE_PREFIX) --debug=$(MIGRATE_DEBUG)
 
 # Database schema operations
+db-apply-display-queries: SHELL := /bin/bash
+db-apply-display-queries: .SHELLFLAGS := -eu -o pipefail -c
+db-apply-display-queries: ## Replace card/list/detail functions atomically, preserving grants and data
+	@awk '/^CREATE OR REPLACE FUNCTION get_(google_books_metadata|book_(cards|list_items|detail))\(/ { printing = 1; count++ } printing { sql = sql $$0 ORS } printing && /LANGUAGE (sql|plpgsql) STABLE;$$/ { printing = 0 } END { if (count != 4 || printing) exit 1; printf "%s", sql }' src/main/resources/optimized_book_queries.sql | $(PSQL) -X -v ON_ERROR_STOP=1 --single-transaction -f -
+
 db-reset:
 	@echo "⚠️  WARNING: This will DROP and recreate all tables!"
 	@echo "Press Ctrl+C to abort, or wait 3 seconds to continue..."
