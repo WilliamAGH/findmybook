@@ -9,9 +9,20 @@ import net.findmybook.service.BookSearchService;
 import net.findmybook.test.annotations.DbIntegrationTest;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeAll;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
+import org.testcontainers.utility.MountableFile;
 
+import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
+import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -344,5 +355,76 @@ class BookQueryRepositoryTest {
 
         assertThat(card.title()).isEqualTo(titleFromDb);
         assertThat(card.id()).isEqualTo(bookId.toString());
+    }
+}
+
+/** Exercises display cardinality using the canonical schema and SQL installation command. */
+@Testcontainers
+class BookDisplayQueryCardinalityTest {
+
+    @Container
+    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(
+        DockerImageName.parse("pgvector/pgvector:pg17").asCompatibleSubstituteFor("postgres"))
+        .withCopyToContainer(MountableFile.forHostPath(Path.of("migrations").toAbsolutePath()), "/migrations")
+        .withCopyToContainer(MountableFile.forHostPath(Path.of("src/main/resources/schema.sql").toAbsolutePath()),
+            "/docker-entrypoint-initdb.d/000-schema.sql");
+
+    private static JdbcTemplate jdbc;
+
+    @BeforeAll
+    static void installDisplayQueries() throws Exception {
+        Process installer = new ProcessBuilder("make", "db-apply-display-queries",
+            "PSQL=docker exec -i " + POSTGRES.getContainerId() + " psql -U " + POSTGRES.getUsername()
+                + " -d " + POSTGRES.getDatabaseName())
+            .redirectErrorStream(true)
+            .start();
+        String output = new String(installer.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertThat(installer.waitFor()).as(output).isZero();
+        jdbc = new JdbcTemplate(new DriverManagerDataSource(
+            POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword()));
+    }
+
+    @Test
+    void should_ReturnOneCoherentDisplayPerBook_When_ProviderRowsAndInputIdsRepeat() {
+        List<UUID> requested = new ArrayList<>();
+        for (int index = 0; index < 8; index++) {
+            UUID id = new UUID(1, index + 1);
+            requested.add(id);
+            jdbc.update("INSERT INTO books(id,title,slug) VALUES (?,?,?)", id,
+                "Synthetic cardinality book " + index, "cardinality-book-" + index);
+            for (int edition = 0; edition < 3; edition++) {
+                jdbc.update("""
+                    INSERT INTO book_external_ids(id,book_id,source,external_id,average_rating,ratings_count,
+                        preview_link,info_link,last_updated,created_at)
+                    VALUES (?,?,'GOOGLE_BOOKS',?,?,?,?,?,TIMESTAMPTZ '2026-01-01',TIMESTAMPTZ '2026-01-01')
+                    """, "metadata-" + index + "-" + edition, id, "edition-" + index + "-" + edition,
+                    edition == 0 ? null : new BigDecimal("4.5"), edition == 0 ? null : 12,
+                    "https://example.test/preview/" + edition, "https://example.test/info/" + edition);
+            }
+        }
+        List<UUID> repeated = new ArrayList<>(requested.reversed());
+        repeated.add(requested.getFirst());
+        repeated.add(requested.getLast());
+
+        for (String function : List.of("get_book_cards", "get_book_list_items")) {
+            List<UUID> cards = jdbc.query("SELECT id,average_rating,ratings_count FROM " + function
+                + "(?::uuid[])", statement -> statement.setArray(1,
+                    statement.getConnection().createArrayOf("uuid", repeated.toArray(UUID[]::new))),
+                (row, index) -> {
+                    assertThat(row.getBigDecimal("average_rating")).isEqualByComparingTo("4.5");
+                    assertThat(row.getInt("ratings_count")).isEqualTo(12);
+                    return row.getObject("id", UUID.class);
+                });
+            assertThat(cards).containsExactlyElementsOf(requested.reversed());
+        }
+        UUID book = requested.getFirst();
+        assertThat(jdbc.queryForList("SELECT id FROM get_book_detail(?)", UUID.class, book))
+            .containsExactly(book);
+        assertThat(jdbc.queryForObject("SELECT preview_link FROM get_book_detail(?)", String.class, book))
+            .isEqualTo("https://example.test/preview/1");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM get_book_cards(ARRAY[?]::uuid[])",
+            Integer.class, book)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM get_book_cards(ARRAY[]::uuid[])", Integer.class))
+            .isZero();
     }
 }

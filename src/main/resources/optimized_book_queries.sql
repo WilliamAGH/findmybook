@@ -21,9 +21,22 @@
 -- Replaces: hydrateBatchAuthors, hydrateBatchCategories, hydrateBatchCovers, hydrateBatchProviderMetadata
 -- Performance: Single query vs. 5 queries per book (8 books = 40 queries → 1 query)
 -- ============================================================================
-DROP FUNCTION IF EXISTS get_book_cards(UUID[]);
+-- A canonical book can have several Google Books editions. Select one coherent
+-- metadata row so ratings and provider links never multiply display rows.
+CREATE OR REPLACE FUNCTION get_google_books_metadata(book_id_param UUID)
+RETURNS SETOF book_external_ids AS $$
+    SELECT provider.*
+    FROM book_external_ids provider
+    WHERE provider.book_id = book_id_param AND provider.source = 'GOOGLE_BOOKS'
+    ORDER BY (provider.average_rating IS NOT NULL) DESC,
+             provider.ratings_count DESC NULLS LAST,
+             provider.last_updated DESC NULLS LAST,
+             provider.created_at DESC,
+             provider.id
+    LIMIT 1;
+$$ LANGUAGE sql STABLE;
 
-CREATE FUNCTION get_book_cards(book_ids UUID[])
+CREATE OR REPLACE FUNCTION get_book_cards(book_ids UUID[])
 RETURNS TABLE (
     id UUID,
     slug TEXT,
@@ -41,8 +54,9 @@ RETURNS TABLE (
 BEGIN
     RETURN QUERY
     WITH input_ids AS (
-        SELECT ids.book_id, ids.ord
+        SELECT ids.book_id, MIN(ids.ord) AS ord
         FROM unnest(book_ids) WITH ORDINALITY AS ids(book_id, ord)
+        GROUP BY ids.book_id
     ),
     card_data AS (
         SELECT
@@ -79,9 +93,7 @@ BEGIN
             b.published_date
         FROM input_ids
         JOIN books b ON b.id = input_ids.book_id
-        LEFT JOIN book_authors_join baj ON b.id = baj.book_id
-        LEFT JOIN authors a ON a.id = baj.author_id
-        LEFT JOIN book_external_ids bei ON bei.book_id = b.id AND bei.source = 'GOOGLE_BOOKS'
+        LEFT JOIN LATERAL get_google_books_metadata(b.id) bei ON TRUE
         LEFT JOIN LATERAL (
             SELECT chosen.cover_url,
                    chosen.cover_s3_key,
@@ -197,11 +209,6 @@ BEGIN
                 chosen.created_value DESC
             LIMIT 1
         ) cover_meta ON TRUE
-        GROUP BY input_ids.ord, b.id, b.slug, b.title,
-                 cover_meta.cover_url, cover_meta.cover_s3_key, cover_meta.cover_fallback_url,
-                 cover_meta.cover_is_grayscale,
-                 bei.average_rating, bei.ratings_count,
-                 b.published_date
     )
     SELECT
         card_data.id,
@@ -229,9 +236,7 @@ COMMENT ON FUNCTION get_book_cards IS 'Optimized query for book cards - prefers 
 -- Adds: description, categories beyond card data
 -- Performance: Single query vs. 6 queries per book
 -- ============================================================================
-DROP FUNCTION IF EXISTS get_book_list_items(uuid[]);
-
-CREATE FUNCTION get_book_list_items(book_ids UUID[])
+CREATE OR REPLACE FUNCTION get_book_list_items(book_ids UUID[])
 RETURNS TABLE (
     id UUID,
     slug TEXT,
@@ -254,8 +259,9 @@ RETURNS TABLE (
 BEGIN
     RETURN QUERY
     WITH input_ids AS (
-        SELECT ids.book_id, ids.ord
+        SELECT ids.book_id, MIN(ids.ord) AS ord
         FROM unnest(book_ids) WITH ORDINALITY AS ids(book_id, ord)
+        GROUP BY ids.book_id
     ),
     list_data AS (
         SELECT
@@ -312,11 +318,7 @@ BEGIN
             b.published_date as published_date
         FROM input_ids
         JOIN books b ON b.id = input_ids.book_id
-        LEFT JOIN book_authors_join baj ON b.id = baj.book_id
-        LEFT JOIN authors a ON a.id = baj.author_id
-        LEFT JOIN book_collections_join bcj ON bcj.book_id = b.id
-        LEFT JOIN book_collections bc ON bc.id = bcj.collection_id
-        LEFT JOIN book_external_ids bei ON bei.book_id = b.id AND bei.source = 'GOOGLE_BOOKS'
+        LEFT JOIN LATERAL get_google_books_metadata(b.id) bei ON TRUE
         LEFT JOIN LATERAL (
             SELECT chosen.cover_url,
                    chosen.cover_s3_key,
@@ -432,11 +434,6 @@ BEGIN
                 chosen.created_value DESC
             LIMIT 1
         ) cover_meta ON TRUE
-        GROUP BY input_ids.ord, b.id, b.slug, b.title, b.description, b.published_date,
-                 bei.average_rating, bei.ratings_count,
-                 cover_meta.cover_url, cover_meta.cover_s3_key, cover_meta.cover_fallback_url,
-                 cover_meta.cover_is_grayscale,
-                 cover_meta.width, cover_meta.height, cover_meta.is_high_resolution
     )
     SELECT
         list_data.id,
@@ -462,8 +459,6 @@ END;
 $$ LANGUAGE plpgsql STABLE;
 
 COMMENT ON FUNCTION get_book_list_items IS 'Optimized query for book list view - prefers high-quality covers (S3 or 180x280 edge=curl) but gracefully falls back to the best available image when none meet the strict rules';
-
-DROP FUNCTION IF EXISTS get_book_detail(UUID);
 
 -- ============================================================================
 -- FUNCTION: get_book_detail
@@ -595,9 +590,7 @@ BEGIN
             '{}'::JSONB
         ) as tags
     FROM books b
-    LEFT JOIN book_collections_join bcj ON bcj.book_id = b.id
-    LEFT JOIN book_collections bc ON bc.id = bcj.collection_id
-    LEFT JOIN book_external_ids bei ON bei.book_id = b.id AND bei.source = 'GOOGLE_BOOKS'
+    LEFT JOIN LATERAL get_google_books_metadata(b.id) bei ON TRUE
     LEFT JOIN LATERAL (
         SELECT source
         FROM book_external_ids bei_primary
@@ -629,14 +622,7 @@ BEGIN
             bil_meta.created_at DESC
         LIMIT 1
     ) cover_meta ON TRUE
-    WHERE b.id = book_id_param
-    GROUP BY b.id, b.slug, b.title, b.description, b.publisher, b.published_date,
-             b.language, b.page_count, b.isbn10, b.isbn13,
-             bei.average_rating, bei.ratings_count, bei.preview_link, bei.info_link,
-             cover_meta.cover_url, cover_meta.cover_s3_key, cover_meta.cover_fallback_url,
-             cover_meta.width, cover_meta.height, cover_meta.is_high_resolution,
-             cover_meta.is_grayscale,
-             provider_source.source;
+    WHERE b.id = book_id_param;
 END;
 $$ LANGUAGE plpgsql STABLE;
 

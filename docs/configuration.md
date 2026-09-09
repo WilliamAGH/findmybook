@@ -72,6 +72,16 @@ Startup now fails fast with a clear error when database-required profiles are ac
 
 The base Hikari pool validates idle JDBC connections every 60 seconds while retaining the 30-minute connection lifetime. PostgreSQL `tcpKeepAlive` is also enabled so the driver uses the operating system's TCP keepalive policy; no custom connection test query replaces driver validation.
 
+Book card, list, and detail SQL projections are owned by
+`src/main/resources/optimized_book_queries.sql`. Apply compatible changes with
+`make db-apply-display-queries`, using an injected application datasource environment
+or a trusted `PSQL` command override. It does not read a local `.env` file.
+The target replaces only these three functions and their shared provider-metadata selector
+in one transaction, preserving their signatures, grants, and stored book data;
+it does not replay unrelated schema or edition-function changes. A Git push or
+application restart does not apply SQL functions. Each distinct requested book
+must produce one result, even when it has several records from the same provider.
+
 ## Frontend Static Asset Caching
 
 - The Spring resource handler serves `/frontend/**` with `Cache-Control: no-cache, must-revalidate`.
