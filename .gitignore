@@ -91,3 +91,6 @@ src/main/resources/static/frontend/app.js
 src/main/resources/static/frontend/app.js.map
 src/main/resources/static/frontend/site.webmanifest
 src/main/resources/static/frontend/assets/
+
+### Agent task worktrees (registered, inside repo root) ###
+.worktrees/

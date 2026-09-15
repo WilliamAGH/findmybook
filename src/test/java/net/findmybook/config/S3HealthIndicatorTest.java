@@ -1,5 +1,6 @@
 package net.findmybook.config;
 
+import net.findmybook.service.NewYorkTimesService;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.health.contributor.Status;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -290,13 +291,13 @@ class WebClientConfigTest {
     }
 
     @Test
-    void should_DecodeJsonLargerThanDefaultBuffer_When_RepositoryConfigurationIsLoaded() {
+    void should_DecodeLargeNytOverview_When_ServiceUsesBootManagedBuilderFromContext() {
         String payload = "x".repeat(300_000);
-        String responseBody = "{\"payload\":\"" + payload + "\"}";
+        String responseBody = "{\"results\":{\"lists\":[],\"payload\":\"" + payload + "\"}}";
         DisposableServer server = HttpServer.create()
             .host("127.0.0.1")
             .port(0)
-            .route(routes -> routes.get("/large-json", (request, response) -> response
+            .route(routes -> routes.get("/lists/overview.json", (request, response) -> response
                 .header("Content-Type", "application/json")
                 .sendString(Mono.just(responseBody))))
             .bindNow();
@@ -309,7 +310,11 @@ class WebClientConfigTest {
                     CodecsAutoConfiguration.class,
                     WebClientAutoConfiguration.class
                 ))
-                .withUserConfiguration(WebClientConfig.class)
+                .withPropertyValues(
+                    "nyt.api.base-url=http://127.0.0.1:" + server.port(),
+                    "nyt.api.key=synthetic-local-test-key"
+                )
+                .withUserConfiguration(WebClientConfig.class, NewYorkTimesService.class)
                 .run(context -> {
                     assertEquals(
                         "10MB",
@@ -319,18 +324,12 @@ class WebClientConfigTest {
                         DataSize.ofMegabytes(10),
                         context.getBean(HttpCodecsProperties.class).getMaxInMemorySize()
                     );
-                    WebClient client = context.getBean(WebClient.Builder.class)
-                        .baseUrl("http://127.0.0.1:" + server.port())
-                        .build();
-
-                    tools.jackson.databind.JsonNode decoded = client.get()
-                        .uri("/large-json")
-                        .retrieve()
-                        .bodyToMono(tools.jackson.databind.JsonNode.class)
+                    tools.jackson.databind.JsonNode decoded = context.getBean(NewYorkTimesService.class)
+                        .fetchBestsellerListOverview()
                         .block(Duration.ofSeconds(5));
 
                     assertNotNull(decoded);
-                    assertEquals(payload.length(), decoded.path("payload").stringValue().length());
+                    assertEquals(payload.length(), decoded.path("results").path("payload").stringValue().length());
                 });
         } finally {
             server.disposeNow();
