@@ -67,7 +67,7 @@ public enum LlmGatewayTier {
     }
 
     /**
-     * Returns the completion budget for Gemma inference through this gateway tier. The budget
+     * Returns the completion budget for gateway inference through this tier. The budget
      * includes provider-side reasoning tokens, so it intentionally exceeds the small JSON payload
      * rendered to callers. Consumers must still require an explicit {@code stop} finish reason.
      *
