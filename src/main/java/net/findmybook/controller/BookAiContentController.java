@@ -1,6 +1,7 @@
 package net.findmybook.controller;
 
 import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
+import io.github.resilience4j.ratelimiter.RequestNotPermitted;
 import jakarta.annotation.PreDestroy;
 import jakarta.servlet.http.HttpServletResponse;
 import java.time.Duration;
@@ -144,7 +145,7 @@ public class BookAiContentController {
 
     /** Streams AI generation events for a single book. */
     @PostMapping(path = "/{identifier}/ai/content/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    @RateLimiter(name = "bookAiContentRateLimiter")
+    @RateLimiter(name = "bookAiContentRateLimiter", fallbackMethod = "streamAiContentRateLimited")
     public SseEmitter streamAiContent(@PathVariable String identifier,
                                       @RequestParam(name = "refresh", defaultValue = "false") boolean refresh,
                                       HttpServletResponse response) {
@@ -172,6 +173,20 @@ public class BookAiContentController {
             return emitter;
         }
         beginQueuedStream(emitter, bookId, response);
+        return emitter;
+    }
+
+    private SseEmitter streamAiContentRateLimited(
+        String identifier,
+        boolean refresh,
+        HttpServletResponse response,
+        RequestNotPermitted rateLimitDenial
+    ) {
+        log.warn("AI content request admission rate limited for identifier={}: {}", identifier, rateLimitDenial.getMessage());
+        response.setHeader("X-Accel-Buffering", "no");
+        response.setHeader("Cache-Control", "no-cache, no-transform");
+        SseEmitter emitter = new SseEmitter(emitterTimeoutMillis);
+        sseOrchestrator.emitTerminalError(emitter, AiErrorCode.QUEUE_BUSY, AiErrorCode.QUEUE_BUSY.defaultMessage());
         return emitter;
     }
 

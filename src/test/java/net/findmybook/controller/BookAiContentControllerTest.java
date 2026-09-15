@@ -16,6 +16,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import io.github.resilience4j.ratelimiter.RateLimiterConfig;
+import io.github.resilience4j.ratelimiter.RateLimiterRegistry;
+import io.github.resilience4j.spring6.fallback.FallbackDecorators;
+import io.github.resilience4j.spring6.fallback.FallbackExecutor;
+import io.github.resilience4j.spring6.ratelimiter.configure.RateLimiterAspect;
+import io.github.resilience4j.spring6.ratelimiter.configure.RateLimiterConfigurationProperties;
+import io.github.resilience4j.spring6.spelresolver.DefaultSpelResolver;
+import io.github.resilience4j.spring6.spelresolver.SpelResolver;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -45,6 +53,10 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
 import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.aop.aspectj.annotation.AspectJProxyFactory;
+import org.springframework.beans.factory.support.DefaultListableBeanFactory;
+import org.springframework.core.StandardReflectionParameterNameDiscoverer;
+import org.springframework.expression.spel.standard.SpelExpressionParser;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -157,6 +169,53 @@ class BookAiContentControllerTest {
             .contains("event:queued")
             .contains("\"requestId\":\"task-1\"");
         verify(requestQueue).enqueueForeground(eq(0), any(), any());
+    }
+
+    @Test
+    @DisplayName("POST stream emits retryable queue-busy SSE error when admission limiter rejects it")
+    void should_EmitQueueBusyError_When_RateLimiterRejectsRequest() throws Exception {
+        RateLimiterConfig limiterConfig = RateLimiterConfig.custom()
+            .limitForPeriod(1)
+            .limitRefreshPeriod(Duration.ofMinutes(1))
+            .timeoutDuration(Duration.ZERO)
+            .build();
+        RateLimiterRegistry limiterRegistry = RateLimiterRegistry.of(limiterConfig);
+        SpelResolver spelResolver = new DefaultSpelResolver(
+            new SpelExpressionParser(),
+            new StandardReflectionParameterNameDiscoverer(),
+            new DefaultListableBeanFactory()
+        );
+        RateLimiterAspect rateLimiterAspect = new RateLimiterAspect(
+            limiterRegistry,
+            new RateLimiterConfigurationProperties(),
+            List.of(),
+            new FallbackExecutor(spelResolver, new FallbackDecorators(List.of())),
+            spelResolver
+        );
+        AspectJProxyFactory proxyFactory = new AspectJProxyFactory(controller);
+        proxyFactory.addAspect(rateLimiterAspect);
+        BookAiContentController rateLimitedController = proxyFactory.getProxy();
+        MockMvc rateLimitedMockMvc = MockMvcBuilders.standaloneSetup(rateLimitedController).build();
+        when(aiContentService.resolveBookId("missing-book")).thenReturn(Optional.empty());
+
+        rateLimitedMockMvc.perform(post("/api/books/missing-book/ai/content/stream"))
+            .andExpect(status().isOk())
+            .andExpect(content().contentType(MediaType.TEXT_EVENT_STREAM));
+
+        String responseBody = rateLimitedMockMvc.perform(post("/api/books/missing-book/ai/content/stream"))
+            .andExpect(status().isOk())
+            .andExpect(content().contentType(MediaType.TEXT_EVENT_STREAM))
+            .andExpect(header().string("X-Accel-Buffering", "no"))
+            .andExpect(header().string("Cache-Control", "no-cache, no-transform"))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+        assertThat(responseBody)
+            .contains("event:error")
+            .contains("\"code\":\"queue_busy\"")
+            .contains("\"retryable\":true");
+        verify(aiContentService, times(1)).resolveBookId("missing-book");
     }
 
     @Test

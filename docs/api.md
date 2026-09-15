@@ -171,6 +171,9 @@
     - `message_done`: `{ message }`
     - `done`: `{ message, aiContent }` where `aiContent` matches the `book.aiContent` contract
     - `error`: `{ error, code, retryable }`
+      - An exhausted stream admission rate limit returns a terminal `queue_busy` event with
+        `retryable: true` in an HTTP `200 text/event-stream` response. The request does not
+        enter the generation queue; clients can retry later through the normal stream endpoint.
       - Queue wait ends with `queue_busy` after at most ten minutes. After `started`, the
         `stream_timeout` generation-and-delivery deadline lasts four minutes thirty seconds, so
         queued work cannot consume that budget.
