@@ -15,6 +15,7 @@ See [UML README](../src/main/resources/uml/README.md).
 - Search result links now include a `bookId` query hint (`/book/{slug}?bookId={id}`) so book detail pages can retry canonical API lookups by ID when slug-only lookups temporarily fail.
 - Reader's Guide generation attempts Open Library and Google Books description enrichment independently before returning a terminal `description_too_short` stream error. In production, the panel renders the backend's safe terminal error message, hides Refresh for non-retryable eligibility results, and retains Refresh for retryable generation failures. Background ingestion treats that eligibility result as a Reader's Guide skip and continues SEO metadata generation.
 - Reader's Guide generation buffers model output until strict validation and persistence complete; retries never replay partial provider output to the browser.
+- The Reader's Guide prompt requires source qualifiers to remain intact so limited claims are not rewritten as universal claims.
 - Trailing-slash variants of page routes permanently redirect (`308`) to the canonical non-slash path with query strings preserved.
 - Non-HTML crawler endpoints remain explicit and unchanged (`/book/isbn*`, `/sitemap.xml`, `/sitemap-xml/*`, `/robots.txt`).
 - Static fallback HTML at `/frontend/index.html` is not served; only backend controllers provide public HTML entrypoints.
