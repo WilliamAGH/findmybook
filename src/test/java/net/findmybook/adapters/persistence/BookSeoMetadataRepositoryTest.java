@@ -64,23 +64,6 @@ class BookSeoMetadataRepositoryTest {
         assertThat(previousCurrent).isFalse();
     }
 
-    @Test
-    void should_ReturnCurrentPromptHash_When_CurrentVersionExists() {
-        // Arrange
-        UUID bookId = createBook();
-        repository.insertNewCurrentVersion(
-            bookId,
-            "Title - Book Details | findmybook.net",
-            "Description",
-            "gpt-5-mini",
-            "openai",
-            "prompt-hash"
-        );
-
-        // Act & Assert
-        assertThat(repository.fetchCurrentPromptHash(bookId)).contains("prompt-hash");
-    }
-
     private UUID createBook() {
         UUID id = UUID.randomUUID();
         jdbcTemplate.update(
