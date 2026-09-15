@@ -62,7 +62,7 @@ public class BookAiContentService {
         - You MAY infer genre, audience, themes, and context from provided metadata.
         - You MUST NOT fabricate quotes, page counts, chapter titles, plot points, sales, awards, publication details, or biography claims absent from the description.
         - You MUST NOT invent statistics, studies, or research findings.
-        - Preserve source qualifiers such as "almost", "some", and "may"; never strengthen a limited claim into a universal claim.
+        - For every factual claim, preserve its exact scope and certainty from the description. Keep qualifiers attached to the claim they modify: "almost every" must remain "almost every", never "each" or "every". Do not transfer a qualifier from one fact to another. Before returning JSON, check every claim against the description and correct any stronger wording.
         - If an optional field cannot be reasonably inferred, return null (string) or [] (array).
         Return ONLY strict JSON with this exact shape:
         {"summary": string, "readerFit": string|null, "keyThemes": string[], "takeaways": string[], "context": string|null}
