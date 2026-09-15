@@ -62,7 +62,6 @@ public class BookSeoMetadataService {
             new BookOpenGraphImageResolver(localDiskCoverCacheService),
             canonicalUrlResolver,
             seoMarkupFormatter,
-            routeStructuredDataRenderer,
             bookId -> Optional.empty()
         );
         this.seoRouteManifestUseCase = manifestUseCase;
@@ -98,10 +97,6 @@ public class BookSeoMetadataService {
 
     public SeoMetadata categoriesMetadata() {
         return routeSeoMetadataUseCase.categoriesMetadata();
-    }
-
-    public SeoMetadata bookFallbackMetadata(String identifier) {
-        return bookSeoMetadataUseCase.bookFallbackMetadata(identifier);
     }
 
     public SeoMetadata bookMetadata(Book book, int maxDescriptionLength) {
