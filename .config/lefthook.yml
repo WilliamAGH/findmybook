@@ -14,7 +14,7 @@ pre-commit:
     frontend-lint-fix:
       root: "frontend/"
       glob: "src/**/*.{js,ts,svelte}"
-      run: npx oxlint -c config/oxlintrc.json --fix {staged_files}
+      run: pnpm exec oxlint -c config/oxlintrc.json --fix {staged_files}
       stage_fixed: true
     no-commit-to-branch:
       run: "test $(git rev-parse --abbrev-ref HEAD) != main"
@@ -25,8 +25,8 @@ pre-push:
     gradle-check:
       run: ./gradlew check -PskipFrontend
     frontend-lint:
-      run: npm --prefix frontend run lint:ox
+      run: pnpm --dir frontend run lint:ox
     frontend-check:
-      run: npm --prefix frontend run check
+      run: pnpm --dir frontend run check
     frontend-test:
-      run: npm --prefix frontend run test
+      run: pnpm --dir frontend run test

@@ -203,7 +203,7 @@
 ### [VER1] Verification Commands
 - [VER1a] Backend compile/test with `./gradlew clean test` (or targeted tasks for scoped changes).
 - [VER1b] Runtime verification command is `SPRING_PROFILES_ACTIVE=dev SERVER_PORT=8095 ./gradlew bootRun`.
-- [VER1c] Frontend CSS pipeline check is `npm --prefix frontend run build:css`.
+- [VER1c] Frontend CSS pipeline check is `pnpm --dir frontend run build:css`.
 - [VER1d] If a Svelte/Vite app is present, verify with its local `dev`, `test`, `check`, and `build` scripts.
 - [VER1e] For UI changes, verify both desktop and mobile rendering paths for affected pages or routes.
 - [VER1f] Validate each slice: after completing an end-to-end slice ([CLN1f]), run verification checks before starting the next slice.

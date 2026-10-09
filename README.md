@@ -25,7 +25,7 @@ Spring Boot + Svelte application for book lookup and recommendations using OpenA
    ```
 3. **Frontend (optional HMR):** Run Vite for SPA development.
    ```bash
-   npm --prefix frontend run dev
+   pnpm --dir frontend run dev
    ```
 4. **Access:** Open [http://localhost:8095](http://localhost:8095).
 

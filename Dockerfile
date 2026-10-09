@@ -35,9 +35,14 @@ RUN chmod +x ./gradlew
 # 2. Pre-fetch Gradle dependencies (layer cached until build scripts change)
 RUN ./gradlew dependencies --no-daemon -q
 
-# 3. Frontend dependency install (cached until package.json/lock changes)
-COPY frontend/package.json frontend/package-lock.json ./frontend/
-RUN cd frontend && npm ci
+# 3. Frontend dependency install (cached until the lockfile inputs change)
+# The pnpm store and corepack cache mounts share their ids with every other fleet
+# image; corepack's pnpm is per architecture, and this stage runs on TARGETARCH.
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./frontend/
+RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
+    --mount=type=cache,id=corepack-${TARGETARCH},target=/root/.cache/node/corepack \
+    corepack enable \
+    && pnpm --dir frontend install --frozen-lockfile
 
 # 4. Frontend config and source files (surgical copies avoid node_modules)
 COPY frontend/index.html ./frontend/
@@ -50,7 +55,9 @@ COPY src ./src
 
 # 6. Build JAR (Frontend build is triggered via Gradle processResources task)
 # -q reduces noise, -x test skips tests for faster build
-RUN ./gradlew bootJar --no-daemon -q -x test
+RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
+    --mount=type=cache,id=corepack-${TARGETARCH},target=/root/.cache/node/corepack \
+    ./gradlew bootJar --no-daemon -q -x test
 
 # ---------- Extractor stage for layered JAR ----------
 FROM ${BASE_REGISTRY}/eclipse-temurin:25-jre AS extractor

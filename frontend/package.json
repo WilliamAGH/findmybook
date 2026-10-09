@@ -4,9 +4,10 @@
   "version": "1.0.0",
   "type": "module",
   "engines": {
-    "node": "24.18.0"
+    "node": "24.18.0",
+    "pnpm": ">=12.0.0"
   },
-  "packageManager": "npm@11.16.0",
+  "packageManager": "pnpm@12.3.4",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -19,7 +20,7 @@
     "lint:ox": "oxlint -c config/oxlintrc.json src/",
     "lint:fix": "oxlint -c config/oxlintrc.json --fix src/",
     "lint:boundaries": "ast-grep scan -c sgconfig.yml",
-    "validate": "npm run check && npm run lint:ox && npm run lint:boundaries && npm run test"
+    "validate": "pnpm run check && pnpm run lint:ox && pnpm run lint:boundaries && pnpm run test"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1104.0",
@@ -55,5 +56,17 @@
   "allowScripts": {
     "@ast-grep/cli": true,
     "fsevents": false
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "12.3.4",
+      "onFail": "error"
+    },
+    "runtime": {
+      "name": "node",
+      "version": "24.18.0",
+      "onFail": "download"
+    }
   }
 }

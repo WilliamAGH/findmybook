@@ -62,18 +62,18 @@ lint: lint-ast
 	  echo "spotlessApply task not configured; skipping."; \
 	fi
 	@echo "Running frontend oxlint..."
-	@npm --prefix frontend run lint:ox
+	@pnpm --dir frontend run lint:ox
 
 lint-ast: ## Run ast-grep rules for Java naming and type safety
 	@if [ ! -x frontend/node_modules/.bin/ast-grep ]; then \
-	  echo "ast-grep not installed; run 'npm --prefix frontend install' first"; \
+	  echo "ast-grep not installed; run 'pnpm --dir frontend install' first"; \
 	  exit 1; \
 	fi
 	@frontend/node_modules/.bin/ast-grep scan -c sgconfig.yml src/main/java/
 
 
 # Fast S3 -> Postgres books migration (standalone Node.js script - v2 refactored)
-# Requires: npm install pg @aws-sdk/client-s3
+# Requires: pnpm --dir frontend install (provides pg and @aws-sdk/client-s3)
 # Uses SPRING_DATASOURCE_URL, S3_* env vars from .env
 migrate-books:
 	@echo "Running standalone S3 -> Postgres migration (v2 - Refactored)..."
