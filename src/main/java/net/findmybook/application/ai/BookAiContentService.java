@@ -13,6 +13,7 @@ import com.openai.errors.OpenAIServiceException;
 import com.openai.errors.SseException;
 import com.openai.models.ChatModel;
 import com.openai.models.ReasoningEffort;
+import com.openai.models.ResponseFormatJsonObject;
 import com.openai.models.chat.completions.ChatCompletionChunk;
 import com.openai.models.chat.completions.ChatCompletionCreateParams;
 import com.openai.models.chat.completions.ChatCompletionMessageParam;
@@ -303,7 +304,10 @@ public class BookAiContentService {
             .maxCompletionTokens(tier.maxCompletionTokens())
             .temperature(SAMPLING_TEMPERATURE);
         configuredReasoningEffort.ifPresent(paramsBuilder::reasoningEffort);
-        ChatCompletionCreateParams params = paramsBuilder.build();
+        // A schema derived from BookAiContent cannot express its nullable optional fields.
+        ChatCompletionCreateParams params = paramsBuilder
+            .responseFormat(ResponseFormatJsonObject.builder().build())
+            .build();
 
         long effectiveRequestTimeoutSeconds = tier == LlmGatewayTier.LIVE_RENDER
             ? Math.min(requestTimeoutSeconds, tier.callTimeoutSeconds())

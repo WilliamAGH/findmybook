@@ -193,7 +193,10 @@ class BookSeoMetadataClient {
         if (configuredReasoningEffort.isPresent()) {
             paramsBuilder.reasoningEffort(configuredReasoningEffort.get());
         }
-        ChatCompletionCreateParams params = paramsBuilder.build();
+        ChatCompletionCreateParams params = paramsBuilder
+            .responseFormat(SeoMetadataCandidate.class)
+            .build()
+            .rawParams();
 
         long effectiveRequestTimeoutSeconds = tier == LlmGatewayTier.LIVE_RENDER
             ? Math.min(requestTimeoutSeconds, tier.callTimeoutSeconds())
