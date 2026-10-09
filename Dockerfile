@@ -9,14 +9,21 @@ FROM ${BASE_REGISTRY}/eclipse-temurin:25-jdk AS build
 WORKDIR /app
 
 # 0. Install Node.js for frontend build
-# Using NodeSource to get Node.js 22.x (required by Vite/Svelte)
+# Exact official release matching frontend/package.json engines.node, checksum-verified
+ARG NODE_VERSION=24.18.0
+ARG TARGETARCH
 RUN set -eux; \
     apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates gnupg; \
-    curl -fsSL https://deb.nodesource.com/setup_22.x -o /tmp/nodesource_setup.sh; \
-    bash /tmp/nodesource_setup.sh; \
-    apt-get install -y --no-install-recommends nodejs; \
-    rm -rf /var/lib/apt/lists/* /tmp/nodesource_setup.sh
+    curl ca-certificates xz-utils; \
+    case "${TARGETARCH:-amd64}" in amd64) node_arch=x64 ;; arm64) node_arch=arm64 ;; *) echo "unsupported arch ${TARGETARCH}"; exit 1 ;; esac; \
+    node_tarball="node-v${NODE_VERSION}-linux-${node_arch}.tar.xz"; \
+    cd /tmp; \
+    curl -fsSLO "https://nodejs.org/dist/v${NODE_VERSION}/${node_tarball}"; \
+    curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt" | grep " ${node_tarball}\$" | sha256sum -c -; \
+    tar -xJf "${node_tarball}" -C /usr/local --strip-components=1 --no-same-owner; \
+    rm -f "${node_tarball}"; \
+    rm -rf /var/lib/apt/lists/*; \
+    test "$(node --version)" = "v${NODE_VERSION}"
 
 # 1. Gradle wrapper & configuration (rarely changes)
 COPY gradlew .

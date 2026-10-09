@@ -3,7 +3,7 @@
 ## Prerequisites
 - **Java 25**
 - **Gradle** (via `./gradlew`)
-- **Node 22.17.0** (for `frontend/` Svelte 5 + Vite 7)
+- **Node 24.18.0** (for `frontend/` Svelte 5 + Vite 7)
 
 ## Shortcuts
 

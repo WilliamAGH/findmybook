@@ -11,7 +11,7 @@ Spring Boot + Svelte application for book lookup and recommendations using OpenA
 ### Prerequisites
 - Java 25
 - Gradle (via `./gradlew`)
-- Node 22.17.0
+- Node 24.18.0
 
 ### Running locally
 
