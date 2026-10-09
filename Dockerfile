@@ -38,11 +38,13 @@ RUN ./gradlew dependencies --no-daemon -q
 # 3. Frontend dependency install (cached until the lockfile inputs change)
 # The pnpm store and corepack cache mounts share their ids with every other fleet
 # image; corepack's pnpm is per architecture, and this stage runs on TARGETARCH.
+# Corepack reads packageManager from the working directory's manifest.
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./frontend/
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
     --mount=type=cache,id=corepack-${TARGETARCH},target=/root/.cache/node/corepack \
     corepack enable \
-    && pnpm --dir frontend install --frozen-lockfile
+    && cd frontend \
+    && pnpm install --frozen-lockfile
 
 # 4. Frontend config and source files (surgical copies avoid node_modules)
 COPY frontend/index.html ./frontend/
