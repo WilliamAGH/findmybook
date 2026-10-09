@@ -25,11 +25,8 @@ pre-push:
     gradle-check:
       run: ./gradlew check -PskipFrontend
     frontend-lint:
-      root: "frontend/"
-      run: pnpm run lint:ox
+      run: cd frontend && pnpm run lint:ox
     frontend-check:
-      root: "frontend/"
-      run: pnpm run check
+      run: cd frontend && pnpm run check
     frontend-test:
-      root: "frontend/"
-      run: pnpm run test
+      run: cd frontend && pnpm run test
