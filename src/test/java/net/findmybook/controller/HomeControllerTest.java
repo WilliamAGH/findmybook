@@ -48,7 +48,11 @@ import reactor.core.publisher.Mono;
 
 @WebFluxTest(value = {HomeController.class, BookDetailPageController.class},
     excludeAutoConfiguration = org.springframework.boot.security.autoconfigure.web.reactive.ReactiveWebSecurityAutoConfiguration.class)
-@TestPropertySource(properties = "app.feature.year-filtering.enabled=true")
+@TestPropertySource(properties = {
+    "app.feature.year-filtering.enabled=true",
+    // The Open Graph PNG render exceeds WebTestClient's 5s default on a loaded host.
+    "spring.test.webtestclient.timeout=30s"
+})
 class HomeControllerTest {
 
     private static final String OPEN_GRAPH_CACHE_CONTROL =
