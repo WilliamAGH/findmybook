@@ -150,6 +150,25 @@ class BookSeoMetadataClientWireTest {
             .doesNotContain("\"disable_reasoning\":true");
     }
 
+    @Test
+    void should_DeclareStrictCandidateJsonSchema_When_GeneratingSeoMetadata() throws Exception {
+        server.enqueueJson(chatCompletion("stop", seoJson()));
+
+        seoClient().generate(BOOK_ID, "Grounded prompt", LlmGatewayTier.BACKGROUND_BATCH);
+
+        JsonNode responseFormat = new ObjectMapper().readTree(server.requestBodies().getFirst()).path("response_format");
+        JsonNode jsonSchema = responseFormat.path("json_schema");
+        JsonNode schema = jsonSchema.path("schema");
+        assertThat(responseFormat.path("type").asString()).isEqualTo("json_schema");
+        assertThat(jsonSchema.path("strict").asBoolean()).isTrue();
+        assertThat(schema.path("properties").propertyNames()).containsExactlyInAnyOrder("seoTitle", "seoDescription");
+        assertThat(schema.path("properties").path("seoTitle").path("type").asString()).isEqualTo("string");
+        assertThat(schema.path("properties").path("seoDescription").path("type").asString()).isEqualTo("string");
+        assertThat(schema.path("required").valueStream().map(JsonNode::asString))
+            .containsExactlyInAnyOrder("seoTitle", "seoDescription");
+        assertThat(schema.path("additionalProperties").asBoolean(true)).isFalse();
+    }
+
     @ParameterizedTest
     @MethodSource("net.findmybook.boot.OpenAiProperties#supportedReasoningEfforts")
     void should_SendEveryConfiguredStandardReasoningEffortWithoutThinkingBudget_When_GeneratingSeoMetadata(

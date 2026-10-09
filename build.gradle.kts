@@ -143,38 +143,38 @@ tasks.named<Jar>("jar") {
 }
 
 val skipFrontend = project.hasProperty("skipFrontend")
-val npmExecutable = if (System.getProperty("os.name").lowercase().contains("windows")) "npm.cmd" else "npm"
+val pnpmExecutable = if (System.getProperty("os.name").lowercase().contains("windows")) "pnpm.cmd" else "pnpm"
 
 val frontendInstall by tasks.registering(Exec::class) {
     workingDir = file("frontend")
-    commandLine(npmExecutable, "install")
+    commandLine(pnpmExecutable, "install", "--frozen-lockfile")
     enabled = !skipFrontend
 }
 
 val frontendCheck by tasks.registering(Exec::class) {
     workingDir = file("frontend")
-    commandLine(npmExecutable, "run", "check")
+    commandLine(pnpmExecutable, "run", "check")
     dependsOn(frontendInstall)
     enabled = !skipFrontend
 }
 
 val frontendTest by tasks.registering(Exec::class) {
     workingDir = file("frontend")
-    commandLine(npmExecutable, "run", "test")
+    commandLine(pnpmExecutable, "run", "test")
     dependsOn(frontendInstall)
     enabled = !skipFrontend
 }
 
 val frontendBuild by tasks.registering(Exec::class) {
     workingDir = file("frontend")
-    commandLine(npmExecutable, "run", "build")
+    commandLine(pnpmExecutable, "run", "build")
     dependsOn(frontendInstall)
     enabled = !skipFrontend
 }
 
 // Copy web icons (favicon, apple-touch-icon, manifest) from the frontend source of truth
 // to the Spring Boot static root so they are served at root paths (e.g. /favicon.svg).
-// Always runs regardless of -PskipFrontend since it's a cheap file copy with no npm dependency.
+// Always runs regardless of -PskipFrontend since it's a cheap file copy with no pnpm dependency.
 val copyWebIcons by tasks.registering(Copy::class) {
     from("frontend/public") {
         include("favicon*")

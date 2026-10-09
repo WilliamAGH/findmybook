@@ -9,14 +9,21 @@ FROM ${BASE_REGISTRY}/eclipse-temurin:25-jdk AS build
 WORKDIR /app
 
 # 0. Install Node.js for frontend build
-# Using NodeSource to get Node.js 22.x (required by Vite/Svelte)
+# Exact official release matching frontend/package.json engines.node, checksum-verified
+ARG NODE_VERSION=24.18.0
+ARG TARGETARCH
 RUN set -eux; \
     apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates gnupg; \
-    curl -fsSL https://deb.nodesource.com/setup_22.x -o /tmp/nodesource_setup.sh; \
-    bash /tmp/nodesource_setup.sh; \
-    apt-get install -y --no-install-recommends nodejs; \
-    rm -rf /var/lib/apt/lists/* /tmp/nodesource_setup.sh
+    curl ca-certificates xz-utils; \
+    case "${TARGETARCH:-amd64}" in amd64) node_arch=x64 ;; arm64) node_arch=arm64 ;; *) echo "unsupported arch ${TARGETARCH}"; exit 1 ;; esac; \
+    node_tarball="node-v${NODE_VERSION}-linux-${node_arch}.tar.xz"; \
+    cd /tmp; \
+    curl -fsSLO "https://nodejs.org/dist/v${NODE_VERSION}/${node_tarball}"; \
+    curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt" | grep " ${node_tarball}\$" | sha256sum -c -; \
+    tar -xJf "${node_tarball}" -C /usr/local --strip-components=1 --no-same-owner; \
+    rm -f "${node_tarball}"; \
+    rm -rf /var/lib/apt/lists/*; \
+    test "$(node --version)" = "v${NODE_VERSION}"
 
 # 1. Gradle wrapper & configuration (rarely changes)
 COPY gradlew .
@@ -28,9 +35,16 @@ RUN chmod +x ./gradlew
 # 2. Pre-fetch Gradle dependencies (layer cached until build scripts change)
 RUN ./gradlew dependencies --no-daemon -q
 
-# 3. Frontend dependency install (cached until package.json/lock changes)
-COPY frontend/package.json frontend/package-lock.json ./frontend/
-RUN cd frontend && npm ci
+# 3. Frontend dependency install (cached until the lockfile inputs change)
+# The pnpm store and corepack cache mounts share their ids with every other fleet
+# image; corepack's pnpm is per architecture, and this stage runs on TARGETARCH.
+# Corepack reads packageManager from the working directory's manifest.
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./frontend/
+RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
+    --mount=type=cache,id=corepack-${TARGETARCH},target=/root/.cache/node/corepack \
+    corepack enable \
+    && cd frontend \
+    && pnpm install --frozen-lockfile
 
 # 4. Frontend config and source files (surgical copies avoid node_modules)
 COPY frontend/index.html ./frontend/
@@ -43,7 +57,9 @@ COPY src ./src
 
 # 6. Build JAR (Frontend build is triggered via Gradle processResources task)
 # -q reduces noise, -x test skips tests for faster build
-RUN ./gradlew bootJar --no-daemon -q -x test
+RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
+    --mount=type=cache,id=corepack-${TARGETARCH},target=/root/.cache/node/corepack \
+    ./gradlew bootJar --no-daemon -q -x test
 
 # ---------- Extractor stage for layered JAR ----------
 FROM ${BASE_REGISTRY}/eclipse-temurin:25-jre AS extractor

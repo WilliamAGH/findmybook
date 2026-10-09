@@ -1,0 +1,12 @@
+packages:
+  - .
+
+# pnpm >= 11 fails the install when a dependency's install script is not listed here.
+allowBuilds:
+  "@ast-grep/cli": true
+
+# Under the global virtual store a package's type declarations resolve from its store entry, so
+# jest-dom's `declare module "vitest"` augmentation never reaches this project's vitest. Declaring
+# vitest as a peer links the project's copy into that entry.
+packageExtensions:
+  "@testing-library/jest-dom": { peerDependencies: { vitest: "*" } }

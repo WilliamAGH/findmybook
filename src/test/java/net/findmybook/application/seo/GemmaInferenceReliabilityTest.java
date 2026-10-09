@@ -166,6 +166,20 @@ class GemmaInferenceReliabilityTest {
     }
 
     @Test
+    void should_DeclareJsonObjectResponseFormat_When_StreamingReaderContent() throws Exception {
+        server.enqueueSse(streamChunk(AI_JSON, null) + streamChunk("", "stop"));
+        BookAiContentRepository repository = mock(BookAiContentRepository.class);
+        when(repository.insertNewCurrentVersion(any(), any(), anyString(), anyString(), anyString()))
+            .thenAnswer(invocation -> new BookAiContentSnapshot(
+                BOOK_ID, 1, Instant.EPOCH, invocation.getArgument(2), invocation.getArgument(3), invocation.getArgument(1)));
+
+        aiService(repository).generateAndPersist(BOOK_ID, payload -> { }, LlmGatewayTier.LIVE_RENDER);
+
+        assertThat(new ObjectMapper().readTree(server.requestBodies().getFirst())
+            .path("response_format").path("type").asString()).isEqualTo("json_object");
+    }
+
+    @Test
     void should_PersistValidatedReaderContentBeforeDeliveringBufferedPayload() {
         server.enqueueSse(streamChunk(AI_JSON, null) + streamChunk("", "stop"));
         BookAiContentRepository repository = mock(BookAiContentRepository.class);
