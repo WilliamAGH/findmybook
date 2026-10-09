@@ -78,31 +78,6 @@ public class BookSeoMetadataRepository implements BookSeoMetadataSnapshotReader 
     }
 
     /**
-     * Loads the prompt hash of the current SEO metadata snapshot when available.
-     *
-     * @param bookId canonical book UUID
-     * @return current prompt hash when present and non-blank
-     */
-    @Transactional(readOnly = true)
-    public Optional<String> fetchCurrentPromptHash(UUID bookId) {
-        if (bookId == null) {
-            throw new IllegalArgumentException("bookId is required");
-        }
-        String promptHash = jdbcTemplate.query(
-            """
-            SELECT prompt_hash
-            FROM book_seo_metadata
-            WHERE book_id = ? AND is_current = true
-            ORDER BY version_number DESC
-            LIMIT 1
-            """,
-            rs -> rs.next() ? rs.getString("prompt_hash") : null,
-            bookId
-        );
-        return Optional.ofNullable(promptHash).filter(s -> !s.isBlank());
-    }
-
-    /**
      * Stores a new current SEO metadata snapshot and demotes prior current rows.
      *
      * @param bookId canonical book UUID
