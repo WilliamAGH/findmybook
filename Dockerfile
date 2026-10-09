@@ -39,6 +39,9 @@ RUN ./gradlew dependencies --no-daemon -q
 # The pnpm store and corepack cache mounts share their ids with every other fleet
 # image; corepack's pnpm is per architecture, and this stage runs on TARGETARCH.
 # Corepack reads packageManager from the working directory's manifest.
+# node_modules outlives this RUN in the image layer while the store is only a cache mount,
+# so the image install keeps a per-project virtual store instead of linking into the shared one.
+ENV pnpm_config_virtual_store_type=project
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./frontend/
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
     --mount=type=cache,id=corepack-${TARGETARCH},target=/root/.cache/node/corepack \
