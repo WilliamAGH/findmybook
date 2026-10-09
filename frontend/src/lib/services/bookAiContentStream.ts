@@ -79,8 +79,8 @@ export class BookAiContentRequestAttempt {
 
 export function isBookAiContentStreamError(error: unknown): error is BookAiContentStreamError {
   return error instanceof Error
-    && typeof (error as { code?: unknown }).code === "string"
-    && typeof (error as { retryable?: unknown }).retryable === "boolean";
+    && "code" in error && typeof error.code === "string"
+    && "retryable" in error && typeof error.retryable === "boolean";
 }
 
 /** Delivers a bodyless, same-origin cancellation without blocking route teardown. */
@@ -109,11 +109,7 @@ function createBookAiContentStreamError(
   code: BookAiErrorCode = "generation_failed",
   retryable = true,
 ): BookAiContentStreamError {
-  const streamError = new Error(message) as BookAiContentStreamError;
-  streamError.name = "BookAiContentStreamError";
-  streamError.code = code;
-  streamError.retryable = retryable;
-  return streamError;
+  return Object.assign(new Error(message), { name: "BookAiContentStreamError", code, retryable });
 }
 
 function parseSseMessage(raw: string): { event: string; payloadText: string } | null {
@@ -205,7 +201,7 @@ async function readBookAiContentSseStream(
       const parsed = safeParseJson(message.payloadText, message.event);
       const queueUpdate = validateWithSchema(
         BookAiContentQueueUpdateSchema,
-        { ...(parsed as Record<string, unknown>), event: message.event },
+        { ...(parsed !== null && typeof parsed === "object" ? parsed : {}), event: message.event },
         `bookAiContentQueueUpdate:${message.event}`,
       );
       if (queueUpdate.success) {
