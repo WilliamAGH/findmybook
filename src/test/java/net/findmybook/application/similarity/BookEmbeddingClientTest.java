@@ -23,12 +23,21 @@ import net.findmybook.domain.similarity.BookSimilarityFusionProfile;
 import net.findmybook.domain.similarity.BookSimilaritySectionKey;
 import net.findmybook.support.ai.BookAiContentRequestQueue;
 import net.findmybook.support.llm.LlmGatewayTier;
+import net.findmybook.support.llm.LlmGatewayWorkload;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
 
 class BookEmbeddingClientTest {
 
     private static final int EMBEDDING_DIMENSION = BookSimilarityVectorFusion.EMBEDDING_DIMENSION;
+
+    @Test
+    void should_LabelGatewayWorkloadsByOperationAndTier() {
+        assertThat(LlmGatewayWorkload.EMBEDDINGS.headerValue(LlmGatewayTier.LIVE_RENDER))
+            .isEqualTo("findmybook:embeddings:live");
+        assertThat(LlmGatewayWorkload.CHAT_COMPLETIONS.headerValue(LlmGatewayTier.BACKGROUND_BATCH))
+            .isEqualTo("findmybook:chat-completions:batch");
+    }
 
     @Test
     void should_SplitEmbeddingInputs_When_EstimatedTokensExceedComfortLimit() {

@@ -22,6 +22,7 @@ import java.util.UUID;
 import net.findmybook.application.ai.BookAiGenerationException;
 import net.findmybook.boot.OpenAiProperties;
 import net.findmybook.support.llm.LlmGatewayTier;
+import net.findmybook.support.llm.LlmGatewayWorkload;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -83,6 +84,7 @@ class BookSeoMetadataClient {
                     .baseUrl(openAiProperties.baseUrl())
                     .maxRetries(SDK_MAX_RETRIES)
                     .putHeader(LlmGatewayTier.HEADER_NAME, tier.headerValue())
+                    .putHeader(LlmGatewayWorkload.HEADER_NAME, LlmGatewayWorkload.CHAT_COMPLETIONS.headerValue(tier))
                     .build());
             }
             this.clientsByTier = Map.copyOf(clients);
