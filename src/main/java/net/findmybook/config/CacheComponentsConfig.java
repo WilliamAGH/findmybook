@@ -2,7 +2,7 @@
  * Configuration class for cache-related components and beans
  * This configuration provides bean definitions for caching infrastructure
  * It handles:
- * - Defining shared cache storage components like ConcurrentHashMap
+ * - Defining shared cache storage components
  * - Configuring cache-specific beans for dependency injection
  * - Setting up cache initialization and lifecycle management
  * - Providing cache configuration customization points
@@ -12,9 +12,7 @@
  */
 package net.findmybook.config;
 
-import net.findmybook.model.Book;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Expiry;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.caffeine.CaffeineCacheManager;
@@ -26,25 +24,10 @@ import org.springframework.context.annotation.Primary;
 
 import java.time.Duration;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 
 @Configuration
 public class CacheComponentsConfig {
-
-    @Bean
-    public Cache<String, Book> bookDetailCache() {
-        return Caffeine.newBuilder()
-                .maximumSize(20_000) // Example: Configure as per requirements
-                .expireAfterAccess(Duration.ofHours(6)) // Example: Configure as per requirements
-                .recordStats() // Enable statistics recording for metrics
-                .build();
-    }
-
-    @Bean
-    public ConcurrentHashMap<String, Book> bookDetailCacheMap() {
-        return new ConcurrentHashMap<>();
-    }
 
     @Bean
     @Primary
