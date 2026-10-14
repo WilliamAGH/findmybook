@@ -59,7 +59,7 @@ not recreated after contraction.
 
 **12 chars (high volume)** - `IdGenerator.generateLong()`
 
-- `book_authors` - Many-to-many, very high volume
+- `book_authors_join` - Many-to-many, very high volume
 - `book_categories` - Many-to-many, high volume
 - `book_lists_join` - Many-to-many for lists
 
