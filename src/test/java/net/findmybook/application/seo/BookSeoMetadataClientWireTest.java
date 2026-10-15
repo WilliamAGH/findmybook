@@ -31,6 +31,7 @@ import net.findmybook.dto.BookDetail;
 import net.findmybook.service.BookDataOrchestrator;
 import net.findmybook.service.BookSearchService;
 import net.findmybook.support.llm.LlmGatewayTier;
+import net.findmybook.support.llm.LlmGatewayWorkload;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -131,6 +132,9 @@ class BookSeoMetadataClientWireTest {
             .contains("prior response was empty or invalid")
             .contains("exact canonical JSON");
         assertThat(server.requestTiers()).containsOnly(LlmGatewayTier.BACKGROUND_BATCH.headerValue());
+        assertThat(server.requestWorkloads()).containsOnly(
+            LlmGatewayWorkload.CHAT_COMPLETIONS.headerValue(LlmGatewayTier.BACKGROUND_BATCH)
+        );
     }
 
     @Test
@@ -299,6 +303,7 @@ class BookSeoMetadataClientWireTest {
         private final Deque<Response> responses = new ConcurrentLinkedDeque<>();
         private final List<String> requestBodies = new CopyOnWriteArrayList<>();
         private final List<String> requestTiers = new CopyOnWriteArrayList<>();
+        private final List<String> requestWorkloads = new CopyOnWriteArrayList<>();
 
         OpenAiTestServer() throws IOException {
             httpServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -326,6 +331,10 @@ class BookSeoMetadataClientWireTest {
             return List.copyOf(requestTiers);
         }
 
+        List<String> requestWorkloads() {
+            return List.copyOf(requestWorkloads);
+        }
+
         OpenAiProperties openAiProperties() {
             OpenAiProperties properties = new OpenAiProperties();
             properties.getApi().setKey("test-key");
@@ -347,6 +356,7 @@ class BookSeoMetadataClientWireTest {
         private void handle(HttpExchange exchange) throws IOException {
             requestBodies.add(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             requestTiers.add(exchange.getRequestHeaders().getFirst(LlmGatewayTier.HEADER_NAME));
+            requestWorkloads.add(exchange.getRequestHeaders().getFirst(LlmGatewayWorkload.HEADER_NAME));
             Response response = responses.removeFirst();
             byte[] body = response.body().getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", response.contentType());

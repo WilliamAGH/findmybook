@@ -1,6 +1,10 @@
 packages:
   - .
 
+# Every checkout and worktree links one machine-wide virtual store (pnpm 12 defaults to a
+# per-project one); the Dockerfile keeps its image install per-project.
+virtualStoreType: global
+
 # pnpm >= 11 fails the install when a dependency's install script is not listed here.
 allowBuilds:
   "@ast-grep/cli": true

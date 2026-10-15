@@ -17,30 +17,33 @@ public enum LlmGatewayTier {
      * Live, user-facing render path. Maps to gateway tier {@code production-z} (priority 4,
      * reserved concurrency 1, queue depth 20, queue timeout 30s).
      */
-    LIVE_RENDER("production-z", 105L, 8192L, 2),
+    LIVE_RENDER("production-z", "live", 105L, 8192L, 2),
 
     /**
      * Non-urgent background work (scheduler, demand queue, upsert event, backfill, ingestion
      * coordinator). Maps to gateway tier {@code batch} (priority 9, reserved concurrency 0,
      * queue depth 50, queue timeout 600s).
      */
-    BACKGROUND_BATCH("batch", 720L, 8192L, 3);
+    BACKGROUND_BATCH("batch", "batch", 720L, 8192L, 3);
 
     /** HTTP header name the gateway expects on outbound calls. */
     public static final String HEADER_NAME = "X-Tier";
 
     private final String headerValue;
+    private final String workloadValue;
     private final long callTimeoutSeconds;
     private final long maxCompletionTokens;
     private final int maxGenerationAttempts;
 
     LlmGatewayTier(
         String headerValue,
+        String workloadValue,
         long callTimeoutSeconds,
         long maxCompletionTokens,
         int maxGenerationAttempts
     ) {
         this.headerValue = headerValue;
+        this.workloadValue = workloadValue;
         this.callTimeoutSeconds = callTimeoutSeconds;
         this.maxCompletionTokens = maxCompletionTokens;
         this.maxGenerationAttempts = maxGenerationAttempts;
@@ -53,6 +56,15 @@ public enum LlmGatewayTier {
      */
     public String headerValue() {
         return headerValue;
+    }
+
+    /**
+     * Returns the stable workload suffix used for gateway cost attribution.
+     *
+     * @return workload tier token
+     */
+    public String workloadValue() {
+        return workloadValue;
     }
 
     /**

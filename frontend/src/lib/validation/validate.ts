@@ -18,7 +18,7 @@ function summarizePayload(payload: unknown): string {
     return `array(length=${payload.length})`;
   }
   if (typeof payload === "object") {
-    const keys = Object.keys(payload as Record<string, unknown>).slice(0, 6);
+    const keys = Object.keys(payload).slice(0, 6);
     return `object(keys=${keys.join(",")})`;
   }
   return typeof payload;

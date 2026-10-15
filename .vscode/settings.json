@@ -23,6 +23,8 @@
     "markdownlint.ignore": [
       "tmp/**"
     ],
+    "js/ts.experimental.useTsgo": true,
+    "js/ts.tsdk.path": "frontend/node_modules/@typescript/native",
     "css.lint.unknownAtRules": "ignore",
     "htmlhint.options": {
       "doctype-first": false

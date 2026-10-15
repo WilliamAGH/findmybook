@@ -33,6 +33,7 @@ import java.util.function.Supplier;
 import net.findmybook.adapters.persistence.BookAiContentRepository;
 import net.findmybook.boot.OpenAiProperties;
 import net.findmybook.support.llm.LlmGatewayTier;
+import net.findmybook.support.llm.LlmGatewayWorkload;
 import net.findmybook.domain.ai.BookAiContent;
 import net.findmybook.domain.ai.BookAiContentSnapshot;
 import net.findmybook.dto.BookDetail;
@@ -115,6 +116,7 @@ public class BookAiContentService {
                     .baseUrl(openAiProperties.baseUrl())
                     .maxRetries(tier == LlmGatewayTier.LIVE_RENDER ? LIVE_SDK_MAX_RETRIES : BACKGROUND_SDK_MAX_RETRIES)
                     .putHeader(LlmGatewayTier.HEADER_NAME, tier.headerValue())
+                    .putHeader(LlmGatewayWorkload.HEADER_NAME, LlmGatewayWorkload.CHAT_COMPLETIONS.headerValue(tier))
                     .build());
             }
             this.clientsByTier = Map.copyOf(clients);

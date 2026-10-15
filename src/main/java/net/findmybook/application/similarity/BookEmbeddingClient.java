@@ -18,6 +18,7 @@ import net.findmybook.application.ai.BookAiGenerationException;
 import net.findmybook.boot.BookSimilarityEmbeddingProperties;
 import net.findmybook.boot.OpenAiProperties;
 import net.findmybook.support.llm.LlmGatewayTier;
+import net.findmybook.support.llm.LlmGatewayWorkload;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -72,6 +73,7 @@ public class BookEmbeddingClient {
                     .baseUrl(openAiProperties.baseUrl())
                     .maxRetries(0)
                     .putHeader(LlmGatewayTier.HEADER_NAME, tier.headerValue())
+                    .putHeader(LlmGatewayWorkload.HEADER_NAME, LlmGatewayWorkload.EMBEDDINGS.headerValue(tier))
                     .build();
                 requesters.put(tier, createOpenAiRequester(tieredClient));
             }

@@ -46,16 +46,12 @@ export function readSpaHistoryState(): { previousPath: string | null } | null {
   if (typeof window === "undefined") {
     return null;
   }
-  const state = window.history.state;
-  if (!state || typeof state !== "object") {
+  const state: unknown = window.history.state;
+  if (!state || typeof state !== "object" || !("__fmbSpa" in state) || state.__fmbSpa !== SPA_HISTORY_MARKER) {
     return null;
   }
-  const candidate = state as { __fmbSpa?: string; previousPath?: unknown };
-  if (candidate.__fmbSpa !== SPA_HISTORY_MARKER) {
-    return null;
-  }
-  const previousPath = typeof candidate.previousPath === "string"
-    ? normalizeInternalPath(candidate.previousPath)
+  const previousPath = "previousPath" in state && typeof state.previousPath === "string"
+    ? normalizeInternalPath(state.previousPath)
     : null;
   return buildSpaHistoryState(previousPath);
 }

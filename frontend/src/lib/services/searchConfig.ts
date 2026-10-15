@@ -52,7 +52,7 @@ export function parseEnumParam<T extends string>(
   params: URLSearchParams, key: string, options: readonly T[], fallback: T,
 ): T {
   const raw = params.get(key) ?? fallback;
-  return options.includes(raw as T) ? (raw as T) : fallback;
+  return options.find((option) => option === raw) ?? fallback;
 }
 
 export function dedupeGenres(rawGenres: string[]): string[] {
