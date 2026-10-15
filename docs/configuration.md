@@ -15,7 +15,7 @@ Key variables in `.env`:
 | `OPENAI_EMBEDDINGS_MODEL` | Canonical embeddings model for vector calculations |
 
 OpenAI-compatible requests use the self-hosted gateway at
-`https://api.llm-gateway.iocloudhost.net` with `qwen3.8-27b` for generation in the
+`https://api.llm-gateway.iocloudhost.net` with `qwen3.8-27b-self-hosted` for generation in the
 checked-in `.env.example` defaults. Every request also carries `X-Tier` for queue
 routing and `X-User-ID` in the form `findmybook:<operation>:<tier>` for gateway
 workload cost attribution; these headers are internal to the gateway and are not
