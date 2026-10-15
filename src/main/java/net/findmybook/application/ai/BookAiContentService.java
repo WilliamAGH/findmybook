@@ -116,7 +116,7 @@ public class BookAiContentService {
                     .baseUrl(openAiProperties.baseUrl())
                     .maxRetries(tier == LlmGatewayTier.LIVE_RENDER ? LIVE_SDK_MAX_RETRIES : BACKGROUND_SDK_MAX_RETRIES)
                     .putHeader(LlmGatewayTier.HEADER_NAME, tier.headerValue())
-                    .putHeader(LlmGatewayWorkload.HEADER_NAME, LlmGatewayWorkload.CHAT_COMPLETIONS.headerValue(tier))
+                    .putHeader(LlmGatewayWorkload.HEADER_NAME, LlmGatewayWorkload.BOOK_CONTENT.headerValue(tier))
                     .build());
             }
             this.clientsByTier = Map.copyOf(clients);

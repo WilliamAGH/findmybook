@@ -32,11 +32,46 @@ class BookEmbeddingClientTest {
     private static final int EMBEDDING_DIMENSION = BookSimilarityVectorFusion.EMBEDDING_DIMENSION;
 
     @Test
+    void should_SendSimilarityPurpose_When_SdkEmbedsAtEitherTier() throws java.io.IOException {
+        List<String> workloads = new java.util.concurrent.CopyOnWriteArrayList<>();
+        com.sun.net.httpserver.HttpServer gateway = com.sun.net.httpserver.HttpServer.create(
+            new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        gateway.createContext("/v1/embeddings", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            workloads.add(exchange.getRequestHeaders().getFirst(LlmGatewayWorkload.HEADER_NAME));
+            byte[] embeddingJson = ("{\"object\":\"list\",\"model\":\"embedding-test\",\"data\":[{\"object\":\"embedding\","
+                + "\"index\":0,\"embedding\":[1.0," + "0.0,".repeat(EMBEDDING_DIMENSION - 2)
+                + "0.0]}],\"usage\":{\"prompt_tokens\":1,\"total_tokens\":1}}")
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, embeddingJson.length);
+            exchange.getResponseBody().write(embeddingJson);
+            exchange.close();
+        });
+        gateway.start();
+        try {
+            net.findmybook.boot.OpenAiProperties properties = new net.findmybook.boot.OpenAiProperties();
+            properties.getApi().setKey("wire-test-key");
+            properties.getBase().setUrl("http://127.0.0.1:" + gateway.getAddress().getPort() + "/v1");
+            properties.getEmbeddings().setModel("embedding-test");
+            BookEmbeddingClient client = new BookEmbeddingClient(properties, new BookSimilarityEmbeddingProperties());
+            for (LlmGatewayTier tier : LlmGatewayTier.values()) {
+                assertThat(client.embedSections(List.of("book section"), tier)).hasSize(1);
+            }
+            assertThat(workloads).containsExactly(
+                LlmGatewayWorkload.BOOK_SIMILARITY_EMBEDDING.headerValue(LlmGatewayTier.LIVE_RENDER),
+                LlmGatewayWorkload.BOOK_SIMILARITY_EMBEDDING.headerValue(LlmGatewayTier.BACKGROUND_BATCH));
+        } finally {
+            gateway.stop(0);
+        }
+    }
+
+    @Test
     void should_LabelGatewayWorkloadsByOperationAndTier() {
-        assertThat(LlmGatewayWorkload.EMBEDDINGS.headerValue(LlmGatewayTier.LIVE_RENDER))
-            .isEqualTo("findmybook:embeddings:live");
-        assertThat(LlmGatewayWorkload.CHAT_COMPLETIONS.headerValue(LlmGatewayTier.BACKGROUND_BATCH))
-            .isEqualTo("findmybook:chat-completions:batch");
+        assertThat(LlmGatewayWorkload.BOOK_SIMILARITY_EMBEDDING.headerValue(LlmGatewayTier.LIVE_RENDER))
+            .isEqualTo("findmybook:bookSimilarityEmbedding:live");
+        assertThat(LlmGatewayWorkload.BOOK_SEO_METADATA.headerValue(LlmGatewayTier.BACKGROUND_BATCH))
+            .isEqualTo("findmybook:bookSeoMetadata:batch");
     }
 
     @Test

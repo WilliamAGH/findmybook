@@ -31,6 +31,7 @@ import net.findmybook.service.BookDataOrchestrator;
 import net.findmybook.service.BookIdentifierResolver;
 import net.findmybook.service.BookSearchService;
 import net.findmybook.support.llm.LlmGatewayTier;
+import net.findmybook.support.llm.LlmGatewayWorkload;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -78,6 +79,7 @@ class GemmaInferenceReliabilityTest {
         assertThat(generated.snapshot().aiContent().summary()).contains("grounded two-sentence summary");
         assertThat(deltas).containsExactly(AI_JSON);
         assertThat(server.requestBodies()).hasSize(2);
+        assertThat(server.requestWorkloads()).containsOnly(LlmGatewayWorkload.BOOK_CONTENT.headerValue(LlmGatewayTier.LIVE_RENDER));
     }
 
     @Test
@@ -96,6 +98,7 @@ class GemmaInferenceReliabilityTest {
         assertThat(generated.snapshot().aiContent().summary()).contains("grounded two-sentence summary");
         assertThat(deltas).containsExactly(AI_JSON);
         assertThat(server.requestBodies()).hasSize(2);
+        assertThat(server.requestWorkloads()).containsOnly(LlmGatewayWorkload.BOOK_CONTENT.headerValue(LlmGatewayTier.LIVE_RENDER));
         verify(repository).insertNewCurrentVersion(any(), any(), anyString(), anyString(), anyString());
     }
 
@@ -115,6 +118,7 @@ class GemmaInferenceReliabilityTest {
         assertThat(generated.snapshot().aiContent().summary()).contains("grounded two-sentence summary");
         assertThat(deltas).containsExactly(AI_JSON);
         assertThat(server.requestBodies()).hasSize(2);
+        assertThat(server.requestWorkloads()).containsOnly(LlmGatewayWorkload.BOOK_CONTENT.headerValue(LlmGatewayTier.LIVE_RENDER));
     }
 
     @Test
@@ -162,6 +166,7 @@ class GemmaInferenceReliabilityTest {
         assertThat(generated.snapshot().aiContent().summary()).contains("grounded two-sentence summary");
         assertThat(deltas).containsExactly(AI_JSON);
         assertThat(server.requestBodies()).hasSize(2);
+        assertThat(server.requestWorkloads()).containsOnly(LlmGatewayWorkload.BOOK_CONTENT.headerValue(LlmGatewayTier.LIVE_RENDER));
         verify(repository).insertNewCurrentVersion(any(), any(), anyString(), anyString(), anyString());
     }
 

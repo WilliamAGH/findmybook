@@ -84,7 +84,7 @@ class BookSeoMetadataClient {
                     .baseUrl(openAiProperties.baseUrl())
                     .maxRetries(SDK_MAX_RETRIES)
                     .putHeader(LlmGatewayTier.HEADER_NAME, tier.headerValue())
-                    .putHeader(LlmGatewayWorkload.HEADER_NAME, LlmGatewayWorkload.CHAT_COMPLETIONS.headerValue(tier))
+                    .putHeader(LlmGatewayWorkload.HEADER_NAME, LlmGatewayWorkload.BOOK_SEO_METADATA.headerValue(tier))
                     .build());
             }
             this.clientsByTier = Map.copyOf(clients);
