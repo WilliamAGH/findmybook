@@ -176,23 +176,27 @@ val verifyNoFrontendFallbackHtml by tasks.registering {
     if (!skipFrontend) {
         dependsOn(frontendBuild)
     }
-    val forbiddenFallbackHtml = layout.projectDirectory.file("src/main/resources/static/frontend/index.html")
+    val forbiddenFallbackHtml = layout.projectDirectory.file("frontend/dist/index.html")
     doLast {
         if (forbiddenFallbackHtml.asFile.exists()) {
             throw GradleException(
-                "Forbidden fallback entrypoint detected at src/main/resources/static/frontend/index.html. " +
+                "Forbidden fallback entrypoint detected at frontend/dist/index.html. " +
                     "Public HTML must be served by backend controllers only."
             )
         }
     }
 }
 
-// Web icons (favicon, apple-touch-icon, manifest) ship from the frontend source of truth into the
-// Spring Boot static root of the build output, so they are served at root paths (e.g. /favicon.svg)
-// without writing copies into the source tree. Included regardless of -PskipFrontend; listed after
-// src/main/resources so its copy wins over any stale icon an older build left under static/.
+// The Vite bundle (frontend/dist) and web icons (favicon, apple-touch-icon, manifest) ship into the
+// Spring Boot static root of the build output, so no build writes into the source tree. Icons are served
+// at root paths (e.g. /favicon.svg) regardless of -PskipFrontend; listed after src/main/resources so
+// their copy wins over any stale bundle or icon an older build left under static/.
 tasks.named<ProcessResources>("processResources") {
     dependsOn(verifyNoFrontendFallbackHtml)
+    from("frontend/dist") {
+        into("static/frontend")
+        duplicatesStrategy = DuplicatesStrategy.INCLUDE
+    }
     from("frontend/public") {
         include("favicon*")
         include("apple-touch-icon*")

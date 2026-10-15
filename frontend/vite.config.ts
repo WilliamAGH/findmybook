@@ -5,7 +5,7 @@ import { svelteTesting } from "@testing-library/svelte/vite";
 import { resolve } from "node:path";
 
 const ROOT_DIR = resolve(__dirname);
-const OUTPUT_DIR = resolve(ROOT_DIR, "../src/main/resources/static/frontend");
+const OUTPUT_DIR = resolve(ROOT_DIR, "dist");
 
 function proxyConfig(target: string, websocket = false): ProxyOptions {
   return {

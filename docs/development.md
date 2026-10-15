@@ -13,7 +13,7 @@
 | `pnpm --dir frontend run dev` | Run Svelte SPA with Vite dev server |
 | `pnpm --dir frontend run check` | Type-check Svelte/TS frontend |
 | `pnpm --dir frontend run test` | Run frontend Vitest suite |
-| `pnpm --dir frontend run build` | Build frontend assets into Spring static resources |
+| `pnpm --dir frontend run build` | Build frontend assets into `frontend/dist` |
 | `./gradlew clean classes -x test` | Quick clean + compile without tests |
 | `./gradlew test` | Run tests only |
 | `./gradlew clean test` | Full backend test verification |
@@ -45,7 +45,7 @@ export GRADLE_OPTS="-XX:+EnableDynamicAgentLoading -Xshare:off"
 - **Dependency Analysis:** `./gradlew dependencies`
 
 ## Frontend Build Integration
-- `processResources` depends on frontend `pnpm run build`.
+- `processResources` depends on frontend `pnpm run build` and packages `frontend/dist` as `static/frontend/`.
 - `check` depends on frontend `pnpm run check` and `pnpm run test`.
 - Use `-PskipFrontend` for backend-only loops when needed:
   - Example: `./gradlew test -PskipFrontend`

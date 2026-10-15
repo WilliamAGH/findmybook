@@ -86,11 +86,7 @@ node_modules/
 **/node_modules/
 
 ### Frontend Build Artifacts ###
-src/main/resources/static/frontend/app.css
-src/main/resources/static/frontend/app.js
-src/main/resources/static/frontend/app.js.map
-src/main/resources/static/frontend/site.webmanifest
-src/main/resources/static/frontend/assets/
+frontend/dist/
 
 ### Agent task worktrees (registered, inside repo root) ###
 .worktrees/
