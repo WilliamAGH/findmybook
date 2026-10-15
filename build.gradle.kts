@@ -176,11 +176,15 @@ val verifyNoFrontendFallbackHtml by tasks.registering {
     if (!skipFrontend) {
         dependsOn(frontendBuild)
     }
-    val forbiddenFallbackHtml = layout.projectDirectory.file("frontend/dist/index.html")
+    // Both sources processResources packages into static/frontend/.
+    val forbiddenFallbackHtml = listOf(
+        layout.projectDirectory.file("frontend/dist/index.html"),
+        layout.projectDirectory.file("src/main/resources/static/frontend/index.html"),
+    )
     doLast {
-        if (forbiddenFallbackHtml.asFile.exists()) {
+        forbiddenFallbackHtml.firstOrNull { it.asFile.exists() }?.let { found ->
             throw GradleException(
-                "Forbidden fallback entrypoint detected at frontend/dist/index.html. " +
+                "Forbidden fallback entrypoint detected at ${found.asFile.relativeTo(projectDir)}. " +
                     "Public HTML must be served by backend controllers only."
             )
         }
