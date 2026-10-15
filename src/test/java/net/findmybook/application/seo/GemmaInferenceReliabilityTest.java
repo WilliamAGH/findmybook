@@ -35,6 +35,8 @@ import net.findmybook.support.llm.LlmGatewayWorkload;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import tools.jackson.databind.ObjectMapper;
 
@@ -63,8 +65,9 @@ class GemmaInferenceReliabilityTest {
         server.close();
     }
 
-    @Test
-    void should_RetryEmptyReaderStreamWithoutReplayingContent_When_SecondAttemptSucceeds() {
+    @ParameterizedTest
+    @EnumSource(LlmGatewayTier.class)
+    void should_RetryEmptyReaderStreamWithoutReplayingContent_When_SecondAttemptSucceeds(LlmGatewayTier tier) {
         server.enqueueSse(streamChunk("", "stop"));
         server.enqueueSse(streamChunk(AI_JSON, null) + streamChunk("", "stop"));
         BookAiContentRepository repository = mock(BookAiContentRepository.class);
@@ -74,12 +77,12 @@ class GemmaInferenceReliabilityTest {
         List<String> deltas = new ArrayList<>();
 
         BookAiContentService.GeneratedContent generated = aiService(repository)
-            .generateAndPersist(BOOK_ID, deltas::add, LlmGatewayTier.LIVE_RENDER);
+            .generateAndPersist(BOOK_ID, deltas::add, tier);
 
         assertThat(generated.snapshot().aiContent().summary()).contains("grounded two-sentence summary");
         assertThat(deltas).containsExactly(AI_JSON);
         assertThat(server.requestBodies()).hasSize(2);
-        assertThat(server.requestWorkloads()).containsOnly(LlmGatewayWorkload.BOOK_CONTENT.headerValue(LlmGatewayTier.LIVE_RENDER));
+        assertThat(server.requestWorkloads()).containsOnly(LlmGatewayWorkload.BOOK_CONTENT.headerValue(tier));
     }
 
     @Test
