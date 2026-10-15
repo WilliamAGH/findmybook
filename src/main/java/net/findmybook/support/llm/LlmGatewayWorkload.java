@@ -1,7 +1,7 @@
 package net.findmybook.support.llm;
 
 /**
- * Stable source and operation labels sent to the LLM gateway's {@code X-User-ID} header.
+ * Stable source and purpose labels sent to the LLM gateway's {@code X-User-ID} header.
  *
  * <p>The gateway stores this header as its workload cost dimension. The routing tier remains in
  * {@link LlmGatewayTier#HEADER_NAME}; including the abstract tier suffix here keeps attribution
@@ -9,25 +9,28 @@ package net.findmybook.support.llm;
  */
 public enum LlmGatewayWorkload {
 
-    /** Chat-completions requests for book AI and SEO generation. */
-    CHAT_COMPLETIONS("chat-completions"),
+    /** Reader-facing and ingestion-generated book content. */
+    BOOK_CONTENT("bookContent"),
 
-    /** Embeddings requests for book similarity and search vectors. */
-    EMBEDDINGS("embeddings");
+    /** Search-engine metadata generation. */
+    BOOK_SEO_METADATA("bookSeoMetadata"),
+
+    /** Section vectors for book similarity. */
+    BOOK_SIMILARITY_EMBEDDING("bookSimilarityEmbedding");
 
     /** HTTP header name the gateway expects for workload attribution. */
     public static final String HEADER_NAME = "X-User-ID";
 
     private static final String SOURCE = "findmybook";
 
-    private final String operation;
+    private final String purpose;
 
-    LlmGatewayWorkload(String operation) {
-        this.operation = operation;
+    LlmGatewayWorkload(String purpose) {
+        this.purpose = purpose;
     }
 
     /**
-     * Returns the source, operation, and abstract tier label for one gateway request.
+     * Returns the source, purpose, and abstract tier label for one gateway request.
      *
      * @param tier gateway routing tier used by the request
      * @return stable workload label
@@ -36,6 +39,6 @@ public enum LlmGatewayWorkload {
         if (tier == null) {
             throw new IllegalArgumentException("tier is required");
         }
-        return "%s:%s:%s".formatted(SOURCE, operation, tier.workloadValue());
+        return "%s:%s:%s".formatted(SOURCE, purpose, tier.workloadValue());
     }
 }

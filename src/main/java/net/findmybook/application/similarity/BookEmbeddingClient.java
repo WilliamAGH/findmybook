@@ -73,7 +73,7 @@ public class BookEmbeddingClient {
                     .baseUrl(openAiProperties.baseUrl())
                     .maxRetries(0)
                     .putHeader(LlmGatewayTier.HEADER_NAME, tier.headerValue())
-                    .putHeader(LlmGatewayWorkload.HEADER_NAME, LlmGatewayWorkload.EMBEDDINGS.headerValue(tier))
+                    .putHeader(LlmGatewayWorkload.HEADER_NAME, LlmGatewayWorkload.BOOK_SIMILARITY_EMBEDDING.headerValue(tier))
                     .build();
                 requesters.put(tier, createOpenAiRequester(tieredClient));
             }

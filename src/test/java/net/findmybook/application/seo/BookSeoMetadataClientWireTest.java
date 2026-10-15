@@ -133,7 +133,7 @@ class BookSeoMetadataClientWireTest {
             .contains("exact canonical JSON");
         assertThat(server.requestTiers()).containsOnly(LlmGatewayTier.BACKGROUND_BATCH.headerValue());
         assertThat(server.requestWorkloads()).containsOnly(
-            LlmGatewayWorkload.CHAT_COMPLETIONS.headerValue(LlmGatewayTier.BACKGROUND_BATCH)
+            LlmGatewayWorkload.BOOK_SEO_METADATA.headerValue(LlmGatewayTier.BACKGROUND_BATCH)
         );
     }
 

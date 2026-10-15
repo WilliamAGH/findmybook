@@ -37,7 +37,7 @@ covers/
 !frontend/public/favicon.svg
 !frontend/public/apple-touch-icon.png
 
-### BUILD-GENERATED WEB ICONS (copied from frontend/public/ by Gradle copyWebIcons) ###
+### WEB ICON COPIES OLDER BUILDS WROTE INTO THE SOURCE TREE (now shipped from frontend/public/ by processResources) ###
 src/main/resources/static/favicon*.png
 src/main/resources/static/favicon.svg
 src/main/resources/static/apple-touch-icon.png
