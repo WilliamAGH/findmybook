@@ -30,6 +30,7 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webflux.test.autoconfigure.WebFluxTest;
+import org.springframework.boot.webtestclient.autoconfigure.AutoConfigureWebTestClient;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.support.NoOpCacheManager;
 import org.springframework.context.annotation.Bean;
@@ -41,20 +42,15 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.web.filter.UrlHandlerFilter;
 import reactor.core.publisher.Mono;
 
 @WebFluxTest(value = {HomeController.class, BookDetailPageController.class},
+    properties = "app.feature.year-filtering.enabled=true",
     excludeAutoConfiguration = org.springframework.boot.security.autoconfigure.web.reactive.ReactiveWebSecurityAutoConfiguration.class)
-@TestPropertySource(properties = {
-    "app.feature.year-filtering.enabled=true",
-    // The Open Graph PNG render exceeds WebTestClient's 5s default on a loaded host.
-    "spring.test.webtestclient.timeout=30s"
-})
+@AutoConfigureWebTestClient(timeout = "30s")
 class HomeControllerTest {
-
     private static final String OPEN_GRAPH_CACHE_CONTROL =
         "public, max-age=86400, s-maxage=86400, stale-while-revalidate=3600";
 
