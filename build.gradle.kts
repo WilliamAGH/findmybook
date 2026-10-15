@@ -172,18 +172,6 @@ val frontendBuild by tasks.registering(Exec::class) {
     enabled = !skipFrontend
 }
 
-// Copy web icons (favicon, apple-touch-icon, manifest) from the frontend source of truth
-// to the Spring Boot static root so they are served at root paths (e.g. /favicon.svg).
-// Always runs regardless of -PskipFrontend since it's a cheap file copy with no pnpm dependency.
-val copyWebIcons by tasks.registering(Copy::class) {
-    from("frontend/public") {
-        include("favicon*")
-        include("apple-touch-icon*")
-        include("site.webmanifest")
-    }
-    into("src/main/resources/static")
-}
-
 val verifyNoFrontendFallbackHtml by tasks.registering {
     if (!skipFrontend) {
         dependsOn(frontendBuild)
@@ -199,8 +187,19 @@ val verifyNoFrontendFallbackHtml by tasks.registering {
     }
 }
 
-tasks.named("processResources") {
-    dependsOn(copyWebIcons, verifyNoFrontendFallbackHtml)
+// Web icons (favicon, apple-touch-icon, manifest) ship from the frontend source of truth into the
+// Spring Boot static root of the build output, so they are served at root paths (e.g. /favicon.svg)
+// without writing copies into the source tree. Included regardless of -PskipFrontend; listed after
+// src/main/resources so its copy wins over any stale icon an older build left under static/.
+tasks.named<ProcessResources>("processResources") {
+    dependsOn(verifyNoFrontendFallbackHtml)
+    from("frontend/public") {
+        include("favicon*")
+        include("apple-touch-icon*")
+        include("site.webmanifest")
+        into("static")
+        duplicatesStrategy = DuplicatesStrategy.INCLUDE
+    }
 }
 
 tasks.named("check") {
