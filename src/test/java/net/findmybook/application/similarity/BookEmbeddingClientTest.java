@@ -59,19 +59,11 @@ class BookEmbeddingClientTest {
                 assertThat(client.embedSections(List.of("book section"), tier)).hasSize(1);
             }
             assertThat(workloads).containsExactly(
-                LlmGatewayWorkload.BOOK_SIMILARITY_EMBEDDING.headerValue(LlmGatewayTier.LIVE_RENDER),
-                LlmGatewayWorkload.BOOK_SIMILARITY_EMBEDDING.headerValue(LlmGatewayTier.BACKGROUND_BATCH));
+                "findmybook:bookSimilarityEmbedding:live",
+                "findmybook:bookSimilarityEmbedding:batch");
         } finally {
             gateway.stop(0);
         }
-    }
-
-    @Test
-    void should_LabelGatewayWorkloadsByOperationAndTier() {
-        assertThat(LlmGatewayWorkload.BOOK_SIMILARITY_EMBEDDING.headerValue(LlmGatewayTier.LIVE_RENDER))
-            .isEqualTo("findmybook:bookSimilarityEmbedding:live");
-        assertThat(LlmGatewayWorkload.BOOK_SEO_METADATA.headerValue(LlmGatewayTier.BACKGROUND_BATCH))
-            .isEqualTo("findmybook:bookSeoMetadata:batch");
     }
 
     @Test

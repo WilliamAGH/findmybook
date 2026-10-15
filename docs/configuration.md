@@ -17,8 +17,9 @@ Key variables in `.env`:
 OpenAI-compatible requests use the self-hosted gateway at
 `https://api.llm-gateway.iocloudhost.net` with `qwen3.8-27b-self-hosted` for generation in the
 checked-in `.env.example` defaults. Every request also carries `X-Tier` for queue
-routing and `X-User-ID` in the form `findmybook:<operation>:<tier>` for gateway
-workload cost attribution; these headers are internal to the gateway and are not
+routing and `X-User-ID` in the form `findmybook:<purpose>:<tier>` for gateway
+workload cost attribution, where `<purpose>` is `bookContent`, `bookSeoMetadata`, or
+`bookSimilarityEmbedding` and `<tier>` is `live` or `batch`; these headers are internal to the gateway and are not
 forwarded to model providers.
 | `AI_DEFAULT_MAX_PARALLEL` | Global outbound AI queue executor cap, coerced to `2..20`; background work may occupy at most `cap - 1` so one slot remains available for foreground generation |
 | `APP_AI_QUEUE_BACKGROUND_MAX_PENDING` | Max pending background ingestion AI jobs (default `100`) |
