@@ -35,7 +35,10 @@ Open Library emits `SEARCH_TITLE`, `SEARCH_AUTHOR`, or `SEARCH_EVERYTHING`.
 ```text
 [EXTERNAL-API] [OpenLibrary] UNAUTHENTICATED ATTEMPT: <operation> for query='<query>'
 [EXTERNAL-API] [OpenLibrary] SUCCESS: <operation> returned <count> result(s) for query='<query> start=<offset> limit=<limit>'
+[EXTERNAL-API] [OpenLibrary] FAILURE: LOCAL_ADMISSION failed for query='<query>' - <reason>
 ```
+
+The `LOCAL_ADMISSION` failure record is emitted when local admission control (rate limiter or circuit breaker) denies the Open Library call before any physical exchange.
 
 ### Google Books HTTP Records
 
