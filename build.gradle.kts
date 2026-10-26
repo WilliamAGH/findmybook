@@ -7,7 +7,7 @@ import org.gradle.jvm.toolchain.JvmVendorSpec
 
 plugins {
     java
-    id("org.springframework.boot") version "4.0.2"
+    id("org.springframework.boot") version "4.0.9"
     id("io.spring.dependency-management") version "1.1.7"
 }
 
@@ -74,6 +74,10 @@ repositories {
 
 extra["testcontainersVersion"] = "2.0.3"
 extra["resilience4jVersion"] = "2.3.0"
+// Fix CVE-2026-110879 beyond Spring Boot's managed Jackson 3 BOM.
+extra["jackson-bom.version"] = "3.1.8"
+// Fix CVE-2026-110879 in transitive Jackson 2 dependencies.
+extra["jackson-2-bom.version"] = "2.22.4"
 
 dependencies {
     implementation("org.springframework.boot:spring-boot-starter-actuator")
