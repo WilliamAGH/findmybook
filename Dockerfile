@@ -10,7 +10,7 @@ WORKDIR /app
 
 # 0. Install Node.js for frontend build
 # Exact official release matching frontend/package.json engines.node, checksum-verified
-ARG NODE_VERSION=24.18.0
+ARG NODE_VERSION=24.22.1
 ARG TARGETARCH
 RUN set -eux; \
     apt-get update && apt-get install -y --no-install-recommends \
