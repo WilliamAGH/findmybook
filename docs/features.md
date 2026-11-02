@@ -47,10 +47,7 @@ See [UML README](../src/main/resources/uml/README.md).
 ## Sitemap Generation
 XML book pages select their bounded canonical-book page before aggregating joined-data `lastmod` timestamps, preventing one crawler request from materializing and sorting the complete change-event history.
 
-Trigger manual sitemap update:
-```bash
-curl -X POST http://localhost:8095/admin/trigger-sitemap-update
-```
+The scheduled refresh checks dataset fingerprints and invalidates stale sitemap caches before warming listings and building the uploaded snapshot. Updated titles, slugs, and newly added books therefore reach the snapshot in the same refresh cycle. There is no manual sitemap-update HTTP endpoint.
 
 ## S3 to Postgres Backfill
 CLI migration flags were removed from application startup. The runtime now fails fast when

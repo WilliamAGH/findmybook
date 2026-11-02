@@ -25,7 +25,7 @@ import java.util.concurrent.ThreadLocalRandom;
 @Slf4j
 public class SitemapRefreshScheduler {
 
-    
+
     private final SitemapProperties sitemapProperties;
     private final BookSitemapService bookSitemapService;
     private final SitemapService sitemapService;
@@ -64,6 +64,7 @@ public class SitemapRefreshScheduler {
         Instant start = Instant.now();
         log.info("Sitemap refresh scheduler started.");
 
+        boolean cachesCleared = sitemapService.refreshSitemapCachesIfDatasetChanged();
         sitemapService.getOverview();
         sitemapService.getAuthorsByLetter("A", 1);
         sitemapService.getBooksByLetter("A", 1);
@@ -71,7 +72,6 @@ public class SitemapRefreshScheduler {
         BookSitemapService.SnapshotSyncResult snapshotResult = bookSitemapService.synchronizeSnapshot();
         List<BookSitemapItem> books = snapshotResult.snapshot().books();
 
-        boolean cachesCleared = sitemapService.refreshSitemapCachesIfDatasetChanged();
         if (cachesCleared) {
             sitemapService.getBooksXmlPageCount();
             sitemapService.getBookSitemapPageMetadata();
