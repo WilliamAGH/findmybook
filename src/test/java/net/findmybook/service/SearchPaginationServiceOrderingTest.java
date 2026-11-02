@@ -5,11 +5,14 @@ import net.findmybook.model.Book;
 import net.findmybook.util.SearchExternalProviderUtils;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.ArrayList;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -41,17 +44,25 @@ class SearchPaginationServiceOrderingTest extends AbstractSearchPaginationServic
             .queryBooksByEverything(anyString(), anyString(), anyInt(), anyInt());
     }
 
-    @Test
-    void should_PreserveProviderIdentityOrder_When_PersistedTitlesHaveDifferentAuthors() {
+    @ParameterizedTest
+    @ValueSource(ints = {0, 198})
+    void should_PreserveProviderIdentityOrder_When_PersistedTitlesHaveDifferentAuthors(int unrelatedCount) {
         UUID expectedId = UUID.randomUUID();
         UUID otherId = UUID.randomUUID();
-        when(bookSearchService.searchBooks("snow crash", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP))
-            .thenReturn(List.of(new BookSearchService.SearchResult(otherId, 1.0d, "EXACT_TITLE"),
-                new BookSearchService.SearchResult(expectedId, 1.0d, "EXACT_TITLE")));
-        when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(List.of(
+        var searchRows = new ArrayList<>(List.of(new BookSearchService.SearchResult(otherId, 1.0d, "EXACT_TITLE"),
+            new BookSearchService.SearchResult(expectedId, 1.0d, "EXACT_TITLE")));
+        var books = new ArrayList<>(List.of(
             buildListItem(otherId, "Snow Crash", List.of("Prima Games"), 600, 900, true,
                 "https://example.test/game.jpg"),
             buildListItem(expectedId, "Snow Crash", List.of("Neal Stephenson"), 0, 0, false, null)));
+        for (int index = 0; index < unrelatedCount; index++) {
+            UUID unrelatedId = UUID.randomUUID();
+            searchRows.add(new BookSearchService.SearchResult(unrelatedId, 0.9d, "FULLTEXT"));
+            books.add(buildListItem(unrelatedId, "Unrelated title " + index));
+        }
+        when(bookSearchService.searchBooks("snow crash", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP))
+            .thenReturn(searchRows);
+        when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(books);
         Book expected = buildOpenLibraryCandidate("OL38501W", "Snow Crash");
         expected.setAuthors(List.of("Neal Stephenson"));
         Book other = buildOpenLibraryCandidate("OL8495480W", "Snow Crash");
@@ -63,7 +74,8 @@ class SearchPaginationServiceOrderingTest extends AbstractSearchPaginationServic
         var page = fallbackEnabledService().search(searchRequest("snow crash", 0, 12, "relevance")).block();
 
         assertThat(page).isNotNull();
-        assertThat(page.pageItems()).extracting(Book::getId).containsExactly(expectedId.toString(), otherId.toString());
+        assertThat(page.pageItems()).extracting(Book::getId).startsWith(expectedId.toString(), otherId.toString());
+        assertThat(page.totalUnique()).isEqualTo(unrelatedCount + 2);
     }
 
     @Test

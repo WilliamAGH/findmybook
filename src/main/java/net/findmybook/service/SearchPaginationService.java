@@ -160,7 +160,8 @@ public class SearchPaginationService {
             return Mono.just(currentPage);
         }
 
-        boolean shouldSupplementSnapshot = currentPage.totalUnique() < requestedWindow
+        boolean shouldSupplementSnapshot = (currentPage.totalUnique() < requestedWindow
+            || "relevance".equals(request.orderBy()))
             && !hasResolvedQuery(request, currentPage.uniqueResults());
         if (!shouldSupplementSnapshot) {
             return Mono.just(currentPage);
@@ -215,7 +216,8 @@ public class SearchPaginationService {
             return Math.min(requestedWindow, GOOGLE_SNAPSHOT_SUPPLEMENT_CAP);
         }
         int projectedUnique = projectedUniqueCount(existingResults, openLibraryCandidates);
-        int missingCandidates = Math.max(0, requestedWindow - projectedUnique);
+        int missingCandidates = "relevance".equals(request.orderBy())
+            ? requestedWindow : Math.max(0, requestedWindow - projectedUnique);
         return Math.min(missingCandidates, GOOGLE_SNAPSHOT_SUPPLEMENT_CAP);
     }
 
