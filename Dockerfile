@@ -72,6 +72,8 @@ RUN java -Djarmode=tools -jar application.jar extract --layers --application-fil
 
 # ---------- Runtime stage ----------
 FROM ${BASE_REGISTRY}/eclipse-temurin:25-jre AS runtime
+ARG SOURCE_REVISION
+LABEL org.opencontainers.image.revision=${SOURCE_REVISION}
 WORKDIR /app
 ENV SERVER_PORT=8095
 ENV JAVA_TOOL_OPTIONS="--enable-preview -XX:MaxRAMPercentage=75.0 -Dio.netty.noUnsafe=true"
