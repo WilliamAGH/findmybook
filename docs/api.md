@@ -73,7 +73,8 @@
     - The source book is also enqueued for hash-driven similarity embedding refresh; this side effect does not change the response shape.
 - Unsupported `orderBy` values return `400 Bad Request`.
 - Response includes deterministic pagination metadata plus `queryHash` for realtime routing.
-- Search result ordering always applies cover tier first:
+- For relevance searches, exact title, title-and-author, and evidenced author matches precede unrelated results, regardless of cover tier. Unscored direct provider matches retain provider order.
+- Other search results and explicit sorts apply cover tier first:
   - color covers first,
   - grayscale covers after color,
   - no-cover entries last.
@@ -201,7 +202,9 @@
 - Returns cursor metadata: `hasMore`, `nextStartIndex`, `prefetchedCount`.
 - Each canonical query/filter/page-size combination builds one bounded, immutable ordered candidate snapshot from offset zero.
 - Later offsets slice that same snapshot, so totals and ordering remain stable for the snapshot's two-minute TTL even when realtime persistence changes Postgres.
-- The snapshot loads one bounded candidate universe before slicing pages: Postgres and Open Library may contribute up to 200 candidates, while Google secondary supplementation is limited to one 40-result provider page.
+- The snapshot loads one bounded candidate universe before slicing pages: Postgres and Open Library may contribute up to 200 candidates. Explicit title-and-author or author matches can resolve relevance queries from Postgres; title-only queries consult the primary provider to disambiguate works with different authors. A direct primary match skips Google; otherwise Google secondary supplementation is limited to one 40-result provider page. Open Library stops after a short page instead of requesting past exhaustion. Necessary provider failures fail the search rather than caching incomplete results.
+- Realtime notifications publish the completed snapshot; they do not start another provider search or reorder the browser's relevance results.
+- Physical Open Library exchanges share one bounded admission worker and the existing one-exchange-per-two-seconds quota. Up to 32 exchanges can wait before quota reservation, rather than competing for the next period. Cancelled provider subscriptions do not dispatch queued exchanges; an active permit wait finishes before the next reservation. Shared snapshots keep their existing load lifecycle. Overload and provider failures remain explicit.
 - Cold snapshot admission allows at most four concurrent loads and thirty new query snapshots per minute; excess unique-query bursts return HTTP `429` instead of consuming unbounded database or provider capacity.
 - Web UI caches up to six prefetched pages in-memory.
 
@@ -286,13 +289,9 @@
 ## Realtime Search Updates (WebSocket)
 - STOMP endpoint: `/ws`
 - Topic for progress: `/topic/search/{queryHash}/progress`
-- Topic for opportunistic external candidates: `/topic/search/{queryHash}/results`
+- Legacy incremental-result topic: `/topic/search/{queryHash}/results`; completed snapshots do not publish additional candidates here.
 - The `queryHash` is returned by `/api/books/search` and should be used as the subscription key.
-- Provider priority for opportunistic enrichment:
-  - Open Library is the primary external provider.
-  - Google Books runs in parallel for realtime enrichment and contributes additional candidates when available.
-- Provider failures are isolated; one provider failure does not terminate the other provider stream.
-- Progress status distinguishes local admission from provider failure: `LOCAL_RATE_LIMITED` means the local Open Library limiter denied the call, `LOCAL_CIRCUIT_OPEN` means the local provider circuit rejected it, `RATE_LIMITED` means the provider returned HTTP 429, and `PROVIDER_UNAVAILABLE` covers other provider failures.
+- Progress announces `COMPLETE` after the canonical snapshot is assembled. It does not launch provider searches, change snapshot membership, or report a separate provider lifecycle. The HTTP search response owns results and failures.
 
 ## External Book Provider Contracts (Top 4 Public APIs)
 - **Google Books Volumes Search API**

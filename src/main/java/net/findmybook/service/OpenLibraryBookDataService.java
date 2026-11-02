@@ -23,7 +23,7 @@ import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.github.resilience4j.ratelimiter.RateLimiter;
 import io.github.resilience4j.ratelimiter.RateLimiterRegistry;
 import io.github.resilience4j.ratelimiter.RequestNotPermitted;
-import io.github.resilience4j.reactor.ratelimiter.operator.RateLimiterOperator;
+import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -31,6 +31,8 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Flux;
+import reactor.core.scheduler.Scheduler;
+import reactor.core.scheduler.Schedulers;
 import reactor.netty.http.client.PrematureCloseException;
 
 import tools.jackson.databind.JsonNode;
@@ -43,6 +45,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
 @Slf4j
@@ -60,6 +63,8 @@ public class OpenLibraryBookDataService {
     private final WebClient webClient;
     private final boolean externalFallbackEnabled;
     private final RateLimiter requestRateLimiter;
+    // Serialize reservations, not HTTP responses: concurrent callers cannot reserve the same next period.
+    private final Scheduler admissionScheduler = Schedulers.newBoundedElastic(1, 32, "open-library-admission");
 
     public OpenLibraryBookDataService(WebClient.Builder webClientBuilder,
                                    @Value("${openlibrary.data.api.url:https://openlibrary.org}") String openLibraryApiUrl,
@@ -201,6 +206,10 @@ public class OpenLibraryBookDataService {
                         requestedLimit
                     );
                 })
+                .takeUntil(page -> page.path("docs").size() < pageSize)
+                .concatMapIterable(page -> page.path("docs"))
+                .map(docNode -> parseOpenLibrarySearchDoc(docNode, queryValue))
+                .filter(Objects::nonNull)
                 .take(safeMaxResults);
 
         Flux<Book> response = parsedBooks;
@@ -213,7 +222,7 @@ public class OpenLibraryBookDataService {
             "OpenLibrary " + queryParamName + " search failed for '" + queryValue + "'", e));
     }
 
-    private Flux<Book> fetchSearchPage(String queryParamName,
+    private Mono<JsonNode> fetchSearchPage(String queryParamName,
                                        String queryValue,
                                        String apiOperation,
                                        boolean includeEverythingMode,
@@ -221,7 +230,7 @@ public class OpenLibraryBookDataService {
                                        int offset,
                                        int limit) {
         if (limit <= 0) {
-            return Flux.empty();
+            return Mono.empty();
         }
         String requestContext = queryValue + " start=" + offset + " limit=" + limit;
         return exchangeOpenLibraryJson(webClient.get()
@@ -245,23 +254,32 @@ public class OpenLibraryBookDataService {
                 log.debug("OpenLibrary {} search connection closed early for '{}': {}", queryParamName, queryValue, e.toString());
                 return new IllegalStateException("OpenLibrary " + queryParamName + " search connection closed early for '" + queryValue + "'", e);
             })
-            .flatMapMany(responseNode -> {
-                if (!responseNode.has("docs") || !responseNode.get("docs").isArray()) {
-                    ExternalApiLogger.logApiCallSuccess(log, "OpenLibrary", apiOperation, requestContext, 0);
-                    return Flux.empty();
-                }
-                int count = responseNode.get("docs").size();
+            .doOnNext(responseNode -> {
+                int count = responseNode.path("docs").size();
                 ExternalApiLogger.logApiCallSuccess(log, "OpenLibrary", apiOperation, requestContext, count);
-                return Flux.fromIterable(responseNode.get("docs"))
-                    .map(docNode -> parseOpenLibrarySearchDoc(docNode, queryValue))
-                    .filter(Objects::nonNull);
             });
     }
 
     private Mono<JsonNode> exchangeOpenLibraryJson(WebClient.RequestHeadersSpec<?> request) {
-        return request.retrieve()
-            .bodyToMono(JsonNode.class)
-            .transformDeferred(RateLimiterOperator.of(requestRateLimiter));
+        // A cancelled waiter must finish its reservation before the worker admits the next one.
+        // Interrupting it would leave a future permit reserved and make the next caller fail.
+        return Mono.<Boolean>create(sink -> {
+            AtomicBoolean cancelled = new AtomicBoolean();
+            sink.onCancel(() -> cancelled.set(true));
+            admissionScheduler.schedule(() -> {
+                if (!cancelled.get()) {
+                    sink.success(requestRateLimiter.acquirePermission());
+                }
+            });
+        })
+            .flatMap(permitted -> permitted
+                ? request.retrieve().bodyToMono(JsonNode.class)
+                : Mono.error(RequestNotPermitted.createRequestNotPermitted(requestRateLimiter)));
+    }
+
+    @PreDestroy
+    void stopAdmission() {
+        admissionScheduler.dispose();
     }
 
     /**

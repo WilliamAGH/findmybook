@@ -1,5 +1,7 @@
 package net.findmybook.service;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -48,6 +50,8 @@ public class BookDataOrchestrator {
     private static final long SEARCH_VIEW_REFRESH_INTERVAL_MS = 60_000L;
     private static final int DESCRIPTION_ENRICHMENT_LIMIT = 6;
     private static final Duration DESCRIPTION_ENRICHMENT_TIMEOUT = Duration.ofSeconds(8);
+    private static final int DESCRIPTION_CANDIDATE_CACHE_MAXIMUM_SIZE = 100;
+    private static final Duration DESCRIPTION_CANDIDATE_CACHE_TTL = Duration.ofMinutes(2);
     private static final int OPEN_LIBRARY_TRANSIENT_RETRY_LIMIT = 1;
     private static final String DESCRIPTION_ENRICHMENT_SORT = "relevance";
     private static final String ISBN_QUERY_PREFIX = "isbn:";
@@ -55,6 +59,10 @@ public class BookDataOrchestrator {
     private static final String GOOGLE_BOOKS_PROVIDER = "Google Books";
     private final AtomicLong lastSearchViewRefresh = new AtomicLong(0L);
     private final AtomicBoolean searchViewRefreshInProgress = new AtomicBoolean(false);
+    private final Cache<String, List<Book>> descriptionCandidates = Caffeine.newBuilder()
+        .maximumSize(DESCRIPTION_CANDIDATE_CACHE_MAXIMUM_SIZE)
+        .expireAfterWrite(DESCRIPTION_CANDIDATE_CACHE_TTL)
+        .build();
 
     public BookDataOrchestrator(BookSearchService bookSearchService,
                                 @Nullable PostgresBookRepository postgresBookRepository,
@@ -101,7 +109,9 @@ public class BookDataOrchestrator {
             return currentDescription;
         }
 
-        List<Book> candidates = fetchDescriptionEnrichmentCandidates(bookId, query);
+        // Share successful observations across AI/SEO stages, not per-book matching or writes.
+        List<Book> candidates = descriptionCandidates.get(SearchQueryUtils.canonicalize(query),
+            ignored -> fetchDescriptionEnrichmentCandidates(bookId, query));
         String bestDescription = candidates.stream()
             .filter(candidate -> candidateMatchesDetail(candidate, detail))
             .map(Book::getDescription)

@@ -13,9 +13,117 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 class SearchPaginationServiceOrderingTest extends AbstractSearchPaginationServiceTest {
+
+    @Test
+    void should_UsePersistedDirectMatchWithoutProviders_When_RelevanceQueryIsResolved() {
+        UUID bookId = UUID.randomUUID();
+        String query = "snow crash neal stephenson";
+        when(bookSearchService.searchBooks(query, SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP))
+            .thenReturn(List.of(new BookSearchService.SearchResult(bookId, 1.0d, "EXACT_TITLE")));
+        when(bookQueryRepository.fetchBookListItems(anyList()))
+            .thenReturn(List.of(buildListItem(bookId, "Snow Crash", List.of("Neal Stephenson"),
+                600, 900, true, "https://example.test/snow-crash.jpg")));
+
+        SearchPaginationService.SearchPage page = fallbackEnabledService()
+            .search(searchRequest(query, 0, 12, "relevance")).block();
+
+        assertThat(page).isNotNull();
+        assertThat(page.pageItems()).extracting(Book::getId).containsExactly(bookId.toString());
+        verify(openLibraryBookDataService, never())
+            .queryBooksByEverything(anyString(), anyString(), anyInt(), anyInt());
+    }
+
+    @Test
+    void should_PreserveProviderIdentityOrder_When_PersistedTitlesHaveDifferentAuthors() {
+        UUID expectedId = UUID.randomUUID();
+        UUID otherId = UUID.randomUUID();
+        when(bookSearchService.searchBooks("snow crash", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP))
+            .thenReturn(List.of(new BookSearchService.SearchResult(otherId, 1.0d, "EXACT_TITLE"),
+                new BookSearchService.SearchResult(expectedId, 1.0d, "EXACT_TITLE")));
+        when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(List.of(
+            buildListItem(otherId, "Snow Crash", List.of("Prima Games"), 600, 900, true,
+                "https://example.test/game.jpg"),
+            buildListItem(expectedId, "Snow Crash", List.of("Neal Stephenson"), 0, 0, false, null)));
+        Book expected = buildOpenLibraryCandidate("OL38501W", "Snow Crash");
+        expected.setAuthors(List.of("Neal Stephenson"));
+        Book other = buildOpenLibraryCandidate("OL8495480W", "Snow Crash");
+        other.setAuthors(List.of("Prima Games"));
+        when(openLibraryBookDataService.queryBooksByEverything(
+            eq("snow crash"), anyString(), eq(0), eq(SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP)))
+            .thenReturn(reactor.core.publisher.Flux.just(expected, other));
+
+        var page = fallbackEnabledService().search(searchRequest("snow crash", 0, 12, "relevance")).block();
+
+        assertThat(page).isNotNull();
+        assertThat(page.pageItems()).extracting(Book::getId).containsExactly(expectedId.toString(), otherId.toString());
+    }
+
+    @Test
+    void should_ConsultPrimaryProvider_When_PunctuationDistinguishesTitles() {
+        UUID unrelatedId = UUID.randomUUID();
+        String query = "c# in depth";
+        when(bookSearchService.searchBooks(query, SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP))
+            .thenReturn(List.of(new BookSearchService.SearchResult(unrelatedId, 1.0d, "EXACT_TITLE")));
+        when(bookQueryRepository.fetchBookListItems(anyList()))
+            .thenReturn(List.of(buildListItem(unrelatedId, "C++ in Depth")));
+        when(openLibraryBookDataService.queryBooksByEverything(
+            eq(query), anyString(), eq(0), eq(SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP)))
+            .thenReturn(reactor.core.publisher.Flux.just(buildOpenLibraryCandidate("OL-CSHARP", "C# in Depth")));
+
+        var page = fallbackEnabledService().search(searchRequest(query, 0, 12, "relevance")).block();
+
+        assertThat(page).isNotNull();
+        assertThat(page.pageItems()).extracting(Book::getTitle).startsWith("C# in Depth");
+    }
+
+    @Test
+    @DisplayName("search() preserves the primary provider's exact-title result before unrelated cached matches")
+    void should_RankCorrectTitleFirst_When_ColdProviderCandidateCompetesWithCachedNoise() {
+        UUID unrelatedId = UUID.randomUUID();
+        when(bookSearchService.searchBooks("snow crash", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP))
+            .thenReturn(List.of(new BookSearchService.SearchResult(unrelatedId, 0.0035d, "FULLTEXT")));
+        when(bookQueryRepository.fetchBookListItems(anyList()))
+            .thenReturn(List.of(buildListItem(unrelatedId, "Pathfinder Roleplaying Game")));
+        Book expectedBook = buildOpenLibraryCandidate("OL-NEAL", "Snow Crash");
+        expectedBook.setAuthors(List.of("Neal Stephenson"));
+        Book otherTitle = buildOpenLibraryCandidate("OL-GAME", "Snow Crash");
+        otherTitle.setAuthors(List.of("Prima Games"));
+        otherTitle.setExternalImageUrl("https://covers.openlibrary.org/b/id/1-L.jpg");
+        otherTitle.setPublishedDate(java.sql.Date.valueOf("2025-01-01"));
+        when(openLibraryBookDataService.queryBooksByEverything(
+            eq("snow crash"), anyString(), eq(0), eq(SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP)))
+            .thenReturn(reactor.core.publisher.Flux.just(expectedBook, otherTitle));
+
+        var page = fallbackEnabledService().search(searchRequest("snow crash", 0, 12, "relevance")).block();
+        assertThat(page).isNotNull();
+        assertThat(page.pageItems()).extracting(Book::getId).startsWith("OL-NEAL");
+    }
+
+    @Test
+    @DisplayName("search() ranks a title and author match before a high-scoring unrelated title")
+    void should_RankTitleAndAuthorFirst_When_QueryIncludesBoth() {
+        UUID unrelatedId = UUID.randomUUID();
+        UUID expectedId = UUID.randomUUID();
+        String query = "snow crash neal stephenson";
+        when(bookSearchService.searchBooks(query, SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP))
+            .thenReturn(List.of(new BookSearchService.SearchResult(unrelatedId, 0.99d, "FULLTEXT"),
+                new BookSearchService.SearchResult(expectedId, 0.65d, "FULLTEXT")));
+        when(bookQueryRepository.fetchBookListItems(anyList())).thenReturn(List.of(
+            buildListItem(unrelatedId, "A Guide to the Metaverse"),
+            buildListItem(expectedId, "Snow Crash", List.of("Neal Stephenson"), 600, 900, true,
+                "https://example.test/snow-crash.jpg")));
+        var page = service.search(searchRequest(query, 0, 12, "relevance")).block();
+        assertThat(page).isNotNull();
+        assertThat(page.pageItems()).extracting(Book::getId).startsWith(expectedId.toString());
+    }
 
     @Test
     @DisplayName("search() defaults omitted orderBy to relevance")

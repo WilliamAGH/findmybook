@@ -216,7 +216,7 @@ resilience4j:
       openLibraryDataService:
         limitForPeriod: 1           # One shared permit per physical Open Library HTTP exchange
         limitRefreshPeriod: 2s
-        timeoutDuration: 2s         # Sequential fan-out may reserve the next period; excess callers fail locally
+        timeoutDuration: 2s         # One admission worker reserves the next period; callers queue before reservation
       openLibraryServiceRateLimiter:
         limitForPeriod: 12          # 12 requests per minute (1 every 5 seconds)
         limitRefreshPeriod: 1m
