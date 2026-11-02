@@ -32,6 +32,29 @@ import static org.mockito.Mockito.when;
 class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServiceTest {
 
     @Test
+    void should_ResolveTitleAndAuthorSearchesWithoutSecondaryWork_When_PrimaryMatchesDirectly() {
+        when(googleApiFetcher.isApiKeyAvailable()).thenReturn(true);
+        for (String query : List.of("snow crash", "snow crash neal stephenson")) {
+            when(bookSearchService.searchBooks(query, SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP))
+                .thenReturn(List.of());
+            Book book = buildOpenLibraryCandidate("OL38501W", "Snow Crash");
+            book.setAuthors(List.of("Neal Stephenson"));
+            when(openLibraryBookDataService.queryBooksByEverything(
+                eq(query), eq("relevance"), eq(0), eq(SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP)))
+                .thenReturn(Flux.just(book));
+        }
+        SearchPaginationService searchService = fallbackEnabledService();
+        for (String query : List.of("snow crash", "snow crash neal stephenson")) {
+            SearchPaginationService.SearchPage page = searchService.search(searchRequest(query, 0, 12, "relevance")).block();
+            SearchPaginationService.SearchPage warmPage = searchService.search(searchRequest(query, 0, 12, "relevance")).block();
+            assertThat(page).isNotNull();
+            assertThat(page.pageItems()).extracting(Book::getTitle).containsExactly("Snow Crash");
+            assertThat(warmPage).isEqualTo(page);
+        }
+        verify(googleApiFetcher, never()).streamSearchItems(anyString(), anyInt(), anyString(), any(), anyBoolean());
+    }
+
+    @Test
     @DisplayName("search() triggers Google API fallback when Postgres returns no matches")
     void searchInvokesFallbackWhenPostgresEmpty() {
         UUID fallbackId = UUID.randomUUID();
@@ -381,8 +404,8 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
     }
 
     @Test
-    @DisplayName("search() returns Postgres page without waiting for metadata refresh")
-    void should_ReturnPostgresPageWithoutWaiting_When_MetadataRefreshDoesNotComplete() {
+    @DisplayName("search() returns a resolved author query without starting metadata or provider searches")
+    void should_ReturnPostgresPageWithoutProviderWork_When_AuthorQueryIsResolved() {
         UUID postgresId = UUID.randomUUID();
 
         when(bookSearchService.searchBooks("john grisham", SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP)).thenReturn(List.of(
@@ -400,16 +423,6 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
             )
         ));
 
-        when(googleApiFetcher.isGoogleFallbackEnabled()).thenReturn(false);
-        when(openLibraryBookDataService.queryBooksByEverything(
-            "john grisham",
-            "relevance",
-            0,
-            SearchPaginationService.SEARCH_SNAPSHOT_WINDOW_CAP
-        )).thenReturn(Flux.empty());
-        when(openLibraryBookDataService.queryBooksByEverything(eq("john grisham"), anyString()))
-            .thenReturn(Flux.never());
-
         SearchPaginationService metadataRefreshingService = fallbackEnabledService();
         SearchPaginationService.SearchPage page = metadataRefreshingService
             .search(searchRequest("john grisham", 0, 1, "relevance"))
@@ -417,8 +430,8 @@ class SearchPaginationServiceFallbackTest extends AbstractSearchPaginationServic
 
         assertThat(page).isNotNull();
         assertThat(page.pageItems()).extracting(Book::getId).containsExactly(postgresId.toString());
-        verify(openLibraryBookDataService).queryBooksByEverything("john grisham", "relevance");
-        verify(openLibraryBookDataService)
+        verify(openLibraryBookDataService, never()).queryBooksByEverything(anyString(), anyString());
+        verify(openLibraryBookDataService, never())
             .queryBooksByEverything(
                 "john grisham",
                 "relevance",

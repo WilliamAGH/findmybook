@@ -11,12 +11,15 @@ import io.github.resilience4j.ratelimiter.RateLimiterRegistry;
 import io.github.resilience4j.ratelimiter.RequestNotPermitted;
 import java.time.Duration;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.findmybook.model.Book;
 import net.findmybook.util.DateParsingUtils;
+import net.findmybook.util.SearchExternalProviderUtils;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -26,13 +29,78 @@ import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.ExchangeFunction;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.Flux;
 import reactor.test.StepVerifier;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 class OpenLibraryBookDataServiceParsingTest {
+
+    private final List<OpenLibraryBookDataService> services = new ArrayList<>();
+
+    @AfterEach
+    void stopAdmissionSchedulers() {
+        services.forEach(OpenLibraryBookDataService::stopAdmission);
+    }
+
+    @Test
+    void should_StopPagination_When_FirstProviderPageIsShort() {
+        List<String> requestPaths = new CopyOnWriteArrayList<>();
+        OpenLibraryBookDataService service = openLibraryBookDataService(
+            WebClient.builder().exchangeFunction(request -> {
+                requestPaths.add(request.url().toString());
+                return jsonResponse("""
+                    {"docs":[{"key":"/works/OL1W","title":"Snow Crash","author_name":["Neal Stephenson"],
+                      "first_sentence":["An existing description long enough to avoid optional work enrichment."]}]}
+                    """);
+            }), rateLimiterRegistry(1, Duration.ofHours(1), Duration.ZERO));
+
+        StepVerifier.create(service.queryBooksByEverything("snow crash", "relevance", 0, 200))
+            .assertNext(book -> assertThat(book.getTitle()).isEqualTo("Snow Crash"))
+            .verifyComplete();
+        assertThat(requestPaths).singleElement().asString().contains("offset=0", "limit=100");
+    }
+
+    @Test
+    void should_PaceConcurrentSearches_When_SharingProductionQuota() {
+        List<Long> exchangeTimes = new CopyOnWriteArrayList<>();
+        RateLimiterRegistry registry = rateLimiterRegistry(1, Duration.ofSeconds(2), Duration.ofSeconds(2));
+        RateLimiter limiter = registry.rateLimiter(OpenLibraryBookDataService.RATE_LIMITER_NAME);
+        assertThat(limiter.acquirePermission()).isTrue();
+        OpenLibraryBookDataService service = openLibraryBookDataService(
+            WebClient.builder().exchangeFunction(request -> {
+                exchangeTimes.add(System.nanoTime());
+                return jsonResponse("{\"docs\":[]}");
+            }), registry);
+        var cancelledSearch = service.queryBooksByTitle("cancelled").subscribe();
+        await().atMost(Duration.ofSeconds(1)).until(() -> limiter.getMetrics().getNumberOfWaitingThreads() == 1);
+        cancelledSearch.dispose();
+
+        StepVerifier.create(Flux.merge(
+                service.queryBooksByTitle("first"),
+                service.queryBooksByTitle("second"),
+                service.queryBooksByTitle("third")))
+            .expectComplete().verify(Duration.ofSeconds(10));
+
+        assertThat(exchangeTimes).hasSize(3);
+        assertThat(Duration.ofNanos(exchangeTimes.get(2) - exchangeTimes.get(0)))
+            .isGreaterThan(Duration.ofSeconds(2));
+    }
+
+    @Test
+    void should_ExposeAdmissionDenial_When_PhysicalExchangeQueueIsFull() {
+        OpenLibraryBookDataService service = openLibraryBookDataService(
+            WebClient.builder().exchangeFunction(request -> jsonResponse("{\"docs\":[]}")),
+            rateLimiterRegistry(1, Duration.ofSeconds(2), Duration.ofSeconds(2)));
+
+        StepVerifier.create(Flux.range(0, 40)
+                .flatMap(index -> service.queryBooksByTitle("queued search " + index), 40))
+            .expectErrorMatches(SearchExternalProviderUtils::isLocalAdmissionDenied)
+            .verify(Duration.ofSeconds(5));
+    }
 
     @Test
     void should_PreserveLocalAdmissionFailure_When_RateLimiterRejectsRequest() {
@@ -405,20 +473,22 @@ class OpenLibraryBookDataServiceParsingTest {
         return rateLimiterRegistry;
     }
 
-    private static OpenLibraryBookDataService openLibraryBookDataService() {
+    private OpenLibraryBookDataService openLibraryBookDataService() {
         return openLibraryBookDataService(
             WebClient.builder(),
             rateLimiterRegistry(RateLimiterConfig.ofDefaults())
         );
     }
 
-    private static OpenLibraryBookDataService openLibraryBookDataService(WebClient.Builder webClientBuilder,
+    private OpenLibraryBookDataService openLibraryBookDataService(WebClient.Builder webClientBuilder,
                                                                          RateLimiterRegistry rateLimiterRegistry) {
-        return new OpenLibraryBookDataService(
+        OpenLibraryBookDataService service = new OpenLibraryBookDataService(
             webClientBuilder,
             "https://openlibrary.org",
             true,
             rateLimiterRegistry
         );
+        services.add(service);
+        return service;
     }
 }

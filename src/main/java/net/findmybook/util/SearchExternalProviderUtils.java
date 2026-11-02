@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.RejectedExecutionException;
 
 /**
  * Shared normalization and validation rules for external book-provider search flows.
@@ -196,7 +197,8 @@ public final class SearchExternalProviderUtils {
             if (!visited.add(current)) {
                 continue;
             }
-            if (current instanceof RequestNotPermitted || current instanceof BulkheadFullException) {
+            if (current instanceof RequestNotPermitted || current instanceof BulkheadFullException
+                || current instanceof RejectedExecutionException) {
                 return true;
             }
             if (current.getCause() != null) {

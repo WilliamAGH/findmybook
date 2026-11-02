@@ -121,10 +121,10 @@ function relevanceScore(hit: SearchHit): number {
 }
 
 /**
- * Stable multi-key sort for search hits. Primary key varies by orderBy;
- * tiebreakers are cover presence, source rank, relevance, then original index.
+ * Stable multi-key sort for explicit search ordering. Tiebreakers are cover
+ * presence, source rank, recency, relevance, then original index.
  */
-function sortSearchHits(hits: SearchHit[], orderBy: SortOption): SearchHit[] {
+function sortSearchHits(hits: SearchHit[], orderBy: Exclude<SortOption, "relevance">): SearchHit[] {
   return hits
     .map((hit, index) => ({ hit, index }))
     .sort((left, right) => {
@@ -142,11 +142,6 @@ function sortSearchHits(hits: SearchHit[], orderBy: SortOption): SearchHit[] {
         const authorDelta = primaryAuthorName(left.hit).localeCompare(primaryAuthorName(right.hit), undefined, { sensitivity: "base" });
         if (authorDelta !== 0) {
           return authorDelta;
-        }
-      } else {
-        const relevanceDelta = relevanceScore(right.hit) - relevanceScore(left.hit);
-        if (relevanceDelta !== 0) {
-          return relevanceDelta;
         }
       }
 
@@ -168,11 +163,9 @@ function sortSearchHits(hits: SearchHit[], orderBy: SortOption): SearchHit[] {
         }
       }
 
-      if (orderBy !== "relevance") {
-        const relevanceDelta = relevanceScore(right.hit) - relevanceScore(left.hit);
-        if (relevanceDelta !== 0) {
-          return relevanceDelta;
-        }
+      const relevanceDelta = relevanceScore(right.hit) - relevanceScore(left.hit);
+      if (relevanceDelta !== 0) {
+        return relevanceDelta;
       }
 
       return left.index - right.index;
@@ -238,6 +231,7 @@ export function normalizeRealtimeSearchHits(incoming: unknown[]): SearchHit[] {
  * Existing backend results are preserved; only genuinely new hits are added.
  * This prevents structurally incomplete WebSocket payloads from overwriting
  * full backend results that contain populated collections, tags, and editions.
+ * Relevance keeps backend ranking and appends new hits in received order.
  */
 export function mergeSearchHits(
   existingHits: SearchHit[],
@@ -250,5 +244,6 @@ export function mergeSearchHits(
       merged.set(candidate.id, candidate);
     }
   }
-  return sortSearchHits(Array.from(merged.values()), orderBy);
+  const mergedHits = Array.from(merged.values());
+  return orderBy === "relevance" ? mergedHits : sortSearchHits(mergedHits, orderBy);
 }

@@ -8,7 +8,6 @@ import net.findmybook.model.Book;
 import net.findmybook.model.image.CoverImageSource;
 import net.findmybook.model.image.ImageResolutionPreference;
 import net.findmybook.repository.BookQueryRepository;
-import net.findmybook.service.event.SearchResultsUpdatedEvent;
 import net.findmybook.util.ApplicationConstants;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -219,13 +218,6 @@ abstract class AbstractSearchPaginationServiceTest {
         node.put("id", id);
         node.putObject("volumeInfo").put("title", title);
         return node;
-    }
-
-    protected static boolean isGoogleRealtimeEvent(Object event) {
-        return event instanceof SearchResultsUpdatedEvent updatedEvent
-            && "GOOGLE_BOOKS".equals(updatedEvent.getSource())
-            && updatedEvent.getNewResults() != null
-            && !updatedEvent.getNewResults().isEmpty();
     }
 
     protected static BookListItem buildNullEquivalentCoverListItem(UUID id, String title) {

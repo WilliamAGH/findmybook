@@ -60,6 +60,7 @@ describe("mergeSearchHits", () => {
     const merged = mergeSearchHits([existing], [incoming], "relevance");
 
     expect(merged).toHaveLength(1);
+    expect(merged[0]).toBe(existing);
     expect(merged[0].title).toBe("Backend Title");
     expect(merged[0].relevanceScore).toBe(5);
     expect(merged[0].cover?.preferredUrl).toBe("https://cdn.example.com/backend.jpg");
@@ -74,6 +75,58 @@ describe("mergeSearchHits", () => {
     expect(merged).toHaveLength(2);
     expect(merged.map((hit) => hit.id)).toEqual(["book-1", "book-2"]);
   });
+
+  it("should_PreserveBackendRankingAndReceivedOrder_When_RelevanceHitsHaveHigherScoresAndNewerDates", () => {
+    const exactTitle = createSearchHit("snow-crash", {
+      title: "Snow Crash",
+      relevanceScore: 1,
+      publication: { publishedDate: "1992-06-01" },
+    });
+    const backendNoise = createSearchHit("backend-noise", {
+      relevanceScore: 100,
+      publication: { publishedDate: "2025-01-01" },
+      cover: buildCover({ preferredUrl: "https://cdn.example.com/noise.jpg" }),
+    });
+    const firstIncoming = createSearchHit("first-incoming", { relevanceScore: 2 });
+    const newerNoise = createSearchHit("newer-noise", {
+      relevanceScore: 1000,
+      publication: { publishedDate: "2026-01-01" },
+    });
+    const duplicateExactTitle = createSearchHit(exactTitle.id, { title: "Incomplete realtime title" });
+
+    const merged = mergeSearchHits(
+      [exactTitle, backendNoise],
+      [firstIncoming, newerNoise, duplicateExactTitle, firstIncoming],
+      "relevance",
+    );
+
+    expect(merged.map((hit) => hit.id)).toEqual([
+      "snow-crash", "backend-noise", "first-incoming", "newer-noise",
+    ]);
+    expect(merged[0]).toBe(exactTitle);
+  });
+
+  it.each(["newest", "title", "author"] as const)(
+    "should_ApplyExplicitSort_When_OrderByIs_%s",
+    (orderBy) => {
+      const existing = createSearchHit("book-1", {
+        title: "Z Title",
+        authors: [{ id: null, name: "Z Author" }],
+        publication: { publishedDate: "1992-06-01" },
+        relevanceScore: 100,
+      });
+      const incoming = createSearchHit("book-2", {
+        title: "A Title",
+        authors: [{ id: null, name: "A Author" }],
+        publication: { publishedDate: "2026-01-01" },
+        relevanceScore: 1,
+      });
+
+      const merged = mergeSearchHits([existing], [incoming], orderBy);
+
+      expect(merged.map((hit) => hit.id)).toEqual(["book-2", "book-1"]);
+    },
+  );
 
   it("should_ClassifyProviderUsingDisplayUrl_When_PreferredUrlBlank", () => {
     const openLibrary = createSearchHit("book-1", {

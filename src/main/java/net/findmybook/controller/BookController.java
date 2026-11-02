@@ -155,6 +155,10 @@ public class BookController {
                     return Mono.error(responseStatusException);
                 }
                 if (SearchExternalProviderUtils.isLocalAdmissionDenied(ex)) {
+                    log.warn("Search admission denied queryHash={} startIndex={} maxResults={} cause={}",
+                        SearchQueryUtils.topicKey(request.query(), request.orderBy(), request.coverSource().name(),
+                            request.resolutionPreference().name(), request.publishedYear(), request.maxResults()),
+                        request.startIndex(), request.maxResults(), ex.toString());
                     return Mono.error(new ResponseStatusException(
                         HttpStatus.TOO_MANY_REQUESTS,
                         "Search capacity is temporarily busy; retry shortly",

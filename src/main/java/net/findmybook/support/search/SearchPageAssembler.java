@@ -22,6 +22,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.function.Predicate;
 
 /**
  * Builds stable paginated search pages from hydrated books.
@@ -68,12 +69,21 @@ public final class SearchPageAssembler {
 
         LinkedHashMap<String, Book> orderedCandidatesByKey = new LinkedHashMap<>();
         Map<String, Integer> insertionOrder = new LinkedHashMap<>();
+        Map<String, Integer> providerOrder = new LinkedHashMap<>();
         List<Book> acceptedCandidates = new ArrayList<>();
         int position = 0;
 
         for (Book book : eligibleCandidates) {
             Optional<String> candidateKey = CandidateKeyResolver.resolve(book);
-            if (candidateKey.isEmpty() || CandidateKeyResolver.overlapsAny(acceptedCandidates, book)) {
+            if (candidateKey.isEmpty()) {
+                continue;
+            }
+            Optional<Book> existing = acceptedCandidates.stream()
+                .filter(candidate -> CandidateKeyResolver.hasIdentityOverlap(candidate, book)).findFirst();
+            if (SearchExternalProviderUtils.isExternalFallback(book)) {
+                providerOrder.putIfAbsent(existing.orElse(book).getId(), providerOrder.size());
+            }
+            if (existing.isPresent()) {
                 continue;
             }
             orderedCandidatesByKey.put(candidateKey.get(), book);
@@ -84,7 +94,7 @@ public final class SearchPageAssembler {
         List<Book> filtered = new ArrayList<>(orderedCandidatesByKey.values());
         applyAuthorIntentPenalties(filtered, query);
 
-        filtered.sort(buildSearchResultComparator(insertionOrder, orderBy));
+        filtered.sort(buildSearchResultComparator(insertionOrder, providerOrder, orderBy, query, filtered));
         List<Book> pageItems = PagingUtils.slice(filtered, window.startIndex(), window.limit());
         int totalUnique = filtered.size();
         boolean hasMore = PagingUtils.hasMore(totalUnique, window.startIndex(), window.limit());
@@ -150,12 +160,25 @@ public final class SearchPageAssembler {
     }
 
     private Comparator<Book> buildSearchResultComparator(Map<String, Integer> insertionOrder,
-                                                         String orderBy) {
+                                                         Map<String, Integer> providerOrder,
+                                                         String orderBy, String query, List<Book> candidates) {
         String normalized = SearchExternalProviderUtils.normalizeOrderBy(orderBy);
+        if ("relevance".equals(normalized)) {
+            boolean authorIntent = isLikelyAuthorQuery(query)
+                && candidates.stream().anyMatch(book -> hasAuthorMatch(book, query));
+            Predicate<Book> directMatch = authorIntent
+                ? book -> hasAuthorMatch(book, query) : book -> matchesTitleIdentity(book, query);
+            Comparator<Book> providerRelevance = Comparator.comparingDouble(this::relevanceScoreForSort).reversed()
+                .thenComparingInt(book -> SearchExternalProviderUtils.isExternalFallback(book)
+                    ? insertionOrder.getOrDefault(book.getId(), Integer.MAX_VALUE) : 0);
+            Comparator<Book> directRelevance = Comparator
+                .comparingInt((Book book) -> providerOrder.getOrDefault(book.getId(), Integer.MAX_VALUE))
+                .thenComparing(providerRelevance);
+            return Comparator.<Book, Boolean>comparing(book -> !directMatch.test(book))
+                .thenComparing((left, right) -> directMatch.test(left) ? directRelevance.compare(left, right) : 0)
+                .thenComparing(CoverPrioritizer.bookComparatorWithPrimarySort(insertionOrder, providerRelevance));
+        }
         Comparator<Book> primarySort = switch (normalized) {
-            case "relevance" -> Comparator
-                .comparingDouble(this::relevanceScoreForSort)
-                .reversed();
             case "newest" -> Comparator
                 .comparing(Book::getPublishedDate, Comparator.nullsLast(java.util.Date::compareTo))
                 .reversed();
@@ -185,7 +208,8 @@ public final class SearchPageAssembler {
     }
 
     private void applyAuthorIntentPenalties(List<Book> books, String query) {
-        if (books == null || books.isEmpty() || !isLikelyAuthorQuery(query)) {
+        if (books == null || books.isEmpty() || !isLikelyAuthorQuery(query)
+            || books.stream().noneMatch(book -> hasAuthorMatch(book, query))) {
             return;
         }
 
@@ -208,6 +232,32 @@ public final class SearchPageAssembler {
                 book.addQualifier("search.relevanceScore", 0.65d);
             }
         }
+    }
+
+    /** Resolves explicit author identities or provider-ranked titles; persisted titles alone can be ambiguous. */
+    public boolean hasDirectMatch(List<Book> candidates, String query,
+                                  CoverImageSource coverSource, ImageResolutionPreference resolutionPreference) {
+        return applyCoverPreferences(candidates, coverSource, resolutionPreference).stream()
+            .anyMatch(book -> matchesTitleIdentity(book, query)
+                && (SearchExternalProviderUtils.isExternalFallback(book)
+                    || !normalizeForComparison(query).equals(normalizeForComparison(book.getTitle())))
+            || isLikelyAuthorQuery(query) && hasAuthorMatch(book, query));
+    }
+
+    private boolean matchesTitleIdentity(Book book, String query) {
+        String title = normalizeForComparison(book.getTitle());
+        String normalizedQuery = normalizeForComparison(query);
+        if (title.isEmpty()) {
+            return false;
+        }
+        if (normalizedQuery.equals(title)) {
+            return true;
+        }
+        if (normalizedQuery.startsWith(title + " ")) {
+            return hasAuthorMatch(book, normalizedQuery.substring(title.length()).trim());
+        }
+        return normalizedQuery.endsWith(" " + title)
+            && hasAuthorMatch(book, normalizedQuery.substring(0, normalizedQuery.length() - title.length()).trim());
     }
 
     private Double parseNumericQualifier(Book book, String key) {
@@ -280,7 +330,7 @@ public final class SearchPageAssembler {
         }
         return value
             .toLowerCase(Locale.ROOT)
-            .replaceAll("[^\\p{L}0-9\\s'-]", " ")
+            .replaceAll("[^\\p{L}0-9+#\\s'-]", " ")
             .trim()
             .replaceAll("\\s+", " ");
     }
