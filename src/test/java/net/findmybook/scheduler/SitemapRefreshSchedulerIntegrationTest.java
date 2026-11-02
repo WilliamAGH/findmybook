@@ -2,6 +2,10 @@ package net.findmybook.scheduler;
 
 import tools.jackson.databind.ObjectMapper;
 import net.findmybook.config.SitemapProperties;
+import net.findmybook.config.CacheComponentsConfig;
+import net.findmybook.repository.SitemapRepository;
+import net.findmybook.repository.SitemapRepository.BookRow;
+import net.findmybook.repository.SitemapRepository.DatasetFingerprint;
 import net.findmybook.model.Book;
 import net.findmybook.service.BookSitemapService;
 import net.findmybook.service.S3StorageService;
@@ -16,6 +20,11 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
+import org.springframework.cache.support.SimpleCacheManager;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.SimpleTransactionStatus;
+import java.io.InputStream;
 
 import jakarta.annotation.Nonnull;
 
@@ -39,6 +48,49 @@ class SitemapRefreshSchedulerIntegrationTest {
     private SitemapService sitemapService;
     private S3StorageService s3StorageService;
     private S3BookCoverService coverService;
+
+    @Test
+    void should_UploadFreshSnapshot_When_DatasetChangesAfterCachesAreWarm() throws java.io.IOException {
+        SitemapRepository repository = Mockito.mock(SitemapRepository.class);
+        PlatformTransactionManager transactions = Mockito.mock(PlatformTransactionManager.class);
+        when(transactions.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
+        var transactionProvider = new StaticListableBeanFactory(Map.of("transactions", transactions))
+            .getBeanProvider(PlatformTransactionManager.class);
+        var caches = new CacheComponentsConfig().sitemapCacheManager(sitemapProperties);
+        if (caches instanceof SimpleCacheManager simpleCaches) simpleCaches.initializeCaches();
+        SitemapService cachedSitemap = new SitemapService(repository, sitemapProperties, caches, transactionProvider);
+        Instant before = Instant.parse("2024-01-01T00:00:00Z");
+        Instant after = Instant.parse("2024-01-02T00:00:00Z");
+        when(repository.countAllBooks()).thenReturn(1);
+        when(repository.fetchBooksForXml(5000, 0)).thenReturn(List.of(new BookRow("book-1", "old-slug", "Old Title", before)));
+        when(repository.fetchBookFingerprint()).thenReturn(new DatasetFingerprint(1, before));
+        when(repository.fetchAuthorFingerprint()).thenReturn(new DatasetFingerprint(0, before));
+        cachedSitemap.currentBookFingerprint();
+        cachedSitemap.currentAuthorFingerprint();
+        cachedSitemap.getBooksXmlPageCount();
+        cachedSitemap.getBooksForXmlPage(1);
+
+        when(repository.countAllBooks()).thenReturn(2);
+        when(repository.fetchBooksForXml(5000, 0)).thenReturn(List.of(
+            new BookRow("book-1", "updated-slug", "Updated Title", after),
+            new BookRow("book-2", "new-slug", "New Title", after)));
+        when(repository.fetchBookFingerprint()).thenReturn(new DatasetFingerprint(2, after));
+        when(s3StorageService.uploadFileAsync(eq("sitemaps/books.json"), any(), anyLong(), eq("application/json")))
+            .thenReturn(CompletableFuture.completedFuture("https://example.com/sitemaps/books.json"));
+        ObjectProvider<S3BookCoverService> covers = new StaticListableBeanFactory().getBeanProvider(S3BookCoverService.class);
+        BookSitemapService snapshots = new BookSitemapService(cachedSitemap, sitemapProperties, new ObjectMapper(), s3StorageService);
+
+        new SitemapRefreshScheduler(sitemapProperties, snapshots, cachedSitemap, covers).refreshSitemapArtifacts();
+
+        ArgumentCaptor<InputStream> captured = ArgumentCaptor.forClass(InputStream.class);
+        verify(s3StorageService).uploadFileAsync(eq("sitemaps/books.json"), captured.capture(), anyLong(), eq("application/json"));
+        try (InputStream uploaded = captured.getValue()) {
+            var payload = new ObjectMapper().readTree(uploaded.readAllBytes());
+            assertThat(payload.path("totalBooks").asInt()).isEqualTo(2);
+            assertThat(payload.path("books").get(0).path("slug").asString()).isEqualTo("updated-slug");
+            assertThat(payload.path("books").get(1).path("slug").asString()).isEqualTo("new-slug");
+        }
+    }
 
     @BeforeEach
     void setUp() {
