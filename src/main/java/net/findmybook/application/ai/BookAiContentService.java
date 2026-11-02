@@ -535,9 +535,9 @@ public class BookAiContentService {
         } catch (RuntimeException enrichmentFailure) {
             BookAiGenerationException.ErrorCode errorCode =
                 BookAiGenerationException.classifyDescriptionEnrichmentFailure(enrichmentFailure);
-            log.error("Description enrichment failed for bookId={} errorCode={}", bookId, errorCode, enrichmentFailure);
             throw new BookAiGenerationException(errorCode,
-                "Description enrichment failed for book: " + bookId, enrichmentFailure);
+                "Description enrichment failed for book: " + bookId + " (errorCode=" + errorCode + ")",
+                enrichmentFailure);
         }
         int descriptionLength = descriptionLength(description);
         if (isDescriptionTooShort(description)) {
