@@ -39,6 +39,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.springframework.dao.DataAccessResourceFailureException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -273,17 +274,25 @@ class BookSeoMetadataClientWireTest {
         verify(repository, never()).insertNewCurrentVersion(any(), anyString(), anyString(), anyString(), anyString(), anyString());
     }
 
-    @Test
-    void should_PropagateProgrammingFailure_When_DescriptionEnrichmentThrowsUnexpectedRuntimeException() {
+    @ParameterizedTest
+    @MethodSource("unexpectedEnrichmentFailures")
+    void should_PropagateUnexpectedFailure_When_DescriptionEnrichmentFailsInternally(RuntimeException internalFailure) {
         BookSeoMetadataRepository repository = mock(BookSeoMetadataRepository.class);
         BookDataOrchestrator orchestrator = mock(BookDataOrchestrator.class);
         BookDetail detail = bookDetail("short");
-        NullPointerException programmingFailure = new NullPointerException("unexpected defect");
-        when(orchestrator.enrichDescriptionForAiIfNeeded(BOOK_ID, detail, "short", 50)).thenThrow(programmingFailure);
+        when(orchestrator.enrichDescriptionForAiIfNeeded(BOOK_ID, detail, "short", 50)).thenThrow(internalFailure);
         BookSeoMetadataGenerationService service = seoService(repository, orchestrator, detail);
 
-        assertThatThrownBy(() -> service.generateAndPersist(BOOK_ID)).isSameAs(programmingFailure);
+        assertThatThrownBy(() -> service.generateAndPersist(BOOK_ID)).isSameAs(internalFailure);
         assertThat(server.requestBodies()).isEmpty();
+    }
+
+    private static List<RuntimeException> unexpectedEnrichmentFailures() {
+        DataAccessResourceFailureException databaseFailure = new DataAccessResourceFailureException("Canonical write failed");
+        IllegalStateException wrappedDatabaseFailure = new IllegalStateException("Canonical upsert failed", databaseFailure);
+        wrappedDatabaseFailure.addSuppressed(new IllegalStateException("Provider timeout", new TimeoutException()));
+        return List.of(new NullPointerException("unexpected defect"),
+            new IllegalStateException("PostgreSQL returned a blank slug"), databaseFailure, wrappedDatabaseFailure);
     }
 
     private BookSeoMetadataGenerationService seoService(BookSeoMetadataRepository repository) {

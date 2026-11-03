@@ -287,11 +287,16 @@ class GemmaInferenceReliabilityTest {
         BookAiContentRequestQueue queue = mock(BookAiContentRequestQueue.class);
         IllegalStateException aiDeadline = new IllegalStateException("AI enrichment deadline", new TimeoutException());
         IllegalStateException seoDeadline = new IllegalStateException("SEO enrichment deadline", new TimeoutException());
-        DataAccessResourceFailureException persistenceFailure = new DataAccessResourceFailureException("SEO database unavailable");
+        DataAccessResourceFailureException persistenceFailure = new DataAccessResourceFailureException("Canonical enrichment write failed");
+        NullPointerException programmingFailure = new NullPointerException("Unexpected SEO defect");
+        DataAccessResourceFailureException snapshotFailure = new DataAccessResourceFailureException("SEO snapshot read failed");
         when(searchService.fetchBookDetail(BOOK_ID)).thenReturn(Optional.of(detail));
         when(orchestrator.enrichDescriptionForAiIfNeeded(BOOK_ID, detail, "short", 50))
-            .thenThrow(aiDeadline).thenThrow(seoDeadline).thenThrow(aiDeadline).thenReturn(DESCRIPTION);
-        when(seoRepository.fetchCurrent(BOOK_ID)).thenThrow(persistenceFailure);
+            .thenThrow(aiDeadline).thenThrow(seoDeadline)
+            .thenThrow(aiDeadline).thenThrow(persistenceFailure)
+            .thenThrow(aiDeadline).thenThrow(programmingFailure)
+            .thenThrow(aiDeadline).thenReturn(DESCRIPTION);
+        when(seoRepository.fetchCurrent(BOOK_ID)).thenThrow(snapshotFailure);
         BookAiContentService aiService = new BookAiContentService(
             mock(BookAiContentRepository.class), mock(BookIdentifierResolver.class), searchService, orchestrator,
             new ObjectMapper(), server.openAiProperties());
@@ -324,8 +329,10 @@ class GemmaInferenceReliabilityTest {
                 BOOK_ID.toString(), detail.slug(), detail.title(), true, "GOOGLE_BOOKS", null, null, "GOOGLE_BOOKS");
             coordinator.handleBookUpsert(event);
             coordinator.handleBookUpsert(event);
+            coordinator.handleBookUpsert(event);
+            coordinator.handleBookUpsert(event);
 
-            assertThat(failures).hasSize(2);
+            assertThat(failures).hasSize(4);
             assertThat(failures.getFirst()).isInstanceOfSatisfying(BookAiGenerationException.class, failure -> {
                 assertThat(failure.errorCode()).isEqualTo(BookAiGenerationException.ErrorCode.ENRICHMENT_FAILED);
                 assertThat(failure.getCause()).isSameAs(aiDeadline);
@@ -338,7 +345,14 @@ class GemmaInferenceReliabilityTest {
             assertThat(failures.get(1)).isSameAs(persistenceFailure);
             assertThat(persistenceFailure.getSuppressed()).singleElement().isInstanceOfSatisfying(
                 BookAiGenerationException.class, failure -> assertThat(failure.getCause()).isSameAs(aiDeadline));
-            assertThat(logEvents.list).extracting(ILoggingEvent::getLevel).containsExactly(Level.WARN, Level.ERROR);
+            assertThat(failures.get(2)).isSameAs(programmingFailure);
+            assertThat(programmingFailure.getSuppressed()).singleElement().isInstanceOfSatisfying(
+                BookAiGenerationException.class, failure -> assertThat(failure.getCause()).isSameAs(aiDeadline));
+            assertThat(failures.get(3)).isSameAs(snapshotFailure);
+            assertThat(snapshotFailure.getSuppressed()).singleElement().isInstanceOfSatisfying(
+                BookAiGenerationException.class, failure -> assertThat(failure.getCause()).isSameAs(aiDeadline));
+            assertThat(logEvents.list).extracting(ILoggingEvent::getLevel)
+                .containsExactly(Level.WARN, Level.ERROR, Level.ERROR, Level.ERROR);
             assertThat(logEvents.list.getFirst().getThrowableProxy().getSuppressed()).hasSize(1);
             assertThat(logEvents.list.get(1).getThrowableProxy().getClassName())
                 .isEqualTo(DataAccessResourceFailureException.class.getName());
