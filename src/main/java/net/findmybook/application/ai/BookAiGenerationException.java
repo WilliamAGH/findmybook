@@ -13,6 +13,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeoutException;
+import net.findmybook.domain.book.BookDescriptionEnrichmentException;
 import org.springframework.dao.DataAccessException;
 import org.springframework.web.reactive.function.client.WebClientException;
 
@@ -102,7 +103,8 @@ public class BookAiGenerationException extends RuntimeException {
             if (current instanceof CallNotPermittedException) {
                 localCircuitOpen = true;
             }
-            if (current instanceof TimeoutException
+            if (current instanceof BookDescriptionEnrichmentException
+                || current instanceof TimeoutException
                 || current instanceof IOException
                 || current instanceof WebClientException) {
                 providerFailure = true;

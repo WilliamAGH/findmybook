@@ -29,6 +29,7 @@ import net.findmybook.adapters.persistence.BookSeoMetadataRepository;
 import net.findmybook.application.ai.BookAiGenerationException;
 import net.findmybook.boot.OpenAiProperties;
 import net.findmybook.domain.seo.BookSeoMetadataSnapshot;
+import net.findmybook.domain.book.BookDescriptionEnrichmentException;
 import net.findmybook.dto.BookDetail;
 import net.findmybook.service.BookDataOrchestrator;
 import net.findmybook.service.BookSearchService;
@@ -255,23 +256,29 @@ class BookSeoMetadataClientWireTest {
             .isInstanceOf(BookSeoGenerationException.class);
     }
 
-    @Test
-    void should_ClassifyDescriptionEnrichmentFailure_When_ProviderDeadlineExpires() {
+    @ParameterizedTest
+    @MethodSource("providerEnrichmentFailures")
+    void should_ClassifyDescriptionEnrichmentFailure_When_ProviderIsUnavailable(RuntimeException providerFailure) {
         BookSeoMetadataRepository repository = mock(BookSeoMetadataRepository.class);
         BookDataOrchestrator orchestrator = mock(BookDataOrchestrator.class);
         BookDetail detail = bookDetail("short");
-        IllegalStateException deadlineFailure = new IllegalStateException(
-            "Open Library description enrichment exceeded the 8s request-wide deadline", new TimeoutException());
-        when(orchestrator.enrichDescriptionForAiIfNeeded(BOOK_ID, detail, "short", 50)).thenThrow(deadlineFailure);
+        when(orchestrator.enrichDescriptionForAiIfNeeded(BOOK_ID, detail, "short", 50)).thenThrow(providerFailure);
         BookSeoMetadataGenerationService service = seoService(repository, orchestrator, detail);
 
         assertThatThrownBy(() -> service.generateAndPersistIfPromptChanged(BOOK_ID))
             .isInstanceOfSatisfying(BookAiGenerationException.class, failure -> {
                 assertThat(failure.errorCode()).isEqualTo(BookAiGenerationException.ErrorCode.ENRICHMENT_FAILED);
-                assertThat(failure.getCause()).isSameAs(deadlineFailure);
+                assertThat(failure.getCause()).isSameAs(providerFailure);
             });
         assertThat(server.requestBodies()).isEmpty();
         verify(repository, never()).insertNewCurrentVersion(any(), anyString(), anyString(), anyString(), anyString(), anyString());
+    }
+
+    private static List<RuntimeException> providerEnrichmentFailures() {
+        return List.of(
+            new BookDescriptionEnrichmentException("Open Library deadline", new TimeoutException()),
+            new IllegalStateException("Google search page failed",
+                new BookDescriptionEnrichmentException("Google quota circuit is open")));
     }
 
     @ParameterizedTest

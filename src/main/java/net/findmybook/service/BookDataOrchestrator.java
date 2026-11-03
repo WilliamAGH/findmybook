@@ -9,6 +9,7 @@ import java.util.Comparator;
 import org.springframework.stereotype.Service;
 import net.findmybook.dto.BookAggregate;
 import net.findmybook.dto.BookDetail;
+import net.findmybook.domain.book.BookDescriptionEnrichmentException;
 import net.findmybook.mapper.GoogleBooksMapper;
 import net.findmybook.model.Book;
 import net.findmybook.support.search.GoogleExternalSearchFlow;
@@ -223,7 +224,7 @@ public class BookDataOrchestrator {
         Duration remainingDuration = Duration.ofNanos(Math.max(0L, enrichmentDeadlineNanos - System.nanoTime()));
         return candidates
             .timeout(remainingDuration)
-            .onErrorMap(TimeoutException.class, timeoutFailure -> new IllegalStateException(
+            .onErrorMap(TimeoutException.class, timeoutFailure -> new BookDescriptionEnrichmentException(
                 providerName + " description enrichment exceeded the "
                     + DESCRIPTION_ENRICHMENT_TIMEOUT.toSeconds() + "s request-wide deadline",
                 timeoutFailure
