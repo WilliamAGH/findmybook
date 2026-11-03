@@ -162,7 +162,7 @@ public class BookAiIngestionMetadataCoordinator {
                 } else {
                     log.debug("Skipped ingestion SEO metadata for unchanged prompt hash book {}", bookId);
                 }
-            } catch (BookSeoGenerationException | DataAccessException seoFailure) {
+            } catch (BookAiGenerationException | BookSeoGenerationException | DataAccessException seoFailure) {
                 if (isMissingSeoMetadataRelation(seoFailure)) {
                     if (seoGenerationEnabled.compareAndSet(true, false)) {
                         log.error(

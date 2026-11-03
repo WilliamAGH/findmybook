@@ -25,6 +25,7 @@ See [UML README](../src/main/resources/uml/README.md).
 - Canonical book upserts enqueue background AI work on the central AI queue for:
   - Reader's Guide (`book_ai_content`)
   - SEO title/description (`book_seo_metadata`)
+  Both stages use the same description-enrichment failure classification. Background completion retains recognized failures from both stages and logs expected enrichment failures at WARN; unexpected generation and SEO metadata persistence failures remain ERROR-level failures.
 - SEO rows are versioned per book (`version_number`) with a single `is_current=true` row.
 - Prompt-hash checks skip regeneration when effective model prompt inputs are unchanged.
 - Manual backfill script:

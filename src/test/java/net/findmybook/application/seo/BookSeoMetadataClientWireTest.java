@@ -24,7 +24,9 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeoutException;
 import net.findmybook.adapters.persistence.BookSeoMetadataRepository;
+import net.findmybook.application.ai.BookAiGenerationException;
 import net.findmybook.boot.OpenAiProperties;
 import net.findmybook.domain.seo.BookSeoMetadataSnapshot;
 import net.findmybook.dto.BookDetail;
@@ -252,12 +254,50 @@ class BookSeoMetadataClientWireTest {
             .isInstanceOf(BookSeoGenerationException.class);
     }
 
+    @Test
+    void should_ClassifyDescriptionEnrichmentFailure_When_ProviderDeadlineExpires() {
+        BookSeoMetadataRepository repository = mock(BookSeoMetadataRepository.class);
+        BookDataOrchestrator orchestrator = mock(BookDataOrchestrator.class);
+        BookDetail detail = bookDetail("short");
+        IllegalStateException deadlineFailure = new IllegalStateException(
+            "Open Library description enrichment exceeded the 8s request-wide deadline", new TimeoutException());
+        when(orchestrator.enrichDescriptionForAiIfNeeded(BOOK_ID, detail, "short", 50)).thenThrow(deadlineFailure);
+        BookSeoMetadataGenerationService service = seoService(repository, orchestrator, detail);
+
+        assertThatThrownBy(() -> service.generateAndPersistIfPromptChanged(BOOK_ID))
+            .isInstanceOfSatisfying(BookAiGenerationException.class, failure -> {
+                assertThat(failure.errorCode()).isEqualTo(BookAiGenerationException.ErrorCode.ENRICHMENT_FAILED);
+                assertThat(failure.getCause()).isSameAs(deadlineFailure);
+            });
+        assertThat(server.requestBodies()).isEmpty();
+        verify(repository, never()).insertNewCurrentVersion(any(), anyString(), anyString(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void should_PropagateProgrammingFailure_When_DescriptionEnrichmentThrowsUnexpectedRuntimeException() {
+        BookSeoMetadataRepository repository = mock(BookSeoMetadataRepository.class);
+        BookDataOrchestrator orchestrator = mock(BookDataOrchestrator.class);
+        BookDetail detail = bookDetail("short");
+        NullPointerException programmingFailure = new NullPointerException("unexpected defect");
+        when(orchestrator.enrichDescriptionForAiIfNeeded(BOOK_ID, detail, "short", 50)).thenThrow(programmingFailure);
+        BookSeoMetadataGenerationService service = seoService(repository, orchestrator, detail);
+
+        assertThatThrownBy(() -> service.generateAndPersist(BOOK_ID)).isSameAs(programmingFailure);
+        assertThat(server.requestBodies()).isEmpty();
+    }
+
     private BookSeoMetadataGenerationService seoService(BookSeoMetadataRepository repository) {
-        BookSearchService searchService = mock(BookSearchService.class);
         BookDataOrchestrator orchestrator = mock(BookDataOrchestrator.class);
         BookDetail detail = bookDetail();
-        when(searchService.fetchBookDetail(BOOK_ID)).thenReturn(Optional.of(detail));
         when(orchestrator.enrichDescriptionForAiIfNeeded(BOOK_ID, detail, DESCRIPTION, 50)).thenReturn(DESCRIPTION);
+        return seoService(repository, orchestrator, detail);
+    }
+
+    private BookSeoMetadataGenerationService seoService(BookSeoMetadataRepository repository,
+                                                        BookDataOrchestrator orchestrator,
+                                                        BookDetail detail) {
+        BookSearchService searchService = mock(BookSearchService.class);
+        when(searchService.fetchBookDetail(BOOK_ID)).thenReturn(Optional.of(detail));
         return new BookSeoMetadataGenerationService(
             repository, searchService, orchestrator, seoClient(), new SeoMetadataNormalizationPolicy());
     }
@@ -273,7 +313,11 @@ class BookSeoMetadataClientWireTest {
     }
 
     private BookDetail bookDetail() {
-        return new BookDetail(BOOK_ID.toString(), "test-book", "Test Book", DESCRIPTION, "Test Publisher",
+        return bookDetail(DESCRIPTION);
+    }
+
+    private BookDetail bookDetail(String description) {
+        return new BookDetail(BOOK_ID.toString(), "test-book", "Test Book", description, "Test Publisher",
             LocalDate.of(2020, 1, 1), "en", 200, List.of("Author One"), List.of("Category One"),
             "https://example.com/cover.jpg", null, "https://example.com/fallback.jpg",
             "https://example.com/thumbnail.jpg", 600, 900, true, "GOOGLE_BOOKS", 4.5, 42,

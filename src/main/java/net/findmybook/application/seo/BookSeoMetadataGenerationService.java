@@ -3,6 +3,7 @@ package net.findmybook.application.seo;
 import java.util.Optional;
 import java.util.UUID;
 import net.findmybook.adapters.persistence.BookSeoMetadataRepository;
+import net.findmybook.application.ai.BookAiGenerationException;
 import net.findmybook.support.llm.LlmGatewayTier;
 import net.findmybook.domain.seo.BookSeoMetadataSnapshot;
 import net.findmybook.dto.BookDetail;
@@ -138,7 +139,11 @@ public class BookSeoMetadataGenerationService {
             .orElseThrow(() -> new IllegalStateException("Book details unavailable for SEO metadata generation: " + bookId));
 
         String description = detail.description() == null ? null : detail.description().trim();
-        description = bookDataOrchestrator.enrichDescriptionForAiIfNeeded(bookId, detail, description, MIN_DESCRIPTION_LENGTH);
+        try {
+            description = bookDataOrchestrator.enrichDescriptionForAiIfNeeded(bookId, detail, description, MIN_DESCRIPTION_LENGTH);
+        } catch (RuntimeException enrichmentFailure) {
+            throw BookAiGenerationException.forDescriptionEnrichmentFailure(bookId, enrichmentFailure);
+        }
         if (!StringUtils.hasText(description)) {
             description = FALLBACK_DESCRIPTION;
         }
