@@ -533,11 +533,7 @@ public class BookAiContentService {
         try {
             description = bookDataOrchestrator.enrichDescriptionForAiIfNeeded(bookId, detail, description, MIN_DESCRIPTION_LENGTH);
         } catch (RuntimeException enrichmentFailure) {
-            BookAiGenerationException.ErrorCode errorCode =
-                BookAiGenerationException.classifyDescriptionEnrichmentFailure(enrichmentFailure);
-            throw new BookAiGenerationException(errorCode,
-                "Description enrichment failed for book: " + bookId + " (errorCode=" + errorCode + ")",
-                enrichmentFailure);
+            throw BookAiGenerationException.forDescriptionEnrichmentFailure(bookId, enrichmentFailure);
         }
         int descriptionLength = descriptionLength(description);
         if (isDescriptionTooShort(description)) {

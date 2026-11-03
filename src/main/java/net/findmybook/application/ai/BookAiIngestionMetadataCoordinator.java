@@ -13,7 +13,6 @@ import net.findmybook.support.ai.BookAiQueueCapacityExceededException;
 import net.findmybook.support.llm.LlmGatewayTier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
@@ -162,7 +161,9 @@ public class BookAiIngestionMetadataCoordinator {
                 } else {
                     log.debug("Skipped ingestion SEO metadata for unchanged prompt hash book {}", bookId);
                 }
-            } catch (BookSeoGenerationException | DataAccessException seoFailure) {
+            } catch (CancellationException cancellation) {
+                throw cancellation;
+            } catch (RuntimeException seoFailure) {
                 if (isMissingSeoMetadataRelation(seoFailure)) {
                     if (seoGenerationEnabled.compareAndSet(true, false)) {
                         log.error(

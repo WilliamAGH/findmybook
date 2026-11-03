@@ -8,6 +8,9 @@
  */
 package net.findmybook.service;
 
+import net.findmybook.domain.book.BookDescriptionEnrichmentException;
+import net.findmybook.application.ai.BookAiGenerationException;
+
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
@@ -178,15 +181,32 @@ public class ApiRequestMonitorTest {
         GoogleApiFetcher fetcher = googleFetcherWithFallback(true, circuitBreaker);
 
         StepVerifier.create(fetcher.streamSearchItems("blocked fallback", 1, "relevance", null, false))
-                .expectErrorMatches(failure -> failure instanceof IllegalStateException
+                .expectErrorMatches(failure -> failure instanceof BookDescriptionEnrichmentException
                         && failure.getMessage().contains("Fallback circuit OPEN"))
                 .verify();
 
         StepVerifier.create(fetcher.searchVolumesUnauthenticated(
                         "blocked fallback", 0, "relevance", null, 1))
-                .expectErrorMatches(failure -> failure instanceof IllegalStateException
+                .expectErrorMatches(failure -> failure instanceof BookDescriptionEnrichmentException
                         && failure.getMessage().contains("Fallback circuit OPEN"))
                 .verify();
+    }
+
+    @Test
+    void should_ClassifyAuthenticatedQuotaRefusal_When_DescriptionSearchCircuitIsOpen() {
+        ApiCircuitBreakerService circuitBreaker = mock(ApiCircuitBreakerService.class);
+        when(circuitBreaker.isApiCallAllowed()).thenReturn(false);
+        GoogleApiFetcher fetcher = googleFetcherWithFallback(true, circuitBreaker);
+
+        StepVerifier.create(fetcher.streamSearchItems("blocked authenticated", 1, "relevance", null, true))
+            .expectErrorSatisfies(failure -> {
+                assertThat(failure).hasCauseInstanceOf(BookDescriptionEnrichmentException.class);
+                BookAiGenerationException classified = BookAiGenerationException.forDescriptionEnrichmentFailure(
+                    java.util.UUID.fromString("019da3e5-3838-703e-9112-bad4a489239e"), assertInstanceOf(RuntimeException.class, failure));
+                assertThat(classified.errorCode()).isEqualTo(BookAiGenerationException.ErrorCode.ENRICHMENT_FAILED);
+                assertThat(classified.getCause()).isSameAs(failure);
+            })
+            .verify();
     }
 
     @Test

@@ -3,6 +3,7 @@ package net.findmybook.application.seo;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -10,6 +11,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import java.io.IOException;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -18,10 +23,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 import net.findmybook.adapters.persistence.BookAiContentRepository;
+import net.findmybook.adapters.persistence.BookSeoMetadataRepository;
 import net.findmybook.application.ai.BookAiContentService;
 import net.findmybook.application.ai.BookAiGenerationException;
+import net.findmybook.application.ai.BookAiIngestionMetadataCoordinator;
 import net.findmybook.domain.ai.BookAiContent;
 import net.findmybook.domain.ai.BookAiContentSnapshot;
 import net.findmybook.dto.BookDetail;
@@ -30,6 +40,8 @@ import net.findmybook.service.BookLookupService;
 import net.findmybook.service.BookDataOrchestrator;
 import net.findmybook.service.BookIdentifierResolver;
 import net.findmybook.service.BookSearchService;
+import net.findmybook.service.event.BookUpsertEvent;
+import net.findmybook.support.ai.BookAiContentRequestQueue;
 import net.findmybook.support.llm.LlmGatewayTier;
 import net.findmybook.support.llm.LlmGatewayWorkload;
 import org.junit.jupiter.api.AfterEach;
@@ -37,6 +49,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import tools.jackson.databind.ObjectMapper;
 
@@ -264,6 +278,93 @@ class GemmaInferenceReliabilityTest {
         verifyNoInteractions(lookupService, jdbcTemplate);
     }
 
+    @Test
+    void should_RetainBothStageFailuresAndLogBySeverity_When_SeoEnrichmentOrPersistenceFails() {
+        BookDetail detail = bookDetail("short");
+        BookSearchService searchService = mock(BookSearchService.class);
+        BookDataOrchestrator orchestrator = mock(BookDataOrchestrator.class);
+        BookSeoMetadataRepository seoRepository = mock(BookSeoMetadataRepository.class);
+        BookAiContentRequestQueue queue = mock(BookAiContentRequestQueue.class);
+        IllegalStateException aiDeadline = new IllegalStateException("AI enrichment deadline", new TimeoutException());
+        IllegalStateException seoDeadline = new IllegalStateException("SEO enrichment deadline", new TimeoutException());
+        DataAccessResourceFailureException persistenceFailure = new DataAccessResourceFailureException("Canonical enrichment write failed");
+        NullPointerException programmingFailure = new NullPointerException("Unexpected SEO defect");
+        DataAccessResourceFailureException snapshotFailure = new DataAccessResourceFailureException("SEO snapshot read failed");
+        when(searchService.fetchBookDetail(BOOK_ID)).thenReturn(Optional.of(detail));
+        when(orchestrator.enrichDescriptionForAiIfNeeded(BOOK_ID, detail, "short", 50))
+            .thenThrow(aiDeadline).thenThrow(seoDeadline)
+            .thenThrow(aiDeadline).thenThrow(persistenceFailure)
+            .thenThrow(aiDeadline).thenThrow(programmingFailure)
+            .thenThrow(aiDeadline).thenReturn(DESCRIPTION);
+        when(seoRepository.fetchCurrent(BOOK_ID)).thenThrow(snapshotFailure);
+        BookAiContentService aiService = new BookAiContentService(
+            mock(BookAiContentRepository.class), mock(BookIdentifierResolver.class), searchService, orchestrator,
+            new ObjectMapper(), server.openAiProperties());
+        BookSeoMetadataGenerationService seoService = new BookSeoMetadataGenerationService(
+            seoRepository, searchService, orchestrator,
+            new BookSeoMetadataClient(new ObjectMapper(), server.openAiProperties()), new SeoMetadataNormalizationPolicy());
+        BookAiIngestionMetadataCoordinator coordinator = new BookAiIngestionMetadataCoordinator(queue, aiService, seoService);
+        List<RuntimeException> failures = new ArrayList<>();
+        when(queue.<Void>enqueueBackground(anyInt(), any())).thenAnswer(invocation -> {
+            Supplier<Void> generation = invocation.getArgument(1);
+            CompletableFuture<Void> result = new CompletableFuture<>();
+            try {
+                result.complete(generation.get());
+            } catch (RuntimeException failure) {
+                failures.add(failure);
+                result.completeExceptionally(failure);
+            }
+            return new BookAiContentRequestQueue.EnqueuedTask<>("seo-failure", CompletableFuture.completedFuture(null), result);
+        });
+        Logger coordinatorLogger = (Logger) LoggerFactory.getLogger(BookAiIngestionMetadataCoordinator.class);
+        ListAppender<ILoggingEvent> logEvents = new ListAppender<>();
+        boolean originalAdditivity = coordinatorLogger.isAdditive();
+        Level originalLevel = coordinatorLogger.getLevel();
+        coordinatorLogger.setAdditive(false);
+        coordinatorLogger.setLevel(Level.DEBUG);
+        logEvents.start();
+        coordinatorLogger.addAppender(logEvents);
+        try {
+            BookUpsertEvent event = new BookUpsertEvent(
+                BOOK_ID.toString(), detail.slug(), detail.title(), true, "GOOGLE_BOOKS", null, null, "GOOGLE_BOOKS");
+            coordinator.handleBookUpsert(event);
+            coordinator.handleBookUpsert(event);
+            coordinator.handleBookUpsert(event);
+            coordinator.handleBookUpsert(event);
+
+            assertThat(failures).hasSize(4);
+            assertThat(failures.getFirst()).isInstanceOfSatisfying(BookAiGenerationException.class, failure -> {
+                assertThat(failure.errorCode()).isEqualTo(BookAiGenerationException.ErrorCode.ENRICHMENT_FAILED);
+                assertThat(failure.getCause()).isSameAs(aiDeadline);
+                assertThat(failure.getSuppressed()).singleElement().isInstanceOfSatisfying(
+                    BookAiGenerationException.class, seoFailure -> {
+                        assertThat(seoFailure.errorCode()).isEqualTo(BookAiGenerationException.ErrorCode.ENRICHMENT_FAILED);
+                        assertThat(seoFailure.getCause()).isSameAs(seoDeadline);
+                    });
+            });
+            assertThat(failures.get(1)).isSameAs(persistenceFailure);
+            assertThat(persistenceFailure.getSuppressed()).singleElement().isInstanceOfSatisfying(
+                BookAiGenerationException.class, failure -> assertThat(failure.getCause()).isSameAs(aiDeadline));
+            assertThat(failures.get(2)).isSameAs(programmingFailure);
+            assertThat(programmingFailure.getSuppressed()).singleElement().isInstanceOfSatisfying(
+                BookAiGenerationException.class, failure -> assertThat(failure.getCause()).isSameAs(aiDeadline));
+            assertThat(failures.get(3)).isSameAs(snapshotFailure);
+            assertThat(snapshotFailure.getSuppressed()).singleElement().isInstanceOfSatisfying(
+                BookAiGenerationException.class, failure -> assertThat(failure.getCause()).isSameAs(aiDeadline));
+            assertThat(logEvents.list).extracting(ILoggingEvent::getLevel)
+                .containsExactly(Level.WARN, Level.ERROR, Level.ERROR, Level.ERROR);
+            assertThat(logEvents.list.getFirst().getThrowableProxy().getSuppressed()).hasSize(1);
+            assertThat(logEvents.list.get(1).getThrowableProxy().getClassName())
+                .isEqualTo(DataAccessResourceFailureException.class.getName());
+            assertThat(server.requestBodies()).isEmpty();
+        } finally {
+            coordinatorLogger.detachAppender(logEvents);
+            logEvents.stop();
+            coordinatorLogger.setAdditive(originalAdditivity);
+            coordinatorLogger.setLevel(originalLevel);
+        }
+    }
+
     private BookAiContentService aiService(BookAiContentRepository repository) {
         BookSearchService searchService = mock(BookSearchService.class);
         BookDataOrchestrator orchestrator = mock(BookDataOrchestrator.class);
@@ -276,7 +377,11 @@ class GemmaInferenceReliabilityTest {
     }
 
     private BookDetail bookDetail() {
-        return new BookDetail(BOOK_ID.toString(), "test-book", "Test Book", DESCRIPTION, "Test Publisher",
+        return bookDetail(DESCRIPTION);
+    }
+
+    private BookDetail bookDetail(String description) {
+        return new BookDetail(BOOK_ID.toString(), "test-book", "Test Book", description, "Test Publisher",
             LocalDate.of(2020, 1, 1), "en", 200, List.of("Author One"), List.of("Category One"),
             "https://example.com/cover.jpg", null, "https://example.com/fallback.jpg",
             "https://example.com/thumbnail.jpg", 600, 900, true, "GOOGLE_BOOKS", 4.5, 42,

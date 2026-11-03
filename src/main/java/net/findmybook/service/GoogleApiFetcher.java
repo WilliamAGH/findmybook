@@ -15,6 +15,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.findmybook.util.LoggingUtils;
 import net.findmybook.util.ExternalApiLogger;
 import net.findmybook.util.ApplicationConstants;
+import net.findmybook.domain.book.BookDescriptionEnrichmentException;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -224,7 +225,7 @@ public class GoogleApiFetcher {
         if (!circuitBreakerService.isApiCallAllowed()) {
             log.info("Circuit breaker is OPEN - skipping authenticated search for query '{}'. Caller should try unauthenticated fallback.", query);
             ExternalApiLogger.logCircuitBreakerBlocked(log, "GoogleBooks", query);
-            return Mono.error(new IllegalStateException("Circuit breaker OPEN for authenticated Google Books search"));
+            return Mono.error(new BookDescriptionEnrichmentException("Circuit breaker OPEN for authenticated Google Books search"));
         }
 
         if (googleBooksApiKey == null || googleBooksApiKey.isEmpty()) {
@@ -255,7 +256,7 @@ public class GoogleApiFetcher {
         }
         if (!circuitBreakerService.isFallbackAllowed()) {
             log.info("Fallback circuit is OPEN - skipping unauthenticated search for query '{}'", query);
-            return Mono.error(new IllegalStateException("Fallback circuit OPEN for unauthenticated Google Books search"));
+            return Mono.error(new BookDescriptionEnrichmentException("Fallback circuit OPEN for unauthenticated Google Books search"));
         }
         return searchVolumesInternal(query, startIndex, orderBy, langCode, false, pageSize);
     }
@@ -287,7 +288,7 @@ public class GoogleApiFetcher {
         }
         if (!authenticated && !circuitBreakerService.isFallbackAllowed()) {
             log.info("Fallback circuit is OPEN - skipping unauthenticated stream for query '{}'", query);
-            return Flux.error(new IllegalStateException("Fallback circuit OPEN for unauthenticated Google Books search"));
+            return Flux.error(new BookDescriptionEnrichmentException("Fallback circuit OPEN for unauthenticated Google Books search"));
         }
 
         return Flux.range(0, pageCount)

@@ -5,11 +5,15 @@ import com.openai.errors.OpenAIIoException;
 import com.openai.errors.OpenAIServiceException;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.github.resilience4j.ratelimiter.RequestNotPermitted;
+import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.TimeoutException;
+import net.findmybook.domain.book.BookDescriptionEnrichmentException;
 import org.springframework.dao.DataAccessException;
 import org.springframework.web.reactive.function.client.WebClientException;
 
@@ -62,10 +66,27 @@ public class BookAiGenerationException extends RuntimeException {
         return errorCode;
     }
 
-    static ErrorCode classifyDescriptionEnrichmentFailure(RuntimeException failure) {
+    /**
+     * Classifies description-enrichment failures consistently for AI and SEO generation,
+     * retaining the original failure and its diagnostic context.
+     *
+     * @param bookId canonical book UUID used in the failure message
+     * @param failure failure from the description-enrichment operation
+     * @return typed failure with the canonical enrichment error code
+     * @throws RuntimeException the original failure when no recognized enrichment failure is present
+     */
+    public static BookAiGenerationException forDescriptionEnrichmentFailure(UUID bookId, RuntimeException failure) {
+        ErrorCode errorCode = classifyDescriptionEnrichmentFailure(failure);
+        return new BookAiGenerationException(errorCode,
+            "Description enrichment failed for book: " + bookId + " (errorCode=" + errorCode + ")",
+            failure);
+    }
+
+    private static ErrorCode classifyDescriptionEnrichmentFailure(RuntimeException failure) {
         ArrayDeque<Throwable> remaining = new ArrayDeque<>();
         Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
         remaining.add(Objects.requireNonNull(failure, "failure must not be null"));
+        boolean localRateLimited = false;
         boolean localCircuitOpen = false;
         boolean providerFailure = false;
         while (!remaining.isEmpty()) {
@@ -73,14 +94,18 @@ public class BookAiGenerationException extends RuntimeException {
             if (!visited.add(current)) {
                 continue;
             }
+            if (current instanceof DataAccessException) {
+                throw failure;
+            }
             if (current instanceof RequestNotPermitted) {
-                return ErrorCode.LOCAL_RATE_LIMITED;
+                localRateLimited = true;
             }
             if (current instanceof CallNotPermittedException) {
                 localCircuitOpen = true;
             }
-            if (current instanceof IllegalStateException
-                || current instanceof DataAccessException
+            if (current instanceof BookDescriptionEnrichmentException
+                || current instanceof TimeoutException
+                || current instanceof IOException
                 || current instanceof WebClientException) {
                 providerFailure = true;
             }
@@ -90,6 +115,9 @@ public class BookAiGenerationException extends RuntimeException {
             for (Throwable suppressed : current.getSuppressed()) {
                 remaining.addLast(suppressed);
             }
+        }
+        if (localRateLimited) {
+            return ErrorCode.LOCAL_RATE_LIMITED;
         }
         if (localCircuitOpen) {
             return ErrorCode.LOCAL_CIRCUIT_OPEN;

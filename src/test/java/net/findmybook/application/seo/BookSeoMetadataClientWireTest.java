@@ -24,9 +24,12 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeoutException;
 import net.findmybook.adapters.persistence.BookSeoMetadataRepository;
+import net.findmybook.application.ai.BookAiGenerationException;
 import net.findmybook.boot.OpenAiProperties;
 import net.findmybook.domain.seo.BookSeoMetadataSnapshot;
+import net.findmybook.domain.book.BookDescriptionEnrichmentException;
 import net.findmybook.dto.BookDetail;
 import net.findmybook.service.BookDataOrchestrator;
 import net.findmybook.service.BookSearchService;
@@ -37,6 +40,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.springframework.dao.DataAccessResourceFailureException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -252,12 +256,64 @@ class BookSeoMetadataClientWireTest {
             .isInstanceOf(BookSeoGenerationException.class);
     }
 
+    @ParameterizedTest
+    @MethodSource("providerEnrichmentFailures")
+    void should_ClassifyDescriptionEnrichmentFailure_When_ProviderIsUnavailable(RuntimeException providerFailure) {
+        BookSeoMetadataRepository repository = mock(BookSeoMetadataRepository.class);
+        BookDataOrchestrator orchestrator = mock(BookDataOrchestrator.class);
+        BookDetail detail = bookDetail("short");
+        when(orchestrator.enrichDescriptionForAiIfNeeded(BOOK_ID, detail, "short", 50)).thenThrow(providerFailure);
+        BookSeoMetadataGenerationService service = seoService(repository, orchestrator, detail);
+
+        assertThatThrownBy(() -> service.generateAndPersistIfPromptChanged(BOOK_ID))
+            .isInstanceOfSatisfying(BookAiGenerationException.class, failure -> {
+                assertThat(failure.errorCode()).isEqualTo(BookAiGenerationException.ErrorCode.ENRICHMENT_FAILED);
+                assertThat(failure.getCause()).isSameAs(providerFailure);
+            });
+        assertThat(server.requestBodies()).isEmpty();
+        verify(repository, never()).insertNewCurrentVersion(any(), anyString(), anyString(), anyString(), anyString(), anyString());
+    }
+
+    private static List<RuntimeException> providerEnrichmentFailures() {
+        return List.of(
+            new BookDescriptionEnrichmentException("Open Library deadline", new TimeoutException()),
+            new IllegalStateException("Google search page failed",
+                new BookDescriptionEnrichmentException("Google quota circuit is open")));
+    }
+
+    @ParameterizedTest
+    @MethodSource("unexpectedEnrichmentFailures")
+    void should_PropagateUnexpectedFailure_When_DescriptionEnrichmentFailsInternally(RuntimeException internalFailure) {
+        BookSeoMetadataRepository repository = mock(BookSeoMetadataRepository.class);
+        BookDataOrchestrator orchestrator = mock(BookDataOrchestrator.class);
+        BookDetail detail = bookDetail("short");
+        when(orchestrator.enrichDescriptionForAiIfNeeded(BOOK_ID, detail, "short", 50)).thenThrow(internalFailure);
+        BookSeoMetadataGenerationService service = seoService(repository, orchestrator, detail);
+
+        assertThatThrownBy(() -> service.generateAndPersist(BOOK_ID)).isSameAs(internalFailure);
+        assertThat(server.requestBodies()).isEmpty();
+    }
+
+    private static List<RuntimeException> unexpectedEnrichmentFailures() {
+        DataAccessResourceFailureException databaseFailure = new DataAccessResourceFailureException("Canonical write failed");
+        IllegalStateException wrappedDatabaseFailure = new IllegalStateException("Canonical upsert failed", databaseFailure);
+        wrappedDatabaseFailure.addSuppressed(new IllegalStateException("Provider timeout", new TimeoutException()));
+        return List.of(new NullPointerException("unexpected defect"),
+            new IllegalStateException("PostgreSQL returned a blank slug"), databaseFailure, wrappedDatabaseFailure);
+    }
+
     private BookSeoMetadataGenerationService seoService(BookSeoMetadataRepository repository) {
-        BookSearchService searchService = mock(BookSearchService.class);
         BookDataOrchestrator orchestrator = mock(BookDataOrchestrator.class);
         BookDetail detail = bookDetail();
-        when(searchService.fetchBookDetail(BOOK_ID)).thenReturn(Optional.of(detail));
         when(orchestrator.enrichDescriptionForAiIfNeeded(BOOK_ID, detail, DESCRIPTION, 50)).thenReturn(DESCRIPTION);
+        return seoService(repository, orchestrator, detail);
+    }
+
+    private BookSeoMetadataGenerationService seoService(BookSeoMetadataRepository repository,
+                                                        BookDataOrchestrator orchestrator,
+                                                        BookDetail detail) {
+        BookSearchService searchService = mock(BookSearchService.class);
+        when(searchService.fetchBookDetail(BOOK_ID)).thenReturn(Optional.of(detail));
         return new BookSeoMetadataGenerationService(
             repository, searchService, orchestrator, seoClient(), new SeoMetadataNormalizationPolicy());
     }
@@ -273,7 +329,11 @@ class BookSeoMetadataClientWireTest {
     }
 
     private BookDetail bookDetail() {
-        return new BookDetail(BOOK_ID.toString(), "test-book", "Test Book", DESCRIPTION, "Test Publisher",
+        return bookDetail(DESCRIPTION);
+    }
+
+    private BookDetail bookDetail(String description) {
+        return new BookDetail(BOOK_ID.toString(), "test-book", "Test Book", description, "Test Publisher",
             LocalDate.of(2020, 1, 1), "en", 200, List.of("Author One"), List.of("Category One"),
             "https://example.com/cover.jpg", null, "https://example.com/fallback.jpg",
             "https://example.com/thumbnail.jpg", 600, 900, true, "GOOGLE_BOOKS", 4.5, 42,
