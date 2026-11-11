@@ -19,7 +19,9 @@ import net.findmybook.util.SearchQueryUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import jakarta.annotation.Nullable;
+import reactor.core.Exceptions;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.Signal;
 import reactor.core.scheduler.Schedulers;
 import java.util.List;
 import java.util.Locale;
@@ -144,28 +146,33 @@ public class BookDataOrchestrator {
 
     private List<Book> fetchDescriptionEnrichmentCandidates(UUID bookId, String query) {
         long enrichmentDeadlineNanos = System.nanoTime() + DESCRIPTION_ENRICHMENT_TIMEOUT.toNanos();
+        List<Mono<Signal<List<Book>>>> providerRequests = new ArrayList<>();
+        if (openLibraryBookDataService.filter(OpenLibraryBookDataService::isAvailable).isPresent()) {
+            providerRequests.add(Mono.defer(() -> fetchOpenLibraryCandidates(query, enrichmentDeadlineNanos))
+                .doOnError(failure -> logger.warn("Open Library description enrichment failed for bookId={}: {}",
+                    bookId, failure.getMessage()))
+                .materialize());
+        }
+        if (googleExternalSearchFlow.isAvailable()) {
+            providerRequests.add(Mono.defer(() -> fetchGoogleCandidates(query, enrichmentDeadlineNanos)).materialize());
+        }
+        List<Signal<List<Book>>> providerOutcomes = Flux.fromIterable(providerRequests)
+            .flatMapSequential(Function.identity(), 2, 1)
+            .collectList()
+            .block();
         List<Book> candidates = new ArrayList<>();
         RuntimeException firstProviderFailure = null;
         boolean providerSucceeded = false;
-        if (openLibraryBookDataService.isPresent()) {
-            try {
-                candidates.addAll(fetchOpenLibraryCandidates(query, enrichmentDeadlineNanos));
+        for (Signal<List<Book>> providerOutcome : Objects.requireNonNull(providerOutcomes)) {
+            if (providerOutcome.isOnNext()) {
+                candidates.addAll(Objects.requireNonNull(providerOutcome.get()));
                 providerSucceeded = true;
-            } catch (RuntimeException openLibraryFailure) {
-                firstProviderFailure = openLibraryFailure;
-                logger.warn("Open Library description enrichment failed for bookId={} (continuing with Google Books): {}",
-                    bookId, openLibraryFailure.getMessage());
-            }
-        }
-        if (googleExternalSearchFlow.isAvailable()) {
-            try {
-                candidates.addAll(fetchGoogleCandidates(query, enrichmentDeadlineNanos));
-                providerSucceeded = true;
-            } catch (RuntimeException googleFailure) {
+            } else if (providerOutcome.isOnError()) {
+                RuntimeException providerFailure = Exceptions.propagate(Objects.requireNonNull(providerOutcome.getThrowable()));
                 if (firstProviderFailure != null) {
-                    firstProviderFailure.addSuppressed(googleFailure);
+                    firstProviderFailure.addSuppressed(providerFailure);
                 } else {
-                    firstProviderFailure = googleFailure;
+                    firstProviderFailure = providerFailure;
                 }
             }
         }
@@ -175,25 +182,25 @@ public class BookDataOrchestrator {
         return candidates;
     }
 
-    private List<Book> fetchOpenLibraryCandidates(String query, long enrichmentDeadlineNanos) {
+    private Mono<List<Book>> fetchOpenLibraryCandidates(String query, long enrichmentDeadlineNanos) {
         String openLibraryQuery = SearchExternalProviderUtils.normalizeExternalQuery(query);
         if (openLibraryBookDataService.isEmpty()
             || !StringUtils.hasText(openLibraryQuery)
             || SearchQueryUtils.isWildcard(openLibraryQuery)) {
-            return List.of();
+            return Mono.just(List.of());
         }
         Flux<Book> candidates = openLibraryBookDataService.get()
             .queryBooksByEverything(openLibraryQuery, DESCRIPTION_ENRICHMENT_SORT, 0, DESCRIPTION_ENRICHMENT_LIMIT);
         return collectOpenLibraryCandidates(candidates, enrichmentDeadlineNanos);
     }
 
-    private List<Book> fetchGoogleCandidates(String query, long enrichmentDeadlineNanos) {
+    private Mono<List<Book>> fetchGoogleCandidates(String query, long enrichmentDeadlineNanos) {
         Flux<Book> candidates = googleExternalSearchFlow
             .streamCandidates(query, DESCRIPTION_ENRICHMENT_SORT, null, DESCRIPTION_ENRICHMENT_LIMIT);
         return collectGoogleCandidates(candidates, enrichmentDeadlineNanos);
     }
 
-    private List<Book> collectOpenLibraryCandidates(Flux<Book> candidates, long enrichmentDeadlineNanos) {
+    private Mono<List<Book>> collectOpenLibraryCandidates(Flux<Book> candidates, long enrichmentDeadlineNanos) {
         Mono<List<Book>> retriedCandidates = candidates.collectList()
             .retryWhen(Retry.max(OPEN_LIBRARY_TRANSIENT_RETRY_LIMIT)
                 .filter(this::isTransientProviderFailure)
@@ -210,7 +217,7 @@ public class BookDataOrchestrator {
         );
     }
 
-    private List<Book> collectGoogleCandidates(Flux<Book> candidates, long enrichmentDeadlineNanos) {
+    private Mono<List<Book>> collectGoogleCandidates(Flux<Book> candidates, long enrichmentDeadlineNanos) {
         return collectWithDescriptionEnrichmentDeadline(
             GOOGLE_BOOKS_PROVIDER,
             candidates.collectList(),
@@ -218,9 +225,9 @@ public class BookDataOrchestrator {
         );
     }
 
-    private List<Book> collectWithDescriptionEnrichmentDeadline(String providerName,
-                                                                 Mono<List<Book>> candidates,
-                                                                 long enrichmentDeadlineNanos) {
+    private Mono<List<Book>> collectWithDescriptionEnrichmentDeadline(String providerName,
+                                                                     Mono<List<Book>> candidates,
+                                                                     long enrichmentDeadlineNanos) {
         Duration remainingDuration = Duration.ofNanos(Math.max(0L, enrichmentDeadlineNanos - System.nanoTime()));
         return candidates
             .timeout(remainingDuration)
@@ -228,8 +235,7 @@ public class BookDataOrchestrator {
                 providerName + " description enrichment exceeded the "
                     + DESCRIPTION_ENRICHMENT_TIMEOUT.toSeconds() + "s request-wide deadline",
                 timeoutFailure
-            ))
-            .block();
+            ));
     }
 
     private boolean isTransientProviderFailure(Throwable failure) {

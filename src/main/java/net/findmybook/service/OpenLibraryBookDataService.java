@@ -76,6 +76,11 @@ public class OpenLibraryBookDataService {
             .orElseThrow(() -> new IllegalStateException("Missing configured rate limiter: " + RATE_LIMITER_NAME));
     }
 
+    /** Reports whether searches are enabled so callers can omit a disabled provider. */
+    public boolean isAvailable() {
+        return externalFallbackEnabled;
+    }
+
     /**
      * Searches OpenLibrary for books matching the given title.
      *
