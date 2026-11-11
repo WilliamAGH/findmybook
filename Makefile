@@ -3,6 +3,7 @@ SHELL := /bin/sh
 # Configurable variables
 PORT ?= 8095
 GRADLEW ?= ./gradlew
+TEST_ARGS ?=
 PSQL ?= node frontend/scripts/postgres-connection-config.js -X -v ON_ERROR_STOP=1
 
 # Migration args (override via: make migrate-books MIGRATE_MAX=100 MIGRATE_SKIP=0 MIGRATE_PREFIX=books/v1/ MIGRATE_DEBUG=true)
@@ -44,7 +45,7 @@ build:
 
 # Run tests
 test:
-	$(GRADLEW) test
+	$(GRADLEW) test $(TEST_ARGS)
 
 hooks: ## Install git hooks via lefthook
 	@if command -v lefthook >/dev/null 2>&1; then \

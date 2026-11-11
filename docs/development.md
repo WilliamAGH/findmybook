@@ -16,6 +16,7 @@
 | `pnpm --dir frontend run build` | Build frontend assets into `frontend/dist` |
 | `./gradlew clean classes -x test` | Quick clean + compile without tests |
 | `./gradlew test` | Run tests only |
+| `make test TEST_ARGS='-PskipFrontend --tests "net.findmybook.util.SearchExternalProviderUtilsTest"'` | Run a selected backend test class through the existing test target |
 | `./gradlew clean test` | Full backend test verification |
 | `./gradlew clean check` | Full backend + frontend verification |
 | `SPRING_PROFILES_ACTIVE=nodb ./gradlew bootRun` | Run without database |

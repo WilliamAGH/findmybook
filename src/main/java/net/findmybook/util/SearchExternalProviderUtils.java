@@ -13,6 +13,7 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.regex.Pattern;
 
 /**
  * Shared normalization and validation rules for external book-provider search flows.
@@ -23,6 +24,7 @@ public final class SearchExternalProviderUtils {
 
     private static final String SEARCH_SOURCE_QUALIFIER = "search.source";
     private static final String EXTERNAL_FALLBACK_SOURCE = "EXTERNAL_FALLBACK";
+    private static final Pattern OPEN_LIBRARY_BOOLEAN_TOKEN = Pattern.compile("(?<!\\S)(AND|OR|NOT)(?!\\S)");
 
     public static final String DEFAULT_ORDER_BY = "relevance";
     private static final List<String> SUPPORTED_ORDER_BY = List.of("relevance", "newest", "title", "author");
@@ -117,6 +119,32 @@ public final class SearchExternalProviderUtils {
             .replace("isbn:", " ")
             .trim();
         return StringUtils.hasText(withoutQualifiers) ? withoutQualifiers : normalized;
+    }
+
+    /**
+     * Escapes internally generated metadata as literal text, not Solr operators.
+     *
+     * @param literal metadata text to send as an Open Library search literal
+     * @return Open Library query text with Solr syntax characters escaped
+     */
+    public static String escapeOpenLibraryLiteral(String literal) {
+        StringBuilder escaped = new StringBuilder(literal.length());
+        for (int index = 0; index < literal.length(); index++) {
+            char character = literal.charAt(index);
+            if (isOpenLibraryLiteralSyntax(character)) {
+                escaped.append('\\');
+            }
+            escaped.append(character);
+        }
+        return OPEN_LIBRARY_BOOLEAN_TOKEN.matcher(escaped).replaceAll("\"$1\"");
+    }
+
+    private static boolean isOpenLibraryLiteralSyntax(char character) {
+        return switch (character) {
+            case '+', '-', '&', '|', '!', '(', ')', '{', '}', '[', ']', '^', '"', '~', '*', '?', ':',
+                '\\', '/', ',', '\'' -> true;
+            default -> false;
+        };
     }
 
     /**
