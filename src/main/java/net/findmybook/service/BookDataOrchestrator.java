@@ -62,7 +62,14 @@ public class BookDataOrchestrator {
     private static final String GOOGLE_BOOKS_PROVIDER = "Google Books";
     private final AtomicLong lastSearchViewRefresh = new AtomicLong(0L);
     private final AtomicBoolean searchViewRefreshInProgress = new AtomicBoolean(false);
-    private final Cache<String, List<Book>> descriptionCandidates = Caffeine.newBuilder()
+    private record DescriptionQuery(String googleQuery, String openLibraryQuery) {
+        private DescriptionQuery cacheKey() {
+            return new DescriptionQuery(SearchQueryUtils.canonicalize(googleQuery),
+                SearchQueryUtils.canonicalize(openLibraryQuery));
+        }
+    }
+
+    private final Cache<DescriptionQuery, List<Book>> descriptionCandidates = Caffeine.newBuilder()
         .maximumSize(DESCRIPTION_CANDIDATE_CACHE_MAXIMUM_SIZE)
         .expireAfterWrite(DESCRIPTION_CANDIDATE_CACHE_TTL)
         .build();
@@ -107,13 +114,14 @@ public class BookDataOrchestrator {
             return currentDescription;
         }
 
-        String query = buildDescriptionEnrichmentQuery(detail);
-        if (!StringUtils.hasText(query)) {
+        Optional<DescriptionQuery> preparedQuery = buildDescriptionEnrichmentQuery(detail);
+        if (preparedQuery.isEmpty()) {
             return currentDescription;
         }
+        DescriptionQuery query = preparedQuery.orElseThrow();
 
         // Share successful observations across AI/SEO stages, not per-book matching or writes.
-        List<Book> candidates = descriptionCandidates.get(SearchQueryUtils.canonicalize(query),
+        List<Book> candidates = descriptionCandidates.get(query.cacheKey(),
             ignored -> fetchDescriptionEnrichmentCandidates(bookId, query));
         String bestDescription = candidates.stream()
             .filter(candidate -> candidateMatchesDetail(candidate, detail))
@@ -144,17 +152,17 @@ public class BookDataOrchestrator {
         return resolver.apply(postgresBookRepository);
     }
 
-    private List<Book> fetchDescriptionEnrichmentCandidates(UUID bookId, String query) {
+    private List<Book> fetchDescriptionEnrichmentCandidates(UUID bookId, DescriptionQuery query) {
         long enrichmentDeadlineNanos = System.nanoTime() + DESCRIPTION_ENRICHMENT_TIMEOUT.toNanos();
         List<Mono<Signal<List<Book>>>> providerRequests = new ArrayList<>();
         if (openLibraryBookDataService.filter(OpenLibraryBookDataService::isAvailable).isPresent()) {
-            providerRequests.add(Mono.defer(() -> fetchOpenLibraryCandidates(query, enrichmentDeadlineNanos))
+            providerRequests.add(Mono.defer(() -> fetchOpenLibraryCandidates(query.openLibraryQuery(), enrichmentDeadlineNanos))
                 .doOnError(failure -> logger.warn("Open Library description enrichment failed for bookId={}: {}",
                     bookId, failure.getMessage()))
                 .materialize());
         }
-        if (googleExternalSearchFlow.isAvailable()) {
-            providerRequests.add(Mono.defer(() -> fetchGoogleCandidates(query, enrichmentDeadlineNanos)).materialize());
+        if (googleExternalSearchFlow.isAvailable() && !SearchQueryUtils.isWildcard(query.googleQuery())) {
+            providerRequests.add(Mono.defer(() -> fetchGoogleCandidates(query.googleQuery(), enrichmentDeadlineNanos)).materialize());
         }
         List<Signal<List<Book>>> providerOutcomes = Flux.fromIterable(providerRequests)
             .flatMapSequential(Function.identity(), 2, 1)
@@ -182,11 +190,8 @@ public class BookDataOrchestrator {
         return candidates;
     }
 
-    private Mono<List<Book>> fetchOpenLibraryCandidates(String query, long enrichmentDeadlineNanos) {
-        String openLibraryQuery = SearchExternalProviderUtils.normalizeExternalQuery(query);
-        if (openLibraryBookDataService.isEmpty()
-            || !StringUtils.hasText(openLibraryQuery)
-            || SearchQueryUtils.isWildcard(openLibraryQuery)) {
+    private Mono<List<Book>> fetchOpenLibraryCandidates(String openLibraryQuery, long enrichmentDeadlineNanos) {
+        if (openLibraryBookDataService.isEmpty() || !StringUtils.hasText(openLibraryQuery)) {
             return Mono.just(List.of());
         }
         Flux<Book> candidates = openLibraryBookDataService.get()
@@ -298,22 +303,23 @@ public class BookDataOrchestrator {
             .orElse(currentDescription);
     }
 
-    private String buildDescriptionEnrichmentQuery(BookDetail detail) {
+    private Optional<DescriptionQuery> buildDescriptionEnrichmentQuery(BookDetail detail) {
         String isbn13 = IsbnUtils.sanitize(detail.isbn13());
         if (StringUtils.hasText(isbn13)) {
-            return ISBN_QUERY_PREFIX + isbn13;
+            return Optional.of(new DescriptionQuery(ISBN_QUERY_PREFIX + isbn13, isbn13));
         }
         String isbn10 = IsbnUtils.sanitize(detail.isbn10());
         if (StringUtils.hasText(isbn10)) {
-            return ISBN_QUERY_PREFIX + isbn10;
+            return Optional.of(new DescriptionQuery(ISBN_QUERY_PREFIX + isbn10, isbn10));
         }
         if (!StringUtils.hasText(detail.title())) {
-            return null;
+            return Optional.empty();
         }
-        if (detail.authors() == null || detail.authors().isEmpty() || !StringUtils.hasText(detail.authors().getFirst())) {
-            return detail.title().trim();
+        String query = detail.title().trim();
+        if (detail.authors() != null && !detail.authors().isEmpty() && StringUtils.hasText(detail.authors().getFirst())) {
+            query += " " + detail.authors().getFirst().trim();
         }
-        return detail.title().trim() + " " + detail.authors().getFirst().trim();
+        return Optional.of(new DescriptionQuery(query, SearchExternalProviderUtils.escapeOpenLibraryLiteral(query)));
     }
 
     private boolean candidateMatchesDetail(Book candidate, BookDetail detail) {

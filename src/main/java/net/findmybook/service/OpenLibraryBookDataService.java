@@ -242,7 +242,7 @@ public class OpenLibraryBookDataService {
             .uri(uriBuilder -> {
                 var requestBuilder = uriBuilder
                     .path("/search.json")
-                    .queryParam(queryParamName, queryValue)
+                    .queryParam(queryParamName, "{searchQuery}")
                     .queryParam("offset", offset)
                     .queryParam("limit", limit);
                 if (includeEverythingMode) {
@@ -253,7 +253,7 @@ public class OpenLibraryBookDataService {
                         requestBuilder = requestBuilder.queryParam("sort", openLibrarySortFacet);
                     }
                 }
-                return requestBuilder.build();
+                return requestBuilder.build(queryValue);
             }))
             .onErrorMap(PrematureCloseException.class, e -> {
                 log.debug("OpenLibrary {} search connection closed early for '{}': {}", queryParamName, queryValue, e.toString());

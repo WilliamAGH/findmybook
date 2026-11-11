@@ -59,6 +59,48 @@ class SearchExternalProviderUtilsTest {
     }
 
     @Test
+    @DisplayName("escapeOpenLibraryLiteral escapes recorded metadata punctuation and backslashes")
+    void escapeOpenLibraryLiteralEscapesRecordedMetadata() {
+        assertThat(SearchExternalProviderUtils.escapeOpenLibraryLiteral(
+            "Retired from business:\\s\\ua comedy Douglas William Jerrold"))
+            .isEqualTo("Retired from business\\:\\\\s\\\\ua comedy Douglas William Jerrold");
+    }
+
+    @Test
+    @DisplayName("escapeOpenLibraryLiteral escapes each original trailing and repeated backslash once")
+    void escapeOpenLibraryLiteralEscapesBackslashesOnce() {
+        assertThat(SearchExternalProviderUtils.escapeOpenLibraryLiteral("Title\\"))
+            .isEqualTo("Title\\\\");
+        assertThat(SearchExternalProviderUtils.escapeOpenLibraryLiteral("A\\\\B"))
+            .isEqualTo("A\\\\\\\\B");
+    }
+
+    @Test
+    @DisplayName("escapeOpenLibraryLiteral escapes each Open Library literal grammar character")
+    void escapeOpenLibraryLiteralEscapesGrammarCharacters() {
+        assertThat(SearchExternalProviderUtils.escapeOpenLibraryLiteral("+-&|!(){}[]^\"~*?:\\/,'"))
+            .isEqualTo("\\+\\-\\&\\|\\!\\(\\)\\{\\}\\[\\]\\^\\\"\\~\\*\\?\\:\\\\\\/\\,\\'");
+    }
+
+    @Test
+    @DisplayName("escapeOpenLibraryLiteral preserves Unicode percent signs whitespace and case")
+    void escapeOpenLibraryLiteralPreservesOtherCharacters() {
+        assertThat(SearchExternalProviderUtils.escapeOpenLibraryLiteral("Été 100%\tüber 书"))
+            .isEqualTo("Été 100%\tüber 书");
+    }
+
+    @Test
+    @DisplayName("escapeOpenLibraryLiteral quotes standalone uppercase Boolean tokens only")
+    void escapeOpenLibraryLiteralQuotesStandaloneBooleanTokens() {
+        assertThat(SearchExternalProviderUtils.escapeOpenLibraryLiteral("AND OR NOT"))
+            .isEqualTo("\"AND\" \"OR\" \"NOT\"");
+        assertThat(SearchExternalProviderUtils.escapeOpenLibraryLiteral("CANDY ORANGE candy and AND:OR"))
+            .isEqualTo("CANDY ORANGE candy and AND\\:OR");
+        assertThat(SearchExternalProviderUtils.escapeOpenLibraryLiteral("Title\tNOT\nOR end"))
+            .isEqualTo("Title\t\"NOT\"\n\"OR\" end");
+    }
+
+    @Test
     @DisplayName("matchesPublishedYear uses UTC year matching and rejects null published dates")
     void matchesPublishedYearUsesUtcYear() {
         Book book = new Book();
