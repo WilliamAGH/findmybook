@@ -100,7 +100,7 @@ public class ExternalApiLogger {
      * Log circuit breaker blocking an API call
      */
     public static void logCircuitBreakerBlocked(Logger log, String apiName, String query) {
-        String message = String.format("%s [%s] CIRCUIT-BREAKER-OPEN: Blocking authenticated call for query='%s' (unauthenticated fallback will be attempted)",
+        String message = String.format("%s [%s] CIRCUIT-BREAKER-OPEN: Blocking authenticated call for query='%s'",
             PREFIX, apiName, sanitize(query));
         log.info(message);
     }

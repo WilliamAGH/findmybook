@@ -1,6 +1,7 @@
 package net.findmybook.support.search;
 
 import tools.jackson.databind.JsonNode;
+import lombok.extern.slf4j.Slf4j;
 import net.findmybook.mapper.GoogleBooksMapper;
 import net.findmybook.model.Book;
 import net.findmybook.service.GoogleApiFetcher;
@@ -20,6 +21,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>This class keeps provider normalization, mapping, and filtering behavior aligned so
  * multiple services do not re-implement the same pipeline differently.</p>
  */
+@Slf4j
 public final class GoogleExternalSearchFlow {
 
     private final Optional<GoogleApiFetcher> googleApiFetcher;
@@ -82,12 +84,15 @@ public final class GoogleExternalSearchFlow {
             if (!fetcher.isGoogleFallbackEnabled()) {
                 providerItems = authenticated;
             } else if (!fetcher.isFallbackAllowed()) {
-                providerItems = authenticated.onErrorMap(failure -> new IllegalStateException(
-                    "Google Books authenticated search failed while unauthenticated fallback is unavailable",
-                    failure
-                ));
+                providerItems = authenticated
+                    .doOnSubscribe(subscription -> log.info("Google Books unauthenticated fallback skipped: fallback circuit is open"))
+                    .onErrorMap(failure -> new IllegalStateException(
+                        "Google Books authenticated search failed while unauthenticated fallback is unavailable",
+                        failure
+                    ));
             } else {
-                Flux<JsonNode> unauthenticated = fetcher.streamSearchItems(query, maxResults, externalOrderBy, null, false);
+                Flux<JsonNode> unauthenticated = fetcher.streamSearchItems(query, maxResults, externalOrderBy, null, false)
+                    .doOnSubscribe(subscription -> log.info("Attempting Google Books unauthenticated fallback search"));
                 providerItems = streamAuthenticatedThenFallback(authenticated, unauthenticated);
             }
         }
