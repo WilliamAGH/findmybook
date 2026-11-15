@@ -58,7 +58,7 @@ Google search pages emit request and response records. Google volume fetches emi
 Authenticated Google calls emit:
 
 ```text
-[EXTERNAL-API] [GoogleBooks] CIRCUIT-BREAKER-OPEN: Blocking authenticated call for query='<query-or-book-id>' (unauthenticated fallback will be attempted)
+[EXTERNAL-API] [GoogleBooks] CIRCUIT-BREAKER-OPEN: Blocking authenticated call for query='<query-or-book-id>'
 ```
 
 ### Persistence Hydration
