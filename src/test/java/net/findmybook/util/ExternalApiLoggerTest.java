@@ -6,26 +6,95 @@ import ch.qos.logback.classic.PatternLayout;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.classic.spi.LoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import net.findmybook.mapper.GoogleBooksMapper;
+import net.findmybook.service.GoogleApiFetcher;
 import net.findmybook.service.NewYorkTimesService;
+import net.findmybook.support.search.GoogleExternalSearchFlow;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.reactive.function.client.ClientRequest;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.time.LocalDate;
 import java.net.URI;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.*;
 
 public class ExternalApiLoggerTest {
+
+    @Test
+    void should_LogOnlyAuthenticatedBlock_When_CircuitIsOpen() {
+        LoggerContext context = new LoggerContext();
+        ch.qos.logback.classic.Logger logger = context.getLogger("circuit-block-test");
+        ListAppender<ILoggingEvent> events = new ListAppender<>();
+        events.start();
+        logger.addAppender(events);
+        try {
+            ExternalApiLogger.logCircuitBreakerBlocked(logger, "GoogleBooks", "books?key=secret");
+
+            assertEquals(1, events.list.size());
+            assertEquals(Level.INFO, events.list.getFirst().getLevel());
+            assertEquals("[EXTERNAL-API] [GoogleBooks] CIRCUIT-BREAKER-OPEN: Blocking authenticated call for query='books?key=********'",
+                events.list.getFirst().getFormattedMessage());
+        } finally {
+            logger.detachAppender(events);
+            events.stop();
+            context.stop();
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void should_LogFallbackDecision_When_AuthenticatedSearchFails(boolean fallbackAllowed) {
+        GoogleApiFetcher fetcher = mock(GoogleApiFetcher.class);
+        GoogleBooksMapper mapper = mock(GoogleBooksMapper.class);
+        when(fetcher.isApiKeyAvailable()).thenReturn(true);
+        when(fetcher.isGoogleFallbackEnabled()).thenReturn(true);
+        when(fetcher.isFallbackAllowed()).thenReturn(fallbackAllowed);
+        when(fetcher.streamSearchItems("books", 1, "relevance", null, true))
+            .thenReturn(Flux.error(new IllegalStateException("authenticated circuit open")));
+        if (fallbackAllowed) {
+            when(fetcher.streamSearchItems("books", 1, "relevance", null, false)).thenReturn(Flux.empty());
+        }
+        GoogleExternalSearchFlow flow = new GoogleExternalSearchFlow(Optional.of(fetcher), Optional.of(mapper));
+        ch.qos.logback.classic.Logger logger =
+            (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(GoogleExternalSearchFlow.class);
+        ListAppender<ILoggingEvent> events = new ListAppender<>();
+        events.start();
+        logger.addAppender(events);
+        try {
+            var results = flow.streamCandidates("books", "relevance", null, 1);
+            assertTrue(events.list.isEmpty());
+            if (fallbackAllowed) {
+                StepVerifier.create(results).verifyComplete();
+            } else {
+                StepVerifier.create(results).expectError(IllegalStateException.class).verify();
+            }
+
+            assertEquals(1, events.list.size());
+            assertEquals(Level.INFO, events.list.getFirst().getLevel());
+            assertEquals(fallbackAllowed
+                    ? "Attempting Google Books unauthenticated fallback search"
+                    : "Google Books unauthenticated fallback skipped: fallback circuit is open",
+                events.list.getFirst().getFormattedMessage());
+        } finally {
+            logger.detachAppender(events);
+            events.stop();
+        }
+    }
 
     @Test
     public void testLogHttpRequestMasksApiKey() {
