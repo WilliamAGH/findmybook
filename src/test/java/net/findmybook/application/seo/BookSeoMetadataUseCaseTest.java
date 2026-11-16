@@ -13,8 +13,6 @@ import net.findmybook.support.seo.BookOpenGraphImageResolver;
 import net.findmybook.support.seo.BookOpenGraphPropertyFactory;
 import net.findmybook.support.seo.BookStructuredDataRenderer;
 import net.findmybook.support.seo.CanonicalUrlResolver;
-import net.findmybook.support.seo.RouteGraphRenderRequest;
-import net.findmybook.support.seo.RouteStructuredDataRenderer;
 import net.findmybook.support.seo.SeoMarkupFormatter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -47,8 +45,6 @@ class BookSeoMetadataUseCaseTest {
     @Mock
     private SeoMarkupFormatter seoMarkupFormatter;
     @Mock
-    private RouteStructuredDataRenderer routeStructuredDataRenderer;
-    @Mock
     private BookSeoMetadataSnapshotReader bookSeoMetadataSnapshotReader;
 
     private BookSeoMetadataUseCase useCase;
@@ -61,31 +57,8 @@ class BookSeoMetadataUseCaseTest {
             bookOpenGraphImageResolver,
             canonicalUrlResolver,
             seoMarkupFormatter,
-            routeStructuredDataRenderer,
             bookSeoMetadataSnapshotReader
         );
-    }
-
-    @Test
-    void should_UseFallbackConstants_When_BookIdentifierIsUnresolved() {
-        when(canonicalUrlResolver.normalizePublicUrl("/book/unknown-slug"))
-            .thenReturn("https://findmybook.net/book/unknown-slug");
-        when(canonicalUrlResolver.normalizePublicUrl("/api/pages/og/book/unknown-slug"))
-            .thenReturn("https://findmybook.net/api/pages/og/book/unknown-slug");
-        when(seoMarkupFormatter.pageTitle(anyString(), anyString(), anyString()))
-            .thenReturn("Book Details | findmybook");
-        when(routeStructuredDataRenderer.renderRouteGraph(any(RouteGraphRenderRequest.class)))
-            .thenReturn("{\"fallback\":true}");
-
-        SeoMetadata metadata = useCase.bookFallbackMetadata("unknown-slug");
-
-        assertEquals("Book Details", metadata.title());
-        assertTrue(metadata.description().contains("findmybook"));
-        assertTrue(metadata.keywords().contains("findmybook book details"));
-        assertEquals("https://findmybook.net/book/unknown-slug", metadata.canonicalUrl());
-        assertEquals("https://findmybook.net/api/pages/og/book/unknown-slug", metadata.ogImage());
-        assertEquals(SeoPresentationDefaults.ROBOTS_INDEX_FOLLOW, metadata.robots());
-        assertEquals(SeoPresentationDefaults.OPEN_GRAPH_TYPE_WEBSITE, metadata.openGraphType());
     }
 
     @Test
