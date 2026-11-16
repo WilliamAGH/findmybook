@@ -124,7 +124,8 @@ must produce one result, even when it has several records from the same provider
 ## SEO Image Cache
 
 - Dynamic book OpenGraph PNG payloads use the `bookOgImages` Spring cache region.
-- Default TTL is governed by the active cache manager profile (`CacheComponentsConfig`/`DevModeConfig`).
+- The primary manager (`CacheComponentsConfig`) bounds retained encoded PNG payloads using `app.cache.book-og-images.maximum-weight` (default `256MB`, or 256 MiB), with six-hour access expiry and asynchronous loading. Both resolved-book and missing-book images share this budget; oversized images are served without retention. Eviction is asynchronous and can temporarily exceed the payload budget; this is not a hard cap on total JVM heap or concurrent rendering allocations.
+- `spring.cache.caffeine.spec` does not configure this custom cache; other cache regions retain their existing policies.
 - Image responses are emitted with `Cache-Control: public, max-age=86400, s-maxage=86400, stale-while-revalidate=3600`.
 
 ## AI Queue Priorities

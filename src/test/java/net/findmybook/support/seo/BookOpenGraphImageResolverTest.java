@@ -6,6 +6,16 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.time.Duration;
+import java.util.concurrent.CompletableFuture;
+import net.findmybook.config.CacheComponentsConfig;
+import net.findmybook.config.SitemapProperties;
+import net.findmybook.service.BookSeoMetadataService;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.cache.caffeine.CaffeineCache;
+import org.springframework.context.annotation.Configuration;
+import static org.assertj.core.api.Assertions.assertThat;
 import javax.imageio.ImageIO;
 import net.findmybook.model.Book;
 import net.findmybook.model.image.CoverImages;
@@ -32,6 +42,82 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class BookOpenGraphImageResolverTest {
+
+    private final ApplicationContextRunner cacheContext = new ApplicationContextRunner()
+        .withUserConfiguration(CacheComponentsConfig.class, CachingEnabled.class)
+        .withBean(SitemapProperties.class)
+        .withPropertyValues("app.cache.book-og-images.maximum-weight=10B");
+
+    @Configuration(proxyBeanMethods = false)
+    @EnableCaching
+    static class CachingEnabled { }
+
+    @Test
+    void should_EvictByEncodedBytes_When_ImageSizesDiffer() {
+        cacheContext.run(context -> {
+            CaffeineCache imageCache = (CaffeineCache) context.getBean(CacheManager.class).getCache("bookOgImages");
+            assertThat(imageCache).isNotNull();
+            assertThat(imageCache.retrieve("small", () -> CompletableFuture.completedFuture(new byte[3])).join())
+                .isEqualTo(new byte[3]);
+            assertThat(imageCache.get("large", () -> new byte[6])).hasSize(6);
+            imageCache.getNativeCache().cleanUp();
+            assertThat(imageCache.get("small", byte[].class)).hasSize(3);
+            assertThat(imageCache.get("large", byte[].class)).hasSize(6);
+
+            CompletableFuture<byte[]> pendingImage = new CompletableFuture<>();
+            var loadedImage = imageCache.retrieve("another-large", () -> pendingImage);
+            pendingImage.complete(new byte[6]);
+            assertThat(loadedImage.join()).isEqualTo(new byte[6]);
+            imageCache.getNativeCache().cleanUp();
+
+            long retainedBytes = imageCache.getNativeCache().asMap().values().stream()
+                .mapToLong(encodedPng -> ((byte[]) encodedPng).length).sum();
+            assertThat(retainedBytes).isBetween(1L, 10L);
+            assertThat(imageCache.getNativeCache().stats().evictionCount()).isPositive();
+            assertThat(imageCache.getNativeCache().policy().expireAfterAccess().orElseThrow().getExpiresAfter())
+                .isEqualTo(Duration.ofHours(6));
+        });
+    }
+
+    @Test
+    void should_DeliverBothPngLoadersWithoutRetention_When_ImageExceedsBudget() {
+        LocalDiskCoverCacheService coverCache = mock(LocalDiskCoverCacheService.class);
+        when(coverCache.getLocalPlaceholderPath()).thenReturn("/assets/placeholder-book-cover.png");
+        cacheContext.withBean(BookSeoMetadataService.class, () -> new BookSeoMetadataService(coverCache))
+            .run(context -> {
+                BookSeoMetadataService service = context.getBean(BookSeoMetadataService.class);
+                Book book = new Book();
+                book.setId("resolved-book");
+                book.setTitle("Resolved Book");
+                byte[] resolved = service.renderBookOpenGraphImage(book, "resolved-book");
+                byte[] missing = service.renderFallbackBookOpenGraphImage("missing-book");
+                assertThat(ImageIO.read(new java.io.ByteArrayInputStream(resolved))).isNotNull();
+                assertThat(ImageIO.read(new java.io.ByteArrayInputStream(missing))).isNotNull();
+                CaffeineCache imageCache = (CaffeineCache) context.getBean(CacheManager.class).getCache("bookOgImages");
+                imageCache.getNativeCache().cleanUp();
+                assertThat(imageCache.getNativeCache().asMap()).isEmpty();
+                assertThat(service.renderBookOpenGraphImage(book, "resolved-book")).isNotSameAs(resolved);
+                assertThat(service.renderFallbackBookOpenGraphImage("missing-book")).isNotSameAs(missing);
+            });
+    }
+
+    @Test
+    void should_PreserveOtherCachePolicies_When_ImageBudgetIsConfigured() {
+        cacheContext.run(context -> {
+            CacheManager manager = context.getBean(CacheManager.class);
+            assertThat(manager.getCacheNames()).containsExactlyInAnyOrder("books", "nytBestsellersCurrent", "bookOgImages");
+            for (String cacheName : java.util.List.of("books", "nytBestsellersCurrent")) {
+                CaffeineCache cache = (CaffeineCache) manager.getCache(cacheName);
+                assertThat(cache.retrieve("metadata", () -> CompletableFuture.completedFuture("book metadata")).join())
+                    .isEqualTo("book metadata");
+                var eviction = cache.getNativeCache().policy().eviction().orElseThrow();
+                assertThat(eviction.isWeighted()).isFalse();
+                assertThat(eviction.getMaximum()).isEqualTo(20_000);
+                assertThat(cache.getNativeCache().policy().expireAfterAccess().orElseThrow().getExpiresAfter())
+                    .isEqualTo(Duration.ofHours(6));
+            }
+        });
+    }
 
     @Test
     void should_ReturnPreferredCoverUrl_When_PreferredCoverIsRenderable() {

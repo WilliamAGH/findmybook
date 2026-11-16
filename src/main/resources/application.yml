@@ -45,7 +45,7 @@ spring:
   # Cache configuration - can be disabled with SPRING_CACHE_TYPE=none
   cache:
     type: ${SPRING_CACHE_TYPE:caffeine} # Defaulting to Caffeine for L1 in-memory cache
-    cache-names: books,bookCovers,searchResults,bookRequests,searchRequests,bookSearchResults,nytBestsellersCurrent,bookOgImages
+    cache-names: books,bookCovers,searchResults,bookRequests,searchRequests,bookSearchResults,nytBestsellersCurrent
     caffeine:
       spec: "maximumSize=1000,expireAfterWrite=240m,recordStats" # Default spec for all caches
 
@@ -131,6 +131,8 @@ app:
     enabled: true
     book: # Caffeine in-memory cache TTL for book entries
       ttl: 24h # Default TTL for book cache entries
+    book-og-images:
+      maximum-weight: 256MB
   cover-cache:
     dir: book-covers # Directory name for serving cached cover images
   book:
@@ -305,7 +307,7 @@ spring:
 
   # Production-specific cache configuration with optimized settings
   cache:
-    cache-names: books,bookSearchResults,nytBestsellersCurrent,bookOgImages
+    cache-names: books,bookSearchResults,nytBestsellersCurrent
     caffeine:
       spec: "maximumSize=2000,expireAfterWrite=12h,recordStats" # Optimized for production load
 
