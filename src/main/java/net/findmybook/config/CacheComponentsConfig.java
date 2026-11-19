@@ -16,6 +16,10 @@ import net.findmybook.model.Book;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Expiry;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.util.Assert;
+import org.springframework.util.unit.DataSize;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.caffeine.CaffeineCacheManager;
 import org.springframework.cache.caffeine.CaffeineCache;
@@ -30,7 +34,22 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 
 @Configuration
+@EnableConfigurationProperties(CacheComponentsConfig.BookOgImageCacheProperties.class)
 public class CacheComponentsConfig {
+
+    /**
+     * Binds the encoded PNG retention budget independently of metadata entry counts.
+     *
+     * @param maximumWeight maximum retained encoded PNG bytes
+     */
+    @ConfigurationProperties(prefix = "app.cache.book-og-images")
+    public record BookOgImageCacheProperties(DataSize maximumWeight) {
+        /** Validates the required positive payload budget before caches are created. */
+        public BookOgImageCacheProperties {
+            Assert.notNull(maximumWeight, "app.cache.book-og-images.maximum-weight is required");
+            Assert.isTrue(maximumWeight.toBytes() > 0, "app.cache.book-og-images.maximum-weight must be positive");
+        }
+    }
 
     @Bean
     public Cache<String, Book> bookDetailCache() {
@@ -46,16 +65,29 @@ public class CacheComponentsConfig {
         return new ConcurrentHashMap<>();
     }
 
+    /**
+     * Keeps PNG retention byte-bounded while preserving metadata cache policies.
+     *
+     * @param imageProperties encoded PNG payload budget
+     * @return primary asynchronous cache manager
+     */
     @Bean
     @Primary
-    public CacheManager cacheManager() {
+    public CacheManager cacheManager(BookOgImageCacheProperties imageProperties) {
         CaffeineCacheManager cacheManager = new CaffeineCacheManager();
         cacheManager.setCaffeine(Caffeine.newBuilder()
                 .maximumSize(20_000)
                 .expireAfterAccess(Duration.ofHours(6))
                 .recordStats()); // Enable statistics recording for metrics
-        cacheManager.setCacheNames(List.of("books", "nytBestsellersCurrent", "bookOgImages")); // Set cache names for @Cacheable annotations
+        cacheManager.setCacheNames(List.of("books", "nytBestsellersCurrent"));
         cacheManager.setAsyncCacheMode(true); // Enable async cache mode for reactive methods
+        cacheManager.registerCustomCache("bookOgImages", Caffeine.newBuilder()
+                .maximumWeight(imageProperties.maximumWeight().toBytes())
+                // Spring's custom-cache API requires Object values; both image loaders return byte[].
+                .weigher((key, encodedPng) -> ((byte[]) encodedPng).length)
+                .expireAfterAccess(Duration.ofHours(6))
+                .recordStats()
+                .buildAsync());
         return cacheManager;
     }
 
