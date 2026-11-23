@@ -16,6 +16,7 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import java.io.IOException;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -110,6 +111,39 @@ class GemmaInferenceReliabilityTest {
         assertThat(server.requestWorkloads()).containsOnly(LlmGatewayWorkload.BOOK_CONTENT.headerValue(tier));
         Optional<String> expectedBudget = Optional.ofNullable(firstByteBudget);
         assertThat(server.requestFirstByteBudgets()).containsExactly(expectedBudget, expectedBudget);
+    }
+
+    @Test
+    void should_CapBothAttemptsByTheRemainingStreamDeadline_When_SdkTimeoutsAreLonger() {
+        server.enqueueSse(streamChunk("", "stop"));
+        server.enqueueSse(streamChunk(AI_JSON, null) + streamChunk("", "stop"));
+        OpenAiProperties properties = server.openAiProperties();
+        properties.setRequestTimeoutSeconds(75);
+        properties.setReadTimeoutSeconds(75);
+        BookAiContentRepository repository = mock(BookAiContentRepository.class);
+        when(repository.insertNewCurrentVersion(any(), any(), anyString(), anyString(), anyString()))
+            .thenAnswer(invocation -> new BookAiContentSnapshot(
+                BOOK_ID, 1, Instant.EPOCH, invocation.getArgument(2), invocation.getArgument(3), invocation.getArgument(1)));
+        BookAiContentService service = aiService(repository, properties);
+        BookAiContentService.GenerationControl control = new BookAiContentService.GenerationControl();
+        control.startDeadline(System.nanoTime() + Duration.ofSeconds(30).toNanos());
+
+        service.generateAndPersist(BOOK_ID, ignored -> { }, LlmGatewayTier.LIVE_RENDER, control);
+
+        assertThat(server.requestFirstByteBudgets()).hasSize(2).allSatisfy(budget ->
+            assertThat(Double.parseDouble(budget.orElseThrow())).isPositive().isLessThanOrEqualTo(30));
+    }
+
+    @Test
+    void should_NotContactTheGateway_When_StreamDeadlineHasExpired() {
+        BookAiContentService service = aiService(mock(BookAiContentRepository.class));
+        BookAiContentService.GenerationControl control = new BookAiContentService.GenerationControl();
+        control.startDeadline(System.nanoTime());
+
+        assertThatThrownBy(() -> service.generateAndPersist(BOOK_ID, ignored -> { }, LlmGatewayTier.LIVE_RENDER, control))
+            .isInstanceOfSatisfying(BookAiGenerationException.class, failure ->
+                assertThat(failure.errorCode()).isEqualTo(BookAiGenerationException.ErrorCode.GENERATION_DEADLINE_EXPIRED));
+        assertThat(server.requestBodies()).isEmpty();
     }
 
     @Test

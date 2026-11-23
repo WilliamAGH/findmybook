@@ -21,7 +21,8 @@ routing and `X-User-ID` in the form `findmybook:<purpose>:<tier>` for gateway
 workload cost attribution, where `<purpose>` is `bookContent`, `bookSeoMetadata`, or
 `bookSimilarityEmbedding` and `<tier>` is `live` or `batch`; these headers are internal to the gateway and are not
 forwarded to model providers. Live book-content requests also send `X-LGW-First-Byte-Budget-S`
-with the shorter of their effective request and read timeouts, in seconds. Batch requests omit it.
+in seconds. The budget is the shortest of the request timeout, read timeout, and time left on
+the generation stream. The gateway applies its own minimum to that budget. Batch requests omit it.
 | `AI_DEFAULT_MAX_PARALLEL` | Global outbound AI queue executor cap, coerced to `2..20`; background work may occupy at most `cap - 1` so one slot remains available for foreground generation |
 | `APP_AI_QUEUE_BACKGROUND_MAX_PENDING` | Max pending background ingestion AI jobs (default `100`) |
 | `APP_SEO_MAX_DESCRIPTION_LENGTH` | Fallback book meta description truncation length when no persisted SEO row exists (default `160`) |

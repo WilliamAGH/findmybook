@@ -37,7 +37,8 @@ public class BookAiGenerationException extends RuntimeException {
         DESCRIPTION_TOO_SHORT,
         ENRICHMENT_FAILED,
         LOCAL_RATE_LIMITED,
-        LOCAL_CIRCUIT_OPEN
+        LOCAL_CIRCUIT_OPEN,
+        GENERATION_DEADLINE_EXPIRED
     }
 
     private final ErrorCode errorCode;

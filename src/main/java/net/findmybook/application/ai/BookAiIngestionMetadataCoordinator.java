@@ -118,7 +118,7 @@ public class BookAiIngestionMetadataCoordinator {
         if (failure instanceof BookAiGenerationException aiFailure) {
             return switch (aiFailure.errorCode()) {
                 case INVALID_RESPONSE, INCOMPLETE_RESPONSE, DEGENERATE_CONTENT, DESCRIPTION_TOO_SHORT,
-                    ENRICHMENT_FAILED, LOCAL_RATE_LIMITED, LOCAL_CIRCUIT_OPEN -> true;
+                    ENRICHMENT_FAILED, LOCAL_RATE_LIMITED, LOCAL_CIRCUIT_OPEN, GENERATION_DEADLINE_EXPIRED -> true;
                 case GENERATION_FAILED -> false;
             };
         }
