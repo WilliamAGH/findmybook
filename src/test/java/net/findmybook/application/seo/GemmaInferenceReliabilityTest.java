@@ -32,6 +32,7 @@ import net.findmybook.adapters.persistence.BookSeoMetadataRepository;
 import net.findmybook.application.ai.BookAiContentService;
 import net.findmybook.application.ai.BookAiGenerationException;
 import net.findmybook.application.ai.BookAiIngestionMetadataCoordinator;
+import net.findmybook.boot.OpenAiProperties;
 import net.findmybook.domain.ai.BookAiContent;
 import net.findmybook.domain.ai.BookAiContentSnapshot;
 import net.findmybook.dto.BookDetail;
@@ -48,7 +49,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -80,8 +81,18 @@ class GemmaInferenceReliabilityTest {
     }
 
     @ParameterizedTest
-    @EnumSource(LlmGatewayTier.class)
-    void should_RetryEmptyReaderStreamWithoutReplayingContent_When_SecondAttemptSucceeds(LlmGatewayTier tier) {
+    @CsvSource({
+        "LIVE_RENDER, 15, 9, 9",
+        "LIVE_RENDER, 8, 16, 8",
+        "LIVE_RENDER, 200, 250, 105",
+        "BACKGROUND_BATCH, 15, 9,"
+    })
+    void should_RetryEmptyReaderStreamWithTheTierDeadline_When_SecondAttemptSucceeds(
+        LlmGatewayTier tier, long requestTimeoutSeconds, long readTimeoutSeconds, String firstByteBudget
+    ) {
+        OpenAiProperties properties = server.openAiProperties();
+        properties.setRequestTimeoutSeconds(requestTimeoutSeconds);
+        properties.setReadTimeoutSeconds(readTimeoutSeconds);
         server.enqueueSse(streamChunk("", "stop"));
         server.enqueueSse(streamChunk(AI_JSON, null) + streamChunk("", "stop"));
         BookAiContentRepository repository = mock(BookAiContentRepository.class);
@@ -90,13 +101,15 @@ class GemmaInferenceReliabilityTest {
                 BOOK_ID, 1, Instant.EPOCH, invocation.getArgument(2), invocation.getArgument(3), invocation.getArgument(1)));
         List<String> deltas = new ArrayList<>();
 
-        BookAiContentService.GeneratedContent generated = aiService(repository)
+        BookAiContentService.GeneratedContent generated = aiService(repository, properties)
             .generateAndPersist(BOOK_ID, deltas::add, tier);
 
         assertThat(generated.snapshot().aiContent().summary()).contains("grounded two-sentence summary");
         assertThat(deltas).containsExactly(AI_JSON);
         assertThat(server.requestBodies()).hasSize(2);
         assertThat(server.requestWorkloads()).containsOnly(LlmGatewayWorkload.BOOK_CONTENT.headerValue(tier));
+        Optional<String> expectedBudget = Optional.ofNullable(firstByteBudget);
+        assertThat(server.requestFirstByteBudgets()).containsExactly(expectedBudget, expectedBudget);
     }
 
     @Test
@@ -366,14 +379,17 @@ class GemmaInferenceReliabilityTest {
     }
 
     private BookAiContentService aiService(BookAiContentRepository repository) {
+        return aiService(repository, server.openAiProperties());
+    }
+
+    private BookAiContentService aiService(BookAiContentRepository repository, OpenAiProperties properties) {
         BookSearchService searchService = mock(BookSearchService.class);
         BookDataOrchestrator orchestrator = mock(BookDataOrchestrator.class);
         BookDetail detail = bookDetail();
         when(searchService.fetchBookDetail(BOOK_ID)).thenReturn(Optional.of(detail));
         when(orchestrator.enrichDescriptionForAiIfNeeded(BOOK_ID, detail, DESCRIPTION, 50)).thenReturn(DESCRIPTION);
         return new BookAiContentService(
-            repository, mock(BookIdentifierResolver.class), searchService, orchestrator, new ObjectMapper(),
-            server.openAiProperties());
+            repository, mock(BookIdentifierResolver.class), searchService, orchestrator, new ObjectMapper(), properties);
     }
 
     private BookDetail bookDetail() {

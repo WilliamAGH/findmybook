@@ -364,6 +364,7 @@ class BookSeoMetadataClientWireTest {
         private final List<String> requestBodies = new CopyOnWriteArrayList<>();
         private final List<String> requestTiers = new CopyOnWriteArrayList<>();
         private final List<String> requestWorkloads = new CopyOnWriteArrayList<>();
+        private final List<Optional<String>> requestFirstByteBudgets = new CopyOnWriteArrayList<>();
 
         OpenAiTestServer() throws IOException {
             httpServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -395,6 +396,10 @@ class BookSeoMetadataClientWireTest {
             return List.copyOf(requestWorkloads);
         }
 
+        List<Optional<String>> requestFirstByteBudgets() {
+            return List.copyOf(requestFirstByteBudgets);
+        }
+
         OpenAiProperties openAiProperties() {
             OpenAiProperties properties = new OpenAiProperties();
             properties.getApi().setKey("test-key");
@@ -417,6 +422,7 @@ class BookSeoMetadataClientWireTest {
             requestBodies.add(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             requestTiers.add(exchange.getRequestHeaders().getFirst(LlmGatewayTier.HEADER_NAME));
             requestWorkloads.add(exchange.getRequestHeaders().getFirst(LlmGatewayWorkload.HEADER_NAME));
+            requestFirstByteBudgets.add(Optional.ofNullable(exchange.getRequestHeaders().getFirst("x-lgw-first-byte-budget-s")));
             Response response = responses.removeFirst();
             byte[] body = response.body().getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", response.contentType());

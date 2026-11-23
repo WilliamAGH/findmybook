@@ -54,6 +54,7 @@ public class BookAiContentService {
     private static final Logger log = LoggerFactory.getLogger(BookAiContentService.class);
     private static final String DEFAULT_PROVIDER = "openai";
     private static final String DEFAULT_API_MODE = "chat";
+    private static final String FIRST_BYTE_BUDGET_HEADER = "X-LGW-First-Byte-Budget-S";
     private static final int LIVE_SDK_MAX_RETRIES = 0;
     private static final int BACKGROUND_SDK_MAX_RETRIES = 2;
     private static final int MIN_DESCRIPTION_LENGTH = 50;
@@ -306,17 +307,19 @@ public class BookAiContentService {
             .maxCompletionTokens(tier.maxCompletionTokens())
             .temperature(SAMPLING_TEMPERATURE);
         configuredReasoningEffort.ifPresent(paramsBuilder::reasoningEffort);
-        // A schema derived from BookAiContent cannot express its nullable optional fields.
-        ChatCompletionCreateParams params = paramsBuilder
-            .responseFormat(ResponseFormatJsonObject.builder().build())
-            .build();
-
-        long effectiveRequestTimeoutSeconds = tier == LlmGatewayTier.LIVE_RENDER
+        boolean liveRender = tier == LlmGatewayTier.LIVE_RENDER;
+        long effectiveRequestTimeoutSeconds = liveRender
             ? Math.min(requestTimeoutSeconds, tier.callTimeoutSeconds())
             : Math.max(requestTimeoutSeconds, tier.callTimeoutSeconds());
-        long effectiveReadTimeoutSeconds = tier == LlmGatewayTier.LIVE_RENDER
+        long effectiveReadTimeoutSeconds = liveRender
             ? Math.min(readTimeoutSeconds, tier.callTimeoutSeconds())
             : Math.max(readTimeoutSeconds, tier.callTimeoutSeconds());
+        if (liveRender) {
+            paramsBuilder.putAdditionalHeader(FIRST_BYTE_BUDGET_HEADER,
+                Long.toString(Math.min(effectiveRequestTimeoutSeconds, effectiveReadTimeoutSeconds)));
+        }
+        // A schema derived from BookAiContent cannot express its nullable optional fields.
+        ChatCompletionCreateParams params = paramsBuilder.responseFormat(ResponseFormatJsonObject.builder().build()).build();
         RequestOptions options = RequestOptions.builder()
             .timeout(Timeout.builder()
                 .request(Duration.ofSeconds(effectiveRequestTimeoutSeconds))
