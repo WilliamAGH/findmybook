@@ -10,6 +10,10 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
@@ -40,6 +44,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessResourceFailureException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -300,6 +305,48 @@ class BookSeoMetadataClientWireTest {
         wrappedDatabaseFailure.addSuppressed(new IllegalStateException("Provider timeout", new TimeoutException()));
         return List.of(new NullPointerException("unexpected defect"),
             new IllegalStateException("PostgreSQL returned a blank slug"), databaseFailure, wrappedDatabaseFailure);
+    }
+
+    @Test
+    void should_OmitStackTrace_When_SeoGenerationFailsWithExpectedOperationalFailure() {
+        BookSeoMetadataRepository repository = mock(BookSeoMetadataRepository.class);
+        BookSeoMetadataGenerationService service = seoService(repository);
+        Logger serviceLogger = (Logger) LoggerFactory.getLogger(BookSeoMetadataGenerationService.class);
+        ListAppender<ILoggingEvent> logEvents = new ListAppender<>();
+        boolean originalAdditivity = serviceLogger.isAdditive();
+        Level originalLevel = serviceLogger.getLevel();
+        serviceLogger.setAdditive(false);
+        serviceLogger.setLevel(Level.WARN);
+        logEvents.start();
+        serviceLogger.addAppender(logEvents);
+        try {
+            server.enqueueJson(chatCompletion("stop", "not json"));
+            server.enqueueJson(chatCompletion("stop", "still not json"));
+            server.enqueueJson(chatCompletion("stop", "also not json"));
+            assertThatThrownBy(() -> service.generateAndPersist(BOOK_ID))
+                .isInstanceOf(BookSeoGenerationException.class);
+
+            server.enqueueJson(503, "{\"error\":{\"message\":\"upstream overloaded\"}}");
+            server.enqueueJson(503, "{\"error\":{\"message\":\"upstream overloaded\"}}");
+            server.enqueueJson(503, "{\"error\":{\"message\":\"upstream overloaded\"}}");
+            assertThatThrownBy(() -> service.generateAndPersist(BOOK_ID))
+                .isInstanceOf(BookSeoGenerationException.class);
+
+            assertThat(logEvents.list).hasSize(2);
+            assertThat(logEvents.list.get(0).getLevel()).isEqualTo(Level.WARN);
+            assertThat(logEvents.list.get(0).getFormattedMessage())
+                .contains("Book SEO metadata generation did not complete");
+            assertThat(logEvents.list.get(0).getThrowableProxy()).isNull();
+            assertThat(logEvents.list.get(1).getLevel()).isEqualTo(Level.WARN);
+            assertThat(logEvents.list.get(1).getFormattedMessage())
+                .contains("no metadata was persisted");
+            assertThat(logEvents.list.get(1).getThrowableProxy()).isNotNull();
+        } finally {
+            serviceLogger.detachAppender(logEvents);
+            logEvents.stop();
+            serviceLogger.setAdditive(originalAdditivity);
+            serviceLogger.setLevel(originalLevel);
+        }
     }
 
     private BookSeoMetadataGenerationService seoService(BookSeoMetadataRepository repository) {

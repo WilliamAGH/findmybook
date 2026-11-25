@@ -12,7 +12,12 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 class BookAiContentRequestQueueTest {
 
@@ -346,6 +351,59 @@ class BookAiContentRequestQueueTest {
         assertThat(executionOrder).containsExactly("cancelled-exit", "next-start");
         releaseBackgroundTask.countDown();
         assertThat(backgroundTask.result().get(TASK_TIMEOUT.toSeconds(), TimeUnit.SECONDS)).isEqualTo("background");
+    }
+
+    @Test
+    void should_OmitStackTrace_When_TaskFailsWithExpectedOperationalFailure() throws Exception {
+        BookAiContentRequestQueue queue = new BookAiContentRequestQueue(1);
+        Logger queueLogger = (Logger) LoggerFactory.getLogger(BookAiContentRequestQueue.class);
+        ListAppender<ILoggingEvent> logEvents = new ListAppender<>();
+        boolean originalAdditivity = queueLogger.isAdditive();
+        Level originalLevel = queueLogger.getLevel();
+        queueLogger.setAdditive(false);
+        queueLogger.setLevel(Level.WARN);
+        logEvents.start();
+        queueLogger.addAppender(logEvents);
+        try {
+            BookAiContentRequestQueue.EnqueuedTask<String> expectedTask = queue.enqueueForeground(0, () -> {
+                throw new ExpectedStubFailure("Book description is missing or too short");
+            });
+            BookAiContentRequestQueue.EnqueuedTask<String> unexpectedTask = queue.enqueueForeground(0, () -> {
+                throw new IllegalStateException("unexpected failure");
+            });
+
+            assertThatThrownBy(() -> expectedTask.result().get(TASK_TIMEOUT.toSeconds(), TimeUnit.SECONDS))
+                .isInstanceOf(ExecutionException.class)
+                .hasCauseInstanceOf(ExpectedStubFailure.class);
+            assertThatThrownBy(() -> unexpectedTask.result().get(TASK_TIMEOUT.toSeconds(), TimeUnit.SECONDS))
+                .isInstanceOf(ExecutionException.class)
+                .hasCauseInstanceOf(IllegalStateException.class);
+
+            assertThat(logEvents.list).hasSize(2);
+            assertThat(logEvents.list.get(0).getLevel()).isEqualTo(Level.WARN);
+            assertThat(logEvents.list.get(0).getFormattedMessage())
+                .contains("AI queue task did not complete", "Book description is missing or too short");
+            assertThat(logEvents.list.get(0).getThrowableProxy()).isNull();
+            assertThat(logEvents.list.get(1).getLevel()).isEqualTo(Level.WARN);
+            assertThat(logEvents.list.get(1).getFormattedMessage()).contains("AI queue task failed");
+            assertThat(logEvents.list.get(1).getThrowableProxy()).isNotNull();
+        } finally {
+            queueLogger.detachAppender(logEvents);
+            logEvents.stop();
+            queueLogger.setAdditive(originalAdditivity);
+            queueLogger.setLevel(originalLevel);
+        }
+    }
+
+    private static final class ExpectedStubFailure extends RuntimeException implements ExpectedOperationalFailure {
+        private ExpectedStubFailure(String message) {
+            super(message);
+        }
+
+        @Override
+        public boolean isExpectedOperationalFailure() {
+            return true;
+        }
     }
 
     private void awaitLatch(CountDownLatch latch) {

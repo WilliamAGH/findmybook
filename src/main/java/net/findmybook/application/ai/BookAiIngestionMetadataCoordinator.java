@@ -9,6 +9,7 @@ import net.findmybook.application.seo.BookSeoGenerationException;
 import net.findmybook.application.seo.BookSeoMetadataGenerationService;
 import net.findmybook.service.event.BookUpsertEvent;
 import net.findmybook.support.ai.BookAiContentRequestQueue;
+import net.findmybook.support.ai.ExpectedOperationalFailure;
 import net.findmybook.support.ai.BookAiQueueCapacityExceededException;
 import net.findmybook.support.llm.LlmGatewayTier;
 import org.slf4j.Logger;
@@ -115,20 +116,7 @@ public class BookAiIngestionMetadataCoordinator {
     }
 
     private boolean isExpectedGenerationFailure(Throwable failure) {
-        if (failure instanceof BookAiGenerationException aiFailure) {
-            return switch (aiFailure.errorCode()) {
-                case INVALID_RESPONSE, INCOMPLETE_RESPONSE, DEGENERATE_CONTENT, DESCRIPTION_TOO_SHORT,
-                    ENRICHMENT_FAILED, LOCAL_RATE_LIMITED, LOCAL_CIRCUIT_OPEN, GENERATION_DEADLINE_EXPIRED -> true;
-                case GENERATION_FAILED -> false;
-            };
-        }
-        if (failure instanceof BookSeoGenerationException seoFailure) {
-            return switch (seoFailure.errorCode()) {
-                case INVALID_RESPONSE, DESCRIPTION_TOO_SHORT -> true;
-                case GENERATION_FAILED, API_CALL_FAILED -> false;
-            };
-        }
-        return false;
+        return failure instanceof ExpectedOperationalFailure expected && expected.isExpectedOperationalFailure();
     }
 
     private void processIngestionMetadata(UUID bookId) {

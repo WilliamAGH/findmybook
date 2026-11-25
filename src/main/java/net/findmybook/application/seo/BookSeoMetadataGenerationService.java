@@ -124,12 +124,21 @@ public class BookSeoMetadataGenerationService {
                 promptHash
             );
         } catch (BookSeoGenerationException generationFailure) {
-            log.warn(
-                "Book SEO metadata generation failed for bookId={} model={}; no metadata was persisted",
-                bookId,
-                seoMetadataClient.configuredModel(),
-                generationFailure
-            );
+            if (generationFailure.isExpectedOperationalFailure()) {
+                log.warn(
+                    "Book SEO metadata generation did not complete for bookId={} model={}: {}",
+                    bookId,
+                    seoMetadataClient.configuredModel(),
+                    generationFailure.getMessage()
+                );
+            } else {
+                log.warn(
+                    "Book SEO metadata generation failed for bookId={} model={}; no metadata was persisted",
+                    bookId,
+                    seoMetadataClient.configuredModel(),
+                    generationFailure
+                );
+            }
             throw generationFailure;
         }
     }
