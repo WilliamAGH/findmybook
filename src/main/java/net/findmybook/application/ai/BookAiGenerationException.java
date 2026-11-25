@@ -14,6 +14,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeoutException;
 import net.findmybook.domain.book.BookDescriptionEnrichmentException;
+import net.findmybook.support.ai.ExpectedOperationalFailure;
 import org.springframework.dao.DataAccessException;
 import org.springframework.web.reactive.function.client.WebClientException;
 
@@ -24,7 +25,7 @@ import org.springframework.web.reactive.function.client.WebClientException;
  * <p>Wraps the underlying SDK or parsing exception with book-specific
  * context so callers receive a typed contract instead of raw exceptions.</p>
  */
-public class BookAiGenerationException extends RuntimeException {
+public class BookAiGenerationException extends RuntimeException implements ExpectedOperationalFailure {
 
     /**
      * Canonical failure categories emitted by AI generation.
@@ -37,7 +38,8 @@ public class BookAiGenerationException extends RuntimeException {
         DESCRIPTION_TOO_SHORT,
         ENRICHMENT_FAILED,
         LOCAL_RATE_LIMITED,
-        LOCAL_CIRCUIT_OPEN
+        LOCAL_CIRCUIT_OPEN,
+        GENERATION_DEADLINE_EXPIRED
     }
 
     private final ErrorCode errorCode;
@@ -64,6 +66,15 @@ public class BookAiGenerationException extends RuntimeException {
      */
     public ErrorCode errorCode() {
         return errorCode;
+    }
+
+    @Override
+    public boolean isExpectedOperationalFailure() {
+        return switch (errorCode) {
+            case INVALID_RESPONSE, INCOMPLETE_RESPONSE, DEGENERATE_CONTENT, DESCRIPTION_TOO_SHORT,
+                ENRICHMENT_FAILED, LOCAL_RATE_LIMITED, LOCAL_CIRCUIT_OPEN, GENERATION_DEADLINE_EXPIRED -> true;
+            case GENERATION_FAILED -> false;
+        };
     }
 
     /**

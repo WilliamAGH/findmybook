@@ -310,12 +310,15 @@ class BookAiIngestionMetadataCoordinatorTest {
             assertThat(logEvents.list).extracting(ILoggingEvent::getLevel)
                 .containsExactly(Level.WARN, Level.ERROR, Level.DEBUG, Level.WARN, Level.ERROR, Level.WARN, Level.ERROR);
             assertThat(logEvents.list.get(0).getFormattedMessage()).contains(bookId.toString(), "did not complete");
+            assertThat(logEvents.list.get(0).getThrowableProxy()).isNull();
             assertThat(logEvents.list.get(1).getThrowableProxy().getClassName())
                 .contains("DataAccessResourceFailureException");
             assertThat(logEvents.list.get(1).getThrowableProxy().getSuppressed()).hasSize(1);
             assertThat(logEvents.list.get(3).getFormattedMessage()).contains("invalid SEO JSON");
+            assertThat(logEvents.list.get(3).getThrowableProxy()).isNull();
             assertThat(logEvents.list.get(4).getThrowableProxy().getClassName()).contains("BookSeoGenerationException");
             assertThat(logEvents.list.get(5).getFormattedMessage()).contains("Description enrichment failed");
+            assertThat(logEvents.list.get(5).getThrowableProxy()).isNull();
             assertThat(logEvents.list.get(6).getThrowableProxy().getClassName()).contains("BookAiGenerationException");
             verify(requestQueue, times(7)).enqueueBackground(eq(0), any());
         } finally {

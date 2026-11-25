@@ -379,6 +379,10 @@ public class BookAiContentRequestQueue {
         if (terminalFailure instanceof CancellationException) {
             log.debug("AI queue task cancelled [id={}, lane={}, priority={}]",
                 task.id, task.lane, task.priority);
+        } else if (terminalFailure instanceof ExpectedOperationalFailure expected
+                && expected.isExpectedOperationalFailure()) {
+            log.warn("AI queue task did not complete [id={}, lane={}, priority={}]: {}",
+                task.id, task.lane, task.priority, terminalFailure.getMessage());
         } else {
             log.warn("AI queue task failed [id={}, lane={}, priority={}]",
                 task.id, task.lane, task.priority, terminalFailure);

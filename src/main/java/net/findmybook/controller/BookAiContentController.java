@@ -345,6 +345,7 @@ public class BookAiContentController {
                 return;
             }
             timers.cancelQueueTicker();
+            state.generationControl().startDeadline(System.nanoTime() + Duration.ofMillis(generationDeadlineMillis).toNanos());
             ScheduledFuture<?> generationDeadline = sseOrchestrator.scheduleApplicationDeadline(() -> {
                 if (claimTerminalOwnership(state, timers, queuedTask.id(), true)) {
                     sseOrchestrator.emitTerminalError(
@@ -455,6 +456,7 @@ public class BookAiContentController {
                 case LOCAL_RATE_LIMITED -> AiErrorCode.LOCAL_RATE_LIMITED;
                 case LOCAL_CIRCUIT_OPEN -> AiErrorCode.LOCAL_CIRCUIT_OPEN;
                 case DEGENERATE_CONTENT -> AiErrorCode.DEGENERATE_CONTENT;
+                case GENERATION_DEADLINE_EXPIRED -> AiErrorCode.STREAM_TIMEOUT;
                 case GENERATION_FAILED, INCOMPLETE_RESPONSE, INVALID_RESPONSE -> AiErrorCode.GENERATION_FAILED;
             };
             return new AiErrorDescriptor(code, safeThrowableMessage(current));

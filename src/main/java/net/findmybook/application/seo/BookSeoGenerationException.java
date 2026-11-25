@@ -1,6 +1,7 @@
 package net.findmybook.application.seo;
 
 import java.util.Objects;
+import net.findmybook.support.ai.ExpectedOperationalFailure;
 
 /**
  * Thrown when SEO metadata generation fails during API calls, parsing,
@@ -9,7 +10,7 @@ import java.util.Objects;
  * <p>Replaces raw {@link IllegalStateException} usage in SEO generation paths
  * so callers receive a typed contract for catch-block narrowing.</p>
  */
-public class BookSeoGenerationException extends RuntimeException {
+public class BookSeoGenerationException extends RuntimeException implements ExpectedOperationalFailure {
 
     /**
      * Canonical failure categories emitted by SEO metadata generation.
@@ -45,5 +46,13 @@ public class BookSeoGenerationException extends RuntimeException {
      */
     public ErrorCode errorCode() {
         return errorCode;
+    }
+
+    @Override
+    public boolean isExpectedOperationalFailure() {
+        return switch (errorCode) {
+            case INVALID_RESPONSE, DESCRIPTION_TOO_SHORT -> true;
+            case GENERATION_FAILED, API_CALL_FAILED -> false;
+        };
     }
 }

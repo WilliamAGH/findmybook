@@ -10,6 +10,10 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
@@ -40,6 +44,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessResourceFailureException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -302,6 +307,51 @@ class BookSeoMetadataClientWireTest {
             new IllegalStateException("PostgreSQL returned a blank slug"), databaseFailure, wrappedDatabaseFailure);
     }
 
+    @Test
+    void should_OmitStackTrace_When_SeoGenerationFailsWithExpectedOperationalFailure() {
+        BookSeoMetadataRepository repository = mock(BookSeoMetadataRepository.class);
+        BookSeoMetadataGenerationService service = seoService(repository);
+        Logger serviceLogger = (Logger) LoggerFactory.getLogger(BookSeoMetadataGenerationService.class);
+        ListAppender<ILoggingEvent> logEvents = new ListAppender<>();
+        boolean originalAdditivity = serviceLogger.isAdditive();
+        Level originalLevel = serviceLogger.getLevel();
+        serviceLogger.setAdditive(false);
+        serviceLogger.setLevel(Level.WARN);
+        logEvents.start();
+        serviceLogger.addAppender(logEvents);
+        try {
+            server.enqueueJson(chatCompletion("stop", "not json"));
+            server.enqueueJson(chatCompletion("stop", "still not json"));
+            server.enqueueJson(chatCompletion("stop", "also not json"));
+            assertThatThrownBy(() -> service.generateAndPersist(BOOK_ID))
+                .isInstanceOfSatisfying(BookSeoGenerationException.class, failure ->
+                    assertThat(failure.errorCode()).isEqualTo(BookSeoGenerationException.ErrorCode.INVALID_RESPONSE));
+
+            server.enqueueJson(503, "{\"error\":{\"message\":\"upstream overloaded\"}}");
+            server.enqueueJson(503, "{\"error\":{\"message\":\"upstream overloaded\"}}");
+            server.enqueueJson(503, "{\"error\":{\"message\":\"upstream overloaded\"}}");
+            assertThatThrownBy(() -> service.generateAndPersist(BOOK_ID))
+                .isInstanceOfSatisfying(BookSeoGenerationException.class, failure ->
+                    assertThat(failure.errorCode()).isEqualTo(BookSeoGenerationException.ErrorCode.API_CALL_FAILED));
+
+            assertThat(logEvents.list).hasSize(2);
+            assertThat(logEvents.list.get(0).getLevel()).isEqualTo(Level.WARN);
+            assertThat(logEvents.list.get(0).getFormattedMessage())
+                .contains("Book SEO metadata generation did not complete", BOOK_ID.toString());
+            assertThat(logEvents.list.get(0).getThrowableProxy()).isNull();
+            assertThat(logEvents.list.get(1).getLevel()).isEqualTo(Level.WARN);
+            assertThat(logEvents.list.get(1).getFormattedMessage())
+                .contains("no metadata was persisted", BOOK_ID.toString());
+            assertThat(logEvents.list.get(1).getThrowableProxy().getClassName())
+                .isEqualTo(BookSeoGenerationException.class.getName());
+        } finally {
+            serviceLogger.detachAppender(logEvents);
+            logEvents.stop();
+            serviceLogger.setAdditive(originalAdditivity);
+            serviceLogger.setLevel(originalLevel);
+        }
+    }
+
     private BookSeoMetadataGenerationService seoService(BookSeoMetadataRepository repository) {
         BookDataOrchestrator orchestrator = mock(BookDataOrchestrator.class);
         BookDetail detail = bookDetail();
@@ -364,6 +414,7 @@ class BookSeoMetadataClientWireTest {
         private final List<String> requestBodies = new CopyOnWriteArrayList<>();
         private final List<String> requestTiers = new CopyOnWriteArrayList<>();
         private final List<String> requestWorkloads = new CopyOnWriteArrayList<>();
+        private final List<Optional<String>> requestFirstByteBudgets = new CopyOnWriteArrayList<>();
 
         OpenAiTestServer() throws IOException {
             httpServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -395,6 +446,10 @@ class BookSeoMetadataClientWireTest {
             return List.copyOf(requestWorkloads);
         }
 
+        List<Optional<String>> requestFirstByteBudgets() {
+            return List.copyOf(requestFirstByteBudgets);
+        }
+
         OpenAiProperties openAiProperties() {
             OpenAiProperties properties = new OpenAiProperties();
             properties.getApi().setKey("test-key");
@@ -417,6 +472,7 @@ class BookSeoMetadataClientWireTest {
             requestBodies.add(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             requestTiers.add(exchange.getRequestHeaders().getFirst(LlmGatewayTier.HEADER_NAME));
             requestWorkloads.add(exchange.getRequestHeaders().getFirst(LlmGatewayWorkload.HEADER_NAME));
+            requestFirstByteBudgets.add(Optional.ofNullable(exchange.getRequestHeaders().getFirst("x-lgw-first-byte-budget-s")));
             Response response = responses.removeFirst();
             byte[] body = response.body().getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", response.contentType());

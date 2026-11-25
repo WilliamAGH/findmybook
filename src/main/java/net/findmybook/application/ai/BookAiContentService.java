@@ -19,13 +19,16 @@ import com.openai.models.chat.completions.ChatCompletionCreateParams;
 import com.openai.models.chat.completions.ChatCompletionMessageParam;
 import com.openai.models.chat.completions.ChatCompletionSystemMessageParam;
 import com.openai.models.chat.completions.ChatCompletionUserMessageParam;
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -54,6 +57,7 @@ public class BookAiContentService {
     private static final Logger log = LoggerFactory.getLogger(BookAiContentService.class);
     private static final String DEFAULT_PROVIDER = "openai";
     private static final String DEFAULT_API_MODE = "chat";
+    private static final String FIRST_BYTE_BUDGET_HEADER = "X-LGW-First-Byte-Budget-S";
     private static final int LIVE_SDK_MAX_RETRIES = 0;
     private static final int BACKGROUND_SDK_MAX_RETRIES = 2;
     private static final int MIN_DESCRIPTION_LENGTH = 50;
@@ -306,20 +310,26 @@ public class BookAiContentService {
             .maxCompletionTokens(tier.maxCompletionTokens())
             .temperature(SAMPLING_TEMPERATURE);
         configuredReasoningEffort.ifPresent(paramsBuilder::reasoningEffort);
-        // A schema derived from BookAiContent cannot express its nullable optional fields.
-        ChatCompletionCreateParams params = paramsBuilder
-            .responseFormat(ResponseFormatJsonObject.builder().build())
-            .build();
-
-        long effectiveRequestTimeoutSeconds = tier == LlmGatewayTier.LIVE_RENDER
+        boolean liveRender = tier == LlmGatewayTier.LIVE_RENDER;
+        long effectiveRequestTimeoutSeconds = liveRender
             ? Math.min(requestTimeoutSeconds, tier.callTimeoutSeconds())
             : Math.max(requestTimeoutSeconds, tier.callTimeoutSeconds());
-        long effectiveReadTimeoutSeconds = tier == LlmGatewayTier.LIVE_RENDER
+        long effectiveReadTimeoutSeconds = liveRender
             ? Math.min(readTimeoutSeconds, tier.callTimeoutSeconds())
             : Math.max(readTimeoutSeconds, tier.callTimeoutSeconds());
+        Duration requestTimeout = Duration.ofSeconds(effectiveRequestTimeoutSeconds);
+        if (liveRender) {
+            long requestTimeoutMillis = generationControl.capRequestTimeoutMillis(requestTimeout.toMillis());
+            requestTimeout = Duration.ofMillis(requestTimeoutMillis);
+            long firstByteBudgetMillis = Math.min(requestTimeoutMillis, Duration.ofSeconds(effectiveReadTimeoutSeconds).toMillis());
+            paramsBuilder.putAdditionalHeader(FIRST_BYTE_BUDGET_HEADER,
+                BigDecimal.valueOf(firstByteBudgetMillis, 3).stripTrailingZeros().toPlainString());
+        }
+        // A schema derived from BookAiContent cannot express its nullable optional fields.
+        ChatCompletionCreateParams params = paramsBuilder.responseFormat(ResponseFormatJsonObject.builder().build()).build();
         RequestOptions options = RequestOptions.builder()
             .timeout(Timeout.builder()
-                .request(Duration.ofSeconds(effectiveRequestTimeoutSeconds))
+                .request(requestTimeout)
                 .read(Duration.ofSeconds(effectiveReadTimeoutSeconds))
                 .build())
             .build();
@@ -442,6 +452,25 @@ public class BookAiContentService {
      */
     public static final class GenerationControl {
         private final AtomicReference<GenerationState> state = new AtomicReference<>(GenerationState.ACTIVE);
+        private volatile OptionalLong deadlineNanos = OptionalLong.empty();
+
+        /** Sets the stream deadline from its start handler before the queue begins generation. */
+        public void startDeadline(long monotonicDeadlineNanos) {
+            deadlineNanos = OptionalLong.of(monotonicDeadlineNanos);
+        }
+
+        private long capRequestTimeoutMillis(long requestTimeoutMillis) {
+            OptionalLong deadline = deadlineNanos;
+            if (deadline.isEmpty()) {
+                return requestTimeoutMillis;
+            }
+            long remainingMillis = TimeUnit.NANOSECONDS.toMillis(deadline.getAsLong() - System.nanoTime());
+            if (remainingMillis <= 0) {
+                throw new BookAiGenerationException(BookAiGenerationException.ErrorCode.GENERATION_DEADLINE_EXPIRED,
+                    "Book content generation deadline expired before the gateway request");
+            }
+            return Math.min(requestTimeoutMillis, remainingMillis);
+        }
 
         /**
          * Claims cancellation while persistence has not started.
@@ -482,7 +511,8 @@ public class BookAiContentService {
         return switch (generationFailure.errorCode()) {
             case DEGENERATE_CONTENT, INCOMPLETE_RESPONSE, INVALID_RESPONSE -> true;
             case GENERATION_FAILED -> isRetryableOpenAiFailure(generationFailure.getCause(), tier);
-            case DESCRIPTION_TOO_SHORT, ENRICHMENT_FAILED, LOCAL_RATE_LIMITED, LOCAL_CIRCUIT_OPEN -> false;
+            case DESCRIPTION_TOO_SHORT, ENRICHMENT_FAILED, LOCAL_RATE_LIMITED, LOCAL_CIRCUIT_OPEN,
+                GENERATION_DEADLINE_EXPIRED -> false;
         };
     }
 
