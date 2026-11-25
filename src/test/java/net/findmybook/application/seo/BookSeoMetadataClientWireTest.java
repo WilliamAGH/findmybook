@@ -324,23 +324,26 @@ class BookSeoMetadataClientWireTest {
             server.enqueueJson(chatCompletion("stop", "still not json"));
             server.enqueueJson(chatCompletion("stop", "also not json"));
             assertThatThrownBy(() -> service.generateAndPersist(BOOK_ID))
-                .isInstanceOf(BookSeoGenerationException.class);
+                .isInstanceOfSatisfying(BookSeoGenerationException.class, failure ->
+                    assertThat(failure.errorCode()).isEqualTo(BookSeoGenerationException.ErrorCode.INVALID_RESPONSE));
 
             server.enqueueJson(503, "{\"error\":{\"message\":\"upstream overloaded\"}}");
             server.enqueueJson(503, "{\"error\":{\"message\":\"upstream overloaded\"}}");
             server.enqueueJson(503, "{\"error\":{\"message\":\"upstream overloaded\"}}");
             assertThatThrownBy(() -> service.generateAndPersist(BOOK_ID))
-                .isInstanceOf(BookSeoGenerationException.class);
+                .isInstanceOfSatisfying(BookSeoGenerationException.class, failure ->
+                    assertThat(failure.errorCode()).isEqualTo(BookSeoGenerationException.ErrorCode.API_CALL_FAILED));
 
             assertThat(logEvents.list).hasSize(2);
             assertThat(logEvents.list.get(0).getLevel()).isEqualTo(Level.WARN);
             assertThat(logEvents.list.get(0).getFormattedMessage())
-                .contains("Book SEO metadata generation did not complete");
+                .contains("Book SEO metadata generation did not complete", BOOK_ID.toString());
             assertThat(logEvents.list.get(0).getThrowableProxy()).isNull();
             assertThat(logEvents.list.get(1).getLevel()).isEqualTo(Level.WARN);
             assertThat(logEvents.list.get(1).getFormattedMessage())
-                .contains("no metadata was persisted");
-            assertThat(logEvents.list.get(1).getThrowableProxy()).isNotNull();
+                .contains("no metadata was persisted", BOOK_ID.toString());
+            assertThat(logEvents.list.get(1).getThrowableProxy().getClassName())
+                .isEqualTo(BookSeoGenerationException.class.getName());
         } finally {
             serviceLogger.detachAppender(logEvents);
             logEvents.stop();

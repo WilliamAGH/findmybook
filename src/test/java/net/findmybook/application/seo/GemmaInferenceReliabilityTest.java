@@ -400,7 +400,9 @@ class GemmaInferenceReliabilityTest {
                 BookAiGenerationException.class, failure -> assertThat(failure.getCause()).isSameAs(aiDeadline));
             assertThat(logEvents.list).extracting(ILoggingEvent::getLevel)
                 .containsExactly(Level.WARN, Level.ERROR, Level.ERROR, Level.ERROR);
-            assertThat(logEvents.list.getFirst().getThrowableProxy().getSuppressed()).hasSize(1);
+            assertThat(logEvents.list.getFirst().getThrowableProxy()).isNull();
+            assertThat(logEvents.list.getFirst().getFormattedMessage())
+                .contains("did not complete", "suppressed:");
             assertThat(logEvents.list.get(1).getThrowableProxy().getClassName())
                 .isEqualTo(DataAccessResourceFailureException.class.getName());
             assertThat(server.requestBodies()).isEmpty();
