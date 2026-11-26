@@ -15,6 +15,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.PreparedStatementSetter;
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
@@ -35,16 +36,22 @@ class RecentBookViewRepositoryTest {
             new ResourceDatabasePopulator(new FileSystemResource("migrations/44_recent_book_views.sql"))
                 .execute(dataSource);
             var jdbcTemplate = new JdbcTemplate(dataSource);
-            jdbcTemplate.update("""
-                INSERT INTO recent_book_views (book_id, viewed_at) VALUES
-                ('latest', now()), ('latest', now()), ('latest', now() - INTERVAL '1 day'),
-                ('second', now() - INTERVAL '2 days'), ('third', now() - INTERVAL '3 days'),
-                ('expired', now() - INTERVAL '31 days')
-                """);
             var repository = new RecentBookViewRepository(jdbcTemplate);
+            var transaction = new org.springframework.transaction.support.TransactionTemplate(
+                new DataSourceTransactionManager(dataSource));
+            transaction.executeWithoutResult(status -> {
+                jdbcTemplate.update("""
+                    INSERT INTO recent_book_views (book_id, viewed_at) VALUES
+                    ('latest', now()), ('latest', now()), ('latest', now() - INTERVAL '10 days'),
+                    ('second', now() - INTERVAL '2 days'), ('third', now() - INTERVAL '2 days'),
+                    ('boundary', now() - INTERVAL '30 days'),
+                    ('expired', now() - INTERVAL '30 days' - INTERVAL '1 second')
+                    """);
 
-            assertEquals(List.of("latest", "second"), repository.fetchRecentlyViewedBookIds(2));
-            assertEquals(List.of("latest", "second", "third"), repository.fetchRecentlyViewedBookIds(4));
+                assertEquals(List.of("latest", "second"), repository.fetchRecentlyViewedBookIds(2));
+                assertEquals(List.of("latest", "second", "third", "boundary"),
+                    repository.fetchRecentlyViewedBookIds(5));
+            });
         }
     }
 
