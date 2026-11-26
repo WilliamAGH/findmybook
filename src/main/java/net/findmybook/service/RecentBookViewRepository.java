@@ -117,48 +117,33 @@ public class RecentBookViewRepository {
     }
 
     /**
-     * Returns the most recently viewed books (unique by canonical ID) ordered by their last view timestamps.
-     * Includes rolling counters for 24h/7d/30d windows.
+     * Returns distinct book IDs viewed in the last 30 days, newest first, for shelf and cache-warming reads.
+     * The timestamp-ordered index lets the query stop when it has enough distinct books.
      */
-    public List<ViewStats> fetchMostRecentViews(int limit) {
+    public List<String> fetchRecentlyViewedBookIds(int limit) {
         if (!isEnabled() || limit <= 0) {
-            return Collections.emptyList();
+            return List.of();
         }
 
         String sql = """
-                SELECT rv.book_id,
-                       rv.last_viewed_at,
-                       rv.views_24h,
-                       rv.views_7d,
-                       rv.views_30d
-                FROM (
-                    SELECT book_id,
-                           MAX(viewed_at) AS last_viewed_at,
-                           COUNT(*) FILTER (WHERE viewed_at >= now() - INTERVAL '24 hours') AS views_24h,
-                           COUNT(*) FILTER (WHERE viewed_at >= now() - INTERVAL '7 days') AS views_7d,
-                           COUNT(*) FILTER (WHERE viewed_at >= now() - INTERVAL '30 days') AS views_30d
-                    FROM recent_book_views
-                    WHERE viewed_at >= now() - INTERVAL '30 days'
-                    GROUP BY book_id
-                ) rv
-                ORDER BY rv.last_viewed_at DESC
+                SELECT recent.book_id
+                FROM recent_book_views recent
+                WHERE recent.viewed_at >= now() - INTERVAL '30 days'
+                  AND recent.id = (
+                      SELECT latest.id
+                      FROM recent_book_views latest
+                      WHERE latest.book_id = recent.book_id
+                      ORDER BY latest.viewed_at DESC, latest.id DESC
+                      LIMIT 1
+                  )
+                ORDER BY recent.viewed_at DESC, recent.book_id
                 LIMIT ?
                 """;
 
         try {
-            return jdbcTemplate.query(sql, ps -> ps.setInt(1, limit), (rs, rowNum) -> {
-                Timestamp timestamp = rs.getTimestamp("last_viewed_at");
-                Instant lastViewed = timestamp != null ? timestamp.toInstant() : Instant.EPOCH;
-                return new ViewStats(
-                        rs.getString("book_id"),
-                        lastViewed,
-                        rs.getLong("views_24h"),
-                        rs.getLong("views_7d"),
-                        rs.getLong("views_30d")
-                );
-            });
+            return jdbcTemplate.query(sql, ps -> ps.setInt(1, limit), (rs, rowNum) -> rs.getString("book_id"));
         } catch (DataAccessException ex) {
-            throw new IllegalStateException("Failed to fetch recent view aggregates", ex);
+            throw new IllegalStateException("Failed to fetch recently viewed books with limit " + limit, ex);
         }
     }
 

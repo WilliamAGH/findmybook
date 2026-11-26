@@ -38,18 +38,13 @@ class RecentlyViewedServiceTest {
 
     @Test
     void getRecentlyViewedBookIds_returnsRepositoryIdsWhenAvailable() {
-        Instant now = Instant.parse("2024-01-01T00:00:00Z");
         when(recentBookViewRepository.isEnabled()).thenReturn(true);
-        when(recentBookViewRepository.fetchMostRecentViews(3))
-            .thenReturn(List.of(
-                new RecentBookViewRepository.ViewStats("uuid-1", now, 5L, 9L, 12L),
-                new RecentBookViewRepository.ViewStats("uuid-2", now.minusSeconds(60), 4L, 7L, 10L)
-            ));
+        when(recentBookViewRepository.fetchRecentlyViewedBookIds(3)).thenReturn(List.of("uuid-1", "uuid-2"));
 
         List<String> ids = recentlyViewedService.getRecentlyViewedBookIds(3);
 
         assertEquals(List.of("uuid-1", "uuid-2"), ids);
-        verify(recentBookViewRepository).fetchMostRecentViews(3);
+        verify(recentBookViewRepository).fetchRecentlyViewedBookIds(3);
     }
 
     @Test
@@ -69,10 +64,10 @@ class RecentlyViewedServiceTest {
     @Test
     void getRecentlyViewedBookIds_throwsWhenRepositoryFails() {
         when(recentBookViewRepository.isEnabled()).thenReturn(true);
-        when(recentBookViewRepository.fetchMostRecentViews(anyInt())).thenThrow(new RuntimeException("boom"));
+        when(recentBookViewRepository.fetchRecentlyViewedBookIds(anyInt())).thenThrow(new RuntimeException("boom"));
 
         assertThrows(IllegalStateException.class, () -> recentlyViewedService.getRecentlyViewedBookIds(4));
-        verify(recentBookViewRepository).fetchMostRecentViews(4);
+        verify(recentBookViewRepository).fetchRecentlyViewedBookIds(4);
     }
 
     @Test

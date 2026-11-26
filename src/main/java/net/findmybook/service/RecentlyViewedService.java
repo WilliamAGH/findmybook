@@ -183,12 +183,9 @@ public class RecentlyViewedService {
         // Check repository first (persistent storage)
         if (recentBookViewRepository != null && recentBookViewRepository.isEnabled()) {
             try {
-                List<RecentBookViewRepository.ViewStats> stats =
-                    recentBookViewRepository.fetchMostRecentViews(limit);
-
-                if (!stats.isEmpty()) {
-                    return stats.stream()
-                        .map(RecentBookViewRepository.ViewStats::bookId)
+                List<String> bookIds = recentBookViewRepository.fetchRecentlyViewedBookIds(limit);
+                if (!bookIds.isEmpty()) {
+                    return bookIds.stream()
                         .filter(StringUtils::hasText)
                         .limit(limit)
                         .collect(Collectors.toList());

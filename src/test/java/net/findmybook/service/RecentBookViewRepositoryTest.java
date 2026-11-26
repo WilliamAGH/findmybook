@@ -15,11 +15,38 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.PreparedStatementSetter;
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
+import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.DockerClientFactory;
 
 /**
- * Unit tests for SQL-window selection in {@link RecentBookViewRepository}.
+ * Verifies view ranking in PostgreSQL and window selection in {@link RecentBookViewRepository}.
  */
 class RecentBookViewRepositoryTest {
+
+    @Test
+    void should_ReturnDistinctRecentBooksInOrder_When_ViewsRepeatOrExpire() {
+        org.junit.jupiter.api.Assumptions.assumeTrue(DockerClientFactory.instance().isDockerAvailable());
+        try (PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:17-alpine")) {
+            postgres.start();
+            var dataSource = new DriverManagerDataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+            new ResourceDatabasePopulator(new FileSystemResource("migrations/44_recent_book_views.sql"))
+                .execute(dataSource);
+            var jdbcTemplate = new JdbcTemplate(dataSource);
+            jdbcTemplate.update("""
+                INSERT INTO recent_book_views (book_id, viewed_at) VALUES
+                ('latest', now()), ('latest', now()), ('latest', now() - INTERVAL '1 day'),
+                ('second', now() - INTERVAL '2 days'), ('third', now() - INTERVAL '3 days'),
+                ('expired', now() - INTERVAL '31 days')
+                """);
+            var repository = new RecentBookViewRepository(jdbcTemplate);
+
+            assertEquals(List.of("latest", "second"), repository.fetchRecentlyViewedBookIds(2));
+            assertEquals(List.of("latest", "second", "third"), repository.fetchRecentlyViewedBookIds(4));
+        }
+    }
 
     @Test
     void should_ReturnZero_When_ViewCountRequestedWithoutRepository() {
