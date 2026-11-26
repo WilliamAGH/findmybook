@@ -315,7 +315,7 @@
 
 ## External Fallback Ordering (Synchronous Search)
 - Open Library is the primary fallback provider for synchronous search windows.
-- Google Books is the secondary fallback provider when the requested search window still underfills after Open Library.
+- Google Books is the secondary fallback provider, consulted after Open Library when the requested search window still underfills, or for relevance queries without a direct primary match (to preserve primary-provider order across persisted duplicates).
 - Fallback evaluation is offset-window aware: page-2+ requests use the same offset-based search contract (`startIndex`/`maxResults`) and can still receive external supplementation when needed.
 - Combined external candidates are deduplicated before persistence and response assembly.
 
